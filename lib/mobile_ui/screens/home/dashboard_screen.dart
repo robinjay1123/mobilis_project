@@ -1096,208 +1096,243 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 160,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: homeTrips.length,
-                      itemBuilder: (context, index) {
-                        final booking = homeTrips[index];
-                        final isActive = booking['status'] == 'Active';
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: GestureDetector(
-                            onTap: () {},
-                            child: Container(
-                              width: 280,
-                              decoration: BoxDecoration(
-                                color: AppColors.darkBgSecondary,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isActive
-                                      ? AppColors.primary
-                                      : AppColors.borderColor,
-                                  width: isActive ? 2 : 1,
-                                ),
-                              ),
-                              padding: const EdgeInsets.all(12),
+                    child: homeTrips.isEmpty
+                        ? Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.darkBgSecondary,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.borderColor),
+                            ),
+                            child: const Center(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.darkBgTertiary,
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          booking['carImage'],
-                                          color: AppColors.textSecondary,
-                                          size: 20,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              booking['carName'],
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppColors.textPrimary,
-                                              ),
-                                            ),
-                                            Text(
-                                              booking['rentalPartner'],
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                color: AppColors.textTertiary,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isActive
-                                              ? AppColors.success
-                                              : AppColors.warning,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          booking['status'],
-                                          style: const TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  Icon(
+                                    Icons.local_taxi,
+                                    size: 40,
+                                    color: AppColors.textSecondary,
                                   ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.calendar_today,
-                                        size: 12,
-                                        color: AppColors.textTertiary,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${booking['days']} days',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      const Icon(
-                                        Icons.location_on,
-                                        size: 12,
-                                        color: AppColors.textTertiary,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          booking['pickupLocation'],
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: AppColors.textSecondary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.arrow_forward,
-                                        size: 12,
-                                        color: AppColors.textTertiary,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          booking['dropoffLocation'],
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: AppColors.textSecondary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Total',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: AppColors.textTertiary,
-                                            ),
-                                          ),
-                                          Text(
-                                            '\$${booking['totalCost']}',
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w700,
-                                              color: AppColors.primary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Row(
-                                        children: [
-                                          const Icon(
-                                            Icons.star,
-                                            size: 12,
-                                            color: AppColors.ratingGold,
-                                          ),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            '${booking['rating']}',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppColors.textPrimary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'No bookings yet',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 14,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
+                          )
+                        : ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: homeTrips.length,
+                            itemBuilder: (context, index) {
+                              final booking = homeTrips[index];
+                              final isActive = booking['status'] == 'Active';
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: GestureDetector(
+                                  onTap: () {},
+                                  child: Container(
+                                    width: 280,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.darkBgSecondary,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isActive
+                                            ? AppColors.primary
+                                            : AppColors.borderColor,
+                                        width: isActive ? 2 : 1,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: AppColors.darkBgTertiary,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Icon(
+                                                booking['carImage'],
+                                                color: AppColors.textSecondary,
+                                                size: 20,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    booking['carName'],
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          AppColors.textPrimary,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    booking['rentalPartner'],
+                                                    style: const TextStyle(
+                                                      fontSize: 10,
+                                                      color: AppColors
+                                                          .textTertiary,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: isActive
+                                                    ? AppColors.success
+                                                    : AppColors.warning,
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                booking['status'],
+                                                style: const TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.calendar_today,
+                                              size: 12,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '${booking['days']} days',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: AppColors.textSecondary,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Icon(
+                                              Icons.location_on,
+                                              size: 12,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                booking['pickupLocation'],
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color:
+                                                      AppColors.textSecondary,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.arrow_forward,
+                                              size: 12,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                booking['dropoffLocation'],
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color:
+                                                      AppColors.textSecondary,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  'Total',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color:
+                                                        AppColors.textTertiary,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '\$${booking['totalCost']}',
+                                                  style: const TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: AppColors.primary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.star,
+                                                  size: 12,
+                                                  color: AppColors.ratingGold,
+                                                ),
+                                                const SizedBox(width: 2),
+                                                Text(
+                                                  '${booking['rating']}',
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color:
+                                                        AppColors.textPrimary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),

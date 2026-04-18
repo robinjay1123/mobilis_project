@@ -31,11 +31,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _currentNavIndex = 0;
   bool _isLoading = true;
 
-  // Stats
-  double _totalRevenue = 42850.00;
-  int _activeBookings = 124;
-  int _pendingVerifications = 18;
-  int _activeTrips = 52;
+  // Stats (loaded from database)
+  double _totalRevenue = 0.0;
+  int _activeBookings = 0;
+  int _pendingVerifications = 0;
+  int _activeTrips = 0;
 
   // Data lists
   List<Map<String, dynamic>> _allUsers = [];

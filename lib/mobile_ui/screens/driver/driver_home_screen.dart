@@ -149,6 +149,7 @@ class __DashboardTabState extends State<_DashboardTab> {
   String verificationStatus = 'pending';
   String certificationStatus = 'basic'; // 'basic', 'approved', 'certified'
   bool dismissedVerificationBanner = false;
+  int verificationSkipCount = 0; // Track how many times skipped
 
   @override
   void initState() {
@@ -162,6 +163,150 @@ class __DashboardTabState extends State<_DashboardTab> {
     } else {
       driverStatsFuture = Future.value({});
     }
+
+    // Show verification popup periodically if not verified
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showVerificationPopupIfNeeded();
+    });
+  }
+
+  void _showVerificationPopupIfNeeded() {
+    // Only show popup if not yet verified and skip count is less than 3
+    // (shows popup every 3 times they skip)
+    if (verificationStatus == 'pending' && verificationSkipCount % 3 == 0) {
+      _showVerificationPopup();
+    }
+  }
+
+  void _showVerificationPopup() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.verified_user,
+                color: AppColors.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Verify Your Account',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Get verified to unlock:',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? AppColors.textPrimary
+                    : AppColors.lightTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildVerificationBenefit(
+              icon: Icons.trending_up,
+              text: 'Higher visibility to customers',
+              isDark: isDark,
+            ),
+            const SizedBox(height: 8),
+            _buildVerificationBenefit(
+              icon: Icons.shield,
+              text: 'Build trust and credibility',
+              isDark: isDark,
+            ),
+            const SizedBox(height: 8),
+            _buildVerificationBenefit(
+              icon: Icons.star,
+              text: 'Access premium features',
+              isDark: isDark,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() => verificationSkipCount++);
+              Navigator.pop(context);
+            },
+            child: Text(
+              'Skip for Now',
+              style: TextStyle(
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to verification screen
+              // Navigator.pushNamed(context, '/verify-driver');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'Verify Now',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVerificationBenefit({
+    required IconData icon,
+    required String text,
+    required bool isDark,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark
+                  ? AppColors.textSecondary
+                  : AppColors.lightTextSecondary,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
