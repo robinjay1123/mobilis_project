@@ -49,7 +49,9 @@ class _FaceScanScreenState extends State<FaceScanScreen> {
         // Check user role and navigate accordingly
         final role = await authService.getUserRole();
         if (role == 'partner') {
-          Navigator.of(context).pushReplacementNamed('/partner-home');
+          Navigator.of(context).pushReplacementNamed('/owner-verification');
+        } else if (role == 'driver') {
+          Navigator.of(context).pushReplacementNamed('/driver-license-upload');
         } else {
           Navigator.of(context).pushReplacementNamed('/dashboard');
         }

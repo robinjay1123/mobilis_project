@@ -1,0 +1,2 @@
+-- Historical placeholder migration.
+-- Compatibility patch moved to 20260418135456_schema_compatibility_patch.sql.

@@ -36,9 +36,9 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
         // Check user role and navigate accordingly
         final role = await authService.getUserRole();
         if (role == 'partner') {
-          Navigator.of(context).pushReplacementNamed('/partner-home');
+          Navigator.of(context).pushReplacementNamed('/owner-verification');
         } else if (role == 'driver') {
-          Navigator.of(context).pushReplacementNamed('/dashboard');
+          Navigator.of(context).pushReplacementNamed('/driver-license-upload');
         } else {
           Navigator.of(context).pushReplacementNamed('/dashboard');
         }
@@ -65,7 +65,17 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
     Navigator.of(context).pushReplacementNamed('/id-verification');
   }
 
-  void _handleDriverVerification() {
+  Future<void> _handlePartnerVerification() async {
+    final authService = AuthService();
+    await authService.updateUserApplicationStatus(status: 'pending');
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed('/owner-verification');
+  }
+
+  Future<void> _handleDriverVerification() async {
+    final authService = AuthService();
+    await authService.updateUserApplicationStatus(status: 'pending');
+    if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/driver-license-upload');
   }
 
@@ -116,6 +126,8 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                   Text(
                     userRole == 'driver'
                         ? 'Driver Verification'
+                        : userRole == 'partner'
+                        ? 'Partner Verification'
                         : 'Verify Your Identity',
                     style: const TextStyle(
                       fontSize: 32,
@@ -126,7 +138,9 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                   const SizedBox(height: 8),
                   Text(
                     userRole == 'driver'
-                        ? 'Upload your documents to start accepting driving jobs.'
+                        ? 'Upload your documents to apply as a driver. Admin approval is required before you can go on-call.'
+                        : userRole == 'partner'
+                        ? 'Complete the basic security check first, then submit your partner application for admin approval.'
                         : 'Verification unlocks full access to rent cars. Browse without verification.',
                     style: const TextStyle(
                       fontSize: 14,
@@ -139,6 +153,8 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                   // Conditional verification options
                   if (userRole == 'driver')
                     _buildDriverVerificationOptions()
+                  else if (userRole == 'partner')
+                    _buildPartnerVerificationOptions()
                   else
                     _buildRenterVerificationOptions(),
 
@@ -322,6 +338,76 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
                 _buildFeature('• Cannot accept driving jobs'),
                 _buildFeature('• Limited features'),
                 _buildFeature('• Verify anytime from settings'),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerVerificationOptions() {
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: _handlePartnerVerification,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary, width: 2),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.storefront,
+                        color: AppColors.success,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Partner Application',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Admin approval required',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.success,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward, color: AppColors.primary),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildFeature('✓ Complete basic security verification'),
+                _buildFeature('✓ Submit business / vehicle documents'),
+                _buildFeature('✓ Wait for admin approval'),
               ],
             ),
           ),

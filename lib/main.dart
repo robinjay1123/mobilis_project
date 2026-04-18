@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'mobile_ui/theme/app_theme.dart';
 import 'mobile_ui/theme/app_colors.dart';
-import 'mobile_ui/screens/welcome/welcome_screen.dart';
 import 'mobile_ui/screens/auth/signup_screen.dart';
 import 'mobile_ui/screens/auth/email_confirmation_screen.dart';
 import 'mobile_ui/screens/auth/face_scan_screen.dart';
@@ -27,6 +28,8 @@ import 'mobile_ui/screens/driver/driver_nbi_upload_screen.dart';
 import 'mobile_ui/screens/driver/driver_availability_screen.dart';
 import 'mobile_ui/screens/driver/driver_home_screen.dart';
 import 'responsive/responsive_screens.dart';
+import 'web_ui/screens/admin/admin_web_screen.dart';
+import 'web_ui/screens/operator/operator_web_screen.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/theme_service.dart';
@@ -120,11 +123,16 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       title: 'Mobilis',
       theme: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
-      home: AuthWrapper(onThemeToggle: _toggleTheme, isDarkMode: _isDarkMode),
+      home: DoubleBackExitWrapper(
+        child: AuthWrapper(
+          onThemeToggle: _toggleTheme,
+          isDarkMode: _isDarkMode,
+        ),
+      ),
       routes: {
-        '/welcome': (context) => const WelcomeScreen(),
+        '/welcome': (context) => const ResponsiveWelcomeScreen(),
         '/login': (context) => const ResponsiveLoginScreen(),
-        '/signup': (context) => const SignupScreen(),
+        '/signup': (context) => const ResponsiveSignupScreen(),
         '/email-confirmation': (context) {
           final args =
               ModalRoute.of(context)?.settings.arguments
@@ -143,27 +151,81 @@ class _MyAppState extends State<MyApp> {
         '/account-verification': (context) => const AccountVerificationScreen(),
         '/verification-options': (context) => const VerificationOptionsScreen(),
         '/id-verification': (context) => const IdVerificationScreen(),
-        '/dashboard': (context) => const DashboardScreen(),
-        '/partner-home': (context) => const PartnerHomeScreen(),
-        '/apply-vehicle': (context) => const ApplyVehicleScreen(),
-        '/vehicle-availability': (context) => const VehicleAvailabilityScreen(),
+        '/dashboard': (context) {
+          // Protect dashboard route - redirect to login if not authenticated
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+
+          // Return dashboard route selector widget that checks role and routes accordingly
+          return const DashboardRouteSelector();
+        },
+        '/partner-home': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const PartnerHomeScreen();
+        },
+        '/apply-vehicle': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const ApplyVehicleScreen();
+        },
+        '/vehicle-availability': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const VehicleAvailabilityScreen();
+        },
         '/owner-verification': (context) => const OwnerVerificationScreen(),
         '/vehicle-registration-upload': (context) =>
             const VehicleRegistrationUploadScreen(),
         '/verification-success': (context) => const VerificationSuccessScreen(),
-        '/operator-home': (context) => const ResponsiveOperatorScreen(),
-        '/admin-home': (context) => const ResponsiveAdminScreen(),
-        // Dev preview routes - bypass auth for UI testing
-        '/preview-operator': (context) => const ResponsiveOperatorScreen(),
-        '/preview-admin': (context) => const ResponsiveAdminScreen(),
-        // Force specific layouts for testing (regardless of platform)
-        '/preview-operator-web': (context) => const PreviewOperatorWeb(),
-        '/preview-operator-mobile': (context) => const PreviewOperatorMobile(),
-        '/preview-admin-web': (context) => const PreviewAdminWeb(),
-        '/preview-admin-mobile': (context) => const PreviewAdminMobile(),
-        '/preview-login-web': (context) => const PreviewLoginWeb(),
-        '/preview-login-mobile': (context) => const PreviewLoginMobile(),
+        '/operator-home': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const OperatorWebScreen();
+        },
+        '/admin-home': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const AdminWebScreen();
+        },
         '/vehicle-detail': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
           final args =
               ModalRoute.of(context)?.settings.arguments
                   as Map<String, dynamic>?;
@@ -176,9 +238,126 @@ class _MyAppState extends State<MyApp> {
             const DriverLicenseUploadScreen(),
         '/driver-nbi-upload': (context) => const DriverNBIUploadScreen(),
         '/driver-availability': (context) => const DriverAvailabilityScreen(),
-        '/driver-home': (context) => const DriverHomeScreen(),
+        '/driver-home': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          return const DriverHomeScreen();
+        },
       },
     );
+  }
+}
+
+class DoubleBackExitWrapper extends StatefulWidget {
+  final Widget child;
+
+  const DoubleBackExitWrapper({super.key, required this.child});
+
+  @override
+  State<DoubleBackExitWrapper> createState() => _DoubleBackExitWrapperState();
+}
+
+class _DoubleBackExitWrapperState extends State<DoubleBackExitWrapper> {
+  DateTime? _lastBackPressedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
+
+        final now = DateTime.now();
+        final shouldExit =
+            _lastBackPressedAt != null &&
+            now.difference(_lastBackPressedAt!) < const Duration(seconds: 2);
+
+        if (shouldExit) {
+          SystemNavigator.pop();
+          return;
+        }
+
+        _lastBackPressedAt = now;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Press back again to exit'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+// Dashboard route selector - checks user role and routes accordingly
+class DashboardRouteSelector extends StatefulWidget {
+  const DashboardRouteSelector({super.key});
+
+  @override
+  State<DashboardRouteSelector> createState() => _DashboardRouteSelectorState();
+}
+
+class _DashboardRouteSelectorState extends State<DashboardRouteSelector> {
+  @override
+  void initState() {
+    super.initState();
+    _checkRoleAndRoute();
+  }
+
+  Future<void> _checkRoleAndRoute() async {
+    final authService = AuthService();
+    final role = await authService.getUserRole();
+
+    if (!mounted) return;
+
+    debugPrint('📊 [DashboardRouteSelector] User role: $role');
+
+    // Route based on role
+    String targetRoute = '/dashboard'; // Default for renter
+
+    if (role == 'admin') {
+      targetRoute = '/admin-home';
+    } else if (role == 'operator') {
+      targetRoute = '/operator-home';
+    } else if (role == 'partner') {
+      targetRoute = '/partner-home';
+    } else if (role == 'driver') {
+      targetRoute = '/driver-home';
+    }
+
+    if (targetRoute != '/dashboard') {
+      debugPrint('🚀 [DashboardRouteSelector] Redirecting to: $targetRoute');
+      Navigator.of(context).pushReplacementNamed(targetRoute);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Show loading screen while checking role
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    if (kIsWeb || screenWidth > 900) {
+      // Web dashboard
+      return Scaffold(
+        appBar: AppBar(title: const Text('Dashboard')),
+        body: const Center(child: Text('Renter Dashboard - Web Version')),
+      );
+    }
+
+    // Mobile dashboard
+    return const DashboardScreen();
   }
 }
 
@@ -199,45 +378,163 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   late Future<Widget> _initialScreen;
   late StreamSubscription<AuthState> _authSubscription;
+  RealtimeChannel? _userProfileChannel;
+  String? _lastSyncedRoute;
 
   @override
   void initState() {
     super.initState();
     _initialScreen = _determineInitialScreen();
     _setupAuthListener();
+    _setupUserProfileListener();
   }
 
   void _setupAuthListener() {
     final authService = AuthService();
     _authSubscription = authService.authStateChanges.listen((state) async {
-      debugPrint(
-        'Auth state changed: ${state.event}, user: ${state.session?.user.email}',
-      );
-      if (mounted && state.event == AuthChangeEvent.signedIn) {
-        // User just signed in via OAuth, check role and navigate accordingly
-        if (state.session?.user != null) {
-          final role = await authService.getUserRole();
-          if (mounted) {
-            if (role == 'admin') {
-              Navigator.of(context).pushReplacementNamed('/admin-home');
-            } else if (role == 'operator') {
-              Navigator.of(context).pushReplacementNamed('/operator-home');
-            } else if (role == 'partner') {
-              Navigator.of(context).pushReplacementNamed('/partner-home');
-            } else if (role == 'driver') {
-              Navigator.of(context).pushReplacementNamed('/driver-home');
-            } else {
-              Navigator.of(context).pushReplacementNamed('/dashboard');
-            }
-          }
-        }
+      debugPrint('═══════════════════════════════════════════════════════════');
+      debugPrint('🔐 AUTH STATE CHANGED: ${state.event}');
+      debugPrint('   User: ${state.session?.user.email}');
+      debugPrint('═══════════════════════════════════════════════════════════');
+      if (!mounted) return;
+
+      if (state.event == AuthChangeEvent.signedIn &&
+          state.session?.user != null) {
+        debugPrint('✅ SignedIn event triggered - will sync route in 500ms');
+        await Future.delayed(
+          Duration(milliseconds: 500),
+        ); // Small delay to ensure DB is updated
+        await _syncRouteForCurrentUser();
+        _setupUserProfileListener();
+      }
+
+      if (state.event == AuthChangeEvent.signedOut) {
+        debugPrint('🚪 SignedOut event triggered');
+        _disposeUserProfileListener();
+        _lastSyncedRoute = null;
       }
     });
+  }
+
+  void _setupUserProfileListener() {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) {
+      _disposeUserProfileListener();
+      return;
+    }
+
+    _disposeUserProfileListener();
+
+    final supabase = Supabase.instance.client;
+    _userProfileChannel = supabase
+        .channel('public:users:$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'users',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: userId,
+          ),
+          callback: (payload) async {
+            if (!mounted) return;
+            await _syncRouteForCurrentUser();
+          },
+        )
+        .subscribe();
+  }
+
+  void _disposeUserProfileListener() {
+    if (_userProfileChannel != null) {
+      Supabase.instance.client.removeChannel(_userProfileChannel!);
+      _userProfileChannel = null;
+    }
+  }
+
+  Future<void> _syncRouteForCurrentUser() async {
+    final authService = AuthService();
+    final user = authService.currentUser;
+    if (!mounted || user == null) {
+      debugPrint('❌ _syncRouteForCurrentUser: mounted=$mounted, user=$user');
+      return;
+    }
+
+    debugPrint('═══════════════════════════════════════════════════════════');
+    debugPrint('🔄 SYNCING ROUTE FOR: ${user.email}');
+    debugPrint('═══════════════════════════════════════════════════════════');
+
+    debugPrint('📡 Fetching role from database...');
+    final role = await authService.getUserRole();
+    debugPrint('✅ Role fetched: "$role" (type: ${role.runtimeType})');
+
+    if (role == null) {
+      debugPrint('⚠️  WARNING: Role is NULL!');
+    }
+
+    final applicationApproved = role == 'partner' || role == 'driver'
+        ? await authService.isApplicationApproved()
+        : true;
+
+    final targetRoute = _resolveRoute(role, applicationApproved);
+    debugPrint('📍 Target route resolved: $targetRoute');
+
+    if (_lastSyncedRoute == targetRoute) {
+      debugPrint('⏭️  Already synced to this route, skipping navigation');
+      return;
+    }
+
+    _lastSyncedRoute = targetRoute;
+    debugPrint('🚀 Navigating to: $targetRoute');
+
+    try {
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pushNamedAndRemoveUntil(targetRoute, (route) => false);
+      debugPrint('✅ Navigation complete');
+    } catch (e) {
+      debugPrint('❌ Navigation error: $e');
+      rethrow;
+    }
+    debugPrint('═══════════════════════════════════════════════════════════');
+  }
+
+  String _resolveRoute(String? role, bool applicationApproved) {
+    debugPrint(
+      '🔀 Resolving route for role: "$role" (approved: $applicationApproved)',
+    );
+
+    if (role == 'admin') {
+      debugPrint('✅ Route: ADMIN');
+      return '/admin-home';
+    }
+    if (role == 'operator') {
+      debugPrint('✅ Route: OPERATOR');
+      return '/operator-home';
+    }
+    if (role == 'partner') {
+      final route = applicationApproved
+          ? '/partner-home'
+          : '/owner-verification';
+      debugPrint('✅ Route: PARTNER ($route)');
+      return route;
+    }
+    if (role == 'driver') {
+      final route = applicationApproved
+          ? '/driver-home'
+          : '/driver-license-upload';
+      debugPrint('✅ Route: DRIVER ($route)');
+      return route;
+    }
+    debugPrint('⚠️ Default route: RENTER (role was: "$role")');
+    return '/dashboard';
   }
 
   @override
   void dispose() {
     _authSubscription.cancel();
+    _disposeUserProfileListener();
     super.dispose();
   }
 
@@ -256,16 +553,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
     // If user is already logged in, check role and go to appropriate dashboard
     if (authService.isAuthenticated) {
       final role = await authService.getUserRole();
+      debugPrint('🔐 Initial screen - User authenticated with role: $role');
+      final applicationApproved = role == 'partner' || role == 'driver'
+          ? await authService.isApplicationApproved()
+          : true;
 
       if (role == 'admin') {
-        return ResponsiveAdminScreen(
+        return AdminWebScreen(
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
         );
       }
 
       if (role == 'operator') {
-        return ResponsiveOperatorScreen(
+        return OperatorWebScreen(
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
         );
@@ -300,7 +601,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     // Otherwise show welcome screen
     return onboardingCompleted
         ? const ResponsiveLoginScreen()
-        : const WelcomeScreen();
+        : const ResponsiveWelcomeScreen();
   }
 
   @override
@@ -311,12 +612,61 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (snapshot.hasData) {
           return snapshot.data!;
         }
-        // Show loading screen while determining initial screen
+        // Show loading/splash screen while determining initial screen
         return Scaffold(
           backgroundColor: AppColors.darkBg,
-          body: const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // App icon
+                Container(
+                  width: 160,
+                  height: 160,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withOpacity(0.3),
+                        blurRadius: 20,
+                        spreadRadius: 5,
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Image.asset(
+                      'assets/icon/icon.png',
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                // App name
+                const Text(
+                  'Mobilis by PSDC',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Tagline
+                Text(
+                  'Professional Car Rental Solutions',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 48),
+                // Loading indicator
+                const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+              ],
             ),
           ),
         );

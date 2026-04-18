@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
+import '../../../services/preferences_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -25,6 +26,30 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     emailController = TextEditingController();
     passwordController = TextEditingController();
+    _loadCachedCredentials();
+  }
+
+  /// Load cached credentials from device
+  Future<void> _loadCachedCredentials() async {
+    try {
+      final prefsService = PreferencesService();
+      await prefsService.init();
+
+      final cachedEmail = prefsService.getCachedLoginEmail();
+      final cachedPassword = prefsService.getCachedLoginPassword();
+      final rememberEnabled = prefsService.isRememberDeviceEnabled();
+
+      if (mounted && cachedEmail != null && cachedPassword != null) {
+        setState(() {
+          emailController.text = cachedEmail;
+          passwordController.text = cachedPassword;
+          rememberDevice = rememberEnabled;
+        });
+        debugPrint('Cached credentials loaded successfully');
+      }
+    } catch (e) {
+      debugPrint('Error loading cached credentials: $e');
+    }
   }
 
   @override
@@ -37,7 +62,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleLogin() async {
     // Check internet connection first
     final connectivityService = ConnectivityService();
-    if (!connectivityService.isOnline) {
+    final isOnline = await connectivityService.checkConnectivity();
+    if (!isOnline) {
       _showErrorSnackBar(
         'No internet connection. Please check your WiFi or mobile data.',
       );
@@ -67,20 +93,65 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final authService = AuthService();
+      debugPrint(
+        '🔐 [LoginScreen] Attempting login with: ${emailController.text.trim()}',
+      );
       await authService.login(
         email: emailController.text.trim(),
         password: passwordController.text,
+        rememberDevice: rememberDevice,
       );
 
+      debugPrint(
+        '✅ [LoginScreen] Login successful! AuthWrapper will handle routing.',
+      );
       if (mounted) {
-        // Clear controllers
+        // Clear controllers only on successful login
         emailController.clear();
         passwordController.clear();
 
-        // Navigate to dashboard
-        Navigator.of(context).pushReplacementNamed('/dashboard');
+        // Fallback: If AuthWrapper doesn't navigate within 3 seconds, manually navigate
+        Future.delayed(const Duration(seconds: 3), () async {
+          if (mounted) {
+            final currentRoute = ModalRoute.of(context)?.settings.name;
+            if (currentRoute == '/login') {
+              debugPrint(
+                '⚠️ [LoginScreen] Still on login after 3s, attempting manual fallback',
+              );
+              try {
+                final authService = AuthService();
+                final role = await authService.getUserRole();
+                debugPrint(
+                  '📍 [LoginScreen Fallback] Manual route resolution: $role',
+                );
+                if (mounted) {
+                  String fallbackRoute = '/dashboard';
+                  if (role == 'admin')
+                    fallbackRoute = '/admin-home';
+                  else if (role == 'operator')
+                    fallbackRoute = '/operator-home';
+                  else if (role == 'partner')
+                    fallbackRoute = '/partner-home';
+                  else if (role == 'driver')
+                    fallbackRoute = '/driver-home';
+
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil(fallbackRoute, (route) => false);
+                  debugPrint(
+                    '🚀 [LoginScreen Fallback] Navigated to: $fallbackRoute',
+                  );
+                }
+              } catch (e) {
+                debugPrint('❌ [LoginScreen Fallback] Error: $e');
+              }
+            }
+          }
+        });
+        // AuthWrapper will handle routing based on auth state change
       }
     } catch (e) {
+      debugPrint('❌ [LoginScreen] Login failed with error: $e');
       if (mounted) {
         final authService = AuthService();
         final errorMessage = authService.getErrorMessage(e);
@@ -91,12 +162,11 @@ class _LoginScreenState extends State<LoginScreen> {
             'Email not confirmed - Check your inbox to verify. You can still access your account.',
           );
 
-          // Clear controllers and navigate to dashboard after delay
+          // Clear controllers - AuthWrapper will handle routing
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) {
               emailController.clear();
               passwordController.clear();
-              Navigator.of(context).pushReplacementNamed('/dashboard');
             }
           });
         } else {
@@ -115,7 +185,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleGoogleLogin() async {
     // Check internet connection first
     final connectivityService = ConnectivityService();
-    if (!connectivityService.isOnline) {
+    final isOnline = await connectivityService.checkConnectivity();
+    if (!isOnline) {
       _showErrorSnackBar(
         'No internet connection. Please check your WiFi or mobile data.',
       );
@@ -131,8 +202,10 @@ class _LoginScreenState extends State<LoginScreen> {
       await authService.signInWithGoogle();
 
       if (mounted) {
-        // Navigate to dashboard
-        Navigator.of(context).pushReplacementNamed('/dashboard');
+        // AuthWrapper listens for signed-in state and routes by role.
+        _showInfoSnackBar(
+          'Continue in the browser and return to the app to finish sign in.',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -154,6 +227,16 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showInfoSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.primary,
         duration: const Duration(seconds: 3),
       ),
     );

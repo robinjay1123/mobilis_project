@@ -70,7 +70,44 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
       if (mounted) {
         emailController.clear();
         passwordController.clear();
-        Navigator.of(context).pushReplacementNamed('/dashboard');
+
+        // Fallback: If AuthWrapper doesn't navigate within 3 seconds, manually navigate
+        Future.delayed(const Duration(seconds: 3), () async {
+          if (mounted) {
+            final currentRoute = ModalRoute.of(context)?.settings.name;
+            if (currentRoute == '/login' || currentRoute == null) {
+              debugPrint(
+                '⚠️ [LoginWebScreen] Still on login after 3s, attempting manual fallback',
+              );
+              try {
+                final authService = AuthService();
+                final role = await authService.getUserRole();
+                debugPrint(
+                  '📍 [LoginWebScreen Fallback] Manual route resolution: $role',
+                );
+                if (mounted) {
+                  String fallbackRoute = '/dashboard';
+                  if (role == 'admin')
+                    fallbackRoute = '/admin-home';
+                  else if (role == 'operator')
+                    fallbackRoute = '/operator-home';
+                  else if (role == 'partner')
+                    fallbackRoute = '/partner-home';
+                  else if (role == 'driver')
+                    fallbackRoute = '/driver-home';
+
+                  Navigator.of(context).pushReplacementNamed(fallbackRoute);
+                  debugPrint(
+                    '🚀 [LoginWebScreen Fallback] Navigated to: $fallbackRoute',
+                  );
+                }
+              } catch (e) {
+                debugPrint('❌ [LoginWebScreen Fallback] Error: $e');
+              }
+            }
+          }
+        });
+        // AuthWrapper will handle routing based on auth state change
       }
     } catch (e) {
       if (mounted) {
@@ -85,7 +122,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
             if (mounted) {
               emailController.clear();
               passwordController.clear();
-              Navigator.of(context).pushReplacementNamed('/dashboard');
+              // AuthWrapper will handle routing
             }
           });
         } else {
@@ -119,7 +156,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
       await authService.signInWithGoogle();
 
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/dashboard');
+        // AuthWrapper will handle routing based on auth state change
       }
     } catch (e) {
       if (mounted) {

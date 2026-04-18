@@ -34,6 +34,11 @@ class AppTheme {
           ),
         ),
       ),
+      tabBarTheme: const TabBarThemeData(
+        labelColor: AppColors.primary,
+        unselectedLabelColor: Colors.grey,
+        indicatorColor: AppColors.primary,
+      ),
     );
   }
 
@@ -45,75 +50,14 @@ class AppTheme {
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFFF5F5F5),
         elevation: 0,
-      ),
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF1A1A1A),
-        ),
-        displayMedium: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF1A1A1A),
-        ),
-        headlineLarge: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1A1A1A),
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF1A1A1A),
-        ),
-        titleLarge: TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: Color(0xFF1A1A1A),
         ),
-        bodyLarge: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-          color: Color(0xFF1A1A1A),
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w400,
-          color: Color(0xFF666666),
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w400,
-          color: Color(0xFF999999),
-        ),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.primary),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.error),
-        ),
-        hintStyle: const TextStyle(color: Color(0xFF999999)),
-        labelStyle: const TextStyle(color: Color(0xFF666666)),
-      ),
+      textTheme: lightTextTheme,
+      inputDecorationTheme: lightInputDecorationTheme,
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -134,6 +78,11 @@ class AppTheme {
             borderRadius: BorderRadius.circular(12),
           ),
         ),
+      ),
+      tabBarTheme: const TabBarThemeData(
+        labelColor: AppColors.primary,
+        unselectedLabelColor: Color(0xFF666666),
+        indicatorColor: AppColors.primary,
       ),
     );
   }
@@ -183,6 +132,51 @@ class AppTheme {
     );
   }
 
+  static TextTheme get lightTextTheme {
+    return const TextTheme(
+      displayLarge: TextStyle(
+        fontSize: 32,
+        fontWeight: FontWeight.w700,
+        color: AppColors.lightTextPrimary,
+      ),
+      displayMedium: TextStyle(
+        fontSize: 28,
+        fontWeight: FontWeight.w700,
+        color: AppColors.lightTextPrimary,
+      ),
+      headlineLarge: TextStyle(
+        fontSize: 24,
+        fontWeight: FontWeight.w600,
+        color: AppColors.lightTextPrimary,
+      ),
+      headlineMedium: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        color: AppColors.lightTextPrimary,
+      ),
+      titleLarge: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: AppColors.lightTextPrimary,
+      ),
+      bodyLarge: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w400,
+        color: AppColors.lightTextPrimary,
+      ),
+      bodyMedium: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        color: AppColors.lightTextSecondary,
+      ),
+      bodySmall: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        color: AppColors.lightTextTertiary,
+      ),
+    );
+  }
+
   static InputDecorationTheme get inputDecorationTheme {
     return InputDecorationTheme(
       filled: true,
@@ -206,6 +200,32 @@ class AppTheme {
       ),
       hintStyle: const TextStyle(color: AppColors.textTertiary),
       labelStyle: const TextStyle(color: AppColors.textSecondary),
+    );
+  }
+
+  static InputDecorationTheme get lightInputDecorationTheme {
+    return InputDecorationTheme(
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.lightBorderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.lightBorderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.primary),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.error),
+      ),
+      hintStyle: const TextStyle(color: AppColors.lightTextTertiary),
+      labelStyle: const TextStyle(color: AppColors.lightTextSecondary),
     );
   }
 }

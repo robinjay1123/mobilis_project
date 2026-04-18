@@ -185,13 +185,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _handleLogout() async {
-    try {
-      await AuthService().signOut();
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await AuthService().signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      } catch (e) {
+        debugPrint('Logout error: $e');
       }
-    } catch (e) {
-      debugPrint('Logout error: $e');
     }
   }
 

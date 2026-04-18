@@ -57,17 +57,12 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       final user = authService.currentUser;
 
       if (user != null) {
-        final profile = await partnerService.getPartnerProfile(user.id);
-        if (profile != null) {
-          final hasPending = await partnerService.hasPendingApplication(
-            profile['id'] as String,
-          );
+        final hasPending = await partnerService.hasPendingApplication(user.id);
 
-          if (hasPending && mounted) {
-            setState(() {
-              hasPendingApplication = true;
-            });
-          }
+        if (hasPending && mounted) {
+          setState(() {
+            hasPendingApplication = true;
+          });
         }
       }
     } catch (e) {
@@ -125,7 +120,9 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
 
     final year = int.tryParse(yearController.text.trim());
     if (year == null || year < 1990 || year > DateTime.now().year + 1) {
-      _showErrorSnackBar('Please enter a valid year (1990-${DateTime.now().year + 1})');
+      _showErrorSnackBar(
+        'Please enter a valid year (1990-${DateTime.now().year + 1})',
+      );
       return false;
     }
 
@@ -183,14 +180,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         return;
       }
 
-      // Get partner profile
-      final profile = await partnerService.getPartnerProfile(user.id);
-      if (profile == null) {
-        _showErrorSnackBar('Partner profile not found');
-        return;
-      }
-
-      final partnerId = profile['id'] as String;
+      final partnerId = user.id;
 
       // Check again for pending application
       final hasPending = await partnerService.hasPendingApplication(partnerId);
@@ -370,11 +360,15 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                             ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppColors.darkBgSecondary,
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.borderColor),
+                                border: Border.all(
+                                  color: AppColors.borderColor,
+                                ),
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<int>(
@@ -532,10 +526,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             const Text(
               'You already have a pending vehicle application. Please wait for it to be reviewed before submitting a new one.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
-              ),
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 32),
             SizedBox(

@@ -23,6 +23,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   int _totalPartners = 0;
   int _totalOperators = 0;
   int _totalVehicles = 0;
+
   int _pendingVerifications = 0;
   int _activeBookings = 0;
   int _totalBookings = 0;
@@ -183,6 +184,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       await _supabase.from('users').update({'role': newRole}).eq('id', userId);
 
+      if (newRole == 'partner' || newRole == 'driver') {
+        await _supabase
+            .from('users')
+            .update({'application_status': 'pending'})
+            .eq('id', userId);
+      }
+
+      if (newRole == 'partner') {
+        final partnerRow = await _supabase
+            .from('partners')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (partnerRow == null) {
+          await _supabase.from('partners').insert({
+            'user_id': userId,
+            'verification_status': 'pending',
+          });
+        }
+      }
+
+      if (newRole == 'renter') {
+        final renterRow = await _supabase
+            .from('renters')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (renterRow == null) {
+          await _supabase.from('renters').insert({'user_id': userId});
+        }
+      }
+
+      if (newRole == 'driver') {
+        final driverRow = await _supabase
+            .from('drivers')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (driverRow == null) {
+          await _supabase.from('drivers').insert({
+            'user_id': userId,
+            'verification_status': 'pending',
+          });
+        }
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('User role updated to $newRole'),
@@ -237,13 +287,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _handleLogout() async {
-    try {
-      await AuthService().signOut();
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await AuthService().signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      } catch (e) {
+        debugPrint('Logout error: $e');
       }
-    } catch (e) {
-      debugPrint('Logout error: $e');
     }
   }
 

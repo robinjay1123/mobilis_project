@@ -10,7 +10,7 @@ Your Flutter app now has full Google OAuth authentication with Supabase integrat
 
 ### 1. **AuthService - Google OAuth Method**
 - **File**: `lib/services/auth_service.dart`
-- **Method**: `Future<AuthResponse> signInWithGoogle()`
+- **Method**: `Future<bool> signInWithGoogle()`
 - **Features**:
   - Uses `supabase.auth.signInWithOAuth(Provider.google)`
   - Proper error handling with try-catch
@@ -60,7 +60,6 @@ Your Flutter app now has full Google OAuth authentication with Supabase integrat
 - **File**: `lib/main.dart`
 - **Changes**:
   - Added `dart:async` import for StreamSubscription
-  - Configured `deepLinkingOptions` in Supabase initialization
   - Updated AuthWrapper with auth state listener
   - Auto-navigates to dashboard on OAuth sign-in
   - Proper stream cleanup in dispose method

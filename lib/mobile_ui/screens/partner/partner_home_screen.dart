@@ -32,6 +32,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   // Partner data
   String partnerName = 'Loading...';
   String verificationStatus = 'pending';
+  String partnershipStatus = 'basic'; // 'basic', 'approved', 'certified'
   Map<String, dynamic>? partnerProfile;
   String? partnerId;
 
@@ -64,6 +65,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   List<Map<String, dynamic>> notifications = [];
 
   bool isLoading = true;
+  bool dismissedVerificationBanner = false;
 
   @override
   void initState() {
@@ -106,50 +108,46 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       final user = authService.currentUser;
 
       if (user != null) {
-        // Get partner profile
-        final profile = await partnerService.getPartnerProfile(user.id);
+        // Partner-centric records use users.id as partner_id/owner_id.
+        partnerId = user.id;
 
-        if (profile != null) {
-          partnerId = profile['id'] as String?;
-
-          // Load counts and data
-          final appCounts = await partnerService.getApplicationCounts(
-            partnerId!,
-          );
-          final apps = await partnerService.getVehicleApplications(partnerId!);
-
-          final bookingService = BookingService();
-          final bCounts = await bookingService.getPartnerBookingCounts(
-            partnerId!,
-          );
-          final bList = await bookingService.getRecentPartnerBookings(
-            partnerId!,
-          );
-
-          final chatService = ChatService();
-          final convs = await chatService.getConversations(user.id);
-
-          final notificationService = NotificationService();
-          final notifs = await notificationService.getNotifications(user.id);
-
-          setState(() {
-            partnerProfile = profile;
-            partnerName = user.userMetadata?['full_name'] ?? 'Partner';
-            verificationStatus = profile['verification_status'] ?? 'pending';
-            applicationCounts = appCounts;
-            applications = apps;
-            bookingCounts = bCounts;
-            bookings = bList;
-            conversations = convs;
-            notifications = notifs;
-            activeVehicles = appCounts['approved'] ?? 0;
-            isLoading = false;
-          });
-        } else {
-          // Create partner profile if not exists
-          await partnerService.createPartnerProfile(userId: user.id);
-          _loadPartnerData(); // Reload
+        // Optional profile table support for legacy setups.
+        Map<String, dynamic>? profile;
+        try {
+          profile = await partnerService.getPartnerProfile(user.id);
+        } catch (_) {
+          profile = null;
         }
+
+        final appCounts = await partnerService.getApplicationCounts(partnerId!);
+        final apps = await partnerService.getVehicleApplications(partnerId!);
+
+        final bookingService = BookingService();
+        final bCounts = await bookingService.getPartnerBookingCounts(
+          partnerId!,
+        );
+        final bList = await bookingService.getRecentPartnerBookings(partnerId!);
+
+        final chatService = ChatService();
+        final convs = await chatService.getConversations(user.id);
+
+        final notificationService = NotificationService();
+        final notifs = await notificationService.getNotifications(user.id);
+
+        setState(() {
+          partnerProfile = profile;
+          partnerName = user.userMetadata?['full_name'] ?? 'Partner';
+          verificationStatus = profile?['verification_status'] ?? 'pending';
+          partnershipStatus = profile?['partnership_status'] ?? 'basic';
+          applicationCounts = appCounts;
+          applications = apps;
+          bookingCounts = bCounts;
+          bookings = bList;
+          conversations = convs;
+          notifications = notifs;
+          activeVehicles = appCounts['approved'] ?? 0;
+          isLoading = false;
+        });
       }
     } catch (e) {
       debugPrint('Error loading partner data: $e');
@@ -188,7 +186,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'plate_number': 'MNO 3456',
           'status': 'pending',
           'price_per_day': 6000.00,
-          'created_at': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+          'created_at': DateTime.now()
+              .subtract(const Duration(days: 2))
+              .toIso8601String(),
         },
         {
           'id': '2',
@@ -198,7 +198,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'plate_number': 'ABC 1234',
           'status': 'approved',
           'price_per_day': 2500.00,
-          'created_at': DateTime.now().subtract(const Duration(days: 30)).toIso8601String(),
+          'created_at': DateTime.now()
+              .subtract(const Duration(days: 30))
+              .toIso8601String(),
         },
         {
           'id': '3',
@@ -208,7 +210,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'plate_number': 'XYZ 5678',
           'status': 'approved',
           'price_per_day': 5000.00,
-          'created_at': DateTime.now().subtract(const Duration(days: 25)).toIso8601String(),
+          'created_at': DateTime.now()
+              .subtract(const Duration(days: 25))
+              .toIso8601String(),
         },
       ];
       bookings = [
@@ -216,8 +220,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'id': '1',
           'vehicle_name': 'BMW 5 Series',
           'renter_name': 'Mark Jensen',
-          'start_date': DateTime.now().add(const Duration(days: 2)).toIso8601String(),
-          'end_date': DateTime.now().add(const Duration(days: 5)).toIso8601String(),
+          'start_date': DateTime.now()
+              .add(const Duration(days: 2))
+              .toIso8601String(),
+          'end_date': DateTime.now()
+              .add(const Duration(days: 5))
+              .toIso8601String(),
           'total_price': 15000.00,
           'status': 'pending',
           'pickup_location': 'Manila Airport Terminal 3',
@@ -227,7 +235,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'vehicle_name': 'Honda CR-V',
           'renter_name': 'Sarah Lee',
           'start_date': DateTime.now().toIso8601String(),
-          'end_date': DateTime.now().add(const Duration(days: 3)).toIso8601String(),
+          'end_date': DateTime.now()
+              .add(const Duration(days: 3))
+              .toIso8601String(),
           'total_price': 10500.00,
           'status': 'active',
           'pickup_location': 'Ortigas Center',
@@ -238,14 +248,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'id': '1',
           'other_user_name': 'Mark Jensen',
           'last_message': 'Is the car available for pickup at 10am?',
-          'updated_at': DateTime.now().subtract(const Duration(hours: 1)).toIso8601String(),
+          'updated_at': DateTime.now()
+              .subtract(const Duration(hours: 1))
+              .toIso8601String(),
           'unread_count': 2,
         },
         {
           'id': '2',
           'other_user_name': 'Sarah Lee',
           'last_message': 'Thank you! The car is great.',
-          'updated_at': DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
+          'updated_at': DateTime.now()
+              .subtract(const Duration(days: 1))
+              .toIso8601String(),
           'unread_count': 0,
         },
       ];
@@ -264,7 +278,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           'message': 'You received ₱7,500 for the Toyota Camry booking',
           'type': 'payment',
           'is_read': true,
-          'created_at': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+          'created_at': DateTime.now()
+              .subtract(const Duration(days: 2))
+              .toIso8601String(),
         },
       ];
       isLoading = false;
@@ -507,7 +523,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                     child: Center(
                       child: Text(
-                        partnerName.isNotEmpty ? partnerName[0].toUpperCase() : 'P',
+                        partnerName.isNotEmpty
+                            ? partnerName[0].toUpperCase()
+                            : 'P',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -530,11 +548,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           ),
                         ),
                         Text(
-                          verificationStatus == 'verified' ? 'VERIFIED OWNER' : 'PENDING VERIFICATION',
+                          _getPartnerBadge(),
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
-                            color: verificationStatus == 'verified' ? AppColors.success : AppColors.warning,
+                            color: _getPartnerBadgeColor(),
                           ),
                         ),
                       ],
@@ -561,13 +579,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary.withAlpha(30) : Colors.transparent,
+        color: isSelected
+            ? AppColors.primary.withAlpha(30)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
         leading: Icon(
           icon,
-          color: iconColor ?? (isSelected ? AppColors.primary : AppColors.textSecondary),
+          color:
+              iconColor ??
+              (isSelected ? AppColors.primary : AppColors.textSecondary),
           size: 22,
         ),
         title: Text(
@@ -575,7 +597,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            color: labelColor ?? (isSelected ? AppColors.primary : AppColors.textPrimary),
+            color:
+                labelColor ??
+                (isSelected ? AppColors.primary : AppColors.textPrimary),
           ),
         ),
         trailing: trailing,
@@ -584,6 +608,26 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         visualDensity: VisualDensity.compact,
       ),
     );
+  }
+
+  String _getPartnerBadge() {
+    if (partnershipStatus == 'certified') {
+      return 'CERTIFIED PSDC PARTNER';
+    } else if (verificationStatus == 'verified') {
+      return 'VERIFIED PARTNER';
+    } else {
+      return 'BASIC PARTNER';
+    }
+  }
+
+  Color _getPartnerBadgeColor() {
+    if (partnershipStatus == 'certified') {
+      return const Color(0xFF6366F1); // Indigo for certified
+    } else if (verificationStatus == 'verified') {
+      return AppColors.success;
+    } else {
+      return AppColors.warning;
+    }
   }
 
   Widget _buildTabContent() {
@@ -613,9 +657,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           _buildDashboardHeader(),
 
           // Verification Banner
-          if (verificationStatus != 'verified')
+          if (verificationStatus != 'verified' && !dismissedVerificationBanner)
             _buildVerificationBanner()
-          else
+          else if (verificationStatus == 'verified')
             _buildVerifiedBanner(),
 
           const SizedBox(height: 20),
@@ -670,13 +714,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     _buildQuickAction(
                       icon: Icons.add_circle_outline,
                       label: 'Add Vehicle',
-                      onTap: () => Navigator.pushNamed(context, '/apply-vehicle'),
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/apply-vehicle'),
                     ),
                     const SizedBox(width: 12),
                     _buildQuickAction(
                       icon: Icons.directions_car,
                       label: 'Manage Fleet',
-                      onTap: () => Navigator.pushNamed(context, '/vehicle-availability'),
+                      onTap: () =>
+                          Navigator.pushNamed(context, '/vehicle-availability'),
                     ),
                     const SizedBox(width: 12),
                     _buildQuickAction(
@@ -752,7 +798,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(6),
@@ -832,14 +881,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     const SizedBox(width: 6),
                     if (verificationStatus == 'verified')
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.success.withAlpha(30),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Row(
                           children: [
-                            Icon(Icons.verified, color: AppColors.success, size: 12),
+                            Icon(
+                              Icons.verified,
+                              color: AppColors.success,
+                              size: 12,
+                            ),
                             SizedBox(width: 2),
                             Text(
                               'VERIFIED',
@@ -881,7 +937,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     size: 22,
                   ),
                 ),
-                if (notifications.where((n) => n['is_read'] == false).isNotEmpty)
+                if (notifications
+                    .where((n) => n['is_read'] == false)
+                    .isNotEmpty)
                   Positioned(
                     right: 6,
                     top: 6,
@@ -911,60 +969,83 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.warning.withAlpha(50)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.warning.withAlpha(40),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.pending,
-              color: AppColors.warning,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Pending Verification',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.warning,
-                  ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withAlpha(40),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                Text(
-                  'Complete verification to start listing vehicles',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: () => Navigator.pushNamed(context, '/owner-verification'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.warning,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Text(
-                'Verify',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
+                child: const Icon(
+                  Icons.pending,
+                  color: AppColors.warning,
+                  size: 20,
                 ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Complete Verification',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.warning,
+                      ),
+                    ),
+                    Text(
+                      'Unlock full features and build trust with renters',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    setState(() {
+                      dismissedVerificationBanner = true;
+                    });
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.warning.withAlpha(50)),
+                  ),
+                  child: const Text(
+                    'Later',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () =>
+                      Navigator.pushNamed(context, '/owner-verification'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.warning,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text(
+                    'Verify Now',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1177,18 +1258,27 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             child: const Center(
               child: Column(
                 children: [
-                  Icon(Icons.calendar_today, size: 48, color: AppColors.textTertiary),
+                  Icon(
+                    Icons.calendar_today,
+                    size: 48,
+                    color: AppColors.textTertiary,
+                  ),
                   SizedBox(height: 12),
                   Text(
                     'No booking requests yet',
-                    style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),
             ),
           )
         else
-          ...bookings.take(3).map((booking) => _buildBookingRequestCard(booking)),
+          ...bookings
+              .take(3)
+              .map((booking) => _buildBookingRequestCard(booking)),
       ],
     );
   }
@@ -1243,7 +1333,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   color: AppColors.darkBgTertiary,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.directions_car, color: AppColors.textSecondary, size: 24),
+                child: const Icon(
+                  Icons.directions_car,
+                  color: AppColors.textSecondary,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1304,7 +1398,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                     const Text(
                       'Total Profit',
-                      style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1314,7 +1411,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _formatDateRange(booking['start_date'], booking['end_date']),
+                      _formatDateRange(
+                        booking['start_date'],
+                        booking['end_date'],
+                      ),
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -1323,7 +1423,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                     const Text(
                       'Booking Period',
-                      style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1342,7 +1445,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                     const Text(
                       'Renter',
-                      style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1355,30 +1461,42 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _handleBookingAction(booking['id'], 'cancelled'),
+                    onPressed: () =>
+                        _handleBookingAction(booking['id'], 'cancelled'),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.textSecondary),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     child: const Text(
                       'Decline',
-                      style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => _handleBookingAction(booking['id'], 'confirmed'),
+                    onPressed: () =>
+                        _handleBookingAction(booking['id'], 'confirmed'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     child: const Text(
                       'Accept',
-                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -1395,7 +1513,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     try {
       final start = DateTime.parse(startStr);
       final end = DateTime.parse(endStr);
-      final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       return '${months[start.month - 1]} ${start.day}-${end.day}';
     } catch (e) {
       return 'N/A';
@@ -1406,7 +1537,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     try {
       final bookingService = BookingService();
       await bookingService.updateBookingStatus(bookingId, status);
-      _showSuccessSnackBar(status == 'confirmed' ? 'Booking accepted!' : 'Booking declined');
+      _showSuccessSnackBar(
+        status == 'confirmed' ? 'Booking accepted!' : 'Booking declined',
+      );
       _loadPartnerData();
     } catch (e) {
       _showErrorSnackBar('Failed to update booking');
@@ -1419,17 +1552,30 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         Container(
           color: AppColors.primary,
-          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 12, 16, 12),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.of(context).padding.top + 12,
+            16,
+            12,
+          ),
           child: Row(
             children: [
               GestureDetector(
                 onTap: () => setState(() => selectedNavIndex = 0),
-                child: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.black,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text(
                 'Alerts',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
               const Spacer(),
               if (notifications.isNotEmpty)
@@ -1437,7 +1583,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   onTap: _markAllNotificationsRead,
                   child: const Text(
                     'Mark all read',
-                    style: TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
             ],
@@ -1449,9 +1599,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.notifications_none, size: 64, color: AppColors.textTertiary),
+                      Icon(
+                        Icons.notifications_none,
+                        size: 64,
+                        color: AppColors.textTertiary,
+                      ),
                       SizedBox(height: 16),
-                      Text('No alerts yet', style: TextStyle(fontSize: 16, color: AppColors.textSecondary)),
+                      Text(
+                        'No alerts yet',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ],
                   ),
                 )
@@ -1485,17 +1645,30 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         Container(
           color: AppColors.primary,
-          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 12, 16, 12),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.of(context).padding.top + 12,
+            16,
+            12,
+          ),
           child: Row(
             children: [
               GestureDetector(
                 onTap: () => setState(() => selectedNavIndex = 0),
-                child: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.black,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text(
                 'Messages',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
             ],
           ),
@@ -1506,9 +1679,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.chat_bubble_outline, size: 64, color: AppColors.textTertiary),
+                      Icon(
+                        Icons.chat_bubble_outline,
+                        size: 64,
+                        color: AppColors.textTertiary,
+                      ),
                       SizedBox(height: 16),
-                      Text('No messages yet', style: TextStyle(fontSize: 16, color: AppColors.textSecondary)),
+                      Text(
+                        'No messages yet',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ],
                   ),
                 )
@@ -1518,7 +1701,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   itemBuilder: (context, index) {
                     final conv = conversations[index];
                     final messages = conv['messages'] as List<dynamic>? ?? [];
-                    final lastMessage = messages.isNotEmpty ? messages.last['content'] ?? '' : 'No messages';
+                    final lastMessage = messages.isNotEmpty
+                        ? messages.last['content'] ?? ''
+                        : 'No messages';
 
                     return ConversationTile(
                       senderName: 'Renter',
@@ -1540,23 +1725,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         Container(
           color: AppColors.primary,
-          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 12, 16, 12),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.of(context).padding.top + 12,
+            16,
+            12,
+          ),
           child: Row(
             children: [
               GestureDetector(
                 onTap: () => setState(() => selectedNavIndex = 0),
-                child: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.black,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text(
                 'Bookings',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () => Navigator.pushNamed(context, '/vehicle-availability'),
+                onTap: () =>
+                    Navigator.pushNamed(context, '/vehicle-availability'),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withAlpha(25),
                     borderRadius: BorderRadius.circular(8),
@@ -1565,7 +1767,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     children: [
                       Icon(Icons.calendar_month, color: Colors.black, size: 16),
                       SizedBox(width: 4),
-                      Text('Availability', style: TextStyle(fontSize: 12, color: Colors.black, fontWeight: FontWeight.w600)),
+                      Text(
+                        'Availability',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1579,13 +1788,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             child: Column(
               children: [
                 Container(
-                  color: AppColors.darkBgSecondary,
-                  child: const TabBar(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkBgSecondary
+                      : Colors.white,
+                  child: TabBar(
                     labelColor: AppColors.primary,
-                    unselectedLabelColor: AppColors.textSecondary,
+                    unselectedLabelColor:
+                        Theme.of(context).brightness == Brightness.dark
+                        ? AppColors.textSecondary
+                        : const Color(0xFF666666),
                     indicatorColor: AppColors.primary,
                     isScrollable: true,
-                    tabs: [
+                    tabs: const [
                       Tab(text: 'Upcoming'),
                       Tab(text: 'Active'),
                       Tab(text: 'Completed'),
@@ -1612,16 +1826,28 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildBookingsList(String status) {
-    final filteredBookings = bookings.where((b) => b['status']?.toLowerCase() == status.toLowerCase()).toList();
+    final filteredBookings = bookings
+        .where((b) => b['status']?.toLowerCase() == status.toLowerCase())
+        .toList();
 
     if (filteredBookings.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.calendar_today, size: 64, color: AppColors.textTertiary),
+            const Icon(
+              Icons.calendar_today,
+              size: 64,
+              color: AppColors.textTertiary,
+            ),
             const SizedBox(height: 16),
-            Text('No $status bookings', style: const TextStyle(fontSize: 16, color: AppColors.textSecondary)),
+            Text(
+              'No $status bookings',
+              style: const TextStyle(
+                fontSize: 16,
+                color: AppColors.textSecondary,
+              ),
+            ),
           ],
         ),
       );
@@ -1668,22 +1894,39 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         Container(
           color: AppColors.primary,
-          padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 12, 16, 12),
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.of(context).padding.top + 12,
+            16,
+            12,
+          ),
           child: Row(
             children: [
               GestureDetector(
                 onTap: () => setState(() => selectedNavIndex = 0),
-                child: const Icon(Icons.arrow_back, color: Colors.black, size: 24),
+                child: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.black,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 12),
               const Text(
                 'Profile',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black,
+                ),
               ),
               const Spacer(),
               GestureDetector(
                 onTap: () {},
-                child: const Icon(Icons.settings, color: Colors.black, size: 22),
+                child: const Icon(
+                  Icons.settings,
+                  color: Colors.black,
+                  size: 22,
+                ),
               ),
             ],
           ),
@@ -1712,31 +1955,45 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         ),
                         child: Center(
                           child: Text(
-                            partnerName.isNotEmpty ? partnerName[0].toUpperCase() : 'P',
-                            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Colors.black),
+                            partnerName.isNotEmpty
+                                ? partnerName[0].toUpperCase()
+                                : 'P',
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black,
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Text(
                         partnerName,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            verificationStatus == 'verified' ? Icons.verified : Icons.pending,
-                            color: verificationStatus == 'verified' ? AppColors.success : AppColors.warning,
+                            verificationStatus == 'verified'
+                                ? Icons.verified
+                                : Icons.pending,
+                            color: verificationStatus == 'verified'
+                                ? AppColors.success
+                                : AppColors.warning,
                             size: 16,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            verificationStatus == 'verified' ? 'Verified Owner' : 'Pending Verification',
+                            _getPartnerBadge(),
                             style: TextStyle(
                               fontSize: 12,
-                              color: verificationStatus == 'verified' ? AppColors.success : AppColors.warning,
+                              color: _getPartnerBadgeColor(),
                             ),
                           ),
                         ],
@@ -1745,15 +2002,32 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: _buildProfileStat('Vehicles', activeVehicles.toString()),
+                            child: _buildProfileStat(
+                              'Vehicles',
+                              activeVehicles.toString(),
+                            ),
                           ),
-                          Container(width: 1, height: 40, color: AppColors.borderColor),
-                          Expanded(
-                            child: _buildProfileStat('Bookings', bookingCounts['total']?.toString() ?? '0'),
+                          Container(
+                            width: 1,
+                            height: 40,
+                            color: AppColors.borderColor,
                           ),
-                          Container(width: 1, height: 40, color: AppColors.borderColor),
                           Expanded(
-                            child: _buildProfileStat('Rating', rating > 0 ? rating.toStringAsFixed(1) : '-'),
+                            child: _buildProfileStat(
+                              'Bookings',
+                              bookingCounts['total']?.toString() ?? '0',
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: 40,
+                            color: AppColors.borderColor,
+                          ),
+                          Expanded(
+                            child: _buildProfileStat(
+                              'Rating',
+                              rating > 0 ? rating.toStringAsFixed(1) : '-',
+                            ),
                           ),
                         ],
                       ),
@@ -1763,11 +2037,33 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 const SizedBox(height: 20),
 
                 // Menu Items
-                _buildProfileMenuItem(Icons.person_outline, 'Edit Profile', onTap: () {}),
-                _buildProfileMenuItem(Icons.security, 'Verification', onTap: () => Navigator.pushNamed(context, '/owner-verification')),
-                _buildProfileMenuItem(Icons.account_balance_wallet, 'Payment Settings', onTap: () {}),
-                _buildProfileMenuItem(Icons.help_outline, 'Help & Support', onTap: () {}),
-                _buildProfileMenuItem(Icons.logout, 'Logout', iconColor: AppColors.error, onTap: _handleLogout),
+                _buildProfileMenuItem(
+                  Icons.person_outline,
+                  'Edit Profile',
+                  onTap: () {},
+                ),
+                _buildProfileMenuItem(
+                  Icons.security,
+                  'Verification',
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/owner-verification'),
+                ),
+                _buildProfileMenuItem(
+                  Icons.account_balance_wallet,
+                  'Payment Settings',
+                  onTap: () {},
+                ),
+                _buildProfileMenuItem(
+                  Icons.help_outline,
+                  'Help & Support',
+                  onTap: () {},
+                ),
+                _buildProfileMenuItem(
+                  Icons.logout,
+                  'Logout',
+                  iconColor: AppColors.error,
+                  onTap: _handleLogout,
+                ),
               ],
             ),
           ),
@@ -1781,7 +2077,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         Text(
           value,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1792,7 +2092,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
-  Widget _buildProfileMenuItem(IconData icon, String label, {Color? iconColor, required VoidCallback onTap}) {
+  Widget _buildProfileMenuItem(
+    IconData icon,
+    String label, {
+    Color? iconColor,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1894,8 +2199,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.darkBgSecondary,
-        title: const Text('Logout', style: TextStyle(color: AppColors.textPrimary)),
-        content: const Text('Are you sure you want to logout?', style: TextStyle(color: AppColors.textSecondary)),
+        title: const Text(
+          'Logout',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'Are you sure you want to logout?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -1910,7 +2221,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 Navigator.of(context).pushReplacementNamed('/login');
               }
             },
-            child: const Text('Logout', style: TextStyle(color: AppColors.error)),
+            child: const Text(
+              'Logout',
+              style: TextStyle(color: AppColors.error),
+            ),
           ),
         ],
       ),

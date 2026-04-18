@@ -70,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) {
             if (newRole == 'partner') {
-              Navigator.of(context).pushReplacementNamed('/partner-home');
+              Navigator.of(context).pushReplacementNamed('/owner-verification');
             } else {
               Navigator.of(context).pushReplacementNamed('/dashboard');
             }
@@ -416,27 +416,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         const SizedBox(width: 8),
                                         const Text('Switch to Renter'),
                                         if (currentRole == 'user') ...[
-                                          const SizedBox(width: 8),
-                                          const Icon(
-                                            Icons.check,
-                                            color: AppColors.success,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem<String>(
-                                    value: 'partner',
-                                    enabled: currentRole != 'partner',
-                                    child: Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.store,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        const Text('Switch to Partner'),
-                                        if (currentRole == 'partner') ...[
                                           const SizedBox(width: 8),
                                           const Icon(
                                             Icons.check,

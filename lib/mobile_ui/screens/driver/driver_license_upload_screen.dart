@@ -140,6 +140,12 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             nbiClearanceNumber: 'PENDING', // Set temporarily
             nbiExpiry: DateTime.now().add(const Duration(days: 365)),
           );
+        } else {
+          // If pre-provisioned, persist latest license details.
+          await driverService.updateDriverProfile(driverProfile['id'], {
+            'license_number': licenseNumberController.text.trim(),
+            'license_expiry': selectedExpiryDate!.toIso8601String(),
+          });
         }
 
         // Upload license document

@@ -1,9 +1,14 @@
 # Database Migration Guide
 
 ## Overview
-This guide explains the database migration script (`database_migration.sql`) that sets up all tables required for the complete Mobilis car rental system workflow.
+This guide explains the baseline migration script (`supabase/migrations/20260418120000_initial_public_schema.sql`) that sets up all tables required for the complete Mobilis car rental system workflow.
 
 ## What Was Changed
+
+> Note: The migration now includes a backward-compatibility section that adds
+> service-layer field aliases (for example `application_status`/`status`,
+> `driver_tier`/`tier`, and trip/job timestamp aliases). This keeps existing
+> app code functional while preserving the normalized schema.
 
 ### 1. **users Table** - Added Driver Support
 ```sql
@@ -175,13 +180,38 @@ Columns:
 
 ## How to Run the Migration
 
+### Terminal Method (Recommended)
+Use the scripts in [supabase/scripts/migrate-push.ps1](supabase/scripts/migrate-push.ps1) so you do not need to remember long Supabase CLI flags.
+
+1. Copy [supabase/.env.example](supabase/.env.example) to `supabase/.env.local`
+2. Fill in these values in `supabase/.env.local`:
+  - `SUPABASE_PROJECT_REF` (optional if `project_id` is already set in `supabase/config.toml`)
+  - `SUPABASE_ACCESS_TOKEN` (optional but needed if linking is required)
+  - `SUPABASE_DB_PASSWORD` (required)
+3. Preview pending migrations:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File supabase/scripts/migrate-status.ps1
+```
+
+4. Push migrations to remote:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File supabase/scripts/migrate-push.ps1
+```
+
+Notes:
+- Scripts use `npx.cmd -y supabase ...`, so global Supabase CLI install is not required.
+- If `SUPABASE_ACCESS_TOKEN` is blank, script assumes project is already linked.
+- If you get auth errors, verify `SUPABASE_DB_PASSWORD` is the database password from Supabase Project Settings -> Database.
+
 ### Step 1: Open Supabase Dashboard
 1. Go to https://supabase.com
 2. Login to your project
 3. Go to **SQL Editor** → **New Query**
 
 ### Step 2: Copy & Run Migration Script
-1. Copy the entire contents of `database_migration.sql`
+1. Copy the entire contents of `supabase/migrations/20260418120000_initial_public_schema.sql`
 2. Paste into the SQL Editor
 3. Click **Run**
 
@@ -193,10 +223,7 @@ Tables created/updated: drivers, driver_documents, driver_availability_schedule,
 ```
 
 ### Step 4: Seed Test Users (Optional)
-After migration completes, run the seeding script:
-```sql
--- Run supabase_seed_all.sql to create 5 test users
-```
+After migration completes, run a seeding script (for example `supabase_seed_admin.sql`).
 
 ---
 
@@ -281,10 +308,10 @@ users (Master table)
 ## Migration Checklist
 
 - [ ] Backup existing database (if any)
-- [ ] Run database_migration.sql in Supabase SQL Editor
+- [ ] Run supabase/migrations/20260418120000_initial_public_schema.sql in Supabase SQL Editor
 - [ ] Verify all tables created successfully
 - [ ] Verify all indexes created
-- [ ] Run supabase_seed_all.sql to create test users
+- [ ] Run a seed script (for example supabase_seed_admin.sql)
 - [ ] Test driver sign-up flow
 - [ ] Test booking with driver assignment
 - [ ] Verify earnings calculation
@@ -324,7 +351,7 @@ ALTER TABLE users DROP COLUMN IF EXISTS is_driver, DROP COLUMN IF EXISTS is_avai
 
 After running this migration:
 
-1. **Seed test users** → Run `supabase_seed_all.sql`
+1. **Seed test users** → Run a seed script (for example `supabase_seed_admin.sql`)
 2. **Test driver workflows** → Follow DRIVER_SIGNUP_IMPLEMENTATION.md
 3. **Review service methods** → Check DriverService.dart implementation
 4. **Test UI screens** → Test driver sign-up flow in app

@@ -32,6 +32,7 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
 
   final List<String> _filters = [
     'All Users',
+    'Unverified Applicants',
     'Renters',
     'Owners',
     'Operators',
@@ -48,7 +49,23 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
     var filtered = widget.users;
 
     // Apply role filter
-    if (_selectedFilter != 'All Users') {
+    if (_selectedFilter == 'Unverified Applicants') {
+      filtered = filtered.where((user) {
+        final role = (user['role'] ?? '').toString().toLowerCase();
+        final status =
+            (user['display_verification_status'] ??
+                    user['verification_status'] ??
+                    '')
+                .toString()
+                .toLowerCase();
+
+        final isApplicantRole = role == 'partner' || role == 'driver';
+        final isUnverifiedApplicant =
+            status == 'unverified' || status == 'pending';
+
+        return isApplicantRole && isUnverifiedApplicant;
+      }).toList();
+    } else if (_selectedFilter != 'All Users') {
       final filterRole = _selectedFilter.toLowerCase().replaceAll('s', '');
       filtered = filtered.where((user) {
         final role = (user['role'] ?? '').toString().toLowerCase();
@@ -88,10 +105,25 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
   int get _verifiedCount => widget.users
       .where(
         (u) =>
-            (u['verification_status'] ?? '').toString().toLowerCase() ==
+            (u['display_verification_status'] ?? u['verification_status'] ?? '')
+                .toString()
+                .toLowerCase() ==
             'verified',
       )
       .length;
+
+  int get _unverifiedApplicantsCount => widget.users.where((u) {
+    final role = (u['role'] ?? '').toString().toLowerCase();
+    final status =
+        (u['display_verification_status'] ?? u['verification_status'] ?? '')
+            .toString()
+            .toLowerCase();
+
+    final isApplicantRole = role == 'partner' || role == 'driver';
+    final isUnverifiedApplicant = status == 'unverified' || status == 'pending';
+
+    return isApplicantRole && isUnverifiedApplicant;
+  }).length;
 
   @override
   Widget build(BuildContext context) {
@@ -209,10 +241,13 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
                   child: Row(
                     children: _filters.map((filter) {
                       final isSelected = _selectedFilter == filter;
+                      final chipLabel = filter == 'Unverified Applicants'
+                          ? 'Unverified Applicants ($_unverifiedApplicantsCount)'
+                          : filter;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: FilterChip(
-                          label: Text(filter),
+                          label: Text(chipLabel),
                           selected: isSelected,
                           onSelected: (selected) {
                             setState(() {
@@ -316,7 +351,10 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
                     name: user['full_name'] ?? 'Unknown User',
                     email: user['email'] ?? '',
                     role: user['role'] ?? 'user',
-                    status: user['verification_status'] ?? 'Pending',
+                    status:
+                        user['display_verification_status'] ??
+                        user['verification_status'] ??
+                        'Pending',
                     avatarUrl: user['avatar_url'],
                     userId: user['id'] != null
                         ? '#USR-${user['id'].toString().substring(0, 4).toUpperCase()}'
@@ -324,8 +362,12 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
                     isNew: user['is_new'] ?? false,
                     onViewDetails: () => widget.onUserTap?.call(user),
                     onVerify:
-                        (user['verification_status'] ?? '').toLowerCase() ==
-                            'pending'
+                        ((user['display_verification_status'] ??
+                                    user['verification_status'] ??
+                                    '')
+                                .toString()
+                                .toLowerCase() ==
+                            'pending')
                         ? () => widget.onVerifyUser?.call(user)
                         : null,
                   ),

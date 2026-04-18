@@ -41,10 +41,10 @@ flutter run -d ios
 #### 1. **lib/services/auth_service.dart**
 Added method:
 ```dart
-Future<AuthResponse> signInWithGoogle() async
+Future<bool> signInWithGoogle() async
 ```
 - Handles OAuth flow
-- Returns AuthResponse for session
+- Returns true when OAuth launch succeeds
 - Includes error handling
 
 #### 2. **lib/mobile_ui/screens/auth/login_screen.dart**
@@ -58,7 +58,6 @@ Changes:
 #### 3. **lib/main.dart**
 Changes:
 - Added `import 'dart:async'`
-- Configured `deepLinkingOptions` in Supabase init
 - Added `_setupAuthListener()` to AuthWrapper
 - Added `_authSubscription` stream listener
 - Auto-navigation to dashboard on OAuth

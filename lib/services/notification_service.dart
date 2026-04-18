@@ -134,15 +134,19 @@ class NotificationService {
     try {
       debugPrint('Creating notification for user: $userId');
 
-      final response = await supabase.from('notifications').insert({
-        'user_id': userId,
-        'title': title,
-        'message': message,
-        'type': type ?? 'general',
-        'data': data,
-        'is_read': false,
-        'created_at': DateTime.now().toIso8601String(),
-      }).select().single();
+      final response = await supabase
+          .from('notifications')
+          .insert({
+            'user_id': userId,
+            'title': title,
+            'message': message,
+            'type': type ?? 'general',
+            'data': data,
+            'is_read': false,
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select()
+          .single();
 
       debugPrint('Notification created successfully');
       return response;
@@ -198,6 +202,179 @@ class NotificationService {
         .stream(primaryKey: ['id'])
         .eq('user_id', userId)
         .order('created_at', ascending: false);
+  }
+
+  // ================== DOCUMENT EXPIRY NOTIFICATIONS ==================
+
+  /// Create document expiry notification for a user
+  Future<bool> createDocumentExpiryNotification({
+    required String userId,
+    required String
+    documentType, // 'license', 'nbi', 'insurance', 'registration', 'verification'
+    required int daysUntilExpiry,
+    String? documentId,
+  }) async {
+    try {
+      debugPrint(
+        'Creating document expiry notification for user: $userId, document: $documentType, days until expiry: $daysUntilExpiry',
+      );
+
+      String title = '';
+      String body = '';
+
+      if (daysUntilExpiry < 0) {
+        title = '$documentType Expired!';
+        body = 'Your $documentType has expired. Please renew it immediately.';
+      } else if (daysUntilExpiry == 0) {
+        title = '$documentType Expires Today';
+        body = 'Your $documentType expires today. Renew it now.';
+      } else {
+        title = '$documentType Expiring Soon';
+        body =
+            'Your $documentType expires in $daysUntilExpiry days. Renew before it expires.';
+      }
+
+      await supabase.from('notifications').insert({
+        'user_id': userId,
+        'title': title,
+        'body': body,
+        'type': 'document_expiry',
+        'data': {
+          'document_type': documentType,
+          'document_id': documentId,
+          'days_until_expiry': daysUntilExpiry,
+        },
+        'created_at': DateTime.now().toIso8601String(),
+        'is_read': false,
+      });
+
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error creating expiry notification: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error creating expiry notification: $e');
+      return false;
+    }
+  }
+
+  /// Check and notify all users with expiring documents
+  Future<int> checkAndNotifyExpiringDocuments({int daysThreshold = 30}) async {
+    try {
+      debugPrint(
+        'Checking for expiring documents and creating notifications (threshold: $daysThreshold days)',
+      );
+
+      int notificationsCreated = 0;
+      final now = DateTime.now();
+      final thresholdDate = now.add(Duration(days: daysThreshold));
+
+      // Check driver licenses
+      final driverDocs = await supabase
+          .from('driver_documents')
+          .select('id, driver_id, document_type, expiry_date, users(id, role)')
+          .not('expiry_date', 'is', null)
+          .gte('expiry_date', now.toIso8601String())
+          .lte('expiry_date', thresholdDate.toIso8601String());
+
+      for (var doc in driverDocs) {
+        final driverId = doc['driver_id'] as String;
+        final docType = doc['document_type'] as String;
+        final expiryDate = DateTime.parse(doc['expiry_date'] as String);
+        final daysUntilExpiry = expiryDate.difference(now).inDays;
+
+        final created = await createDocumentExpiryNotification(
+          userId: driverId,
+          documentType: docType,
+          daysUntilExpiry: daysUntilExpiry,
+          documentId: doc['id'],
+        );
+
+        if (created) notificationsCreated++;
+      }
+
+      // Check vehicle documents
+      final vehicleDocs = await supabase
+          .from('vehicle_documents')
+          .select(
+            'id, vehicle_id, document_type, expiry_date, vehicles(owner_id)',
+          )
+          .not('expiry_date', 'is', null)
+          .gte('expiry_date', now.toIso8601String())
+          .lte('expiry_date', thresholdDate.toIso8601String());
+
+      for (var doc in vehicleDocs) {
+        final ownerId = doc['vehicles']['owner_id'] as String;
+        final docType = doc['document_type'] as String;
+        final expiryDate = DateTime.parse(doc['expiry_date'] as String);
+        final daysUntilExpiry = expiryDate.difference(now).inDays;
+
+        final created = await createDocumentExpiryNotification(
+          userId: ownerId,
+          documentType: docType,
+          daysUntilExpiry: daysUntilExpiry,
+          documentId: doc['id'],
+        );
+
+        if (created) notificationsCreated++;
+      }
+
+      // Check renter verification documents
+      final renterDocs = await supabase
+          .from('renter_verification_documents')
+          .select('id, user_id, document_type, expiry_date')
+          .not('expiry_date', 'is', null)
+          .gte('expiry_date', now.toIso8601String())
+          .lte('expiry_date', thresholdDate.toIso8601String());
+
+      for (var doc in renterDocs) {
+        final userId = doc['user_id'] as String;
+        final docType = doc['document_type'] as String;
+        final expiryDate = DateTime.parse(doc['expiry_date'] as String);
+        final daysUntilExpiry = expiryDate.difference(now).inDays;
+
+        final created = await createDocumentExpiryNotification(
+          userId: userId,
+          documentType: docType,
+          daysUntilExpiry: daysUntilExpiry,
+          documentId: doc['id'],
+        );
+
+        if (created) notificationsCreated++;
+      }
+
+      debugPrint('Created $notificationsCreated document expiry notifications');
+      return notificationsCreated;
+    } catch (e) {
+      debugPrint('Error checking and notifying expiring documents: $e');
+      return 0;
+    }
+  }
+
+  /// Get badge count for expiring documents
+  Future<int> getExpiringDocumentsBadgeCount({
+    required String userId,
+    int daysThreshold = 30,
+  }) async {
+    try {
+      debugPrint('Getting expiring documents badge count for user: $userId');
+
+      // Count unread document expiry notifications
+      final response = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('type', 'document_expiry')
+          .eq('is_read', false);
+
+      return response.length;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error getting badge count: ${e.message}');
+      return 0;
+    } catch (e) {
+      debugPrint('Error getting badge count: $e');
+      return 0;
+    }
   }
 
   // Get error message from exception

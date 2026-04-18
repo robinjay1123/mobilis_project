@@ -75,13 +75,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .from('users')
           .select('*')
           .order('created_at', ascending: false);
-      _allUsers = List<Map<String, dynamic>>.from(usersResponse);
+      _allUsers = List<Map<String, dynamic>>.from(usersResponse).map((user) {
+        final map = Map<String, dynamic>.from(user);
+        final role = (map['role'] ?? '').toString().toLowerCase();
+        final appStatus = (map['application_status'] ?? '')
+            .toString()
+            .toLowerCase();
+        final idVerified = map['id_verified'] as bool? ?? false;
+
+        String displayStatus;
+        if (role == 'partner' || role == 'driver') {
+          if (appStatus == 'approved') {
+            displayStatus = 'verified';
+          } else if (appStatus == 'rejected') {
+            displayStatus = 'rejected';
+          } else if (appStatus == 'pending') {
+            displayStatus = 'pending';
+          } else {
+            displayStatus = 'unverified';
+          }
+        } else {
+          displayStatus = idVerified ? 'verified' : 'pending';
+        }
+
+        map['display_verification_status'] = displayStatus;
+        return map;
+      }).toList();
 
       // Filter pending users
       _pendingUsers = _allUsers
           .where(
             (u) =>
-                (u['verification_status'] ?? '').toString().toLowerCase() ==
+                (u['display_verification_status'] ?? '')
+                    .toString()
+                    .toLowerCase() ==
                 'pending',
           )
           .toList();
@@ -91,7 +118,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .where(
             (u) =>
                 (u['role'] ?? '').toString().toLowerCase() == 'driver' &&
-                (u['verification_status'] ?? '').toString().toLowerCase() ==
+                (u['display_verification_status'] ?? '')
+                        .toString()
+                        .toLowerCase() ==
                     'pending',
           )
           .toList();
@@ -103,21 +132,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .order('created_at', ascending: false);
       _vehicles = List<Map<String, dynamic>>.from(vehiclesResponse);
 
-      // Filter pending vehicle applications
-      _vehicleApplications = _vehicles
-          .where(
-            (v) =>
-                (v['status'] ?? '').toString().toLowerCase() == 'pending',
-          )
-          .map((v) {
-            // Add owner name from joined users table
-            final ownerData = v['users'];
+      // Load pending partner vehicle applications (admin intake queue)
+      final vehicleAppsResponse = await _supabase
+          .from('partner_vehicle_applications')
+          .select('''
+            *,
+            partner:partner_id (id, full_name, email)
+          ''')
+          .eq('application_status', 'pending')
+          .order('created_at', ascending: false);
+
+      _vehicleApplications =
+          List<Map<String, dynamic>>.from(vehicleAppsResponse).map((app) {
+            final partnerData = app['partner'] as Map<String, dynamic>?;
             return {
-              ...v,
-              'owner_name': ownerData?['full_name'] ?? 'Unknown Owner',
+              ...app,
+              'owner_name': partnerData?['full_name'] ?? 'Unknown Owner',
+              'image_url': app['vehicle_photo_url'],
+              'status': app['application_status'],
+              'owner_id': app['partner_id'],
             };
-          })
-          .toList();
+          }).toList();
 
       // Load bookings for stats
       final bookingsResponse = await _supabase
@@ -200,9 +235,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Future<void> _updateUserVerification(String userId, String status) async {
     try {
+      final user = await _supabase
+          .from('users')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final role = user?['role']?.toString().toLowerCase();
+
       await _supabase
           .from('users')
-          .update({'verification_status': status})
+          .update({
+            'verification_status': status,
+            if (role == 'partner' || role == 'driver')
+              'application_status': status == 'verified'
+                  ? 'approved'
+                  : 'rejected',
+          })
           .eq('id', userId);
 
       // Refresh data
@@ -261,6 +309,81 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to update vehicle: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _reviewVehicleApplication(
+    Map<String, dynamic> application,
+    bool approve, {
+    String? note,
+  }) async {
+    try {
+      final appId = application['id']?.toString();
+      if (appId == null || appId.isEmpty) {
+        throw Exception('Invalid application id');
+      }
+
+      if (approve) {
+        final createdVehicle = await _supabase
+            .from('vehicles')
+            .insert({
+              'owner_id': application['partner_id'],
+              'brand': application['brand'],
+              'model': application['model'],
+              'year': application['year'],
+              'plate_number': application['plate_number'],
+              'price_per_day': application['price_per_day'] ?? 0,
+              'status': 'active',
+              'is_available': false,
+              'image_url': application['vehicle_photo_url'],
+            })
+            .select('id')
+            .single();
+
+        await _supabase
+            .from('partner_vehicle_applications')
+            .update({
+              'application_status': 'approved',
+              'reviewed_at': DateTime.now().toIso8601String(),
+              'rejection_reason': null,
+              'created_vehicle_id': createdVehicle['id'],
+            })
+            .eq('id', appId);
+      } else {
+        await _supabase
+            .from('partner_vehicle_applications')
+            .update({
+              'application_status': 'rejected',
+              'reviewed_at': DateTime.now().toIso8601String(),
+              'rejection_reason': note,
+            })
+            .eq('id', appId);
+      }
+
+      await _loadData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              approve
+                  ? 'Vehicle application approved and vehicle added'
+                  : 'Vehicle application rejected',
+            ),
+            backgroundColor: approve ? AppColors.success : AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error reviewing vehicle application: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to review application: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -443,10 +566,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return VehicleIntakeTab(
           vehicleApplications: _vehicleApplications,
           onApprove: (vehicle, note) async {
-            await _updateVehicleStatus(vehicle['id'], 'active');
+            await _reviewVehicleApplication(vehicle, true, note: note);
           },
           onReject: (vehicle, note) async {
-            await _updateVehicleStatus(vehicle['id'], 'rejected');
+            await _reviewVehicleApplication(vehicle, false, note: note);
           },
           onViewDocuments: (vehicle) {
             // TODO: Implement document viewer
@@ -747,7 +870,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () => AuthService().signOut(),
+              onPressed: _handleLogout,
               icon: const Icon(Icons.logout, color: AppColors.error),
               label: const Text('Sign Out'),
               style: OutlinedButton.styleFrom(
@@ -935,6 +1058,37 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await AuthService().signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      } catch (e) {
+        debugPrint('Logout error: $e');
+      }
+    }
   }
 
   Widget _buildSettingsItem(

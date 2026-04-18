@@ -717,6 +717,368 @@ class DriverService {
     }
   }
 
+  // ==================== DRIVER APPLICATION (ADMIN) ====================
+
+  /// Get driver's application status
+  Future<String?> getApplicationStatus(String driverId) async {
+    try {
+      debugPrint('Fetching application status for driver: $driverId');
+      final response = await supabase
+          .from('users')
+          .select('application_status')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      return response?['application_status'] as String?;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching application status: ${e.message}');
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching application status: $e');
+      return null;
+    }
+  }
+
+  /// Approve driver application (called by admin)
+  Future<void> approveDriverApplication(String driverId, String notes) async {
+    try {
+      debugPrint('Approving driver application: $driverId');
+      await supabase
+          .from('users')
+          .update({'application_status': 'approved'})
+          .eq('id', driverId);
+
+      debugPrint('Driver application approved');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error approving driver application: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error approving driver application: $e');
+      rethrow;
+    }
+  }
+
+  /// Reject driver application (called by admin)
+  Future<void> rejectDriverApplication(String driverId, String reason) async {
+    try {
+      debugPrint('Rejecting driver application: $driverId');
+      await supabase
+          .from('users')
+          .update({'application_status': 'rejected'})
+          .eq('id', driverId);
+
+      debugPrint('Driver application rejected');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting driver application: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error rejecting driver application: $e');
+      rethrow;
+    }
+  }
+
+  // ==================== DOCUMENT VALIDATION ====================
+
+  /// Validate driver documents (check expiry dates)
+  Future<Map<String, dynamic>> validateDocuments(String driverId) async {
+    try {
+      debugPrint('Validating documents for driver: $driverId');
+
+      final docs = await getDriverDocuments(driverId);
+      final now = DateTime.now();
+
+      Map<String, dynamic> validation = {
+        'valid': true,
+        'expiring_soon': [],
+        'expired': [],
+        'missing_required': [],
+      };
+
+      // Check each document
+      for (var doc in docs) {
+        final expiryDate = doc['expiry_date'] as String?;
+        final docType = doc['document_type'] as String?;
+
+        if (expiryDate != null) {
+          final expiry = DateTime.parse(expiryDate);
+          final daysUntilExpiry = expiry.difference(now).inDays;
+
+          if (daysUntilExpiry < 0) {
+            validation['expired'].add({
+              'type': docType,
+              'expiry_date': expiryDate,
+              'days_overdue': daysUntilExpiry.abs(),
+            });
+            validation['valid'] = false;
+          } else if (daysUntilExpiry < 90) {
+            validation['expiring_soon'].add({
+              'type': docType,
+              'expiry_date': expiryDate,
+              'days_remaining': daysUntilExpiry,
+            });
+          }
+        }
+      }
+
+      // Check for required documents
+      final requiredDocs = ['license', 'nbi'];
+      final uploadedTypes = docs.map((d) => d['document_type']).toSet();
+
+      for (var required in requiredDocs) {
+        if (!uploadedTypes.contains(required)) {
+          validation['missing_required'].add(required);
+          validation['valid'] = false;
+        }
+      }
+
+      debugPrint('Document validation: ${validation['valid']}');
+      return validation;
+    } catch (e) {
+      debugPrint('Error validating documents: $e');
+      return {'valid': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get expiring documents (within N days)
+  Future<List<Map<String, dynamic>>> getExpiringDocuments(
+    String driverId, {
+    int daysThreshold = 90,
+  }) async {
+    try {
+      debugPrint(
+        'Fetching expiring documents for driver: $driverId (within $daysThreshold days)',
+      );
+
+      final docs = await getDriverDocuments(driverId);
+      final now = DateTime.now();
+      final thresholdDate = now.add(Duration(days: daysThreshold));
+
+      final expiringDocs = docs.where((doc) {
+        final expiryDate = doc['expiry_date'] as String?;
+        if (expiryDate == null) return false;
+
+        final expiry = DateTime.parse(expiryDate);
+        return expiry.isBefore(thresholdDate) && expiry.isAfter(now);
+      }).toList();
+
+      debugPrint('Found ${expiringDocs.length} expiring documents');
+      return List<Map<String, dynamic>>.from(expiringDocs);
+    } catch (e) {
+      debugPrint('Error fetching expiring documents: $e');
+      return [];
+    }
+  }
+
+  // ==================== SEARCH & FILTER ====================
+
+  /// Filter job offers by criteria
+  Future<List<Map<String, dynamic>>> filterJobOffers(
+    String driverId, {
+    String? status,
+    DateTime? afterDate,
+    DateTime? beforeDate,
+    double? minTripFee,
+    double? maxTripFee,
+  }) async {
+    try {
+      debugPrint('Filtering job offers for driver: $driverId');
+
+      var query = supabase
+          .from('driver_job_assignments')
+          .select(
+            'id, booking_id, driver_id, trip_fee, status, created_at, bookings(id, start_date, end_date, total_price, pickup_location, dropoff_location, vehicles(brand, model), users(full_name))',
+          )
+          .eq('driver_id', driverId);
+
+      if (status != null) {
+        query = query.eq('status', status);
+      }
+
+      if (afterDate != null) {
+        query = query.gte('created_at', afterDate.toIso8601String());
+      }
+
+      if (beforeDate != null) {
+        query = query.lte('created_at', beforeDate.toIso8601String());
+      }
+
+      if (minTripFee != null) {
+        query = query.gte('trip_fee', minTripFee);
+      }
+
+      if (maxTripFee != null) {
+        query = query.lte('trip_fee', maxTripFee);
+      }
+
+      final response = await query.order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error filtering job offers: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error filtering job offers: $e');
+      return [];
+    }
+  }
+
+  // ==================== DOCUMENT RENEWAL ====================
+
+  /// Renew an expired/expiring driver document
+  Future<Map<String, dynamic>?> renewDocument({
+    required String documentId,
+    required String newFileUrl,
+    required DateTime newExpiryDate,
+  }) async {
+    try {
+      debugPrint('Renewing driver document: $documentId');
+
+      // Get the old document
+      final oldDoc = await supabase
+          .from('driver_documents')
+          .select()
+          .eq('id', documentId)
+          .maybeSingle();
+
+      if (oldDoc == null) {
+        throw Exception('Document not found: $documentId');
+      }
+
+      // Update the document with new file and expiry
+      final updated = await supabase
+          .from('driver_documents')
+          .update({
+            'file_url': newFileUrl,
+            'expiry_date': newExpiryDate.toIso8601String(),
+            'status': 'pending', // Set to pending for admin review
+            'updated_at': DateTime.now().toIso8601String(),
+            'renewal_count': (oldDoc['renewal_count'] ?? 0) + 1,
+          })
+          .eq('id', documentId)
+          .select()
+          .maybeSingle();
+
+      debugPrint('Document renewed successfully: $documentId');
+      return updated;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error renewing document: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error renewing document: $e');
+      rethrow;
+    }
+  }
+
+  /// Bulk renew multiple documents for a driver
+  Future<int> bulkRenewDocuments({
+    required String driverId,
+    required Map<String, dynamic>
+    documentUpdates, // {documentId: {fileUrl, expiryDate}, ...}
+  }) async {
+    try {
+      debugPrint('Bulk renewing documents for driver: $driverId');
+
+      int renewedCount = 0;
+
+      for (var docEntry in documentUpdates.entries) {
+        try {
+          final documentId = docEntry.key;
+          final updates = docEntry.value as Map<String, dynamic>;
+          final newFileUrl = updates['fileUrl'] as String;
+          final newExpiryDate = DateTime.parse(updates['expiryDate'] as String);
+
+          await renewDocument(
+            documentId: documentId,
+            newFileUrl: newFileUrl,
+            newExpiryDate: newExpiryDate,
+          );
+
+          renewedCount++;
+        } catch (e) {
+          debugPrint('Failed to renew document: $e');
+          continue;
+        }
+      }
+
+      debugPrint(
+        'Bulk renewal completed: $renewedCount/${documentUpdates.length} documents',
+      );
+      return renewedCount;
+    } catch (e) {
+      debugPrint('Error in bulk renewal: $e');
+      return 0;
+    }
+  }
+
+  /// Get documents pending renewal (expired or expiring within threshold)
+  Future<List<Map<String, dynamic>>> getDocumentsPendingRenewal({
+    required String driverId,
+    int daysThreshold = 7,
+  }) async {
+    try {
+      debugPrint(
+        'Getting documents pending renewal for driver: $driverId (within $daysThreshold days)',
+      );
+
+      final now = DateTime.now();
+      final thresholdDate = now.add(Duration(days: daysThreshold));
+
+      final docs = await supabase
+          .from('driver_documents')
+          .select()
+          .eq('driver_id', driverId);
+
+      final pendingRenewal = docs.where((doc) {
+        final expiryDate = doc['expiry_date'] as String?;
+        if (expiryDate == null) return false;
+
+        final expiry = DateTime.parse(expiryDate);
+        return expiry.isBefore(thresholdDate);
+      }).toList();
+
+      return List<Map<String, dynamic>>.from(pendingRenewal);
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'Database error getting documents pending renewal: ${e.message}',
+      );
+      return [];
+    } catch (e) {
+      debugPrint('Error getting documents pending renewal: $e');
+      return [];
+    }
+  }
+
+  /// Request document renewal notification to driver
+  Future<bool> requestDocumentRenewal({
+    required String driverId,
+    required String documentType,
+    String? reason,
+  }) async {
+    try {
+      debugPrint(
+        'Requesting document renewal for driver: $driverId (type: $documentType)',
+      );
+
+      // Log action
+      await supabase.from('admin_audit_logs').insert({
+        'entity_id': driverId,
+        'entity_type': 'document_renewal_request',
+        'action': 'renewal_requested',
+        'notes':
+            reason ?? 'Requested renewal of $documentType for driver $driverId',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error requesting document renewal: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error requesting document renewal: $e');
+      return false;
+    }
+  }
+
   // ==================== UTILITIES ====================
 
   /// Get error message from exception

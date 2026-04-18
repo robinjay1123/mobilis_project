@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/operator_activity_logger.dart';
 
 class OperatorHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -29,23 +30,38 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   int _pendingBookings = 0;
   int _activeBookings = 0;
   int _totalBookings = 0;
+
   int _availableDrivers = 0;
 
   // Lists
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _drivers = [];
+  List<Map<String, dynamic>> _partners = [];
 
   // Filters
   String _vehicleFilter = 'all'; // all, available, unavailable
-  String _bookingFilter = 'pending'; // pending, approved, active, completed, all
+  String _bookingFilter =
+      'pending'; // pending, approved, active, completed, all
 
   final _supabase = Supabase.instance.client;
 
   @override
   void initState() {
     super.initState();
+    _logOperatorLogin();
     _loadDashboardData();
+  }
+
+  /// Log operator login activity
+  Future<void> _logOperatorLogin() async {
+    try {
+      await OperatorActivityLogger.logLogin(
+        description: 'Operator logged in to dashboard',
+      );
+    } catch (e) {
+      debugPrint('Error logging operator login: $e');
+    }
   }
 
   Future<void> _loadDashboardData() async {
@@ -57,6 +73,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         _loadVehicles(),
         _loadBookings(),
         _loadDrivers(),
+        _loadPartners(),
       ]);
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
@@ -74,10 +91,12 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           .eq('status', 'active');
       final vehicles = vehiclesResponse as List;
       _totalVehicles = vehicles.length;
-      _availableVehicles =
-          vehicles.where((v) => v['is_available'] == true).length;
-      _unavailableVehicles =
-          vehicles.where((v) => v['is_available'] != true).length;
+      _availableVehicles = vehicles
+          .where((v) => v['is_available'] == true)
+          .length;
+      _unavailableVehicles = vehicles
+          .where((v) => v['is_available'] != true)
+          .length;
 
       // Pending bookings
       final pendingBookingsResponse = await _supabase
@@ -94,8 +113,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       _activeBookings = (activeBookingsResponse as List).length;
 
       // Total bookings
-      final totalBookingsResponse =
-          await _supabase.from('bookings').select('id');
+      final totalBookingsResponse = await _supabase
+          .from('bookings')
+          .select('id');
       _totalBookings = (totalBookingsResponse as List).length;
 
       // Available drivers (users with role = 'driver' and is_available = true)
@@ -166,6 +186,241 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     }
   }
 
+  Future<void> _loadPartners() async {
+    try {
+      final response = await _supabase
+          .from('users')
+          .select('id, full_name, email')
+          .eq('role', 'partner')
+          .order('full_name', ascending: true);
+
+      _partners = List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error loading partners: $e');
+      _partners = [];
+    }
+  }
+
+  Future<void> _addVehicle({
+    required String brand,
+    required String model,
+    required int year,
+    required String plateNumber,
+    required double pricePerDay,
+    String? imageUrl,
+    String? partnerId,
+  }) async {
+    try {
+      await _supabase.from('vehicles').insert({
+        'owner_id': partnerId,
+        'brand': brand,
+        'model': model,
+        'year': year,
+        'plate_number': plateNumber,
+        'price_per_day': pricePerDay,
+        'status': 'active',
+        'is_available': false,
+        'image_url': imageUrl,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vehicle added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+
+      await _loadDashboardData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to add vehicle: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showAddVehicleDialog() {
+    final brandController = TextEditingController();
+    final modelController = TextEditingController();
+    final yearController = TextEditingController();
+    final plateController = TextEditingController();
+    final priceController = TextEditingController();
+    final imageController = TextEditingController();
+
+    String source = 'company';
+    String? selectedPartnerId;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Add Vehicle'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: source,
+                    decoration: const InputDecoration(
+                      labelText: 'Vehicle Source',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'company',
+                        child: Text('Company Vehicle'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'partner',
+                        child: Text('Partner Vehicle'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setDialogState(() {
+                        source = value ?? 'company';
+                        if (source == 'company') {
+                          selectedPartnerId = null;
+                        }
+                      });
+                    },
+                  ),
+                  if (source == 'partner') ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedPartnerId,
+                      decoration: const InputDecoration(
+                        labelText: 'Partner Owner',
+                      ),
+                      items: _partners
+                          .map(
+                            (p) => DropdownMenuItem<String>(
+                              value: p['id']?.toString(),
+                              child: Text(
+                                p['full_name']?.toString() ??
+                                    p['email']?.toString() ??
+                                    'Unknown Partner',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedPartnerId = value;
+                        });
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: brandController,
+                    decoration: const InputDecoration(labelText: 'Brand'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: modelController,
+                    decoration: const InputDecoration(labelText: 'Model'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: yearController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Year'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: plateController,
+                    decoration: const InputDecoration(
+                      labelText: 'Plate Number',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: priceController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Price Per Day',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: imageController,
+                    decoration: const InputDecoration(
+                      labelText: 'Image URL (optional)',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final brand = brandController.text.trim();
+                  final model = modelController.text.trim();
+                  final plate = plateController.text.trim().toUpperCase();
+                  final year = int.tryParse(yearController.text.trim());
+                  final price = double.tryParse(priceController.text.trim());
+
+                  if (brand.isEmpty ||
+                      model.isEmpty ||
+                      plate.isEmpty ||
+                      year == null ||
+                      price == null ||
+                      price <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please complete all required fields'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (source == 'partner' &&
+                      (selectedPartnerId == null ||
+                          selectedPartnerId!.isEmpty)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please select a partner owner'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  Navigator.pop(context);
+                  await _addVehicle(
+                    brand: brand,
+                    model: model,
+                    year: year,
+                    plateNumber: plate,
+                    pricePerDay: price,
+                    imageUrl: imageController.text.trim().isEmpty
+                        ? null
+                        : imageController.text.trim(),
+                    partnerId: source == 'partner' ? selectedPartnerId : null,
+                  );
+                },
+                child: const Text('Add Vehicle'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _toggleVehicleAvailability(
     String vehicleId,
     bool currentStatus,
@@ -173,7 +428,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     try {
       await _supabase
           .from('vehicles')
-          .update({'is_available': !currentStatus}).eq('id', vehicleId);
+          .update({'is_available': !currentStatus})
+          .eq('id', vehicleId);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -213,6 +469,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           .update(updateData)
           .eq('id', booking['id']);
 
+      // Log the approval
+      await OperatorActivityLogger.logBookingApproved(
+        bookingId: booking['id'],
+        reason: 'Booking approved by operator',
+        totalPrice: booking['total_price'],
+      );
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Booking approved successfully'),
@@ -230,11 +493,20 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Future<void> _rejectBooking(String bookingId, String reason) async {
     try {
-      await _supabase.from('bookings').update({
-        'status': 'rejected',
-        'rejection_reason': reason,
-        'rejected_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      await _supabase
+          .from('bookings')
+          .update({
+            'status': 'rejected',
+            'rejection_reason': reason,
+            'rejected_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      // Log the rejection
+      await OperatorActivityLogger.logBookingRejected(
+        bookingId: bookingId,
+        reason: reason,
+      );
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -253,10 +525,28 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Future<void> _assignDriver(String bookingId, String driverId) async {
     try {
-      await _supabase.from('bookings').update({
-        'driver_id': driverId,
-        'driver_assigned_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      // Get driver info for logging
+      final driverInfo = await _supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      await _supabase
+          .from('bookings')
+          .update({
+            'driver_id': driverId,
+            'driver_assigned_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      // Log the driver assignment
+      await OperatorActivityLogger.logDriverAssigned(
+        bookingId: bookingId,
+        driverId: driverId,
+        tripFee: 0.0, // Will be set separately
+        driverName: driverInfo?['full_name'],
+      );
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -300,13 +590,38 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   }
 
   Future<void> _handleLogout() async {
-    try {
-      await AuthService().signOut();
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        // Log operator logout
+        await OperatorActivityLogger.logLogout(
+          description: 'Operator logged out from dashboard',
+        );
+
+        await AuthService().signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      } catch (e) {
+        debugPrint('Logout error: $e');
       }
-    } catch (e) {
-      debugPrint('Logout error: $e');
     }
   }
 
@@ -539,8 +854,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
               children: [
                 Icon(icon, color: color, size: 22),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
@@ -648,7 +965,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
               isLabelVisible: badge != null && badge > 0,
               label: Text(badge?.toString() ?? ''),
               backgroundColor: Colors.red,
-              child: Icon(icon, color: iconColor ?? AppColors.primary, size: 20),
+              child: Icon(
+                icon,
+                color: iconColor ?? AppColors.primary,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -668,8 +989,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   }
 
   Widget _buildPendingBookingsPreview(bool isDark) {
-    final pendingBookings =
-        _bookings.where((b) => b['status'] == 'pending').take(3).toList();
+    final pendingBookings = _bookings
+        .where((b) => b['status'] == 'pending')
+        .take(3)
+        .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -765,7 +1088,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
               color: Colors.orange.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.pending_actions, color: Colors.orange, size: 20),
+            child: const Icon(
+              Icons.pending_actions,
+              color: Colors.orange,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -836,6 +1163,19 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                     color: Colors.black.withOpacity(0.7),
                   ),
                 ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: ElevatedButton.icon(
+                    onPressed: _showAddVehicleDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Vehicle'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -847,16 +1187,28 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Row(
             children: [
-              _buildFilterChip('All ($_totalVehicles)', 'all', isDark,
-                  isVehicle: true),
+              _buildFilterChip(
+                'All ($_totalVehicles)',
+                'all',
+                isDark,
+                isVehicle: true,
+              ),
               const SizedBox(width: 8),
               _buildFilterChip(
-                  'Available ($_availableVehicles)', 'available', isDark,
-                  color: Colors.green, isVehicle: true),
+                'Available ($_availableVehicles)',
+                'available',
+                isDark,
+                color: Colors.green,
+                isVehicle: true,
+              ),
               const SizedBox(width: 8),
               _buildFilterChip(
-                  'Hidden ($_unavailableVehicles)', 'unavailable', isDark,
-                  color: Colors.orange, isVehicle: true),
+                'Hidden ($_unavailableVehicles)',
+                'unavailable',
+                isDark,
+                color: Colors.orange,
+                isVehicle: true,
+              ),
             ],
           ),
         ),
@@ -868,23 +1220,23 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   child: CircularProgressIndicator(color: AppColors.primary),
                 )
               : _filteredVehicles.isEmpty
-                  ? _buildEmptyState(
-                      Icons.directions_car_outlined,
-                      'No vehicles found',
-                      isDark,
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadVehicles,
-                      color: AppColors.primary,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: _filteredVehicles.length,
-                        itemBuilder: (context, index) {
-                          final vehicle = _filteredVehicles[index];
-                          return _buildVehicleManageCard(vehicle, isDark);
-                        },
-                      ),
-                    ),
+              ? _buildEmptyState(
+                  Icons.directions_car_outlined,
+                  'No vehicles found',
+                  isDark,
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadVehicles,
+                  color: AppColors.primary,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: _filteredVehicles.length,
+                    itemBuilder: (context, index) {
+                      final vehicle = _filteredVehicles[index];
+                      return _buildVehicleManageCard(vehicle, isDark);
+                    },
+                  ),
+                ),
         ),
       ],
     );
@@ -895,7 +1247,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 64, color: isDark ? Colors.grey : Colors.grey.shade400),
+          Icon(
+            icon,
+            size: 64,
+            color: isDark ? Colors.grey : Colors.grey.shade400,
+          ),
           const SizedBox(height: 16),
           Text(
             message,
@@ -916,8 +1272,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     Color? color,
     bool isVehicle = false,
   }) {
-    final isSelected =
-        isVehicle ? _vehicleFilter == value : _bookingFilter == value;
+    final isSelected = isVehicle
+        ? _vehicleFilter == value
+        : _bookingFilter == value;
     final chipColor = color ?? AppColors.primary;
 
     return GestureDetector(
@@ -1242,11 +1599,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   color: Colors.purple,
                 ),
                 const SizedBox(width: 8),
-                _buildFilterChip(
-                  'All',
-                  'all',
-                  isDark,
-                ),
+                _buildFilterChip('All', 'all', isDark),
               ],
             ),
           ),
@@ -1259,25 +1612,25 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   child: CircularProgressIndicator(color: AppColors.primary),
                 )
               : _filteredBookings.isEmpty
-                  ? _buildEmptyState(
-                      Icons.book_outlined,
-                      'No ${_bookingFilter == 'all' ? '' : _bookingFilter} bookings found',
-                      isDark,
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadBookings,
-                      color: AppColors.primary,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: _filteredBookings.length,
-                        itemBuilder: (context, index) {
-                          return _buildBookingCard(
-                            _filteredBookings[index],
-                            isDark,
-                          );
-                        },
-                      ),
-                    ),
+              ? _buildEmptyState(
+                  Icons.book_outlined,
+                  'No ${_bookingFilter == 'all' ? '' : _bookingFilter} bookings found',
+                  isDark,
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadBookings,
+                  color: AppColors.primary,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: _filteredBookings.length,
+                    itemBuilder: (context, index) {
+                      return _buildBookingCard(
+                        _filteredBookings[index],
+                        isDark,
+                      );
+                    },
+                  ),
+                ),
         ),
       ],
     );
@@ -1302,10 +1655,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     // 1. Booking is with driver service (not self-drive)
     // 2. AND (partner doesn't drive OR it's a company vehicle)
     // 3. AND no driver assigned yet
-    final needsDriverAssignment = withDriver &&
-        !ownerIsDriver &&
-        driver == null &&
-        status == 'pending';
+    final needsDriverAssignment =
+        withDriver && !ownerIsDriver && driver == null && status == 'pending';
 
     Color statusColor;
     switch (status) {
@@ -1352,8 +1703,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child:
-                    Icon(Icons.directions_car, color: statusColor, size: 24),
+                child: Icon(Icons.directions_car, color: statusColor, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1381,8 +1731,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
@@ -1400,9 +1752,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           ),
 
           const SizedBox(height: 12),
-          Divider(
-            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-          ),
+          Divider(color: isDark ? AppColors.borderColor : Colors.grey.shade200),
           const SizedBox(height: 12),
 
           // Renter info
@@ -1434,7 +1784,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
             isPartnerOwned ? 'Partner' : 'Company Vehicle',
             isPartnerOwned ? (owner?['full_name'] ?? 'Unknown') : 'PSDC Fleet',
             isPartnerOwned && withDriver
-                ? (ownerIsDriver ? 'Partner will drive' : 'Needs company driver')
+                ? (ownerIsDriver
+                      ? 'Partner will drive'
+                      : 'Needs company driver')
                 : null,
             isDark,
             subtitleColor: isPartnerOwned && withDriver
@@ -1526,8 +1878,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline,
-                        color: Colors.orange, size: 16),
+                    const Icon(
+                      Icons.info_outline,
+                      color: Colors.orange,
+                      size: 16,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1630,7 +1985,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   }) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: isDark ? Colors.grey : Colors.grey.shade600),
+        Icon(
+          icon,
+          size: 16,
+          color: isDark ? Colors.grey : Colors.grey.shade600,
+        ),
         const SizedBox(width: 8),
         Text(
           '$label: ',
@@ -1657,7 +2016,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   style: TextStyle(
                     fontSize: 10,
                     color:
-                        subtitleColor ?? (isDark ? Colors.grey : Colors.grey.shade600),
+                        subtitleColor ??
+                        (isDark ? Colors.grey : Colors.grey.shade600),
                   ),
                 ),
             ],
@@ -1760,8 +2120,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   void _showDriverAssignmentDialog(Map<String, dynamic> booking) {
     final isDark = widget.isDarkMode;
-    final availableDrivers =
-        _drivers.where((d) => d['is_available'] == true).toList();
+    final availableDrivers = _drivers
+        .where((d) => d['is_available'] == true)
+        .toList();
 
     showModalBottomSheet(
       context: context,
@@ -1878,10 +2239,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                       ),
                       onTap: () {
                         Navigator.pop(context);
-                        _approveBooking(
-                          booking,
-                          driverId: driver['id'],
-                        );
+                        _approveBooking(booking, driverId: driver['id']);
                       },
                     );
                   },
@@ -1911,61 +2269,49 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          _buildSettingsSection(
-            'Appearance',
-            [
-              _buildSettingsTile(
-                'Dark Mode',
-                'Switch between light and dark theme',
-                Icons.dark_mode,
-                isDark,
-                trailing: Switch(
-                  value: widget.isDarkMode,
-                  onChanged: widget.onThemeToggle,
-                  activeColor: AppColors.primary,
-                ),
+          _buildSettingsSection('Appearance', [
+            _buildSettingsTile(
+              'Dark Mode',
+              'Switch between light and dark theme',
+              Icons.dark_mode,
+              isDark,
+              trailing: Switch(
+                value: widget.isDarkMode,
+                onChanged: widget.onThemeToggle,
+                activeColor: AppColors.primary,
               ),
-            ],
-            isDark,
-          ),
+            ),
+          ], isDark),
           const SizedBox(height: 24),
-          _buildSettingsSection(
-            'Account',
-            [
-              _buildSettingsTile(
-                'Profile',
-                'View and edit your profile',
-                Icons.person_outline,
-                isDark,
-              ),
-              _buildSettingsTile(
-                'Security',
-                'Password and authentication',
-                Icons.security,
-                isDark,
-              ),
-            ],
-            isDark,
-          ),
+          _buildSettingsSection('Account', [
+            _buildSettingsTile(
+              'Profile',
+              'View and edit your profile',
+              Icons.person_outline,
+              isDark,
+            ),
+            _buildSettingsTile(
+              'Security',
+              'Password and authentication',
+              Icons.security,
+              isDark,
+            ),
+          ], isDark),
           const SizedBox(height: 24),
-          _buildSettingsSection(
-            'Support',
-            [
-              _buildSettingsTile(
-                'Help Center',
-                'Get help with common issues',
-                Icons.help_outline,
-                isDark,
-              ),
-              _buildSettingsTile(
-                'Contact Support',
-                'Reach out to our team',
-                Icons.support_agent,
-                isDark,
-              ),
-            ],
-            isDark,
-          ),
+          _buildSettingsSection('Support', [
+            _buildSettingsTile(
+              'Help Center',
+              'Get help with common issues',
+              Icons.help_outline,
+              isDark,
+            ),
+            _buildSettingsTile(
+              'Contact Support',
+              'Reach out to our team',
+              Icons.support_agent,
+              isDark,
+            ),
+          ], isDark),
           const SizedBox(height: 32),
           CustomButton(
             label: 'Sign Out',
@@ -2041,7 +2387,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           color: isDark ? Colors.grey : Colors.grey.shade600,
         ),
       ),
-      trailing: trailing ??
+      trailing:
+          trailing ??
           Icon(
             Icons.chevron_right,
             color: isDark ? Colors.grey : Colors.grey.shade400,

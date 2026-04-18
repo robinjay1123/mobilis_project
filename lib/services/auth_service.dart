@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'preferences_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -28,9 +29,12 @@ class AuthService {
   Future<String?> getUserRole() async {
     try {
       final user = currentUser;
-      if (user == null) return null;
+      if (user == null) {
+        debugPrint('❌ No user - role is null');
+        return null;
+      }
 
-      debugPrint('Fetching role for user: ${user.id}');
+      debugPrint('🔍 Fetching role for user: ${user.id}');
 
       final response = await supabase
           .from('users')
@@ -39,13 +43,44 @@ class AuthService {
           .maybeSingle();
 
       final role = response?['role'] as String?;
-      debugPrint('User role: $role');
-      return role;
+      final normalizedRole = role?.toLowerCase().trim();
+      debugPrint('📋 Raw response: $response');
+      debugPrint(
+        '✅ User role fetched: "$role" → normalized: "$normalizedRole"',
+      );
+
+      if (normalizedRole == null || normalizedRole.isEmpty) {
+        debugPrint('⚠️ WARNING: Role is null or empty!');
+      }
+
+      return normalizedRole;
     } on PostgrestException catch (e) {
-      debugPrint('Database error fetching user role: ${e.message}');
+      debugPrint('❌ Database error fetching user role: ${e.message}');
       return null;
     } catch (e) {
-      debugPrint('Error fetching user role: $e');
+      debugPrint('❌ Error fetching user role: $e');
+      return null;
+    }
+  }
+
+  // Get application status for partner/driver onboarding
+  Future<String?> getApplicationStatus() async {
+    try {
+      final user = currentUser;
+      if (user == null) return null;
+
+      final response = await supabase
+          .from('users')
+          .select('application_status')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      return response?['application_status'] as String?;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching application status: ${e.message}');
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching application status: $e');
       return null;
     }
   }
@@ -78,6 +113,25 @@ class AuthService {
 
       await supabase.from('users').update({'role': newRole}).eq('id', user.id);
 
+      if (newRole == 'partner' || newRole == 'driver') {
+        await supabase
+            .from('users')
+            .update({'application_status': 'pending'})
+            .eq('id', user.id);
+      }
+
+      if (newRole == 'partner') {
+        await _ensurePartnerProfileExists(user.id);
+      }
+
+      if (newRole == 'driver') {
+        await _ensureDriverProfileExists(user.id);
+      }
+
+      if (newRole == 'renter') {
+        await _ensureRenterProfileExists(user.id);
+      }
+
       debugPrint('User role updated to: $newRole');
     } on PostgrestException catch (e) {
       debugPrint('Database error updating user role: ${e.message}');
@@ -85,6 +139,69 @@ class AuthService {
     } catch (e) {
       debugPrint('Error updating user role: $e');
       rethrow;
+    }
+  }
+
+  Future<void> _ensurePartnerProfileExists(String userId) async {
+    try {
+      final existing = await supabase
+          .from('partners')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existing != null) return;
+
+      await supabase.from('partners').insert({
+        'user_id': userId,
+        'verification_status': 'pending',
+      });
+    } on PostgrestException catch (e) {
+      // Keep role switching working even when partner provisioning fails.
+      debugPrint('Partner profile provisioning skipped: ${e.message}');
+    } catch (e) {
+      debugPrint('Unexpected partner profile provisioning error: $e');
+    }
+  }
+
+  Future<void> _ensureRenterProfileExists(String userId) async {
+    try {
+      final existing = await supabase
+          .from('renters')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existing != null) return;
+
+      await supabase.from('renters').insert({'user_id': userId});
+    } on PostgrestException catch (e) {
+      // Keep auth/profile flow working even if renters table is not present yet.
+      debugPrint('Renter profile provisioning skipped: ${e.message}');
+    } catch (e) {
+      debugPrint('Unexpected renter profile provisioning error: $e');
+    }
+  }
+
+  Future<void> _ensureDriverProfileExists(String userId) async {
+    try {
+      final existing = await supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (existing != null) return;
+
+      await supabase.from('drivers').insert({
+        'user_id': userId,
+        'verification_status': 'pending',
+      });
+    } on PostgrestException catch (e) {
+      // Keep role switching working even when driver provisioning fails.
+      debugPrint('Driver profile provisioning skipped: ${e.message}');
+    } catch (e) {
+      debugPrint('Unexpected driver profile provisioning error: $e');
     }
   }
 
@@ -196,6 +313,35 @@ class AuthService {
     }
   }
 
+  // Update partner/driver application status
+  Future<void> updateUserApplicationStatus({required String status}) async {
+    try {
+      final user = currentUser;
+      if (user == null) throw Exception('No user logged in');
+
+      debugPrint('Updating application status for user: ${user.id}');
+
+      await supabase
+          .from('users')
+          .update({'application_status': status})
+          .eq('id', user.id);
+
+      debugPrint('Application status updated to: $status');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error updating application status: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error updating application status: $e');
+      rethrow;
+    }
+  }
+
+  // Check if partner/driver has been approved by admin
+  Future<bool> isApplicationApproved() async {
+    final status = await getApplicationStatus();
+    return status == 'approved';
+  }
+
   // Check if user is verified for rental
   Future<bool> isUserVerified() async {
     try {
@@ -226,6 +372,7 @@ class AuthService {
   Future<AuthResponse> login({
     required String email,
     required String password,
+    bool rememberDevice = false,
   }) async {
     try {
       debugPrint('Attempting login for: $email');
@@ -234,6 +381,66 @@ class AuthService {
         email: email,
         password: password,
       );
+
+      // Backfill public.users row for accounts that exist in auth but failed
+      // profile upsert due schema mismatch during signup.
+      if (response.user != null) {
+        final meta = response.user!.userMetadata ?? <String, dynamic>{};
+
+        // Check existing user profile to preserve their role
+        String userRole = 'renter'; // Default fallback
+        try {
+          final existingUser = await supabase
+              .from('users')
+              .select('role')
+              .eq('id', response.user!.id)
+              .maybeSingle();
+
+          if (existingUser != null && existingUser['role'] != null) {
+            userRole = existingUser['role'] as String;
+            debugPrint('📋 [Login] Preserving existing role: $userRole');
+          } else if (meta['role'] != null) {
+            userRole = meta['role'] as String;
+            debugPrint('📋 [Login] Using metadata role: $userRole');
+          }
+        } catch (e) {
+          debugPrint(
+            '⚠️ [Login] Error checking existing role: $e, using metadata or default',
+          );
+          userRole = (meta['role'] as String?) ?? 'renter';
+        }
+
+        try {
+          await _createOrUpdateUserProfile(
+            userId: response.user!.id,
+            email: response.user!.email ?? email,
+            fullName:
+                (meta['full_name'] ?? meta['name'] ?? meta['display_name'])
+                    as String?,
+            phone: meta['phone'] as String?,
+            location: meta['location'] as String?,
+            role: userRole,
+          );
+        } catch (e) {
+          debugPrint('Profile backfill failed after login: $e');
+        }
+
+        // Save credentials if remember device is enabled
+        if (rememberDevice) {
+          try {
+            final prefsService = PreferencesService();
+            await prefsService.init();
+            await prefsService.saveLoginCredentials(
+              email: email,
+              password: password,
+              rememberDevice: true,
+            );
+            debugPrint('Login credentials cached for future logins');
+          } catch (e) {
+            debugPrint('Failed to cache login credentials: $e');
+          }
+        }
+      }
 
       debugPrint('Login successful for: $email');
       return response;
@@ -295,11 +502,9 @@ class AuthService {
     String? location,
     required String role,
   }) async {
-    try {
-      debugPrint(
-        'Creating/updating user profile for: $userId with role: $role',
-      );
+    debugPrint('Creating/updating user profile for: $userId with role: $role');
 
+    try {
       await supabase.from('users').upsert({
         'id': userId,
         'email': email,
@@ -308,14 +513,63 @@ class AuthService {
         'location': location,
         'role': role,
         'id_verified': false,
+        'application_status': role == 'partner' || role == 'driver'
+            ? 'basic'
+            : 'none',
       });
 
-      debugPrint('User profile created/updated successfully');
+      if (role == 'partner') {
+        await _ensurePartnerProfileExists(userId);
+      }
+
+      if (role == 'driver') {
+        await _ensureDriverProfileExists(userId);
+      }
+
+      if (role == 'renter') {
+        await _ensureRenterProfileExists(userId);
+      }
+
+      debugPrint('User profile created/updated successfully (full schema)');
+      return;
     } on PostgrestException catch (e) {
-      debugPrint('Database error creating user profile: ${e.message}');
-      // Don't rethrow - user was created in auth, profile creation can fail silently
-    } catch (e) {
-      debugPrint('Error creating user profile: $e');
+      debugPrint('Primary profile upsert failed: ${e.message}');
+
+      // Fallback for schemas using `name` and without verification columns.
+      try {
+        await supabase.from('users').upsert({
+          'id': userId,
+          'email': email,
+          'name': fullName,
+          'phone': phone,
+          'role': role,
+        });
+
+        if (role == 'partner') {
+          await _ensurePartnerProfileExists(userId);
+        }
+
+        if (role == 'driver') {
+          await _ensureDriverProfileExists(userId);
+        }
+
+        if (role == 'renter') {
+          await _ensureRenterProfileExists(userId);
+        }
+
+        debugPrint(
+          'User profile created/updated successfully (fallback schema)',
+        );
+        return;
+      } on PostgrestException catch (fallbackError) {
+        debugPrint('Fallback profile upsert failed: ${fallbackError.message}');
+        throw Exception(
+          'Unable to create profile in public.users. '
+          'Primary error: ${e.message}. '
+          'Fallback error: ${fallbackError.message}. '
+          'Check public.users columns and RLS policies.',
+        );
+      }
     }
   }
 
@@ -341,9 +595,22 @@ class AuthService {
   }
 
   // Sign out
-  Future<void> signOut() async {
+  Future<void> signOut({bool clearCredentials = false}) async {
     try {
       debugPrint('Signing out user');
+
+      // Optionally clear cached credentials on explicit logout
+      if (clearCredentials) {
+        try {
+          final prefsService = PreferencesService();
+          await prefsService.init();
+          await prefsService.clearLoginCredentials();
+          debugPrint('Cached login credentials cleared');
+        } catch (e) {
+          debugPrint('Failed to clear cached credentials: $e');
+        }
+      }
+
       await supabase.auth.signOut();
       debugPrint('Sign out successful');
     } on AuthException catch (e) {

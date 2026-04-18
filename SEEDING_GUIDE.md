@@ -7,28 +7,20 @@ This guide explains how to seed test user accounts for each role in the Mobilis 
 
 | Role | Email | Password | User ID |
 |------|-------|----------|---------|
-| Admin | admin@mobilis.com | Admin@123456 | 22222222-2222-2222-2222-222222222222 |
-| Operator | operator@mobilis.com | Operator@123456 | 33333333-3333-3333-3333-333333333333 |
-| Driver | driver@mobilis.com | Driver@123456 | 44444444-4444-4444-4444-444444444444 |
-| Partner | testpartner@mobilis.com | Partner@123456 | 11111111-1111-1111-1111-111111111111 |
-| Renter | renter@mobilis.com | Renter@123456 | 55555555-5555-5555-5555-555555555555 |
+| Admin | admin@mobilis.com | Passw0rd! | 22222222-2222-2222-2222-222222222222 |
+| Operator | operator@mobilis.com | Passw0rd! | 33333333-3333-3333-3333-333333333333 |
+| Driver | driver@mobilis.com | Passw0rd! | 44444444-4444-4444-4444-444444444444 |
+| Partner | testpartner@mobilis.com | Passw0rd! | 11111111-1111-1111-1111-111111111111 |
+| Renter | renter@mobilis.com | Passw0rd! | 55555555-5555-5555-5555-555555555555 |
 
 ## Process
 
-### Option 1: Seed All Users at Once (Recommended)
-
-1. Open Supabase Dashboard → **SQL Editor**
-2. Click **New Query**
-3. Copy contents of `supabase_seed_all.sql`
-4. Paste into editor and click **Run**
-5. Go to **Authentication** → **Users** and create auth users for each test account using the emails and passwords above
-
-### Option 2: Seed Individual Roles
+### Option 1: Seed Individual Roles
 
 1. Open Supabase Dashboard → **SQL Editor**
 2. Run the appropriate SQL script:
    - `supabase_seed_admin.sql` - Admin only
-3. Create corresponding auth user(s) in Supabase Authentication
+3. Done. The script seeds both auth and public user records.
 
 ### Option 3: Use Supabase CLI
 
@@ -43,16 +35,14 @@ supabase db reset
 supabase db push
 ```
 
-## Creating Auth Users in Supabase
+## Auth-First Seeding
 
-After running SQL script:
+The current seed scripts are auth-first:
 
-1. Go to **Authentication** → **Users**
-2. Click **Add User** for each test user
-3. Enter email and password from table above
-4. **Important**: The User ID generated in auth MUST match the ID in the SQL script
-   - If already seeded with matching UUID, auth will link automatically
-   - Copy the generated User ID and verify it matches your SQL script ID
+1. Insert/Update `auth.users` with a valid bcrypt password hash
+2. Upsert matching `public.users` row using the same UUID
+
+This avoids foreign key failures from `public.users(id) -> auth.users(id)`.
 
 ## Navigation After Login
 
@@ -79,11 +69,11 @@ The seeding scripts use the following users table structure:
 
 ## Troubleshooting
 
-### User ID Mismatch
-If you get an error about user ID:
-1. Check the generated User ID in Supabase Auth → Users
-2. Verify it matches the ID in the SQL script (should be same UUID)
-3. If mismatch, delete and recreate the auth user with matching ID
+### User ID / FK Errors
+If you get an error referencing `users_id_fkey`:
+1. Re-run the updated auth-first seed script
+2. Confirm the user exists in `auth.users`
+3. Confirm the same UUID exists in `public.users`
 
 ### Email Already Exists
 If you seed the same email twice:
@@ -93,15 +83,15 @@ If you seed the same email twice:
 
 ### Password Issues
 If login fails:
-1. Check that you created the auth user with the correct password
-2. Try resetting password in Supabase Auth dashboard
-3. Create a new auth user with new credentials
+1. Ensure you are using `Passw0rd!`
+2. Re-run the seed script to refresh the auth password hash
+3. If needed, delete the user in both `auth.users` and `public.users`, then re-seed
 
 ## Testing Workflow
 
 ```
-1. Seed all users (supabase_seed_all.sql)
-2. Create auth users (5 users total - Admin, Operator, Driver, Partner, Renter)
+1. Seed users (for example with supabase_seed_admin.sql)
+2. Verify rows exist in auth.users and public.users
 3. Test login with each credential
 4. Verify dashboard navigation works correctly
 5. Test role-specific features
@@ -118,6 +108,5 @@ If login fails:
 
 To add more users:
 1. Generate a new UUID (use `uuidgen` on Mac/Linux or online UUID generator)
-2. Add new row to `supabase_seed_all.sql` with correct schema
-3. Create auth user in Supabase dashboard
-4. Re-run SQL script if needed
+2. Add a row to your chosen seed script with correct schema
+3. Re-run SQL script

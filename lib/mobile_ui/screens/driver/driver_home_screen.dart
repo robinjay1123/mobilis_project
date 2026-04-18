@@ -105,9 +105,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
             color: isDark ? AppColors.darkCard : Colors.white,
             child: TabBar(
               controller: _tabController,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: isDark ? Colors.grey : Colors.grey.shade600,
-              indicatorColor: AppColors.primary,
               tabs: const [
                 Tab(text: 'Dashboard'),
                 Tab(text: 'Jobs'),
@@ -149,6 +146,9 @@ class _DashboardTab extends StatefulWidget {
 
 class __DashboardTabState extends State<_DashboardTab> {
   late Future<Map<String, dynamic>> driverStatsFuture;
+  String verificationStatus = 'pending';
+  String certificationStatus = 'basic'; // 'basic', 'approved', 'certified'
+  bool dismissedVerificationBanner = false;
 
   @override
   void initState() {
@@ -156,9 +156,9 @@ class __DashboardTabState extends State<_DashboardTab> {
     final authService = AuthService();
     final driverService = DriverService();
     if (authService.currentUser != null) {
-      driverStatsFuture = driverService
-          .getDriverStats(authService.currentUser!.id)
-          .then((stats) => stats ?? {});
+      driverStatsFuture = driverService.getDriverStats(
+        authService.currentUser!.id,
+      );
     } else {
       driverStatsFuture = Future.value({});
     }
@@ -234,15 +234,17 @@ class __DashboardTabState extends State<_DashboardTab> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.2),
+                                  color: _getDriverBadgeColor().withOpacity(
+                                    0.2,
+                                  ),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  tier,
-                                  style: const TextStyle(
+                                  _getDriverBadge(),
+                                  style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
-                                    color: AppColors.primary,
+                                    color: _getDriverBadgeColor(),
                                   ),
                                 ),
                               ),
@@ -311,6 +313,26 @@ class __DashboardTabState extends State<_DashboardTab> {
         ],
       ),
     );
+  }
+
+  String _getDriverBadge() {
+    if (certificationStatus == 'certified') {
+      return 'CERTIFIED PSDC DRIVER';
+    } else if (verificationStatus == 'verified') {
+      return 'VERIFIED DRIVER';
+    } else {
+      return 'BASIC DRIVER';
+    }
+  }
+
+  Color _getDriverBadgeColor() {
+    if (certificationStatus == 'certified') {
+      return const Color(0xFF6366F1); // Indigo for certified
+    } else if (verificationStatus == 'verified') {
+      return AppColors.success;
+    } else {
+      return AppColors.warning;
+    }
   }
 }
 
@@ -535,7 +557,7 @@ class __EarningsTabState extends State<_EarningsTab> {
             fromDate: DateTime.now().subtract(const Duration(days: 30)),
             toDate: DateTime.now(),
           )
-          .then((earnings) => earnings ?? 0.0);
+          .catchError((_) => 0.0);
     } else {
       earningsFuture = Future.value(0.0);
     }

@@ -268,6 +268,252 @@ class BookingService {
     }
   }
 
+  // ================== OPERATOR WORKFLOW ==================
+
+  /// Get all pending bookings for operator approval
+  Future<List<Map<String, dynamic>>> getPendingBookings() async {
+    try {
+      debugPrint('Fetching pending bookings');
+      final response = await supabase
+          .from('bookings')
+          .select(
+            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users(full_name, email, phone)',
+          )
+          .eq('status', 'pending')
+          .order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching pending bookings: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching pending bookings: $e');
+      return [];
+    }
+  }
+
+  /// Approve booking (operator action)
+  Future<void> approveBooking(String bookingId, String operatorNotes) async {
+    try {
+      debugPrint('Approving booking: $bookingId');
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'confirmed',
+            'operator_notes': operatorNotes,
+            'approved_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      debugPrint('Booking approved');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error approving booking: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error approving booking: $e');
+      rethrow;
+    }
+  }
+
+  /// Reject booking (operator action)
+  Future<void> rejectBooking(String bookingId, String reason) async {
+    try {
+      debugPrint('Rejecting booking: $bookingId');
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'cancelled',
+            'cancellation_reason': reason,
+            'cancelled_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      debugPrint('Booking rejected');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting booking: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error rejecting booking: $e');
+      rethrow;
+    }
+  }
+
+  /// Assign driver to booking (operator action)
+  Future<void> assignDriver(
+    String bookingId,
+    String driverId,
+    double tripFee,
+  ) async {
+    try {
+      debugPrint(
+        'Assigning driver $driverId to booking $bookingId with fee: $tripFee',
+      );
+
+      // Update booking with driver
+      await supabase
+          .from('bookings')
+          .update({'driver_id': driverId, 'trip_fee': tripFee})
+          .eq('id', bookingId);
+
+      debugPrint('Driver assigned to booking');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error assigning driver: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error assigning driver: $e');
+      rethrow;
+    }
+  }
+
+  /// Unassign driver from booking
+  Future<void> unassignDriver(String bookingId) async {
+    try {
+      debugPrint('Unassigning driver from booking: $bookingId');
+      await supabase
+          .from('bookings')
+          .update({'driver_id': null, 'trip_fee': null})
+          .eq('id', bookingId);
+
+      debugPrint('Driver unassigned from booking');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error unassigning driver: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error unassigning driver: $e');
+      rethrow;
+    }
+  }
+
+  // ================== SEARCH & FILTER ==================
+
+  /// Search bookings by multiple criteria
+  Future<List<Map<String, dynamic>>> searchBookings({
+    String? status,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? location,
+    String? renterId,
+    String? driverId,
+    double? minPrice,
+    double? maxPrice,
+  }) async {
+    try {
+      debugPrint('Searching bookings with filters');
+
+      var query = supabase
+          .from('bookings')
+          .select(
+            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(brand, model, year, plate_number), users(full_name, email)',
+          );
+
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+
+      if (startDate != null) {
+        query = query.gte('start_date', startDate.toIso8601String());
+      }
+
+      if (endDate != null) {
+        query = query.lte('end_date', endDate.toIso8601String());
+      }
+
+      if (location != null && location.isNotEmpty) {
+        query = query.or(
+          'pickup_location.ilike.%$location%,dropoff_location.ilike.%$location%',
+        );
+      }
+
+      if (renterId != null && renterId.isNotEmpty) {
+        query = query.eq('renter_id', renterId);
+      }
+
+      if (driverId != null && driverId.isNotEmpty) {
+        query = query.eq('driver_id', driverId);
+      }
+
+      if (minPrice != null) {
+        query = query.gte('total_price', minPrice);
+      }
+
+      if (maxPrice != null) {
+        query = query.lte('total_price', maxPrice);
+      }
+
+      final response = await query.order('created_at', ascending: false);
+
+      debugPrint('Found ${response.length} matching bookings');
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error searching bookings: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error searching bookings: $e');
+      return [];
+    }
+  }
+
+  /// Get booking statistics by date range
+  Future<Map<String, dynamic>> getBookingStats({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      debugPrint('Fetching booking stats');
+
+      var totalQuery = supabase
+          .from('bookings')
+          .select('id, total_price, status');
+
+      if (startDate != null) {
+        totalQuery = totalQuery.gte('created_at', startDate.toIso8601String());
+      }
+
+      if (endDate != null) {
+        totalQuery = totalQuery.lte('created_at', endDate.toIso8601String());
+      }
+
+      final allBookings = List<Map<String, dynamic>>.from(await totalQuery);
+
+      // Calculate stats
+      int completed = 0;
+      int cancelled = 0;
+      int active = 0;
+      double totalRevenue = 0;
+
+      for (var booking in allBookings) {
+        final status = booking['status'] as String?;
+        final price = (booking['total_price'] as num?)?.toDouble() ?? 0;
+
+        if (status == 'completed') {
+          completed++;
+          totalRevenue += price;
+        } else if (status == 'cancelled') {
+          cancelled++;
+        } else if (status == 'active') {
+          active++;
+        }
+      }
+
+      return {
+        'total_bookings': allBookings.length,
+        'completed': completed,
+        'cancelled': cancelled,
+        'active': active,
+        'total_revenue': totalRevenue,
+        'average_booking_value': allBookings.isNotEmpty
+            ? totalRevenue / allBookings.length
+            : 0,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching stats: ${e.message}');
+      return {};
+    } catch (e) {
+      debugPrint('Error fetching stats: $e');
+      return {};
+    }
+  }
+
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
