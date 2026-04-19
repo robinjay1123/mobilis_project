@@ -13,6 +13,19 @@ class AppTheme {
       ),
       textTheme: textTheme,
       inputDecorationTheme: inputDecorationTheme,
+      iconTheme: const IconThemeData(color: AppColors.textPrimary),
+      switchTheme: SwitchThemeData(
+        thumbColor: MaterialStateProperty.resolveWith(
+          (states) => states.contains(MaterialState.selected)
+              ? AppColors.primary
+              : AppColors.textTertiary,
+        ),
+        trackColor: MaterialStateProperty.resolveWith(
+          (states) => states.contains(MaterialState.selected)
+              ? AppColors.primary.withOpacity(0.3)
+              : AppColors.borderColor.withOpacity(0.3),
+        ),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -58,6 +71,19 @@ class AppTheme {
       ),
       textTheme: lightTextTheme,
       inputDecorationTheme: lightInputDecorationTheme,
+      iconTheme: const IconThemeData(color: AppColors.lightTextPrimary),
+      switchTheme: SwitchThemeData(
+        thumbColor: MaterialStateProperty.resolveWith(
+          (states) => states.contains(MaterialState.selected)
+              ? AppColors.primary
+              : Color(0xFFBDBDBD),
+        ),
+        trackColor: MaterialStateProperty.resolveWith(
+          (states) => states.contains(MaterialState.selected)
+              ? AppColors.primary.withOpacity(0.3)
+              : Color(0xFFE0E0E0).withOpacity(0.5),
+        ),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -224,7 +250,7 @@ class AppTheme {
         borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: AppColors.error),
       ),
-      hintStyle: const TextStyle(color: AppColors.lightTextTertiary),
+      hintStyle: const TextStyle(color: Color(0xFF666666)),
       labelStyle: const TextStyle(color: AppColors.lightTextSecondary),
     );
   }

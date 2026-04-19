@@ -27,6 +27,7 @@ import 'mobile_ui/screens/driver/driver_license_upload_screen.dart';
 import 'mobile_ui/screens/driver/driver_nbi_upload_screen.dart';
 import 'mobile_ui/screens/driver/driver_availability_screen.dart';
 import 'mobile_ui/screens/driver/driver_home_screen.dart';
+import 'mobile_ui/screens/home/chat_detail_screen.dart';
 import 'responsive/responsive_screens.dart';
 import 'web_ui/screens/admin/admin_web_screen.dart';
 import 'web_ui/screens/operator/operator_web_screen.dart';
@@ -247,6 +248,24 @@ class _MyAppState extends State<MyApp> {
             return const ResponsiveLoginScreen();
           }
           return const DriverHomeScreen();
+        },
+        '/chat-detail': (context) {
+          final authService = AuthService();
+          if (!authService.isAuthenticated) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/login');
+            });
+            return const ResponsiveLoginScreen();
+          }
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+          return ChatDetailScreen(
+            conversationId: args?['conversationId'] ?? '',
+            recipientName: args?['recipientName'] ?? 'Recipient',
+            recipientAvatar: args?['recipientAvatar'] ?? '',
+            isDarkMode: args?['isDarkMode'] ?? false,
+          );
         },
       },
     );

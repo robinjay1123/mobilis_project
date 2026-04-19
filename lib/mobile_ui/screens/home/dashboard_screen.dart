@@ -48,9 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _conversations = [];
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoadingVehicles = true;
-  bool _isLoadingBookings = true;
-  bool _isLoadingConversations = true;
-  bool _isLoadingNotifications = true;
 
   @override
   void initState() {
@@ -111,23 +108,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _bookings = bookings;
-            _isLoadingBookings = false;
           });
         }
       } else {
         if (mounted) {
-          setState(() {
-            _isLoadingBookings = false;
-          });
+          setState(() {});
         }
       }
     } catch (e) {
-      debugPrint('Error loading bookings: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingBookings = false;
-        });
-      }
+      print('Error loading bookings: $e');
     }
   }
 
@@ -141,22 +130,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _conversations = conversations;
-            _isLoadingConversations = false;
           });
         }
       } else {
         if (mounted) {
-          setState(() {
-            _isLoadingConversations = false;
-          });
+          setState(() {});
         }
       }
     } catch (e) {
       debugPrint('Error loading conversations: $e');
       if (mounted) {
-        setState(() {
-          _isLoadingConversations = false;
-        });
+        setState(() {});
       }
     }
   }
@@ -173,22 +157,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             _notifications = notifications;
-            _isLoadingNotifications = false;
           });
         }
       } else {
         if (mounted) {
-          setState(() {
-            _isLoadingNotifications = false;
-          });
+          setState(() {});
         }
       }
     } catch (e) {
       debugPrint('Error loading notifications: $e');
       if (mounted) {
-        setState(() {
-          _isLoadingNotifications = false;
-        });
+        setState(() {});
       }
     }
   }
@@ -2055,9 +2034,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 timestamp: conversationItems[index]['timestamp'],
                 unreadCount: conversationItems[index]['unreadCount'],
                 onTap: () {
-                  setState(() {
-                    selectedConversationIndex = index;
-                  });
+                  final conversationId = conversationItems[index]['id'];
+                  final recipientName = conversationItems[index]['senderName'];
+                  Navigator.of(context).pushNamed(
+                    '/chat-detail',
+                    arguments: {
+                      'conversationId': conversationId,
+                      'recipientName': recipientName,
+                      'recipientAvatar': '',
+                      'isDarkMode': widget.isDarkMode,
+                    },
+                  );
                 },
               ),
             ),
@@ -2854,31 +2841,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showChatDialog(Map<String, dynamic> conversation) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.darkBgSecondary,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Center(
-                  child: Text('Chat view - tap Messages tab to use full chat'),
-                ),
-              ),
-            ),
           ],
         ),
       ),

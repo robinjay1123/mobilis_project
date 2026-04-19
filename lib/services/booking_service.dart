@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'auto_message_service.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -178,12 +179,56 @@ class BookingService {
     try {
       debugPrint('Updating booking $bookingId status to: $status');
 
+      // Get booking details before updating
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
       await supabase
           .from('bookings')
           .update({'status': status})
           .eq('id', bookingId);
 
       debugPrint('Booking status updated');
+
+      // If status changed to 'confirmed', create auto-message conversation
+      if (status == 'confirmed' && booking['conversation_created'] != true) {
+        try {
+          debugPrint(
+            'Creating auto-message conversation for booking: $bookingId',
+          );
+
+          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+          final vehicleTitle = vehicle != null
+              ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+              : 'Your rental vehicle';
+
+          final result = await AutoMessageService.createBookingConversation(
+            bookingId: bookingId,
+            renterId: booking['renter_id'] as String,
+            recipientId:
+                booking['partner_id'] as String? ??
+                vehicle?['owner_id'] as String? ??
+                '',
+            vehicleTitle: vehicleTitle,
+            pickupDate: booking['start_date']?.toString() ?? '',
+            dropoffDate: booking['end_date']?.toString() ?? '',
+          );
+
+          if (result['success'] == true) {
+            // Mark conversation as created
+            await supabase
+                .from('bookings')
+                .update({'conversation_created': true})
+                .eq('id', bookingId);
+            debugPrint('Auto-message conversation created and marked');
+          }
+        } catch (e) {
+          debugPrint('Error creating auto-message conversation: $e');
+          // Don't fail the booking update if auto-message fails
+        }
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error updating booking status: ${e.message}');
       rethrow;

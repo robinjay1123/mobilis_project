@@ -1582,7 +1582,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       lastMessage: lastMessage,
                       timestamp: _formatTime(conv['updated_at']),
                       unreadCount: 0,
-                      onTap: () {},
+                      onTap: () {
+                        final conversationId = conv['id'];
+                        Navigator.of(context).pushNamed(
+                          '/chat-detail',
+                          arguments: {
+                            'conversationId': conversationId,
+                            'recipientName': 'Renter',
+                            'recipientAvatar': '',
+                            'isDarkMode': false,
+                          },
+                        );
+                      },
                     );
                   },
                 ),

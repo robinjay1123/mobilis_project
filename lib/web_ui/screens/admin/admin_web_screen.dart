@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -435,6 +436,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ? _pendingVerifications
                       : null,
                 ),
+                _buildNavItem(5, Icons.mail, 'Message Review', isDark),
                 const SizedBox(height: 24),
                 if (_sidebarExpanded)
                   Padding(
@@ -450,8 +452,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                   ),
                 const SizedBox(height: 12),
-                _buildNavItem(5, Icons.analytics, 'Analytics', isDark),
-                _buildNavItem(6, Icons.settings, 'Settings', isDark),
+                _buildNavItem(6, Icons.analytics, 'Analytics', isDark),
+                _buildNavItem(7, Icons.settings, 'Settings', isDark),
               ],
             ),
           ),
@@ -704,8 +706,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 4:
         return 'Applications';
       case 5:
-        return 'Analytics';
+        return 'Message Review';
       case 6:
+        return 'Analytics';
+      case 7:
         return 'System Settings';
       default:
         return 'Dashboard';
@@ -729,8 +733,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 4:
         return _buildApplicationsContent(isDark);
       case 5:
-        return _buildAnalyticsContent(isDark);
+        return _buildMessageReviewContent(isDark);
       case 6:
+        return _buildAnalyticsContent(isDark);
+      case 7:
         return _buildSettingsContent(isDark);
       default:
         return _buildOverviewContent(isDark);
@@ -1533,6 +1539,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         isDark,
       ),
     );
+  }
+
+  Widget _buildMessageReviewContent(bool isDark) {
+    return AdminMessageReviewScreen(isDarkMode: isDark);
   }
 
   Widget _buildAnalyticsContent(bool isDark) {
