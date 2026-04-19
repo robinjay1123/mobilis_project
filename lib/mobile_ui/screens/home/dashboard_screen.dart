@@ -1523,10 +1523,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Center(
                       child: Column(
                         children: [
-                          Icon(
-                            Icons.directions_car_outlined,
-                            size: 48,
-                            color: AppColors.textTertiary.withOpacity(0.5),
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Image.asset(
+                              'assets/icon/logo1.png',
+                              fit: BoxFit.contain,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           const Text(

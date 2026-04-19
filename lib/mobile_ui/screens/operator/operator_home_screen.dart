@@ -1247,10 +1247,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            size: 64,
-            color: isDark ? Colors.grey : Colors.grey.shade400,
+          Container(
+            width: 80,
+            height: 80,
+            child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
           ),
           const SizedBox(height: 16),
           Text(
@@ -1520,10 +1520,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Widget _buildVehiclePlaceholder(bool isDark) {
     return Center(
-      child: Icon(
-        Icons.directions_car_outlined,
-        size: 28,
-        color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
+      child: Container(
+        width: 50,
+        height: 50,
+        child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
       ),
     );
   }
@@ -1703,7 +1703,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.directions_car, color: statusColor, size: 24),
+                child: Image.asset(
+                  'assets/icon/logo1.png',
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

@@ -72,10 +72,9 @@ class ApplicationCard extends StatelessWidget {
                       color: AppColors.darkBgTertiary,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(
-                      Icons.directions_car,
-                      color: AppColors.textSecondary,
-                      size: 24,
+                    child: Image.asset(
+                      'assets/icon/logo1.png',
+                      fit: BoxFit.contain,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -140,10 +139,7 @@ class ApplicationCard extends StatelessWidget {
             ),
 
             // Divider
-            Container(
-              height: 1,
-              color: AppColors.borderColor,
-            ),
+            Container(height: 1, color: AppColors.borderColor),
 
             // Footer with date and status indicator
             Padding(

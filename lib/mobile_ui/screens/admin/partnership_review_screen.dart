@@ -708,11 +708,7 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
 
   Widget _buildVehiclePlaceholder(bool isDark) {
     return Center(
-      child: Icon(
-        Icons.directions_car_outlined,
-        size: 48,
-        color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
-      ),
+      child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
     );
   }
 

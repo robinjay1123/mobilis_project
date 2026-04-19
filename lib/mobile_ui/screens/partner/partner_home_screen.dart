@@ -1205,10 +1205,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   color: AppColors.darkBgTertiary,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
-                  Icons.directions_car,
-                  color: AppColors.textSecondary,
-                  size: 24,
+                child: Image.asset(
+                  'assets/icon/logo1.png',
+                  fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(width: 12),

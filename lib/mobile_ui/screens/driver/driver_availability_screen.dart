@@ -148,15 +148,12 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
           final daysData = selectedDays.join(',');
 
           // Update driver profile with availability info
-          await driverService.updateDriverProfile(
-            driverProfile['id'],
-            {
-              'preferred_days':
-                  daysData, // Store as comma-separated values or JSON
-              'preferred_areas': preferredAreasController.text.trim(),
-              'is_available': isAvailable,
-            },
-          );
+          await driverService.updateDriverProfile(driverProfile['id'], {
+            'preferred_days':
+                daysData, // Store as comma-separated values or JSON
+            'preferred_areas': preferredAreasController.text.trim(),
+            'is_available': isAvailable,
+          });
 
           // Add schedule entries for each selected day
           for (String day in selectedDays) {
@@ -216,7 +213,10 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.directions_car, color: Colors.black),
+                  child: Image.asset(
+                    'assets/icon/logo1.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Text(

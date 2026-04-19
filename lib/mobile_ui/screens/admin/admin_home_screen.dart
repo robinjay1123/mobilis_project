@@ -1249,11 +1249,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               color: AppColors.primary.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.directions_car,
-              color: AppColors.primary,
-              size: 32,
-            ),
+            child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
           ),
           const SizedBox(width: 16),
           Expanded(

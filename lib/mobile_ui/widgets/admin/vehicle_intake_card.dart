@@ -418,11 +418,7 @@ class VehicleIntakeCard extends StatelessWidget {
 
   Widget _buildVehiclePlaceholder(bool isDark) {
     return Center(
-      child: Icon(
-        Icons.directions_car_outlined,
-        size: 32,
-        color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
-      ),
+      child: Image.asset('assets/icon/logo1.png', fit: BoxFit.contain),
     );
   }
 

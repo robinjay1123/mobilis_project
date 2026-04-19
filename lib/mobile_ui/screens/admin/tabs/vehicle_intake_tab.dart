@@ -130,10 +130,9 @@ class _VehicleIntakeTabState extends State<VehicleIntakeTab> {
                           color: AppColors.primary.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(
-                          Icons.directions_car,
-                          color: AppColors.primary,
-                          size: 20,
+                        child: Image.asset(
+                          'assets/icon/logo1.png',
+                          fit: BoxFit.contain,
                         ),
                       ),
                       const SizedBox(width: 12),

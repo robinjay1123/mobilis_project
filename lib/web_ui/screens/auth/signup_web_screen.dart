@@ -422,10 +422,9 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.directions_car,
-                          color: Colors.black,
-                          size: 50,
+                        child: Image.asset(
+                          'assets/icon/logo1.png',
+                          fit: BoxFit.contain,
                         ),
                       ),
                       const SizedBox(height: 32),

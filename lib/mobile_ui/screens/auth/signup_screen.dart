@@ -476,12 +476,9 @@ class _SignupScreenState extends State<SignupScreen> {
                                       : AppColors.darkBgTertiary,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Icon(
-                                  Icons.car_rental,
-                                  color: selectedRole == 'renter'
-                                      ? AppColors.primary
-                                      : AppColors.textSecondary,
-                                  size: 24,
+                                child: Image.asset(
+                                  'assets/icon/logo1.png',
+                                  fit: BoxFit.contain,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -571,12 +568,9 @@ class _SignupScreenState extends State<SignupScreen> {
                                       : AppColors.darkBgTertiary,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Icon(
-                                  Icons.directions_car,
-                                  color: selectedRole == 'partner'
-                                      ? AppColors.primary
-                                      : AppColors.textSecondary,
-                                  size: 24,
+                                child: Image.asset(
+                                  'assets/icon/logo1.png',
+                                  fit: BoxFit.contain,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -666,12 +660,9 @@ class _SignupScreenState extends State<SignupScreen> {
                                       : AppColors.darkBgTertiary,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Icon(
-                                  Icons.local_taxi,
-                                  color: selectedRole == 'driver'
-                                      ? AppColors.primary
-                                      : AppColors.textSecondary,
-                                  size: 24,
+                                child: Image.asset(
+                                  'assets/icon/logo1.png',
+                                  fit: BoxFit.contain,
                                 ),
                               ),
                               const SizedBox(height: 12),
