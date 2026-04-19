@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'mobile_ui/theme/app_theme.dart';
 import 'mobile_ui/theme/app_colors.dart';
+import 'mobile_ui/widgets/animated_loading.dart';
 import 'mobile_ui/screens/auth/signup_screen.dart';
 import 'mobile_ui/screens/auth/email_confirmation_screen.dart';
 import 'mobile_ui/screens/auth/face_scan_screen.dart';
@@ -631,63 +632,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
         if (snapshot.hasData) {
           return snapshot.data!;
         }
-        // Show loading/splash screen while determining initial screen
-        return Scaffold(
-          backgroundColor: AppColors.darkBg,
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // App icon
-                Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primary.withOpacity(0.3),
-                        blurRadius: 20,
-                        spreadRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
-                    child: Image.asset(
-                      'assets/icon/icon.png',
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                // App name
-                const Text(
-                  'Mobilis by PSDC',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Tagline
-                Text(
-                  'Professional Car Rental Solutions',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 48),
-                // Loading indicator
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-                ),
-              ],
-            ),
-          ),
+        // Show animated loading screen while determining initial screen
+        return const AnimatedLoadingWidget(
+          title: 'Mobilis by PSDC',
+          subtitle: 'Professional Car Rental Solutions',
+          gifPath: 'assets/loading.gif',
+          logoPath: 'assets/icon/logo1.png',
         );
       },
     );

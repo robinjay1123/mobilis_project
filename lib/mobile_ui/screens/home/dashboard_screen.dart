@@ -8,6 +8,7 @@ import '../../../services/notification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
 import '../../widgets/message_bubble.dart';
+import '../../widgets/app_bar_with_logo.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
@@ -753,6 +754,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
+      appBar: AppBarWithLogo(title: 'Mobilis by PSDC', showLogo: true),
       body: _buildTabContent(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: selectedNavIndex,
