@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'message_filter_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -91,10 +93,14 @@ class ChatService {
       }
 
       // Create new conversation
-      final newConv = await supabase.from('conversations').insert({
-        'created_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      }).select().single();
+      final newConv = await supabase
+          .from('conversations')
+          .insert({
+            'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .select()
+          .single();
 
       // Add both users as participants
       await supabase.from('conversation_participants').insert([
@@ -169,6 +175,19 @@ class ChatService {
           .from('conversations')
           .update({'updated_at': DateTime.now().toIso8601String()})
           .eq('id', conversationId);
+
+      // Auto-flag message if it contains filter words (async, don't await)
+      final messageId = response['id'] as String?;
+      if (messageId != null) {
+        unawaited(
+          MessageFilterService.autoFlagMessageIfNeeded(
+            messageId: messageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            messageContent: content,
+          ),
+        );
+      }
 
       debugPrint('Message sent successfully');
       return response;

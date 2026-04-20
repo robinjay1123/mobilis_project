@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MessageFilterService {
@@ -197,6 +198,96 @@ class MessageFilterService {
       }
     } catch (e) {
       // Silent fail
+    }
+  }
+
+  /// Load all admin-defined filter words from database
+  static Future<List<String>> loadFilterWords() async {
+    try {
+      final response = await supabase
+          .from('filter_words')
+          .select('word')
+          .order('created_at', ascending: false);
+
+      return (response as List).map((item) => item['word'] as String).toList();
+    } catch (e) {
+      debugPrint('Error loading filter words: $e');
+      return [];
+    }
+  }
+
+  /// Check if message contains any admin-defined filter words
+  static Future<Map<String, dynamic>> checkMessageAgainstFilterWords(
+    String messageContent, {
+    List<String>? filterWords,
+  }) async {
+    try {
+      // Load filter words if not provided
+      final wordsToCheck = filterWords ?? await loadFilterWords();
+
+      if (wordsToCheck.isEmpty) {
+        return {'contains_filter_words': false, 'found_words': <String>[]};
+      }
+
+      final lowerContent = messageContent.toLowerCase();
+      final foundWords = <String>[];
+
+      for (final word in wordsToCheck) {
+        if (lowerContent.contains(word.toLowerCase())) {
+          foundWords.add(word);
+        }
+      }
+
+      return {
+        'contains_filter_words': foundWords.isNotEmpty,
+        'found_words': foundWords,
+      };
+    } catch (e) {
+      debugPrint('Error checking filter words: $e');
+      return {
+        'contains_filter_words': false,
+        'found_words': <String>[],
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Auto-flag message if it contains filter words
+  static Future<Map<String, dynamic>> autoFlagMessageIfNeeded({
+    required String messageId,
+    required String conversationId,
+    required String senderId,
+    required String messageContent,
+  }) async {
+    try {
+      // Check against filter words
+      final filterCheck = await checkMessageAgainstFilterWords(messageContent);
+
+      if (filterCheck['contains_filter_words'] == true) {
+        final foundWords = filterCheck['found_words'] as List<String>;
+        final reason = 'Contains flagged word(s): ${foundWords.join(", ")}';
+
+        // Auto-flag the message
+        return await flagMessageForReview(
+          messageId: messageId,
+          conversationId: conversationId,
+          senderId: senderId,
+          flagReason: reason,
+          messageContent: messageContent,
+        );
+      }
+
+      return {
+        'success': true,
+        'flagged': false,
+        'reason': 'No filter words detected',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'flagged': false,
+        'error': 'Error auto-flagging message: $e',
+      };
     }
   }
 

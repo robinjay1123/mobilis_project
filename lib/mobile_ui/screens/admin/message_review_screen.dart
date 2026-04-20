@@ -332,35 +332,75 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                       decoration: InputDecoration(
                         hintText: 'Enter word to filter...',
                         hintStyle: TextStyle(
-                          color: isDark
-                              ? AppColors.textTertiary
-                              : AppColors.lightTextTertiary,
+                          color: isDark ? Colors.grey : Colors.grey.shade500,
+                          fontSize: 13,
                         ),
+                        filled: true,
+                        fillColor: isDark
+                            ? AppColors.darkBg
+                            : Colors.grey.shade50,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                            color: AppColors.success,
+                            width: 2,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12,
-                          vertical: 10,
+                          vertical: 12,
                         ),
                       ),
-                      style: TextStyle(color: textColor, fontSize: 14),
-                      cursorColor: textColor,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      cursorColor: AppColors.success,
                     ),
                   ),
                   const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      final word = _filterWordController.text.trim();
-                      if (word.isNotEmpty && !_filterWords.contains(word)) {
-                        _addFilterWord(word);
-                      }
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.success,
-                      foregroundColor: Colors.white,
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.success, Color(0xFF27AE60)],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final word = _filterWordController.text.trim();
+                        if (word.isNotEmpty && !_filterWords.contains(word)) {
+                          _addFilterWord(word);
+                        }
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                      ),
                     ),
                   ),
                 ],

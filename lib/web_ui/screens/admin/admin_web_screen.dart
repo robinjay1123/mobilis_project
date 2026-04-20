@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'dart:html' as html;
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
@@ -385,15 +386,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.red, Colors.deepOrange],
-                    ),
+                    color: Colors.red,
                     borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                  child: const Icon(
-                    Icons.shield,
-                    color: Colors.white,
-                    size: 26,
+                  child: Image.asset(
+                    'assets/icon/logo-black.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
                 if (_sidebarExpanded) ...[
@@ -625,17 +630,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 borderRadius: BorderRadius.circular(25),
               ),
               child: Row(
-                children: const [
-                  Icon(Icons.shield, color: Colors.white, size: 18),
-                  SizedBox(width: 8),
-                  Text(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: Image.asset(
+                      'assets/icon/logo-black.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
                     'Admin',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  Icon(Icons.arrow_drop_down, color: Colors.white),
+                  const Icon(Icons.arrow_drop_down, color: Colors.white),
                 ],
               ),
             ),
@@ -1204,44 +1216,60 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           Row(
             children: [
               Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.borderColor
-                          : Colors.grey.shade200,
+                child: TextField(
+                  onChanged: (value) {
+                    setState(() {
+                      _userSearchQuery = value;
+                      _currentUserPage = 1;
+                    });
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search by name or email...',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade500,
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: AppColors.primary,
+                        width: 2,
+                      ),
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      color: isDark ? Colors.grey : Colors.grey.shade500,
+                      size: 20,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
                     ),
                   ),
-                  child: TextField(
-                    onChanged: (value) {
-                      setState(() {
-                        _userSearchQuery = value;
-                        _currentUserPage = 1;
-                      });
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Search by name or email...',
-                      hintStyle: TextStyle(
-                        color: isDark ? Colors.white54 : Colors.grey,
-                      ),
-                      border: InputBorder.none,
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: isDark ? Colors.white54 : Colors.grey,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 16,
-                      ),
-                    ),
-                    style: TextStyle(
-                      color: isDark ? Colors.white : Colors.black,
-                      fontSize: 14,
-                    ),
-                    cursorColor: isDark ? Colors.white : Colors.black,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
+                  cursorColor: AppColors.primary,
                 ),
               ),
               const SizedBox(width: 12),
@@ -2539,9 +2567,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final reportText = _buildReportText();
       final pdf = pw.Document();
 
-      // Load logo image
-      final imageData = await rootBundle.load('assets/icon/logo-wtext.png');
-      final image = pw.MemoryImage(imageData.buffer.asUint8List());
+      // Try to load logo image
+      pw.MemoryImage? image;
+      try {
+        final imageData = await rootBundle.load('assets/icon/logo1.png');
+        image = pw.MemoryImage(imageData.buffer.asUint8List());
+      } catch (logoError) {
+        debugPrint('Warning: Could not load logo: $logoError');
+        // Continue without logo
+      }
 
       // Build report lines
       final lines = reportText.split('\n');
@@ -2551,10 +2585,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           pageFormat: PdfPageFormat.a4,
           margin: pw.EdgeInsets.all(30),
           build: (pw.Context context) {
-            return [
-              // Logo and Header
-              pw.Center(child: pw.Image(image, height: 60)),
-              pw.SizedBox(height: 20),
+            final widgets = <pw.Widget>[
+              // Logo and Header (if available)
+              if (image != null) ...[
+                pw.Center(child: pw.Image(image, height: 60)),
+                pw.SizedBox(height: 20),
+              ],
               pw.Center(
                 child: pw.Text(
                   'ADMIN REPORT',
@@ -2590,26 +2626,31 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     .toList(),
               ),
             ];
+            return widgets;
           },
         ),
       );
 
-      // Save and download PDF
-      try {
-        await Printing.sharePdf(
-          bytes: await pdf.save(),
-          filename:
-              'mobilis_admin_report_${DateTime.now().millisecondsSinceEpoch}.pdf',
-        );
-      } catch (printError) {
-        // Fallback for web: use print preview
-        await Printing.layoutPdf(onLayout: (format) => pdf.save());
-      }
+      // Generate PDF bytes
+      final pdfBytes = await pdf.save();
+      final fileName =
+          'mobilis_admin_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      // Direct download for web
+      final blob = html.Blob([pdfBytes], 'application/pdf');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..target = 'blank'
+        ..download = fileName;
+      html.document.body?.append(anchor);
+      anchor.click();
+      html.Url.revokeObjectUrl(url);
+      anchor.remove();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('PDF report generated successfully'),
+            content: Text('PDF report downloaded successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -2618,10 +2659,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       debugPrint('Error generating PDF: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generating PDF: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -2660,221 +2698,132 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
 
     final buffer = StringBuffer();
+    final divider = List.filled(70, '=').join();
+    final subDivider = List.filled(70, '-').join();
 
-    buffer.writeln(
-      '╔══════════════════════════════════════════════════════════════╗',
-    );
-    buffer.writeln(
-      '║         MOBILIS CAR RENTAL - ADMIN REPORT                    ║',
-    );
-    buffer.writeln(
-      '╚══════════════════════════════════════════════════════════════╝',
-    );
+    buffer.writeln(divider);
+    buffer.writeln('MOBILIS CAR RENTAL - ADMIN REPORT'.padLeft(50));
+    buffer.writeln(divider);
     buffer.writeln('');
     buffer.writeln('Report Generated: $dateStr at $timeStr');
     buffer.writeln('');
 
     // System Overview
-    buffer.writeln(
-      '┌─ SYSTEM OVERVIEW ─────────────────────────────────────────────┐',
-    );
-    buffer.writeln(
-      '│ Total Users (Renters)        : ${_totalUsers.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Total Partners               : ${_totalPartners.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Total Operators              : ${_totalOperators.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Total Vehicles               : ${_totalVehicles.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Pending Verifications        : ${_pendingVerifications.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '└───────────────────────────────────────────────────────────────┘',
-    );
+    buffer.writeln('SYSTEM OVERVIEW');
+    buffer.writeln(subDivider);
+    buffer.writeln('Total Users (Renters)    : ${_totalUsers}');
+    buffer.writeln('Total Partners           : ${_totalPartners}');
+    buffer.writeln('Total Operators          : ${_totalOperators}');
+    buffer.writeln('Total Vehicles           : ${_totalVehicles}');
+    buffer.writeln('Pending Verifications    : ${_pendingVerifications}');
     buffer.writeln('');
 
     // Revenue Summary
+    buffer.writeln('REVENUE SUMMARY');
+    buffer.writeln(subDivider);
     buffer.writeln(
-      '┌─ REVENUE SUMMARY ─────────────────────────────────────────────┐',
+      'Total Revenue                : PHP ${_totalRevenue.toStringAsFixed(2)}',
     );
     buffer.writeln(
-      '│ Total Revenue                : PHP ${_totalRevenue.toStringAsFixed(2).padRight(15)} │',
+      'Completed Bookings Revenue   : PHP ${completedRevenue.toStringAsFixed(2)}',
     );
     buffer.writeln(
-      '│ Completed Bookings Revenue   : PHP ${completedRevenue.toStringAsFixed(2).padRight(15)} │',
-    );
-    buffer.writeln(
-      '│ Active Bookings Revenue      : PHP ${activeRevenue.toStringAsFixed(2).padRight(15)} │',
-    );
-    buffer.writeln(
-      '└───────────────────────────────────────────────────────────────┘',
+      'Active Bookings Revenue      : PHP ${activeRevenue.toStringAsFixed(2)}',
     );
     buffer.writeln('');
 
     // Bookings Analytics
-    buffer.writeln(
-      '┌─ BOOKINGS ANALYTICS ──────────────────────────────────────────┐',
-    );
-    buffer.writeln(
-      '│ Total Bookings               : ${_totalBookings.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Active Bookings              : ${_activeBookings.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Completed Bookings           : ${completedCount.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Pending Bookings             : ${pendingCount.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '│ Cancelled Bookings           : ${cancelledCount.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '└───────────────────────────────────────────────────────────────┘',
-    );
+    buffer.writeln('BOOKINGS ANALYTICS');
+    buffer.writeln(subDivider);
+    buffer.writeln('Total Bookings      : ${_totalBookings}');
+    buffer.writeln('Active Bookings     : ${_activeBookings}');
+    buffer.writeln('Completed Bookings  : ${completedCount}');
+    buffer.writeln('Pending Bookings    : ${pendingCount}');
+    buffer.writeln('Cancelled Bookings  : ${cancelledCount}');
     buffer.writeln('');
 
     // Applications Status
-    buffer.writeln(
-      '┌─ APPLICATIONS STATUS ─────────────────────────────────────────┐',
-    );
-    buffer.writeln(
-      '│ Pending Applications         : ${_pendingApplications.length.toString().padRight(10)} │',
-    );
-    buffer.writeln(
-      '└───────────────────────────────────────────────────────────────┘',
-    );
+    buffer.writeln('APPLICATIONS STATUS');
+    buffer.writeln(subDivider);
+    buffer.writeln('Pending Applications : ${_pendingApplications.length}');
     buffer.writeln('');
 
     // Recent Bookings
-    buffer.writeln(
-      '┌─ RECENT BOOKINGS (Last 6) ────────────────────────────────────┐',
-    );
+    buffer.writeln('RECENT BOOKINGS (Last 6)');
+    buffer.writeln(subDivider);
     if (_allBookings.isEmpty) {
-      buffer.writeln(
-        '│ No bookings found                                             │',
-      );
+      buffer.writeln('No bookings found.');
     } else {
-      buffer.writeln(
-        '│ Vehicle           │ Renter         │ Status      │ Amount      │',
-      );
-      buffer.writeln(
-        '├───────────────────┼────────────────┼─────────────┼─────────────┤',
-      );
-
-      for (var booking in _allBookings.take(6)) {
+      buffer.writeln('');
+      for (var i = 0; i < _allBookings.take(6).length; i++) {
+        final booking = _allBookings.take(6).elementAt(i);
         final vehicle = booking['vehicles'] as Map<String, dynamic>?;
         final user = booking['users'] as Map<String, dynamic>?;
         final status = booking['status'] as String? ?? 'pending';
         final total = (booking['total_cost'] as num?)?.toDouble() ?? 0;
 
-        final vehicleStr = vehicle != null
+        final vehicleName = vehicle != null
             ? '${vehicle['brand']} ${vehicle['model']}'
-                  .substring(0, 17)
-                  .padRight(17)
-            : 'Unknown'.padRight(17);
-        final userStr = (user?['name'] ?? 'Unknown')
-            .substring(0, 14)
-            .padRight(14);
-        final statusStr = status.substring(0, 11).padRight(11);
-        final totalStr = 'PHP ${total.toStringAsFixed(0)}'
-            .substring(0, 11)
-            .padRight(11);
+            : 'Unknown Vehicle';
+        final userName = user?['name'] ?? 'Unknown User';
 
-        buffer.writeln('│ $vehicleStr │ $userStr │ $statusStr │ $totalStr │');
+        buffer.writeln('Booking ${i + 1}:');
+        buffer.writeln('  Vehicle: $vehicleName');
+        buffer.writeln('  Renter: $userName');
+        buffer.writeln('  Status: $status');
+        buffer.writeln('  Amount: PHP ${total.toStringAsFixed(2)}');
+        buffer.writeln('');
       }
     }
-    buffer.writeln(
-      '└───────────────────┴────────────────┴─────────────┴─────────────┘',
-    );
-    buffer.writeln('');
 
-    // Top Vehicles
-    buffer.writeln(
-      '┌─ ALL VEHICLES (${_allVehicles.length}) ────────────────────────────────────────┐',
-    );
+    // All Vehicles
+    buffer.writeln('ALL VEHICLES (${_allVehicles.length})');
+    buffer.writeln(subDivider);
     if (_allVehicles.isEmpty) {
-      buffer.writeln(
-        '│ No vehicles found                                             │',
-      );
+      buffer.writeln('No vehicles found.');
     } else {
-      buffer.writeln(
-        '│ Vehicle                  │ Owner         │ Price/Day │ Status │',
-      );
-      buffer.writeln(
-        '├──────────────────────────┼───────────────┼───────────┼────────┤',
-      );
-
-      for (var vehicle in _allVehicles.take(10)) {
+      buffer.writeln('');
+      for (var i = 0; i < _allVehicles.take(10).length; i++) {
+        final vehicle = _allVehicles.take(10).elementAt(i);
         final owner = vehicle['users'] as Map<String, dynamic>?;
         final status = vehicle['status'] as String? ?? 'pending';
         final price = vehicle['price_per_day'] ?? 0;
 
-        final vehicleStr = '${vehicle['brand']} ${vehicle['model']}'
-            .substring(0, 24)
-            .padRight(24);
-        final ownerStr = (owner?['name'] ?? 'Unknown')
-            .substring(0, 13)
-            .padRight(13);
-        final priceStr = 'PHP $price'.substring(0, 9).padRight(9);
-        final statusStr = status.substring(0, 6).padRight(6);
+        final vehicleName = '${vehicle['brand']} ${vehicle['model']}';
+        final ownerName = owner?['name'] ?? 'Unknown';
 
-        buffer.writeln('│ $vehicleStr │ $ownerStr │ $priceStr │ $statusStr │');
+        buffer.writeln('Vehicle ${i + 1}: $vehicleName');
+        buffer.writeln('  Owner: $ownerName');
+        buffer.writeln('  Price per Day: PHP $price');
+        buffer.writeln('  Status: $status');
+        buffer.writeln('');
       }
     }
-    buffer.writeln(
-      '└──────────────────────────┴───────────────┴───────────┴────────┘',
-    );
-    buffer.writeln('');
 
     // Pending Applications
-    buffer.writeln(
-      '┌─ PENDING APPLICATIONS (${_pendingApplications.length}) ──────────────────────────┐',
-    );
+    buffer.writeln('PENDING APPLICATIONS (${_pendingApplications.length})');
+    buffer.writeln(subDivider);
     if (_pendingApplications.isEmpty) {
-      buffer.writeln(
-        '│ All applications have been reviewed!                          │',
-      );
+      buffer.writeln('All applications have been reviewed!');
     } else {
-      buffer.writeln(
-        '│ Application ID               │ Partner Name      │ Status │',
-      );
-      buffer.writeln(
-        '├──────────────────────────────┼───────────────────┼────────┤',
-      );
-
-      for (var app in _pendingApplications.take(10)) {
+      buffer.writeln('');
+      for (var i = 0; i < _pendingApplications.take(10).length; i++) {
+        final app = _pendingApplications.take(10).elementAt(i);
         final partner = app['partners'] as Map<String, dynamic>?;
         final user = partner?['users'] as Map<String, dynamic>?;
-        final appId = (app['id'] as String?)?.substring(0, 28) ?? 'N/A';
-        final partnerName = (user?['name'] as String? ?? 'Unknown').substring(
-          0,
-          17,
-        );
+        final appId = app['id'] ?? 'N/A';
+        final partnerName = user?['name'] ?? 'Unknown';
 
-        buffer.writeln(
-          '│ ${appId.padRight(28)} │ ${partnerName.padRight(17)} │ Pending │',
-        );
+        buffer.writeln('Application ${i + 1}: $appId');
+        buffer.writeln('  Partner: $partnerName');
+        buffer.writeln('  Status: Pending Review');
+        buffer.writeln('');
       }
     }
-    buffer.writeln(
-      '└──────────────────────────────┴───────────────────┴────────┘',
-    );
-    buffer.writeln('');
 
-    buffer.writeln(
-      '═══════════════════════════════════════════════════════════════',
-    );
+    buffer.writeln(divider);
     buffer.writeln('End of Report');
-    buffer.writeln(
-      '═══════════════════════════════════════════════════════════════',
-    );
+    buffer.writeln(divider);
 
     return buffer.toString();
   }
