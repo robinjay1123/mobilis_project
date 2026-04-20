@@ -15,6 +15,8 @@ import 'mobile_ui/screens/auth/profile_picture_upload_screen.dart';
 import 'mobile_ui/screens/auth/account_verification_screen.dart';
 import 'mobile_ui/screens/auth/id_verification_screen.dart';
 import 'mobile_ui/screens/auth/verification_options_screen.dart';
+import 'mobile_ui/screens/auth/forgot_password_screen.dart';
+import 'mobile_ui/screens/auth/reset_password_screen.dart';
 import 'mobile_ui/screens/home/dashboard_screen.dart';
 import 'mobile_ui/screens/offline/no_internet_screen.dart';
 import 'mobile_ui/screens/partner/partner_home_screen.dart';
@@ -134,6 +136,8 @@ class _MyAppState extends State<MyApp> {
       routes: {
         '/welcome': (context) => const ResponsiveWelcomeScreen(),
         '/login': (context) => const ResponsiveLoginScreen(),
+        '/forgot-password': (context) => const ForgotPasswordScreen(),
+        '/reset-password': (context) => const ResetPasswordScreen(),
         '/signup': (context) => const ResponsiveSignupScreen(),
         '/email-confirmation': (context) {
           final args =

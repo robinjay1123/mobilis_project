@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/message_filter_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
@@ -14,18 +15,107 @@ class AdminMessageReviewScreen extends StatefulWidget {
 }
 
 class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
-  int _selectedTab = 0; // 0: Pending, 1: Confirmed, 2: Dismissed
+  int _selectedTab =
+      0; // 0: Pending, 1: Confirmed, 2: Dismissed, 3: Filter Words
   late Future<List<Map<String, dynamic>>> _flagsFuture;
+  List<String> _filterWords = [];
+  final TextEditingController _filterWordController = TextEditingController();
+  final _supabase = Supabase.instance.client;
+  bool _filterWordsLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _loadFlags();
+    _loadFilterWords();
+  }
+
+  @override
+  void dispose() {
+    _filterWordController.dispose();
+    super.dispose();
   }
 
   void _loadFlags() {
     // This would ideally load all flags filtered by status from the service
     // For now, this is a placeholder
+  }
+
+  Future<void> _loadFilterWords() async {
+    try {
+      final response = await _supabase
+          .from('filter_words')
+          .select('word')
+          .order('created_at', ascending: false);
+
+      if (mounted) {
+        setState(() {
+          _filterWords = (response as List)
+              .map((item) => item['word'] as String)
+              .toList();
+          _filterWordsLoaded = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading filter words: $e');
+      if (mounted) {
+        setState(() => _filterWordsLoaded = true);
+      }
+    }
+  }
+
+  Future<void> _addFilterWord(String word) async {
+    try {
+      await _supabase.from('filter_words').insert({
+        'word': word.toLowerCase(),
+        'created_by': _supabase.auth.currentUser?.id,
+      });
+
+      if (mounted) {
+        setState(() {
+          _filterWords.add(word.toLowerCase());
+          _filterWordController.clear();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Filter word added'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeFilterWord(String word) async {
+    try {
+      await _supabase.from('filter_words').delete().eq('word', word);
+
+      if (mounted) {
+        setState(() {
+          _filterWords.remove(word);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Filter word removed'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   @override
@@ -66,6 +156,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                 _buildTab('Pending', 0, isDark, textColor),
                 _buildTab('Confirmed', 1, isDark, textColor),
                 _buildTab('Dismissed', 2, isDark, textColor),
+                _buildTab('Filter Words', 3, isDark, textColor),
               ],
             ),
           ),
@@ -81,6 +172,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                   _buildConfirmedFlags(isDark, cardColor, textColor),
                 if (_selectedTab == 2)
                   _buildDismissedFlags(isDark, cardColor, textColor),
+                if (_selectedTab == 3)
+                  _buildFilterWordsTab(isDark, cardColor, textColor),
               ],
             ),
           ),
@@ -147,34 +240,14 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        _buildFlagCard(
-          isDark,
-          cardColor,
-          textColor,
-          flagId: 'flag_001',
-          userName: 'John Doe',
-          userId: 'user_123',
-          messageContent:
-              'Hey, my WhatsApp is +1-555-123-4567, contact me there',
-          riskLevel: 'high',
-          keywords: ['whatsapp', 'phone_number'],
-          timestamp: '2 minutes ago',
-          onApprove: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Flag confirmed. User may be restricted.'),
-                backgroundColor: AppColors.success,
-              ),
-            );
-          },
-          onDismiss: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Flag dismissed'),
-                backgroundColor: AppColors.textSecondary,
-              ),
-            );
-          },
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Text(
+              'No pending flags',
+              style: TextStyle(color: textColor, fontSize: 16),
+            ),
+          ),
         ),
       ],
     );
@@ -192,6 +265,208 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
     return Column(
       children: [
         Text('No dismissed flags yet', style: TextStyle(color: textColor)),
+      ],
+    );
+  }
+
+  Widget _buildFilterWordsTab(bool isDark, Color cardColor, Color textColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Info box
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.success.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.success),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: AppColors.success, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Add words to filter and flag inappropriate messages',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.success,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Add new filter word
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark
+                  ? AppColors.borderColor
+                  : AppColors.lightBorderColor,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Add New Filter Word',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _filterWordController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter word to filter...',
+                        hintStyle: TextStyle(
+                          color: isDark
+                              ? AppColors.textTertiary
+                              : AppColors.lightTextTertiary,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      style: TextStyle(color: textColor, fontSize: 14),
+                      cursorColor: textColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      final word = _filterWordController.text.trim();
+                      if (word.isNotEmpty && !_filterWords.contains(word)) {
+                        _addFilterWord(word);
+                      }
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Filter words list
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark
+                  ? AppColors.borderColor
+                  : AppColors.lightBorderColor,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Filter Words (${_filterWords.length})',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                  ),
+                  if (_filterWords.isNotEmpty)
+                    Text(
+                      'Active',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.success,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_filterWords.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Text(
+                      'No filter words added yet',
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.textTertiary
+                            : AppColors.lightTextTertiary,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _filterWords.map((word) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.success),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            word,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: textColor,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () {
+                              _removeFilterWord(word);
+                            },
+                            child: Icon(
+                              Icons.close,
+                              size: 16,
+                              color: AppColors.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }

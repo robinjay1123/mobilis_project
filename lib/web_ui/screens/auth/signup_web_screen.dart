@@ -423,7 +423,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                           ],
                         ),
                         child: Image.asset(
-                          'assets/icon/logo1.png',
+                          'assets/icon/logo-black.png',
                           fit: BoxFit.contain,
                         ),
                       ),

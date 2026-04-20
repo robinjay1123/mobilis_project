@@ -194,10 +194,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                         color: AppColors.primary,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
-                        Icons.directions_car,
-                        color: Colors.black,
-                        size: 28,
+                      child: Image.asset(
+                        'assets/icon/logo-black.png',
+                        fit: BoxFit.contain,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -215,11 +214,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   width: 100,
                   height: 100,
                   decoration: BoxDecoration(
-                    color: AppColors.darkBgSecondary,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.borderColor),
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
                   ),
-                  child: Icon(page.icon, color: AppColors.primary, size: 50),
+                  child: Image.asset(
+                    'assets/icon/logo-black.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
           const SizedBox(height: 48),
           // Title

@@ -272,10 +272,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.admin_panel_settings,
-                    color: Colors.black,
-                    size: 24,
+                  child: Image.asset(
+                    'assets/icon/logo-black.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
                 if (_sidebarExpanded) ...[

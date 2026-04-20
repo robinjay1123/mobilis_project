@@ -251,15 +251,17 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Large icon
           Container(
-            width: 200,
-            height: 200,
+            width: 100,
+            height: 100,
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
+              color: AppColors.primary,
               shape: BoxShape.circle,
             ),
-            child: Icon(page.icon, color: AppColors.primary, size: 100),
+            child: Image.asset(
+              'assets/icon/logo-black.png',
+              fit: BoxFit.contain,
+            ),
           ),
           const SizedBox(height: 48),
         ],

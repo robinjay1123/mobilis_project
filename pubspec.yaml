@@ -43,6 +43,9 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   table_calendar: ^3.0.9
   image_picker: ^1.0.7
+  fl_chart: ^1.2.0
+  pdf: ^3.10.6
+  printing: ^5.11.0
 
 dev_dependencies:
   flutter_test:

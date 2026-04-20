@@ -3,6 +3,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'forgot_password_web_screen.dart';
 
 class LoginWebScreen extends StatefulWidget {
   const LoginWebScreen({super.key});
@@ -232,7 +233,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                           ],
                         ),
                         child: Image.asset(
-                          'assets/icon/logo1.png',
+                          'assets/icon/logo-black.png',
                           fit: BoxFit.contain,
                         ),
                       ),
@@ -385,7 +386,12 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                             ),
                             TextButton(
                               onPressed: () {
-                                // TODO: Forgot password
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const ForgotPasswordWebScreen(),
+                                  ),
+                                );
                               },
                               child: const Text(
                                 'Forgot Password?',

@@ -639,6 +639,53 @@ class AuthService {
     }
   }
 
+  // Send password reset email
+  Future<void> resetPassword({
+    required String email,
+    String? redirectTo,
+  }) async {
+    try {
+      debugPrint('Sending password reset email to: $email');
+
+      // Use provided redirectTo or default based on platform
+      final finalRedirectTo =
+          redirectTo ?? 'io.supabase.flutter://reset-password/';
+
+      await supabase.auth.resetPasswordForEmail(
+        email,
+        redirectTo: finalRedirectTo,
+      );
+
+      debugPrint('Password reset email sent successfully to: $email');
+    } on AuthException catch (e) {
+      debugPrint('Auth error during password reset: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error during password reset: $e');
+      rethrow;
+    }
+  }
+
+  // Update password with token (for password reset flow)
+  Future<void> updatePassword({required String newPassword}) async {
+    try {
+      final user = currentUser;
+      if (user == null) throw Exception('No user logged in');
+
+      debugPrint('Updating password for user: ${user.id}');
+
+      await supabase.auth.updateUser(UserAttributes(password: newPassword));
+
+      debugPrint('Password updated successfully for user: ${user.id}');
+    } on AuthException catch (e) {
+      debugPrint('Auth error during password update: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error during password update: $e');
+      rethrow;
+    }
+  }
+
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     String errorMessage = 'An error occurred';
