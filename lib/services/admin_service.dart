@@ -1068,6 +1068,426 @@ class AdminService {
     }
   }
 
+  // ================== TRANSACTION/BOOKING HISTORY LOGGING ==================
+
+  /// Log renter transaction (booking, payment, cancellation)
+  Future<bool> logRenterTransaction({
+    required String renterId,
+    required String
+    transactionType, // 'booking_created', 'booking_completed', 'payment_made', 'booking_cancelled', 'booking_rejected'
+    String? description,
+    String? bookingId,
+    String? vehicleId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      debugPrint(
+        'Logging renter transaction: $transactionType for renter: $renterId',
+      );
+
+      await supabase.from('admin_audit_logs').insert({
+        'entity_id': renterId,
+        'entity_type': 'renter_transaction',
+        'action': transactionType,
+        'notes': description ?? '$transactionType - Renter: $renterId',
+        'created_at': DateTime.now().toIso8601String(),
+        'booking_id': bookingId,
+        'vehicle_id': vehicleId,
+        'metadata': metadata,
+      });
+
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error logging renter transaction: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error logging renter transaction: $e');
+      return false;
+    }
+  }
+
+  /// Log driver transaction (job acceptance, completion, cancellation)
+  Future<bool> logDriverTransaction({
+    required String driverId,
+    required String
+    transactionType, // 'job_accepted', 'job_completed', 'job_cancelled', 'job_rejected', 'earnings_received'
+    String? description,
+    String? bookingId,
+    String? renterId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      debugPrint(
+        'Logging driver transaction: $transactionType for driver: $driverId',
+      );
+
+      await supabase.from('admin_audit_logs').insert({
+        'entity_id': driverId,
+        'entity_type': 'driver_transaction',
+        'action': transactionType,
+        'notes': description ?? '$transactionType - Driver: $driverId',
+        'created_at': DateTime.now().toIso8601String(),
+        'booking_id': bookingId,
+        'renter_id': renterId,
+        'metadata': metadata,
+      });
+
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error logging driver transaction: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error logging driver transaction: $e');
+      return false;
+    }
+  }
+
+  /// Log partner transaction (vehicle rental, completion, earnings)
+  Future<bool> logPartnerTransaction({
+    required String partnerId,
+    required String
+    transactionType, // 'vehicle_rented', 'rental_completed', 'rental_cancelled', 'earnings_received', 'vehicle_damaged'
+    String? description,
+    String? bookingId,
+    String? vehicleId,
+    String? renterId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      debugPrint(
+        'Logging partner transaction: $transactionType for partner: $partnerId',
+      );
+
+      await supabase.from('admin_audit_logs').insert({
+        'entity_id': partnerId,
+        'entity_type': 'partner_transaction',
+        'action': transactionType,
+        'notes': description ?? '$transactionType - Partner: $partnerId',
+        'created_at': DateTime.now().toIso8601String(),
+        'booking_id': bookingId,
+        'vehicle_id': vehicleId,
+        'renter_id': renterId,
+        'metadata': metadata,
+      });
+
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error logging partner transaction: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error logging partner transaction: $e');
+      return false;
+    }
+  }
+
+  /// Get renter transaction history
+  Future<List<Map<String, dynamic>>> getRenterTransactionHistory(
+    String renterId, {
+    int limit = 100,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? transactionType,
+  }) async {
+    try {
+      debugPrint('Fetching transaction history for renter: $renterId');
+
+      var query = supabase
+          .from('admin_audit_logs')
+          .select('*')
+          .eq('entity_id', renterId)
+          .eq('entity_type', 'renter_transaction');
+
+      if (transactionType != null) {
+        query = query.eq('action', transactionType);
+      }
+
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      debugPrint('Retrieved ${response.length} renter transaction records');
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching renter transactions: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching renter transactions: $e');
+      return [];
+    }
+  }
+
+  /// Get driver transaction history
+  Future<List<Map<String, dynamic>>> getDriverTransactionHistory(
+    String driverId, {
+    int limit = 100,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? transactionType,
+  }) async {
+    try {
+      debugPrint('Fetching transaction history for driver: $driverId');
+
+      var query = supabase
+          .from('admin_audit_logs')
+          .select('*')
+          .eq('entity_id', driverId)
+          .eq('entity_type', 'driver_transaction');
+
+      if (transactionType != null) {
+        query = query.eq('action', transactionType);
+      }
+
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      debugPrint('Retrieved ${response.length} driver transaction records');
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching driver transactions: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching driver transactions: $e');
+      return [];
+    }
+  }
+
+  /// Get partner transaction history
+  Future<List<Map<String, dynamic>>> getPartnerTransactionHistory(
+    String partnerId, {
+    int limit = 100,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? transactionType,
+  }) async {
+    try {
+      debugPrint('Fetching transaction history for partner: $partnerId');
+
+      var query = supabase
+          .from('admin_audit_logs')
+          .select('*')
+          .eq('entity_id', partnerId)
+          .eq('entity_type', 'partner_transaction');
+
+      if (transactionType != null) {
+        query = query.eq('action', transactionType);
+      }
+
+      if (startDate != null) {
+        query = query.gte('created_at', startDate.toIso8601String());
+      }
+
+      if (endDate != null) {
+        query = query.lte('created_at', endDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      debugPrint('Retrieved ${response.length} partner transaction records');
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching partner transactions: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching partner transactions: $e');
+      return [];
+    }
+  }
+
+  /// Get transaction history for booking (all parties involved)
+  Future<List<Map<String, dynamic>>> getBookingTransactionHistory(
+    String bookingId, {
+    int limit = 100,
+  }) async {
+    try {
+      debugPrint('Fetching all transactions for booking: $bookingId');
+
+      final response = await supabase
+          .from('admin_audit_logs')
+          .select('*')
+          .eq('booking_id', bookingId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      debugPrint('Retrieved ${response.length} booking transaction records');
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching booking transactions: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching booking transactions: $e');
+      return [];
+    }
+  }
+
+  /// Get transaction summary for renter (stats)
+  Future<Map<String, dynamic>> getRenterTransactionSummary(
+    String renterId,
+  ) async {
+    try {
+      debugPrint('Fetching transaction summary for renter: $renterId');
+
+      final transactions = await supabase
+          .from('admin_audit_logs')
+          .select('action, created_at')
+          .eq('entity_id', renterId)
+          .eq('entity_type', 'renter_transaction');
+
+      Map<String, int> actionCounts = {};
+      DateTime? lastTransactionTime;
+
+      for (var transaction in transactions) {
+        final action = transaction['action'] as String;
+        final timestamp = DateTime.parse(transaction['created_at'] as String);
+
+        actionCounts[action] = (actionCounts[action] ?? 0) + 1;
+
+        if (lastTransactionTime == null ||
+            timestamp.isAfter(lastTransactionTime)) {
+          lastTransactionTime = timestamp;
+        }
+      }
+
+      return {
+        'renter_id': renterId,
+        'total_transactions': transactions.length,
+        'action_breakdown': actionCounts,
+        'last_transaction_time': lastTransactionTime?.toIso8601String(),
+        'today_transactions': transactions
+            .where(
+              (t) =>
+                  DateTime.parse(t['created_at'] as String).day ==
+                  DateTime.now().day,
+            )
+            .length,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching renter summary: ${e.message}');
+      return {};
+    } catch (e) {
+      debugPrint('Error fetching renter summary: $e');
+      return {};
+    }
+  }
+
+  /// Get transaction summary for driver (stats)
+  Future<Map<String, dynamic>> getDriverTransactionSummary(
+    String driverId,
+  ) async {
+    try {
+      debugPrint('Fetching transaction summary for driver: $driverId');
+
+      final transactions = await supabase
+          .from('admin_audit_logs')
+          .select('action, created_at')
+          .eq('entity_id', driverId)
+          .eq('entity_type', 'driver_transaction');
+
+      Map<String, int> actionCounts = {};
+      DateTime? lastTransactionTime;
+
+      for (var transaction in transactions) {
+        final action = transaction['action'] as String;
+        final timestamp = DateTime.parse(transaction['created_at'] as String);
+
+        actionCounts[action] = (actionCounts[action] ?? 0) + 1;
+
+        if (lastTransactionTime == null ||
+            timestamp.isAfter(lastTransactionTime)) {
+          lastTransactionTime = timestamp;
+        }
+      }
+
+      return {
+        'driver_id': driverId,
+        'total_transactions': transactions.length,
+        'action_breakdown': actionCounts,
+        'last_transaction_time': lastTransactionTime?.toIso8601String(),
+        'today_transactions': transactions
+            .where(
+              (t) =>
+                  DateTime.parse(t['created_at'] as String).day ==
+                  DateTime.now().day,
+            )
+            .length,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching driver summary: ${e.message}');
+      return {};
+    } catch (e) {
+      debugPrint('Error fetching driver summary: $e');
+      return {};
+    }
+  }
+
+  /// Get transaction summary for partner (stats)
+  Future<Map<String, dynamic>> getPartnerTransactionSummary(
+    String partnerId,
+  ) async {
+    try {
+      debugPrint('Fetching transaction summary for partner: $partnerId');
+
+      final transactions = await supabase
+          .from('admin_audit_logs')
+          .select('action, created_at')
+          .eq('entity_id', partnerId)
+          .eq('entity_type', 'partner_transaction');
+
+      Map<String, int> actionCounts = {};
+      DateTime? lastTransactionTime;
+
+      for (var transaction in transactions) {
+        final action = transaction['action'] as String;
+        final timestamp = DateTime.parse(transaction['created_at'] as String);
+
+        actionCounts[action] = (actionCounts[action] ?? 0) + 1;
+
+        if (lastTransactionTime == null ||
+            timestamp.isAfter(lastTransactionTime)) {
+          lastTransactionTime = timestamp;
+        }
+      }
+
+      return {
+        'partner_id': partnerId,
+        'total_transactions': transactions.length,
+        'action_breakdown': actionCounts,
+        'last_transaction_time': lastTransactionTime?.toIso8601String(),
+        'today_transactions': transactions
+            .where(
+              (t) =>
+                  DateTime.parse(t['created_at'] as String).day ==
+                  DateTime.now().day,
+            )
+            .length,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching partner summary: ${e.message}');
+      return {};
+    } catch (e) {
+      debugPrint('Error fetching partner summary: $e');
+      return {};
+    }
+  }
+
   /// Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
