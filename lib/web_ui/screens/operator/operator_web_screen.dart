@@ -470,15 +470,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const Spacer(),
-          // Theme Toggle
-          IconButton(
-            onPressed: () => widget.onThemeToggle?.call(!widget.isDarkMode),
-            icon: Icon(
-              widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          const SizedBox(width: 10),
           // Refresh
           IconButton(
             onPressed: _loadDashboardData,

@@ -11,14 +11,14 @@ class AppBarWithLogo extends StatelessWidget implements PreferredSizeWidget {
   const AppBarWithLogo({
     super.key,
     this.title = 'Mobilis',
-    this.logoPath = 'assets/icon/logo-wtext.png',
+    this.logoPath = 'assets/icon/logo-wtext-nobg.png',
     this.actions,
     this.showLogo = true,
     this.onBackPressed,
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(70);
+  Size get preferredSize => const Size.fromHeight(80);
 
   @override
   Widget build(BuildContext context) {
@@ -27,47 +27,86 @@ class AppBarWithLogo extends StatelessWidget implements PreferredSizeWidget {
         color: AppColors.darkBgSecondary,
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Back button or logo
               if (onBackPressed != null)
                 GestureDetector(
                   onTap: onBackPressed,
                   child: Container(
-                    width: 40,
-                    height: 40,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      color: AppColors.primary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.primary.withOpacity(0.3),
+                        width: 1,
+                      ),
                     ),
                     child: const Icon(
                       Icons.arrow_back,
                       color: AppColors.primary,
-                      size: 20,
+                      size: 22,
                     ),
                   ),
                 )
               else if (showLogo)
                 Container(
-                  height: 50,
-                  width: 200,
+                  height: 60,
+                  width: 160,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Image.asset(logoPath, fit: BoxFit.contain),
+                  child: Image.asset(
+                    logoPath,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
                 ),
-              if (actions != null) const Spacer(),
-              // Actions
-              if (actions != null) ...actions! else const SizedBox(width: 8),
+              // Spacer to push actions to the right
+              if (actions != null && actions!.isNotEmpty) ...[
+                const Spacer(),
+                // Actions container with better styling
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.darkCard.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppColors.primary.withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ...List.generate(
+                        actions!.length,
+                        (index) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: actions![index],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else
+                const Spacer(),
             ],
           ),
         ),

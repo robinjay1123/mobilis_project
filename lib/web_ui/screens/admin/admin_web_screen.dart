@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'dart:html' as html;
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
+import '../../../utils/web_html.dart' as html;
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -2636,21 +2637,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final fileName =
           'mobilis_admin_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      // Direct download for web
-      final blob = html.Blob([pdfBytes], 'application/pdf');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.AnchorElement(href: url)
-        ..target = 'blank'
-        ..download = fileName;
-      html.document.body?.append(anchor);
-      anchor.click();
-      html.Url.revokeObjectUrl(url);
-      anchor.remove();
+      // Download PDF based on platform
+      if (kIsWeb) {
+        // Web: Direct download using HTML
+        final blob = html.Blob([pdfBytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..target = 'blank'
+          ..download = fileName;
+        html.document.body?.append(anchor);
+        anchor.click();
+        html.Url.revokeObjectUrl(url);
+        anchor.remove();
+      } else {
+        // Mobile: Use printing package to share or save PDF
+        await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('PDF report downloaded successfully!'),
+            content: Text('PDF report downloaded/shared successfully!'),
             backgroundColor: Colors.green,
           ),
         );

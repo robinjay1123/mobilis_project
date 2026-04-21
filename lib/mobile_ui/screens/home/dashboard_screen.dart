@@ -42,17 +42,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String userLocation = 'Loading...';
   bool emailConfirmed = true;
   bool userVerified = true; // Default to true, check against DB
+  int _userCreatedYear = DateTime.now().year;
+  int _totalTrips = 0;
 
   // Real data from services
   List<Map<String, dynamic>> _vehicles = [];
+  List<Map<String, dynamic>> _filteredVehicles = [];
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _conversations = [];
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoadingVehicles = true;
 
+  // Search and filter
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_onSearchChanged);
     _checkAuth();
     _loadUserData();
     _initializeConnectivity();
@@ -64,6 +72,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
     _loadAllData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase();
+      _applyFilters();
+    });
+  }
+
+  void _applyFilters() {
+    _filteredVehicles = _vehicles.where((vehicle) {
+      final brand = (vehicle['brand'] ?? '').toString().toLowerCase();
+      final model = (vehicle['model'] ?? '').toString().toLowerCase();
+      final plate = (vehicle['plate_number'] ?? '').toString().toLowerCase();
+      final category = (vehicle['category'] ?? 'Standard').toString();
+
+      // Match search query
+      final matchesSearch =
+          _searchQuery.isEmpty ||
+          brand.contains(_searchQuery) ||
+          model.contains(_searchQuery) ||
+          plate.contains(_searchQuery);
+
+      // Match category
+      final matchesCategory =
+          selectedCategory.isEmpty ||
+          category.toLowerCase() == selectedCategory.toLowerCase();
+
+      return matchesSearch && matchesCategory;
+    }).toList();
   }
 
   // Load all data from services
@@ -82,10 +126,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadVehicles() async {
     try {
       final vehicleService = VehicleService();
-      final vehicles = await vehicleService.getAvailableVehicles();
+      final vehicles = await vehicleService.getAvailableVehicles(
+        category: selectedCategory.isEmpty ? null : selectedCategory,
+      );
       if (mounted) {
         setState(() {
           _vehicles = vehicles;
+          _applyFilters();
           _isLoadingVehicles = false;
         });
       }
@@ -468,11 +515,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Check if user is verified
       final isVerified = await authService.isUserVerified();
 
+      // Get user creation year
+      final createdYear = user.createdAt != null
+          ? DateTime.tryParse(user.createdAt!)?.year ?? DateTime.now().year
+          : DateTime.now().year;
+
+      // Get total trips count from bookings
+      int totalTripsCount = 0;
+      try {
+        final bookingService = BookingService();
+        final bookings = await bookingService.getRenterBookings(user.id);
+        totalTripsCount = bookings.length;
+      } catch (e) {
+        debugPrint('Error fetching bookings count: $e');
+      }
+
       setState(() {
         userName = fullName;
         userLocation = location;
         emailConfirmed = emailConfirmedValue;
         userVerified = isVerified;
+        _userCreatedYear = createdYear;
+        _totalTrips = totalTripsCount;
       });
 
       // Show warning if email not confirmed
@@ -503,6 +567,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         userLocation = 'Not specified';
         emailConfirmed = true;
         userVerified = true;
+        _userCreatedYear = DateTime.now().year;
+        _totalTrips = 0;
       });
     }
   }
@@ -754,7 +820,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
-      appBar: AppBarWithLogo(title: 'Mobilis by PSDC', showLogo: true),
       body: _buildTabContent(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: selectedNavIndex,
@@ -863,13 +928,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.favorite_border,
-                          color: AppColors.textSecondary,
-                        ),
-                        onPressed: () {},
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -884,14 +942,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: () {},
-                        child: const Icon(
-                          Icons.expand_more,
                           color: AppColors.textSecondary,
                         ),
                       ),
@@ -916,6 +966,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       border: Border.all(color: AppColors.borderColor),
                     ),
                     child: TextField(
+                      controller: _searchController,
                       style: const TextStyle(color: AppColors.textPrimary),
                       decoration: InputDecoration(
                         hintText: 'Find a car near you...',
@@ -995,7 +1046,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             onTap: () {
                               setState(() {
                                 selectedCategory = category['name'];
+                                _isLoadingVehicles = true;
                               });
+                              _loadVehicles();
                             },
                             child: Column(
                               children: [
@@ -1529,9 +1582,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Image.asset(
-                              'assets/icon/logo1.png',
-                              fit: BoxFit.contain,
+                            child: Opacity(
+                              opacity: 0.3,
+                              child: Image.asset(
+                                'assets/icon/logo1.png',
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -1550,9 +1606,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    itemCount: _vehicles.length,
+                    itemCount: _filteredVehicles.length,
                     itemBuilder: (context, index) {
-                      final car = _vehicles[index];
+                      final car = _filteredVehicles[index];
                       final carName =
                           '${car['brand'] ?? 'Unknown'} ${car['model'] ?? 'Model'}';
                       final category = (car['category'] ?? 'Standard')
@@ -1888,15 +1944,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               children: [
                 Container(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.darkBgSecondary
-                      : Colors.white,
+                  color: AppColors.darkBg,
                   child: TabBar(
                     labelColor: AppColors.primary,
-                    unselectedLabelColor:
-                        Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.textSecondary
-                        : const Color(0xFF666666),
+                    unselectedLabelColor: AppColors.textSecondary,
                     indicatorColor: AppColors.primary,
                     tabs: const [
                       Tab(text: 'Upcoming'),
@@ -2313,28 +2364,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'Verified Renter',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.success,
+                      if (userVerified)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'Verified Renter',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.success,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.warning.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'Basic Renter',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.warning,
+                            ),
                           ),
                         ),
-                      ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Member since 2023',
-                        style: TextStyle(
+                      Text(
+                        'Member since $_userCreatedYear',
+                        style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.textTertiary,
                         ),
@@ -2368,9 +2439,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           child: Column(
                             children: [
-                              const Text(
-                                '42',
-                                style: TextStyle(
+                              Text(
+                                '$_totalTrips',
+                                style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.primary,
@@ -2453,84 +2524,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Appearance section (Light/Dark mode)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.darkBgSecondary
-                          : AppColors.lightBgSecondary,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? AppColors.borderColor
-                            : AppColors.lightBorderColor,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            widget.isDarkMode
-                                ? Icons.dark_mode
-                                : Icons.light_mode,
-                            color: AppColors.primary,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Appearance',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color:
-                                      Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? AppColors.textPrimary
-                                      : AppColors.lightTextPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                widget.isDarkMode ? 'Dark Mode' : 'Light Mode',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color:
-                                      Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? AppColors.textSecondary
-                                      : AppColors.lightTextSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: widget.isDarkMode,
-                          onChanged: (value) {
-                            widget.onThemeToggle?.call(value);
-                          },
-                          activeThumbColor: AppColors.primary,
-                          inactiveThumbColor: AppColors.textTertiary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
+                // Log Out button
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: SizedBox(

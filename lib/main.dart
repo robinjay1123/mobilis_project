@@ -31,6 +31,7 @@ import 'mobile_ui/screens/driver/driver_nbi_upload_screen.dart';
 import 'mobile_ui/screens/driver/driver_availability_screen.dart';
 import 'mobile_ui/screens/driver/driver_home_screen.dart';
 import 'mobile_ui/screens/home/chat_detail_screen.dart';
+import 'mobile_ui/screens/auth/web_only_access_screen.dart';
 import 'responsive/responsive_screens.dart';
 import 'web_ui/screens/admin/admin_web_screen.dart';
 import 'web_ui/screens/operator/operator_web_screen.dart';
@@ -212,6 +213,10 @@ class _MyAppState extends State<MyApp> {
             });
             return const ResponsiveLoginScreen();
           }
+          // Check if running on web
+          if (!kIsWeb) {
+            return const WebOnlyAccessScreen(role: 'Operator');
+          }
           return const OperatorWebScreen();
         },
         '/admin-home': (context) {
@@ -221,6 +226,10 @@ class _MyAppState extends State<MyApp> {
               Navigator.of(context).pushReplacementNamed('/login');
             });
             return const ResponsiveLoginScreen();
+          }
+          // Check if running on web
+          if (!kIsWeb) {
+            return const WebOnlyAccessScreen(role: 'Admin');
           }
           return const AdminWebScreen();
         },
@@ -644,6 +653,90 @@ class _AuthWrapperState extends State<AuthWrapper> {
           logoPath: 'assets/icon/logo1.png',
         );
       },
+    );
+  }
+}
+
+// Web-Only Access Screen for admin and operator roles
+class WebOnlyAccessScreen extends StatelessWidget {
+  final String role;
+
+  const WebOnlyAccessScreen({super.key, required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.computer,
+                    size: 50,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Web Access Only',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '$role dashboard is only available on web',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(color: Colors.grey[400]),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Please access the admin panel at: mobilis.web.com',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await AuthService().signOut();
+                    if (context.mounted) {
+                      Navigator.of(context).pushReplacementNamed('/login');
+                    }
+                  },
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Logout'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
