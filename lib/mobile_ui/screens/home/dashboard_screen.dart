@@ -7,10 +7,7 @@ import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
-import '../../widgets/message_bubble.dart';
-import '../../widgets/app_bar_with_logo.dart';
 import '../../widgets/status_badge.dart';
-import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
@@ -49,7 +46,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _filteredVehicles = [];
   List<Map<String, dynamic>> _bookings = [];
-  List<Map<String, dynamic>> _conversations = [];
   List<Map<String, dynamic>> _notifications = [];
   bool _isLoadingVehicles = true;
 
@@ -174,11 +170,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = authService.currentUser;
       if (user != null) {
         final chatService = ChatService();
-        final conversations = await chatService.getConversations(user.id);
+        final _ = await chatService.getConversations(user.id);
         if (mounted) {
-          setState(() {
-            _conversations = conversations;
-          });
+          setState(() {});
         }
       } else {
         if (mounted) {
@@ -516,9 +510,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final isVerified = await authService.isUserVerified();
 
       // Get user creation year
-      final createdYear = user.createdAt != null
-          ? DateTime.tryParse(user.createdAt!)?.year ?? DateTime.now().year
-          : DateTime.now().year;
+      final createdYear =
+          DateTime.tryParse(user.createdAt)?.year ?? DateTime.now().year;
 
       // Get total trips count from bookings
       int totalTripsCount = 0;
@@ -668,52 +661,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }).toList();
   }
 
-  List<Map<String, dynamic>> _uiConversations() {
-    final currentUserId = AuthService().currentUser?.id;
-
-    return _conversations.map((c) {
-      final messages = List<Map<String, dynamic>>.from(
-        (c['messages'] as List<dynamic>? ?? []).map(
-          (m) => Map<String, dynamic>.from(m as Map),
-        ),
-      );
-
-      messages.sort((a, b) {
-        final aTime = a['created_at']?.toString();
-        final bTime = b['created_at']?.toString();
-        if (aTime == null || bTime == null) return 0;
-        return aTime.compareTo(bTime);
-      });
-
-      final mappedMessages = messages.map((m) {
-        return {
-          'sender': currentUserId != null && m['sender_id'] == currentUserId,
-          'message': m['content']?.toString() ?? '',
-          'time': _formatTimeShort(m['created_at']?.toString()),
-        };
-      }).toList();
-
-      final unreadCount = messages
-          .where(
-            (m) => m['sender_id'] != currentUserId && m['is_read'] == false,
-          )
-          .length;
-
-      final lastMessage = mappedMessages.isNotEmpty
-          ? mappedMessages.last['message']?.toString() ?? ''
-          : 'No messages';
-
-      return {
-        'id': c['id']?.toString() ?? '',
-        'senderName': 'Conversation',
-        'lastMessage': lastMessage,
-        'timestamp': _formatTimeAgo(c['updated_at']?.toString()),
-        'unreadCount': unreadCount,
-        'messages': mappedMessages,
-      };
-    }).toList();
-  }
-
   List<Map<String, dynamic>> _topRentalPartners() {
     final partnerMap = <String, Map<String, dynamic>>{};
 
@@ -784,19 +731,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  String _formatTimeShort(String? date) {
-    if (date == null || date.isEmpty) return '--:--';
-    try {
-      final d = DateTime.parse(date).toLocal();
-      final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
-      final minute = d.minute.toString().padLeft(2, '0');
-      final suffix = d.hour >= 12 ? 'PM' : 'AM';
-      return '$hour:$minute $suffix';
-    } catch (_) {
-      return date;
-    }
-  }
-
   String _formatTimeAgo(String? date) {
     if (date == null || date.isEmpty) return 'just now';
     try {
@@ -812,8 +746,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Track selected chat and booking
-  int? selectedConversationIndex;
+  // Track selected booking
   int? selectedBookingIndex;
 
   @override
@@ -834,16 +767,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Bookings',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Messages',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.notifications),
             label: 'Notifications',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Messages'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
         onTap: (index) {
           setState(() {
             selectedNavIndex = index;
-            selectedConversationIndex = null;
             selectedBookingIndex = null;
           });
         },
@@ -858,9 +793,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 1:
         return _buildBookingsTab();
       case 2:
-        return _buildNotificationsTab();
-      case 3:
         return _buildMessagesTab();
+      case 3:
+        return _buildNotificationsTab();
       case 4:
         return _buildProfileTab();
       default:
@@ -1111,7 +1046,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
+                          color: Color.fromARGB(255, 255, 255, 255),
                         ),
                       ),
                       GestureDetector(
@@ -2070,155 +2005,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Messages Tab (Chat Conversation)
+  // Messages Tab
   Widget _buildMessagesTab() {
-    final conversationItems = _uiConversations();
+    final messageItems = _uiNotifications()
+        .where((item) => item['icon'] == Icons.message)
+        .toList();
 
-    if (selectedConversationIndex == null) {
-      return SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          MediaQuery.of(context).padding.top + 16,
-          16,
-          16,
-        ),
-        child: Column(
-          children: List.generate(
-            conversationItems.length,
-            (index) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: ConversationTile(
-                senderName: conversationItems[index]['senderName'],
-                lastMessage: conversationItems[index]['lastMessage'],
-                timestamp: conversationItems[index]['timestamp'],
-                unreadCount: conversationItems[index]['unreadCount'],
-                onTap: () {
-                  final conversationId = conversationItems[index]['id'];
-                  final recipientName = conversationItems[index]['senderName'];
-                  Navigator.of(context).pushNamed(
-                    '/chat-detail',
-                    arguments: {
-                      'conversationId': conversationId,
-                      'recipientName': recipientName,
-                      'recipientAvatar': '',
-                      'isDarkMode': widget.isDarkMode,
-                    },
-                  );
-                },
-              ),
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        MediaQuery.of(context).padding.top + 16,
+        16,
+        16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Messages',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
-        ),
-      );
-    }
-
-    final conversation = conversationItems[selectedConversationIndex!];
-    final messages = conversation['messages'] as List;
-
-    return Column(
-      children: [
-        Container(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            MediaQuery.of(context).padding.top + 12,
-            16,
-            12,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.darkBgSecondary,
-            border: Border(bottom: BorderSide(color: AppColors.borderColor)),
-          ),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    selectedConversationIndex = null;
-                  });
-                },
-                child: const Icon(
-                  Icons.arrow_back,
-                  color: AppColors.textSecondary,
-                ),
+          const SizedBox(height: 16),
+          if (messageItems.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgSecondary,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  conversation['senderName'],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
+              child: const Text(
+                'No messages yet.',
+                style: TextStyle(color: AppColors.textSecondary),
               ),
-              const Icon(Icons.call, color: AppColors.textSecondary),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            reverse: true,
-            padding: const EdgeInsets.all(16),
-            child: Column(
+            )
+          else
+            Column(
               children: List.generate(
-                messages.length,
+                messageItems.length,
                 (index) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: MessageBubble(
-                    message: messages[index]['message'],
-                    timestamp: messages[index]['time'],
-                    isSender: messages[index]['sender'],
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: NotificationItem(
+                    icon: messageItems[index]['icon'],
+                    title: messageItems[index]['title'],
+                    message: messageItems[index]['message'],
+                    timestamp: messageItems[index]['timestamp'],
+                    iconColor: messageItems[index]['iconColor'],
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.darkBgSecondary,
-            border: Border(top: BorderSide(color: AppColors.borderColor)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBg,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: AppColors.borderColor),
-                  ),
-                  child: const TextField(
-                    style: TextStyle(color: AppColors.textPrimary),
-                    decoration: InputDecoration(
-                      hintText: 'Type message...',
-                      hintStyle: TextStyle(color: AppColors.textTertiary),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.send, color: Colors.black),
-                  onPressed: () {},
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -2424,18 +2267,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? AppColors.darkBgSecondary
-                                : AppColors.lightBgSecondary,
+                            color: AppColors.darkBgSecondary,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? AppColors.borderColor
-                                  : AppColors.lightBorderColor,
-                            ),
+                            border: Border.all(color: AppColors.borderColor),
                           ),
                           child: Column(
                             children: [
@@ -2450,13 +2284,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               const SizedBox(height: 4),
                               Text(
                                 'Total Trips',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 12,
-                                  color:
-                                      Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? AppColors.textSecondary
-                                      : AppColors.lightTextSecondary,
+                                  color: AppColors.textSecondary,
                                 ),
                               ),
                             ],
@@ -2472,23 +2302,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Messages & Notifications',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildProfileMenuOption(
+                        Icons.chat_bubble_outline,
+                        'Messages',
+                        badgeCount: 3,
+                        onTap: () {
+                          setState(() {
+                            selectedNavIndex = 2;
+                          });
+                        },
+                      ),
+                      _buildProfileMenuOption(
+                        Icons.notifications_none,
+                        'Notifications',
+                        badgeCount: _notifications.length,
+                        onTap: () {
+                          setState(() {
+                            selectedNavIndex = 3;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
                       _buildProfileMenuOption(
                         Icons.calendar_today,
                         'My Bookings',
                         onTap: () {
                           setState(() {
                             selectedNavIndex = 1;
-                          });
-                        },
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.chat,
-                        'Messages',
-                        badgeCount: 3,
-                        onTap: () {
-                          setState(() {
-                            selectedNavIndex = 3;
                           });
                         },
                       ),
@@ -2600,15 +2451,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkBgSecondary
-              : AppColors.lightBgSecondary,
+          color: AppColors.darkBgSecondary,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? AppColors.borderColor
-                : AppColors.lightBorderColor,
-          ),
+          border: Border.all(color: AppColors.borderColor),
         ),
         child: Row(
           children: [
@@ -2625,12 +2470,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               child: Text(
                 label,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.textPrimary
-                      : AppColors.lightTextPrimary,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ),
@@ -2652,9 +2495,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             Icon(
               Icons.arrow_forward_ios,
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.textTertiary
-                  : AppColors.lightTextTertiary,
+              color: AppColors.textTertiary,
               size: 16,
             ),
           ],

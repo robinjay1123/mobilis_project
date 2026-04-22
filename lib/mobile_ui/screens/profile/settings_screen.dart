@@ -21,7 +21,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool notificationsEnabled = true;
   bool emailNotifications = true;
-  bool smsNotifications = false;
   String? currentRole;
   bool isLoadingRole = true;
 
@@ -96,9 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         // Header
         Container(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkBgSecondary
-              : AppColors.lightBgSecondary,
+          color: AppColors.darkBgSecondary,
           padding: EdgeInsets.fromLTRB(
             16,
             MediaQuery.of(context).padding.top + 12,
@@ -109,22 +106,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               GestureDetector(
                 onTap: widget.onBack,
-                child: Icon(
+                child: const Icon(
                   Icons.arrow_back,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.textSecondary
-                      : AppColors.lightTextSecondary,
+                  color: AppColors.textSecondary,
                 ),
               ),
               const SizedBox(width: 12),
               Text(
                 'Settings',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.textPrimary
-                      : AppColors.lightTextPrimary,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ],
@@ -137,39 +130,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Appearance section
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Appearance',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildSettingOption(
-                        icon: Icons.dark_mode,
-                        title: 'Dark Mode',
-                        subtitle: widget.isDarkMode ? 'Enabled' : 'Disabled',
-                        trailing: Switch(
-                          value: widget.isDarkMode,
-                          onChanged: (value) {
-                            widget.onThemeToggle?.call(value);
-                          },
-                          activeThumbColor: AppColors.primary,
-                          inactiveThumbColor: AppColors.textTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
                 // Notifications section
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -214,21 +174,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           activeThumbColor: AppColors.primary,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      _buildSettingOption(
-                        icon: Icons.sms,
-                        title: 'SMS Notifications',
-                        subtitle: 'Important alerts only',
-                        trailing: Switch(
-                          value: smsNotifications,
-                          onChanged: (value) {
-                            setState(() {
-                              smsNotifications = value;
-                            });
-                          },
-                          activeThumbColor: AppColors.primary,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -252,12 +197,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildSettingTile(
                         icon: Icons.lock,
                         title: 'Change Password',
-                        onTap: () {},
-                      ),
-                      const SizedBox(height: 8),
-                      _buildSettingTile(
-                        icon: Icons.security,
-                        title: 'Two-Factor Authentication',
                         onTap: () {},
                       ),
                       const SizedBox(height: 8),
@@ -293,18 +232,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             vertical: 12,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? AppColors.darkBgSecondary
-                                : AppColors.lightBgSecondary,
+                            color: AppColors.darkBgSecondary,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? AppColors.borderColor
-                                  : AppColors.lightBorderColor,
-                            ),
+                            border: Border.all(color: AppColors.borderColor),
                           ),
                           child: const Row(
                             children: [
@@ -333,18 +263,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             vertical: 16,
                           ),
                           decoration: BoxDecoration(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? AppColors.darkBgSecondary
-                                : AppColors.lightBgSecondary,
+                            color: AppColors.darkBgSecondary,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? AppColors.borderColor
-                                  : AppColors.lightBorderColor,
-                            ),
+                            border: Border.all(color: AppColors.borderColor),
                           ),
                           child: Row(
                             children: [
@@ -370,14 +291,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   children: [
                                     Text(
                                       'Current Role',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color:
-                                            Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? AppColors.textPrimary
-                                            : AppColors.lightTextPrimary,
+                                        color: AppColors.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -385,13 +302,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       currentRole == 'partner'
                                           ? 'Partner'
                                           : 'Renter',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontSize: 12,
-                                        color:
-                                            Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? AppColors.textSecondary
-                                            : AppColors.lightTextSecondary,
+                                        color: AppColors.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -505,15 +418,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? AppColors.darkBgSecondary
-            : AppColors.lightBgSecondary,
+        color: AppColors.darkBgSecondary,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.borderColor
-              : AppColors.lightBorderColor,
-        ),
+        border: Border.all(color: AppColors.borderColor),
       ),
       child: Row(
         children: [
@@ -533,23 +440,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   title,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.textPrimary
-                        : AppColors.lightTextPrimary,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.textSecondary
-                          : AppColors.lightTextSecondary,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ],
@@ -573,15 +476,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkBgSecondary
-              : AppColors.lightBgSecondary,
+          color: AppColors.darkBgSecondary,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? AppColors.borderColor
-                : AppColors.lightBorderColor,
-          ),
+          border: Border.all(color: AppColors.borderColor),
         ),
         child: Row(
           children: [
@@ -601,23 +498,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.textPrimary
-                          : AppColors.lightTextPrimary,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? AppColors.textSecondary
-                            : AppColors.lightTextSecondary,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -627,9 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Icon(
               Icons.arrow_forward_ios,
               size: 16,
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.textTertiary
-                  : AppColors.lightTextTertiary,
+              color: AppColors.textTertiary,
             ),
           ],
         ),
