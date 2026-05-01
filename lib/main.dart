@@ -648,7 +648,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         // Show animated loading screen while determining initial screen
         return const AnimatedLoadingWidget(
           title: 'Mobilis by PSDC',
-          subtitle: 'Professional Car Rental Solutions',
+          subtitle: 'Car Rental Solutions',
           gifPath: 'assets/loading.gif',
           logoPath: 'assets/icon/logo1.png',
         );
