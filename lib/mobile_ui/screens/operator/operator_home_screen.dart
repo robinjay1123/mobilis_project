@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/booking_service.dart';
 import '../../../services/operator_activity_logger.dart';
 
 class OperatorHomeScreen extends StatefulWidget {
@@ -45,6 +46,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       'pending'; // pending, approved, active, completed, all
 
   final _supabase = Supabase.instance.client;
+  final _bookingService = BookingService();
 
   @override
   void initState() {
@@ -455,23 +457,22 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     String? driverId,
   }) async {
     try {
-      final updateData = {
-        'status': 'approved',
-        'approved_at': DateTime.now().toIso8601String(),
-      };
-
-      if (driverId != null) {
-        updateData['driver_id'] = driverId;
+      final bookingId = booking['id']?.toString() ?? '';
+      if (bookingId.isEmpty) {
+        throw Exception('Invalid booking id');
       }
 
-      await _supabase
-          .from('bookings')
-          .update(updateData)
-          .eq('id', booking['id']);
+      final withDriver = booking['with_driver'] == true;
+
+      await _bookingService.approveBooking(bookingId, 'Approved by operator');
+
+      if (withDriver && driverId != null) {
+        await _bookingService.assignDriver(bookingId, driverId, 0.0);
+      }
 
       // Log the approval
       await OperatorActivityLogger.logBookingApproved(
-        bookingId: booking['id'],
+        bookingId: bookingId,
         reason: 'Booking approved by operator',
         totalPrice: booking['total_price'],
       );
@@ -493,14 +494,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Future<void> _rejectBooking(String bookingId, String reason) async {
     try {
-      await _supabase
-          .from('bookings')
-          .update({
-            'status': 'rejected',
-            'rejection_reason': reason,
-            'rejected_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await _bookingService.rejectBooking(bookingId, reason);
 
       // Log the rejection
       await OperatorActivityLogger.logBookingRejected(
@@ -532,13 +526,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           .eq('id', driverId)
           .maybeSingle();
 
-      await _supabase
-          .from('bookings')
-          .update({
-            'driver_id': driverId,
-            'driver_assigned_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      await _bookingService.assignDriver(bookingId, driverId, 0.0);
 
       // Log the driver assignment
       await OperatorActivityLogger.logDriverAssigned(

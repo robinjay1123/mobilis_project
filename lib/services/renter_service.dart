@@ -338,7 +338,7 @@ class RenterService {
             'id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number)',
           )
           .eq('renter_id', userId)
-          .inFilter('status', ['pending', 'confirmed', 'active'])
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
           .order('created_at', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);

@@ -482,9 +482,9 @@ class _VehicleIntakeTabState extends State<VehicleIntakeTab> {
                       plateNumber: vehicle['plate_number'] ?? 'N/A',
                       vehicleType:
                           vehicle['vehicle_type'] ?? vehicle['type'] ?? 'Sedan',
-                      fuelType: vehicle['fuel_type'] ?? 'Gasoline',
+                      fuelType: vehicle['category'] ?? 'Standard',
                       seats: vehicle['seats'] ?? 5,
-                      transmission: vehicle['transmission'] ?? 'Auto',
+                      transmission: vehicle['vehicle_type'] ?? 'Sedan',
                       orCrStatus: vehicle['or_cr_status'] ?? 'Pending Review',
                       orCrExpiry: vehicle['or_cr_expiry'],
                       insuranceStatus:

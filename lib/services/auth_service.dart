@@ -212,6 +212,7 @@ class AuthService {
     required String idNumber,
     required String location,
     required String phone,
+    String? idDocumentUrl,
   }) async {
     try {
       final user = currentUser;
@@ -219,17 +220,63 @@ class AuthService {
 
       debugPrint('Updating verification for user: ${user.id}');
 
-      await supabase
-          .from('users')
-          .update({
-            'full_name': fullName,
-            'id_type': idType,
-            'id_number': idNumber,
-            'location': location,
-            'phone': phone,
-            'id_verified': true,
-          })
-          .eq('id', user.id);
+      final updatePayloads = <Map<String, dynamic>>[
+        {
+          'full_name': fullName,
+          'location': location,
+          'phone': phone,
+          'id_verified': true,
+        },
+        {
+          'full_name': fullName,
+          'phone': phone,
+          'id_verified': true,
+        },
+        {
+          'full_name': fullName,
+          'phone_number': phone,
+          'id_verified': true,
+        },
+        {
+          'name': fullName,
+          'phone_number': phone,
+          'id_verified': true,
+        },
+        {
+          'name': fullName,
+          'phone': phone,
+          'id_verified': true,
+        },
+        {'id_verified': true},
+      ];
+
+      PostgrestException? lastSchemaError;
+      var updated = false;
+      for (final payload in updatePayloads) {
+        try {
+          await supabase.from('users').update(payload).eq('id', user.id);
+          updated = true;
+          break;
+        } on PostgrestException catch (e) {
+          lastSchemaError = e;
+        }
+      }
+
+      if (!updated) {
+        throw lastSchemaError ??
+            PostgrestException(
+              message: 'Unable to update users verification fields',
+            );
+      }
+
+      if (idDocumentUrl != null && idDocumentUrl.isNotEmpty) {
+        await supabase.from('user_verifications').upsert({
+          'user_id': user.id,
+          'id_document_url': idDocumentUrl,
+          'verification_status': 'pending',
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'user_id');
+      }
 
       debugPrint('User verification updated');
     } on PostgrestException catch (e) {

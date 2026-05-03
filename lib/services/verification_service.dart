@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 class VerificationService {
   static final supabase = Supabase.instance.client;
   static final imagePicker = ImagePicker();
+  static const String _idImagesBucket = 'id_images';
 
   /// Upload ID verification documents and face photo
   static Future<Map<String, dynamic>> submitVerification({
@@ -89,7 +90,7 @@ class VerificationService {
   /// Upload file to Supabase storage
   static Future<String> _uploadFile(String path, File file) async {
     await supabase.storage
-        .from('verification-documents')
+        .from(_idImagesBucket)
         .upload(
           path,
           file,
@@ -97,10 +98,34 @@ class VerificationService {
         );
 
     final publicUrl = supabase.storage
-        .from('verification-documents')
+        .from(_idImagesBucket)
         .getPublicUrl(path);
 
     return publicUrl;
+  }
+
+  /// Upload a single identity document photo for ID verification.
+  static Future<Map<String, dynamic>> uploadIdentityPhoto({
+    required String userId,
+    required File idPhotoFile,
+  }) async {
+    try {
+      final path =
+          'verifications/$userId/id_photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final idPhotoUrl = await _uploadFile(path, idPhotoFile);
+
+      return {
+        'success': true,
+        'message': 'ID photo uploaded successfully',
+        'data': {'id_photo_url': idPhotoUrl, 'storage_path': path},
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Failed to upload ID photo: $e',
+        'data': null,
+      };
+    }
   }
 
   /// Get user's verification status

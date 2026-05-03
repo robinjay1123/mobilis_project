@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'dart:io';
+import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
 
@@ -36,9 +40,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _pendingApplications = [];
   List<Map<String, dynamic>> _recentBookings = [];
   List<Map<String, dynamic>> _vehicles = [];
+  List<Map<String, dynamic>> _partnerVehicles = [];
 
   final _supabase = Supabase.instance.client;
   final _imagePicker = ImagePicker();
+  static const String _vehicleImagesBucket = 'vehicle_images';
+
+  final TextEditingController _brandController = TextEditingController();
+  final TextEditingController _modelController = TextEditingController();
+  final TextEditingController _yearController = TextEditingController();
+  final TextEditingController _plateController = TextEditingController();
+  final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _pricePerHourController = TextEditingController();
+  final TextEditingController _categoryController = TextEditingController();
+  final TextEditingController _vehicleTypeController = TextEditingController();
+  final TextEditingController _vehicleNameController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _colorController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _latitudeController = TextEditingController();
+  final TextEditingController _longitudeController = TextEditingController();
+  String _selectedStatus = 'active';
+  List<XFile> _selectedImages = [];
+  bool _isSubmittingVehicle = false;
 
   @override
   void initState() {
@@ -46,15 +70,115 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _loadDashboardData();
   }
 
+  @override
+  void dispose() {
+    _brandController.dispose();
+    _modelController.dispose();
+    _yearController.dispose();
+    _plateController.dispose();
+    _priceController.dispose();
+    _pricePerHourController.dispose();
+    _categoryController.dispose();
+    _vehicleTypeController.dispose();
+    _vehicleNameController.dispose();
+    _descriptionController.dispose();
+    _colorController.dispose();
+    _locationController.dispose();
+    _latitudeController.dispose();
+    _longitudeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _getCurrentVehicleLocation({
+    required void Function(String location, String latitude, String longitude)
+    onLocationFound,
+  }) async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enable location services in your settings'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location permission is required'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permission is permanently denied. Please enable it in app settings.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+
+      final location = placemarks.isNotEmpty
+          ? '${placemarks.first.locality ?? placemarks.first.administrativeArea ?? ''}, ${placemarks.first.country ?? ''}'
+                .trim()
+          : 'Current Location';
+
+      onLocationFound(
+        location,
+        position.latitude.toString(),
+        position.longitude.toString(),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location updated'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error getting location: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _loadDashboardData() async {
     setState(() => _isLoading = true);
-
     try {
       await Future.wait([_loadStats(), _loadRecentBookings(), _loadVehicles()]);
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
     }
-
     setState(() => _isLoading = false);
   }
 
@@ -104,16 +228,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final response = await _supabase
           .from('vehicle_applications')
           .select('''
-            *,
-            partners:partner_id (
-              user_id,
-              users:user_id (full_name, email)
-            )
-          ''')
+              *,
+              partners:partner_id (
+                user_id,
+                users:user_id (full_name, email)
+              )
+            ''')
           .eq('status', 'pending')
           .order('created_at', ascending: false)
           .limit(20);
-
       _pendingApplications = List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error loading pending applications: $e');
@@ -126,13 +249,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final response = await _supabase
           .from('bookings')
           .select('''
-            *,
-            vehicles:vehicle_id (brand, model, year),
-            users:renter_id (full_name, email)
-          ''')
+              *,
+              vehicles:vehicle_id (brand, model, year),
+              users:renter_id (full_name, email)
+            ''')
           .order('created_at', ascending: false)
           .limit(50);
-
       _recentBookings = List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error loading recent bookings: $e');
@@ -142,31 +264,64 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadVehicles() async {
     try {
-      // Get current user ID from auth
-      final userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return;
-
-      // Fetch own vehicles with images
-      final ownVehicles = await _supabase
+      final currentUserId = _supabase.auth.currentUser?.id;
+      var vehicleQuery = _supabase
           .from('vehicles')
-          .select('*, vehicle_images(id, image_url, display_order)')
-          .eq('owner_id', userId)
-          .order('created_at', ascending: false);
+          .select('*, vehicle_images(id, image_url, display_order)');
 
-      // Fetch partner vehicles assigned to this operator
-      final partnerVehicles = await _supabase
-          .from('partner_vehicles')
-          .select('*, vehicle_id, is_posted')
-          .eq('operator_id', userId)
-          .order('created_at', ascending: false);
+      if (currentUserId != null) {
+        vehicleQuery = vehicleQuery.eq('owner_id', currentUserId);
+      }
 
-      // Combine both lists
-      final combined = [...?ownVehicles, ...?partnerVehicles];
+      final ownVehicles = await vehicleQuery.order(
+        'created_at',
+        ascending: false,
+      );
+      debugPrint('vehicles loaded: ${(ownVehicles as List).length}');
 
-      _vehicles = List<Map<String, dynamic>>.from(combined);
+      final normalizedOwnVehicles = (ownVehicles as List)
+          .whereType<Map<String, dynamic>>()
+          .map((vehicle) {
+            final merged = Map<String, dynamic>.from(vehicle);
+            merged['_source'] = 'company';
+            return merged;
+          })
+          .toList();
+
+      List partnerVehiclesResp = [];
+      try {
+        partnerVehiclesResp =
+            await _supabase
+                    .from('partner_vehicles')
+                    .select(
+                      '*, vehicle:vehicle_id ( *, vehicle_images(id, image_url, display_order) )',
+                    )
+                    .order('created_at', ascending: false)
+                as List;
+      } catch (e) {
+        debugPrint('Error loading partner_vehicles: $e');
+        partnerVehiclesResp = [];
+      }
+
+      final normalizedPartnerVehicles = partnerVehiclesResp.map((pv) {
+        final vehicle = pv['vehicle'] as Map<String, dynamic>?;
+        final merged = <String, dynamic>{};
+        if (vehicle != null) merged.addAll(Map<String, dynamic>.from(vehicle));
+        merged['_source'] = 'partner';
+        merged['_partner_vehicle_id'] = pv['id'];
+        return merged;
+      }).toList();
+
+      setState(() {
+        _vehicles = List<Map<String, dynamic>>.from(normalizedOwnVehicles);
+        _partnerVehicles = List<Map<String, dynamic>>.from(
+          normalizedPartnerVehicles,
+        );
+      });
     } catch (e) {
       debugPrint('Error loading vehicles: $e');
       _vehicles = [];
+      _partnerVehicles = [];
     }
   }
 
@@ -188,7 +343,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           backgroundColor: action == 'approved' ? Colors.green : Colors.red,
         ),
       );
-
       _loadDashboardData();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -238,9 +392,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       backgroundColor: isDark ? AppColors.darkBg : const Color(0xFFF5F5F5),
       body: Row(
         children: [
-          // Sidebar
           _buildSidebar(isDark, isCompact),
-          // Main Content
           Expanded(
             child: Column(
               children: [
@@ -270,7 +422,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Column(
         children: [
-          // Logo/Header
           Container(
             height: 70,
             padding: EdgeInsets.symmetric(
@@ -319,7 +470,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const Divider(height: 1),
-          // Navigation Items
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 10),
@@ -346,7 +496,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
-          // Collapse Button
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
             child: Container(
@@ -470,7 +619,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const Spacer(),
-          // Refresh
           IconButton(
             onPressed: _loadDashboardData,
             icon: Icon(
@@ -479,7 +627,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(width: 20),
-          // User Menu
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
@@ -580,7 +727,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Stats Grid
           GridView.count(
             crossAxisCount: 4,
             shrinkWrap: true,
@@ -620,11 +766,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
           const SizedBox(height: 30),
-          // Two Column Layout
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Recent Bookings
               Expanded(
                 flex: 2,
                 child: _buildCard(
@@ -852,9 +996,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     return Column(
-      children: _pendingApplications.take(5).map((app) {
-        return _buildApplicationTile(app, isDark);
-      }).toList(),
+      children: _pendingApplications
+          .take(5)
+          .map((app) => _buildApplicationTile(app, isDark))
+          .toList(),
     );
   }
 
@@ -952,7 +1097,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildBookingsContent(bool isDark) {
-    // Separate bookings by status
     final pendingBookings = _recentBookings
         .where((b) => (b['status'] as String? ?? 'pending') == 'pending')
         .toList();
@@ -980,8 +1124,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 30),
-
-          // Pending Bookings
           _buildBookingSection(
             'Pending Bookings',
             pendingBookings,
@@ -989,8 +1131,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             Colors.orange,
           ),
           const SizedBox(height: 30),
-
-          // Active Bookings
           _buildBookingSection(
             'Active Bookings',
             activeBookings,
@@ -998,8 +1138,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             Colors.green,
           ),
           const SizedBox(height: 30),
-
-          // Completed Bookings
           _buildBookingSection(
             'Completed Bookings',
             completedBookings,
@@ -1007,8 +1145,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             Colors.blue,
           ),
           const SizedBox(height: 30),
-
-          // Cancelled Bookings
           _buildBookingSection(
             'Cancelled Bookings',
             cancelledBookings,
@@ -1191,21 +1327,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Widget _buildImageWidget(
+    XFile imageFile, {
+    BoxFit fit = BoxFit.cover,
+    BorderRadius? borderRadius,
+  }) {
+    return FutureBuilder<Uint8List>(
+      future: imageFile.readAsBytes(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          final image = Image.memory(snapshot.data!, fit: fit);
+          return borderRadius != null
+              ? ClipRRect(borderRadius: borderRadius, child: image)
+              : image;
+        } else if (snapshot.hasError) {
+          return const Center(child: Icon(Icons.error, color: Colors.red));
+        } else {
+          return const Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
+      },
+    );
+  }
+
   Widget _buildVehiclesContent(bool isDark) {
-    // Separate vehicles into own and partner vehicles
-    final ownVehicles = _vehicles
-        .where((v) => !v.containsKey('operator_id'))
-        .toList();
-    final partnerVehicles = _vehicles
-        .where((v) => v.containsKey('operator_id'))
-        .toList();
+    final ownVehicles = _vehicles;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Add Vehicle Button
           Row(
             children: [
               Text(
@@ -1240,8 +1397,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
           const SizedBox(height: 24),
-
-          // Company Vehicles Section
           Text(
             'Company Vehicles (${ownVehicles.length})',
             style: TextStyle(
@@ -1279,23 +1434,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             )
           else
-            GridView.count(
-              crossAxisCount: 5,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 0.85,
-              children: ownVehicles
-                  .map((vehicle) => _buildVehicleCard(vehicle, isDark))
-                  .toList(),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const crossAxisCount = 5;
+                const spacing = 16.0;
+                final cardWidth =
+                    (constraints.maxWidth - spacing * (crossAxisCount - 1)) /
+                    crossAxisCount;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: ownVehicles
+                      .map(
+                        (vehicle) => SizedBox(
+                          width: cardWidth,
+                          child: _buildVehicleCard(vehicle, isDark),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
-
-          const SizedBox(height: 40),
-
-          // Partner Vehicles Section
+          const SizedBox(height: 32),
           Text(
-            'Partner Vehicles (${partnerVehicles.length})',
+            'Partner Vehicles (${_partnerVehicles.length})',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -1303,7 +1465,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (partnerVehicles.isEmpty)
+          if (_partnerVehicles.isEmpty)
             Container(
               padding: const EdgeInsets.all(40),
               decoration: BoxDecoration(
@@ -1314,13 +1476,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 child: Column(
                   children: [
                     Icon(
-                      Icons.business_outlined,
+                      Icons.business_center_outlined,
                       size: 60,
                       color: Colors.grey.withOpacity(0.5),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'No partner vehicles assigned yet',
+                      'No partner vehicles',
                       style: TextStyle(
                         fontSize: 14,
                         color: isDark ? Colors.grey : Colors.grey.shade600,
@@ -1331,303 +1493,96 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             )
           else
-            GridView.count(
-              crossAxisCount: 5,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 0.85,
-              children: partnerVehicles
-                  .map((vehicle) => _buildVehicleCard(vehicle, isDark))
-                  .toList(),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const crossAxisCount = 5;
+                const spacing = 16.0;
+                final cardWidth =
+                    (constraints.maxWidth - spacing * (crossAxisCount - 1)) /
+                    crossAxisCount;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: _partnerVehicles
+                      .map(
+                        (vehicle) => SizedBox(
+                          width: cardWidth,
+                          child: _buildVehicleCard(vehicle, isDark),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
             ),
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 
   Widget _buildVehicleCard(Map<String, dynamic> vehicle, bool isDark) {
-    final brand = vehicle['brand'] ?? 'Unknown';
-    final model = vehicle['model'] ?? 'Model';
-    final year = vehicle['year'] ?? '';
-    final pricePerDay = vehicle['price_per_day'] ?? 0;
-    final status = vehicle['status'] ?? 'pending';
-    final isPosted = vehicle['is_posted'] ?? false;
-    final isPartnerVehicle = vehicle.containsKey('operator_id');
-    final images = (vehicle['vehicle_images'] as List?) ?? [];
-
-    return StatefulBuilder(
-      builder: (context, setCardState) {
-        int currentImageIndex = 0;
-
-        return Container(
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkCard : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image Gallery with Navigation
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(12),
-                        topRight: Radius.circular(12),
-                      ),
-                      color: isDark ? Colors.black26 : Colors.grey.shade100,
-                    ),
-                    child: images.isNotEmpty
-                        ? Image.network(
-                            images[currentImageIndex]['image_url'] ?? '',
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Center(
-                                  child: Icon(
-                                    Icons.image_not_supported,
-                                    color: isDark
-                                        ? Colors.grey[600]
-                                        : Colors.grey.shade400,
-                                  ),
-                                ),
-                          )
-                        : Center(
-                            child: Icon(
-                              Icons.image_outlined,
-                              size: 32,
-                              color: isDark
-                                  ? Colors.grey[600]
-                                  : Colors.grey.shade400,
-                            ),
-                          ),
-                  ),
-                  // Image counter
-                  if (images.isNotEmpty)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${currentImageIndex + 1}/${images.length}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  // Navigation arrows
-                  if (images.length > 1) ...[
-                    Positioned(
-                      left: 4,
-                      child: GestureDetector(
-                        onTap: () {
-                          setCardState(() {
-                            currentImageIndex =
-                                (currentImageIndex - 1) % images.length;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.chevron_left,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: 4,
-                      child: GestureDetector(
-                        onTap: () {
-                          setCardState(() {
-                            currentImageIndex =
-                                (currentImageIndex + 1) % images.length;
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.chevron_right,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              // Header with status badge
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$brand $model',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            year.toString(),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isDark
-                                  ? Colors.grey
-                                  : Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              // Price and Posting Switch
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          const Text('PHP ', style: TextStyle(fontSize: 12)),
-                          Text(
-                            pricePerDay.toString(),
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const Text('/day', style: TextStyle(fontSize: 10)),
-                        ],
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Post Vehicle',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isDark
-                                  ? Colors.grey
-                                  : Colors.grey.shade600,
-                            ),
-                          ),
-                          Transform.scale(
-                            scale: 0.8,
-                            alignment: Alignment.centerLeft,
-                            child: Switch(
-                              value: isPosted,
-                              onChanged: (value) =>
-                                  _togglePostingStatus(vehicle, value),
-                              activeColor: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (!isPartnerVehicle) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () =>
-                              _showEditVehicleDialog(vehicle, isDark),
-                          icon: const Icon(Icons.edit, size: 14),
-                          label: const Text(
-                            'Edit',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _deleteVehicle(vehicle['id']),
-                          icon: const Icon(Icons.delete, size: 14),
-                          label: const Text(
-                            'Delete',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
+    return _VehicleCard(
+      brand: vehicle['brand'] ?? 'Unknown',
+      model: vehicle['model'] ?? 'Model',
+      vehicleName: vehicle['vehicle_name'] ?? '',
+      category: vehicle['category'] ?? '',
+      vehicleType: vehicle['vehicle_type'] ?? '',
+      description: vehicle['description'] ?? '',
+      color: vehicle['color'] ?? '',
+      location: vehicle['location'] ?? '',
+      latitude: vehicle['latitude'],
+      longitude: vehicle['longitude'],
+      year: (vehicle['year'] ?? '').toString(),
+      pricePerDay: vehicle['price_per_day'] ?? 0,
+      pricePerHour: vehicle['price_per_hour'] ?? 0,
+      isPosted: vehicle['is_posted'] ?? false,
+      images: (vehicle['vehicle_images'] as List?) ?? [],
+      isDark: isDark,
+      onEdit: () => _showEditVehicleDialog(vehicle, isDark),
+      onDelete: () => _deleteVehicle(vehicle['id']),
+      onTogglePost: (value) => _togglePostingStatus(vehicle, value),
     );
   }
 
-  void _showAddVehicleDialog(bool isDark) {
-    final brandController = TextEditingController();
-    final modelController = TextEditingController();
-    final yearController = TextEditingController();
-    final priceController = TextEditingController();
-    String selectedStatus = 'active';
-    List<File> selectedImages = [];
+  InputDecoration _fieldDecoration(String label, bool isDark) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(
+        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+        fontSize: 14,
+      ),
+      filled: true,
+      fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: AppColors.primary, width: 2),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+        ),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
+  }
 
+  TextStyle _fieldTextStyle(bool isDark) {
+    return TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 15);
+  }
+
+  void _showAddVehicleDialog(bool isDark) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => Dialog(
+        builder: (context, setDialogState) => Dialog(
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.symmetric(
             horizontal: 40,
@@ -1658,26 +1613,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       ),
                       GestureDetector(
-                        onTap: () => Navigator.pop(context),
+                        onTap: _isSubmittingVehicle
+                            ? null
+                            : () => Navigator.pop(context),
                         child: Icon(
                           Icons.close,
-                          color: isDark
-                              ? Colors.grey[400]
-                              : Colors.grey.shade600,
+                          color: _isSubmittingVehicle
+                              ? Colors.grey
+                              : (isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey.shade600),
                         ),
                       ),
                     ],
                   ),
                 ),
                 const Divider(height: 1),
-                // Content
+                // Scrollable content
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Image Gallery Preview
+                        // Main image preview
                         Container(
                           width: double.infinity,
                           height: 150,
@@ -1692,10 +1651,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ? Colors.black26
                                 : Colors.grey.shade50,
                           ),
-                          child: selectedImages.isNotEmpty
-                              ? Image.file(
-                                  selectedImages.first,
+                          child: _selectedImages.isNotEmpty
+                              ? _buildImageWidget(
+                                  _selectedImages.first,
                                   fit: BoxFit.cover,
+                                  borderRadius: BorderRadius.circular(8),
                                 )
                               : Center(
                                   child: Column(
@@ -1723,13 +1683,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                         ),
                         const SizedBox(height: 16),
-                        // Image Thumbnails Scroll
-                        if (selectedImages.isNotEmpty)
+                        // Thumbnails
+                        if (_selectedImages.isNotEmpty)
                           SizedBox(
                             height: 90,
                             child: ListView.builder(
                               scrollDirection: Axis.horizontal,
-                              itemCount: selectedImages.length,
+                              itemCount: _selectedImages.length,
                               itemBuilder: (context, index) => Padding(
                                 padding: const EdgeInsets.only(right: 12),
                                 child: Stack(
@@ -1748,12 +1708,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           width: index == 0 ? 3 : 1,
                                         ),
                                       ),
-                                      child: ClipRRect(
+                                      child: _buildImageWidget(
+                                        _selectedImages[index],
+                                        fit: BoxFit.cover,
                                         borderRadius: BorderRadius.circular(8),
-                                        child: Image.file(
-                                          selectedImages[index],
-                                          fit: BoxFit.cover,
-                                        ),
                                       ),
                                     ),
                                     Positioned(
@@ -1761,8 +1719,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       right: -6,
                                       child: GestureDetector(
                                         onTap: () {
-                                          setState(() {
-                                            selectedImages.removeAt(index);
+                                          setDialogState(() {
+                                            _selectedImages.removeAt(index);
                                           });
                                         },
                                         child: Container(
@@ -1785,7 +1743,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                         const SizedBox(height: 16),
-                        // Image Picker Buttons
+                        // Image picker buttons
                         Row(
                           children: [
                             Expanded(
@@ -1794,8 +1752,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   final pickedFile = await _imagePicker
                                       .pickImage(source: ImageSource.gallery);
                                   if (pickedFile != null) {
-                                    setState(() {
-                                      selectedImages.add(File(pickedFile.path));
+                                    setDialogState(() {
+                                      _selectedImages.add(pickedFile);
                                     });
                                   }
                                 },
@@ -1809,13 +1767,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                               ),
                             ),
-                            if (selectedImages.isNotEmpty) ...[
+                            if (_selectedImages.isNotEmpty) ...[
                               const SizedBox(width: 12),
                               Expanded(
                                 child: OutlinedButton.icon(
                                   onPressed: () {
-                                    setState(() {
-                                      selectedImages.clear();
+                                    setDialogState(() {
+                                      _selectedImages.clear();
                                     });
                                   },
                                   icon: const Icon(Icons.clear, size: 18),
@@ -1833,205 +1791,194 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         const SizedBox(height: 20),
                         TextField(
-                          controller: brandController,
+                          controller: _brandController,
                           cursorColor: AppColors.primary,
-                          decoration: InputDecoration(
-                            labelText: 'Brand',
-                            labelStyle: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.black26
-                                : Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 15,
-                          ),
+                          decoration: _fieldDecoration('Brand', isDark),
+                          style: _fieldTextStyle(isDark),
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          controller: modelController,
+                          controller: _modelController,
                           cursorColor: AppColors.primary,
-                          decoration: InputDecoration(
-                            labelText: 'Model',
-                            labelStyle: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.black26
-                                : Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 15,
-                          ),
+                          decoration: _fieldDecoration('Model', isDark),
+                          style: _fieldTextStyle(isDark),
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          controller: yearController,
+                          controller: _plateController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Plate Number', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _categoryController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Category', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _vehicleTypeController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Vehicle Type', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _vehicleNameController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Vehicle Name', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _colorController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Color', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _descriptionController,
+                          cursorColor: AppColors.primary,
+                          maxLines: 4,
+                          decoration: _fieldDecoration('Description', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _yearController,
                           cursorColor: AppColors.primary,
                           keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Year',
-                            labelStyle: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.black26
-                                : Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                          ),
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 15,
-                          ),
+                          decoration: _fieldDecoration('Year', isDark),
+                          style: _fieldTextStyle(isDark),
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          controller: priceController,
+                          controller: _priceController,
                           cursorColor: AppColors.primary,
                           keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Price per Day (PHP)',
-                            labelStyle: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.black26
-                                : Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
+                          decoration: _fieldDecoration(
+                            'Price per Day (PHP)',
+                            isDark,
+                          ),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _pricePerHourController,
+                          cursorColor: AppColors.primary,
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecoration(
+                            'Price per Hour (PHP)',
+                            isDark,
+                          ),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Location',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
+                            Container(
+                              height: 44,
+                              decoration: BoxDecoration(
                                 color: AppColors.primary,
-                                width: 2,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => _getCurrentVehicleLocation(
+                                    onLocationFound:
+                                        (location, latitude, longitude) {
+                                          setDialogState(() {
+                                            _locationController.text = location;
+                                            _latitudeController.text = latitude;
+                                            _longitudeController.text =
+                                                longitude;
+                                          });
+                                        },
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.my_location,
+                                          size: 18,
+                                          color: Colors.black,
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Use Current Location',
+                                          style: TextStyle(
+                                            color: Colors.black,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _locationController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration('Location', isDark),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _latitudeController,
+                                cursorColor: AppColors.primary,
+                                keyboardType: TextInputType.number,
+                                decoration: _fieldDecoration(
+                                  'Latitude',
+                                  isDark,
+                                ),
+                                style: _fieldTextStyle(isDark),
                               ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: _longitudeController,
+                                cursorColor: AppColors.primary,
+                                keyboardType: TextInputType.number,
+                                decoration: _fieldDecoration(
+                                  'Longitude',
+                                  isDark,
+                                ),
+                                style: _fieldTextStyle(isDark),
+                              ),
                             ),
-                          ),
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 15,
-                          ),
+                          ],
                         ),
                         const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
-                          value: selectedStatus,
+                          value: _selectedStatus,
                           items: const [
                             DropdownMenuItem(
                               value: 'active',
@@ -2046,172 +1993,215 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               child: Text('Maintenance'),
                             ),
                           ],
-                          onChanged: (value) =>
-                              selectedStatus = value ?? 'active',
-                          decoration: InputDecoration(
-                            labelText: 'Status',
-                            labelStyle: TextStyle(
-                              color: isDark
-                                  ? Colors.grey[400]
-                                  : Colors.grey.shade600,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.black26
-                                : Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
+                          onChanged: (value) => setDialogState(
+                            () => _selectedStatus = value ?? 'active',
                           ),
+                          decoration: _fieldDecoration('Status', isDark),
                           dropdownColor: isDark
                               ? AppColors.darkCard
                               : Colors.white,
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 15,
-                          ),
+                          style: _fieldTextStyle(isDark),
                         ),
                       ],
                     ),
                   ),
                 ),
                 const Divider(height: 1),
-                // Actions
+                // Footer actions
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: _isSubmittingVehicle
+                            ? null
+                            : () => Navigator.pop(context),
                         child: Text(
                           'Cancel',
                           style: TextStyle(
-                            color: isDark
-                                ? Colors.grey[400]
-                                : Colors.grey.shade700,
+                            color: _isSubmittingVehicle
+                                ? Colors.grey
+                                : (isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey.shade700),
                             fontSize: 15,
                           ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton(
-                        onPressed: () async {
-                          if (brandController.text.isEmpty ||
-                              modelController.text.isEmpty ||
-                              yearController.text.isEmpty ||
-                              priceController.text.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Please fill all fields'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            return;
-                          }
+                        onPressed: _isSubmittingVehicle
+                            ? null
+                            : () async {
+                                if (_brandController.text.isEmpty ||
+                                    _modelController.text.isEmpty ||
+                                    _plateController.text.isEmpty ||
+                                    _categoryController.text.isEmpty ||
+                                    _vehicleTypeController.text.isEmpty ||
+                                    _vehicleNameController.text.isEmpty ||
+                                    _descriptionController.text.isEmpty ||
+                                    _colorController.text.isEmpty ||
+                                    _yearController.text.isEmpty ||
+                                    _priceController.text.isEmpty ||
+                                    _pricePerHourController.text.isEmpty ||
+                                    _locationController.text.isEmpty ||
+                                    _latitudeController.text.isEmpty ||
+                                    _longitudeController.text.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Please fill all fields'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
+                                }
 
-                          try {
-                            final userId = _supabase.auth.currentUser?.id;
-                            if (userId == null) {
-                              throw 'User not authenticated';
-                            }
+                                setDialogState(
+                                  () => _isSubmittingVehicle = true,
+                                );
 
-                            // Create vehicle record first
-                            final vehicleResponse = await _supabase
-                                .from('vehicles')
-                                .insert({
-                                  'brand': brandController.text,
-                                  'model': modelController.text,
-                                  'year': int.parse(yearController.text),
-                                  'price_per_day': double.parse(
-                                    priceController.text,
-                                  ),
-                                  'status': selectedStatus,
-                                  'owner_id': userId,
-                                })
-                                .select()
-                                .single();
+                                try {
+                                  final currentUserId =
+                                      _supabase.auth.currentUser?.id;
+                                  if (currentUserId == null) {
+                                    throw 'Operator account is required to add vehicles';
+                                  }
 
-                            final vehicleId = vehicleResponse['id'];
+                                  final existing = await _supabase
+                                      .from('vehicles')
+                                      .select('id')
+                                      .eq('plate_number', _plateController.text)
+                                      .limit(1);
 
-                            // Upload images and insert into vehicle_images
-                            for (int i = 0; i < selectedImages.length; i++) {
-                              final fileName =
-                                  'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                              final filePath = 'vehicles/$userId/$fileName';
+                                  String vehicleId;
+                                  if (existing != null &&
+                                      (existing as List).isNotEmpty) {
+                                    vehicleId = existing[0]['id'];
+                                  } else {
+                                    final vehicleResponse = await _supabase
+                                        .from('vehicles')
+                                        .insert({
+                                          'brand': _brandController.text,
+                                          'model': _modelController.text,
+                                          'category': _categoryController.text,
+                                          'vehicle_type':
+                                              _vehicleTypeController.text,
+                                          'vehicle_name':
+                                              _vehicleNameController.text,
+                                          'description':
+                                              _descriptionController.text,
+                                          'color': _colorController.text,
+                                          'plate_number': _plateController.text,
+                                          'year': int.parse(
+                                            _yearController.text,
+                                          ),
+                                          'price_per_day': double.parse(
+                                            _priceController.text,
+                                          ),
+                                          'price_per_hour': double.parse(
+                                            _pricePerHourController.text,
+                                          ),
+                                          'location': _locationController.text,
+                                          'latitude': double.parse(
+                                            _latitudeController.text,
+                                          ),
+                                          'longitude': double.parse(
+                                            _longitudeController.text,
+                                          ),
+                                          'status': _selectedStatus,
+                                          'is_available': true,
+                                          'owner_id': currentUserId,
+                                        })
+                                        .select()
+                                        .single();
+                                    vehicleId = vehicleResponse['id'];
+                                  }
 
-                              try {
-                                await _supabase.storage
-                                    .from('vehicle-images')
-                                    .upload(
-                                      filePath,
-                                      selectedImages[i],
-                                      fileOptions: const FileOptions(
-                                        cacheControl: '3600',
-                                        upsert: false,
+                                  for (
+                                    int i = 0;
+                                    i < _selectedImages.length;
+                                    i++
+                                  ) {
+                                    final fileName =
+                                        'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                    final filePath =
+                                        'vehicles/$currentUserId/$fileName';
+                                    try {
+                                      final imageBytes =
+                                          await _selectedImages[i]
+                                              .readAsBytes();
+                                      await _supabase.storage
+                                          .from(_vehicleImagesBucket)
+                                          .uploadBinary(
+                                            filePath,
+                                            imageBytes,
+                                            fileOptions: const FileOptions(
+                                              cacheControl: '3600',
+                                              upsert: false,
+                                            ),
+                                          );
+                                      final imageUrl = _supabase.storage
+                                          .from(_vehicleImagesBucket)
+                                          .getPublicUrl(filePath);
+                                      await _supabase
+                                          .from('vehicle_images')
+                                          .insert({
+                                            'vehicle_id': vehicleId,
+                                            'image_url': imageUrl,
+                                            'display_order': i,
+                                          });
+                                    } catch (e) {
+                                      debugPrint(
+                                        'Error uploading image $i: $e',
+                                      );
+                                    }
+                                  }
+
+                                  final imageCount = _selectedImages.length;
+                                  _brandController.clear();
+                                  _modelController.clear();
+                                  _categoryController.clear();
+                                  _vehicleTypeController.clear();
+                                  _vehicleNameController.clear();
+                                  _descriptionController.clear();
+                                  _colorController.clear();
+                                  _yearController.clear();
+                                  _plateController.clear();
+                                  _priceController.clear();
+                                  _pricePerHourController.clear();
+                                  _selectedImages = [];
+                                  _selectedStatus = 'active';
+                                  _locationController.clear();
+                                  _latitudeController.clear();
+                                  _longitudeController.clear();
+
+                                  if (mounted) Navigator.pop(context);
+                                  _loadVehicles();
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Vehicle added successfully with $imageCount images!',
                                       ),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                } finally {
+                                  if (mounted) {
+                                    setDialogState(
+                                      () => _isSubmittingVehicle = false,
                                     );
-
-                                final imageUrl = _supabase.storage
-                                    .from('vehicle-images')
-                                    .getPublicUrl(filePath);
-
-                                // Insert image record
-                                await _supabase.from('vehicle_images').insert({
-                                  'vehicle_id': vehicleId,
-                                  'image_url': imageUrl,
-                                  'display_order': i,
-                                });
-                              } catch (e) {
-                                debugPrint('Error uploading image $i: $e');
-                              }
-                            }
-
-                            Navigator.pop(context);
-                            _loadVehicles();
-
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Vehicle added successfully with ${selectedImages.length} images!',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
+                                  }
+                                }
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           padding: const EdgeInsets.symmetric(
@@ -2219,14 +2209,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             vertical: 12,
                           ),
                         ),
-                        child: const Text(
-                          'Add Vehicle',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
+                        child: _isSubmittingVehicle
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : const Text(
+                                'Add Vehicle',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -2242,300 +2243,724 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void _showEditVehicleDialog(Map<String, dynamic> vehicle, bool isDark) {
     final brandController = TextEditingController(text: vehicle['brand'] ?? '');
     final modelController = TextEditingController(text: vehicle['model'] ?? '');
+    final categoryController = TextEditingController(
+      text: vehicle['category'] ?? '',
+    );
+    final vehicleTypeController = TextEditingController(
+      text: vehicle['vehicle_type'] ?? '',
+    );
+    final vehicleNameController = TextEditingController(
+      text: vehicle['vehicle_name'] ?? '',
+    );
+    final descriptionController = TextEditingController(
+      text: vehicle['description'] ?? '',
+    );
+    final colorController = TextEditingController(text: vehicle['color'] ?? '');
+    final locationController = TextEditingController(
+      text: vehicle['location'] ?? '',
+    );
+    final latitudeController = TextEditingController(
+      text: (vehicle['latitude'] ?? '').toString(),
+    );
+    final longitudeController = TextEditingController(
+      text: (vehicle['longitude'] ?? '').toString(),
+    );
     final yearController = TextEditingController(
       text: (vehicle['year'] ?? '').toString(),
     );
     final priceController = TextEditingController(
       text: (vehicle['price_per_day'] ?? '').toString(),
     );
+    final pricePerHourController = TextEditingController(
+      text: (vehicle['price_per_hour'] ?? '').toString(),
+    );
     String selectedStatus = vehicle['status'] ?? 'active';
+    final List<Map<String, dynamic>> existingImages =
+        List<Map<String, dynamic>>.from(
+          (vehicle['vehicle_images'] as List?) ?? [],
+        );
+    final List<XFile> newImages = [];
+    bool isUpdating = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-        title: Text(
-          'Edit Vehicle',
-          style: TextStyle(
-            color: isDark ? Colors.white : Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: brandController,
-                cursorColor: AppColors.primary,
-                decoration: InputDecoration(
-                  labelText: 'Brand',
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> pickNewImages() async {
+            try {
+              if (kIsWeb) {
+                final picked = await _imagePicker.pickMultiImage();
+                if (picked.isNotEmpty) {
+                  setDialogState(() => newImages.addAll(picked));
+                }
+              } else {
+                final picked = await _imagePicker.pickImage(
+                  source: ImageSource.gallery,
+                );
+                if (picked != null) {
+                  setDialogState(() => newImages.add(picked));
+                }
+              }
+            } catch (e) {
+              debugPrint('Error picking images: $e');
+            }
+          }
+
+          Future<void> removeExistingImage(int index) async {
+            final id = existingImages[index]['id'];
+            try {
+              await _supabase.from('vehicle_images').delete().eq('id', id);
+              setDialogState(() => existingImages.removeAt(index));
+            } catch (e) {
+              debugPrint('Error deleting existing image: $e');
+            }
+          }
+
+          final previewImage = newImages.isNotEmpty
+              ? _buildImageWidget(
+                  newImages.first,
+                  fit: BoxFit.cover,
+                  borderRadius: BorderRadius.circular(8),
+                )
+              : existingImages.isNotEmpty
+              ? Image.network(
+                  existingImages.first['image_url'] ?? '',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Center(
+                    child: Icon(
+                      Icons.image_not_supported,
+                      color: isDark ? Colors.grey[600] : Colors.grey.shade400,
                     ),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 2,
-                    ),
+                )
+              : Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.image_outlined,
+                        size: 50,
+                        color: isDark ? Colors.grey[600] : Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No images',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey[600]
+                              : Colors.grey.shade400,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
+                );
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 40,
+              vertical: 24,
+            ),
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 800, maxHeight: 1000),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: modelController,
-                cursorColor: AppColors.primary,
-                decoration: InputDecoration(
-                  labelText: 'Model',
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Edit Vehicle',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: isUpdating
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: Icon(
+                            Icons.close,
+                            color: isUpdating
+                                ? Colors.grey
+                                : (isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey.shade600),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 2,
+                  const Divider(height: 1),
+                  // Scrollable content
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Preview
+                          Container(
+                            width: double.infinity,
+                            height: 150,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.grey[700]!
+                                    : Colors.grey.shade300,
+                              ),
+                              color: isDark
+                                  ? Colors.black26
+                                  : Colors.grey.shade50,
+                            ),
+                            child: previewImage,
+                          ),
+                          const SizedBox(height: 12),
+                          // Thumbnails
+                          if (existingImages.isNotEmpty || newImages.isNotEmpty)
+                            SizedBox(
+                              height: 90,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount:
+                                    existingImages.length + newImages.length,
+                                itemBuilder: (context, index) {
+                                  if (index < existingImages.length) {
+                                    final img = existingImages[index];
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 12),
+                                      child: Stack(
+                                        children: [
+                                          Container(
+                                            width: 90,
+                                            height: 90,
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: isDark
+                                                    ? Colors.grey[700]!
+                                                    : Colors.grey.shade300,
+                                              ),
+                                            ),
+                                            child: Image.network(
+                                              img['image_url'] ?? '',
+                                              fit: BoxFit.cover,
+                                              errorBuilder:
+                                                  (
+                                                    context,
+                                                    error,
+                                                    stackTrace,
+                                                  ) => const Center(
+                                                    child: Icon(
+                                                      Icons.image_not_supported,
+                                                    ),
+                                                  ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            top: -6,
+                                            right: -6,
+                                            child: GestureDetector(
+                                              onTap: () =>
+                                                  removeExistingImage(index),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  4,
+                                                ),
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.red,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.close,
+                                                  color: Colors.white,
+                                                  size: 14,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  } else {
+                                    final newImg =
+                                        newImages[index -
+                                            existingImages.length];
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 12),
+                                      child: Stack(
+                                        children: [
+                                          Container(
+                                            width: 90,
+                                            height: 90,
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: isDark
+                                                    ? Colors.grey[700]!
+                                                    : Colors.grey.shade300,
+                                              ),
+                                            ),
+                                            child: _buildImageWidget(
+                                              newImg,
+                                              fit: BoxFit.cover,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            top: -6,
+                                            right: -6,
+                                            child: GestureDetector(
+                                              onTap: () => setDialogState(
+                                                () => newImages.removeAt(
+                                                  index - existingImages.length,
+                                                ),
+                                              ),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  4,
+                                                ),
+                                                decoration: const BoxDecoration(
+                                                  color: Colors.red,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: const Icon(
+                                                  Icons.close,
+                                                  color: Colors.white,
+                                                  size: 14,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: pickNewImages,
+                                  icon: const Icon(Icons.add_photo_alternate),
+                                  label: const Text('Add Image'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (newImages.isNotEmpty) ...[
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () =>
+                                        setDialogState(() => newImages.clear()),
+                                    icon: const Icon(Icons.clear, size: 18),
+                                    label: const Text('Clear New'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: brandController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration('Brand', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: modelController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration('Model', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: categoryController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration('Category', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: vehicleTypeController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration(
+                              'Vehicle Type',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: vehicleNameController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration(
+                              'Vehicle Name',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: colorController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration('Color', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: descriptionController,
+                            cursorColor: AppColors.primary,
+                            maxLines: 4,
+                            decoration: _fieldDecoration('Description', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: yearController,
+                            cursorColor: AppColors.primary,
+                            keyboardType: TextInputType.number,
+                            decoration: _fieldDecoration('Year', isDark),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: priceController,
+                            cursorColor: AppColors.primary,
+                            keyboardType: TextInputType.number,
+                            decoration: _fieldDecoration(
+                              'Price per Day (PHP)',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: pricePerHourController,
+                            cursorColor: AppColors.primary,
+                            keyboardType: TextInputType.number,
+                            decoration: _fieldDecoration(
+                              'Price per Hour (PHP)',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: locationController,
+                                  cursorColor: AppColors.primary,
+                                  decoration: _fieldDecoration(
+                                    'Location',
+                                    isDark,
+                                  ),
+                                  style: _fieldTextStyle(isDark),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => _getCurrentVehicleLocation(
+                                      onLocationFound:
+                                          (location, latitude, longitude) {
+                                            setDialogState(() {
+                                              locationController.text =
+                                                  location;
+                                              latitudeController.text =
+                                                  latitude;
+                                              longitudeController.text =
+                                                  longitude;
+                                            });
+                                          },
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: Icon(
+                                        Icons.location_searching,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: latitudeController,
+                                  cursorColor: AppColors.primary,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _fieldDecoration(
+                                    'Latitude',
+                                    isDark,
+                                  ),
+                                  style: _fieldTextStyle(isDark),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: longitudeController,
+                                  cursorColor: AppColors.primary,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _fieldDecoration(
+                                    'Longitude',
+                                    isDark,
+                                  ),
+                                  style: _fieldTextStyle(isDark),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: selectedStatus,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'active',
+                                child: Text('Active'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'inactive',
+                                child: Text('Inactive'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'maintenance',
+                                child: Text('Maintenance'),
+                              ),
+                            ],
+                            onChanged: (value) =>
+                                selectedStatus = value ?? 'active',
+                            decoration: _fieldDecoration('Status', isDark),
+                            dropdownColor: isDark
+                                ? AppColors.darkCard
+                                : Colors.white,
+                            style: _fieldTextStyle(isDark),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+                  const Divider(height: 1),
+                  // Footer actions
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: isUpdating
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(
+                              color: isUpdating
+                                  ? Colors.grey
+                                  : (isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey.shade700),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: isUpdating
+                              ? null
+                              : () async {
+                                  setDialogState(() => isUpdating = true);
+                                  try {
+                                    await _supabase
+                                        .from('vehicles')
+                                        .update({
+                                          'brand': brandController.text,
+                                          'model': modelController.text,
+                                          'category': categoryController.text,
+                                          'vehicle_type':
+                                              vehicleTypeController.text,
+                                          'vehicle_name':
+                                              vehicleNameController.text,
+                                          'description':
+                                              descriptionController.text,
+                                          'color': colorController.text,
+                                          'year': int.parse(
+                                            yearController.text,
+                                          ),
+                                          'price_per_day': double.parse(
+                                            priceController.text,
+                                          ),
+                                          'price_per_hour': double.parse(
+                                            pricePerHourController.text,
+                                          ),
+                                          'location': locationController.text,
+                                          'latitude': double.parse(
+                                            latitudeController.text,
+                                          ),
+                                          'longitude': double.parse(
+                                            longitudeController.text,
+                                          ),
+                                          'status': selectedStatus,
+                                        })
+                                        .eq('id', vehicle['id']);
+
+                                    final List<String> uploadErrors = [];
+                                    for (int i = 0; i < newImages.length; i++) {
+                                      final fileName =
+                                          'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                      final ownerId =
+                                          vehicle['owner_id'] ??
+                                          _supabase.auth.currentUser?.id;
+                                      final filePath =
+                                          'vehicles/${ownerId ?? 'unknown'}/$fileName';
+                                      try {
+                                        final imageBytes = await newImages[i]
+                                            .readAsBytes();
+                                        await _supabase.storage
+                                            .from(_vehicleImagesBucket)
+                                            .uploadBinary(
+                                              filePath,
+                                              imageBytes,
+                                              fileOptions: const FileOptions(
+                                                cacheControl: '3600',
+                                                upsert: false,
+                                              ),
+                                            );
+                                        final imageUrl = _supabase.storage
+                                            .from(_vehicleImagesBucket)
+                                            .getPublicUrl(filePath);
+                                        await _supabase
+                                            .from('vehicle_images')
+                                            .insert({
+                                              'vehicle_id': vehicle['id'],
+                                              'image_url': imageUrl,
+                                              'display_order':
+                                                  existingImages.length + i,
+                                            });
+                                      } catch (e) {
+                                        debugPrint(
+                                          'Error uploading new image: $e',
+                                        );
+                                        uploadErrors.add(e.toString());
+                                      }
+                                    }
+
+                                    if (uploadErrors.isNotEmpty) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Some images failed: ${uploadErrors.first}',
+                                          ),
+                                          backgroundColor: Colors.orange,
+                                        ),
+                                      );
+                                    }
+
+                                    Navigator.pop(context);
+                                    _loadVehicles();
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Vehicle updated successfully!',
+                                        ),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Error: $e'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  } finally {
+                                    setDialogState(() => isUpdating = false);
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 32,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: isUpdating
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const Text(
+                                  'Update Vehicle',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ],
                     ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: yearController,
-                cursorColor: AppColors.primary,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Year',
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 2,
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: priceController,
-                cursorColor: AppColors.primary,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Price per Day (PHP)',
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 2,
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: selectedStatus,
-                items: const [
-                  DropdownMenuItem(value: 'active', child: Text('Active')),
-                  DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
-                  DropdownMenuItem(
-                    value: 'maintenance',
-                    child: Text('Maintenance'),
                   ),
                 ],
-                onChanged: (value) => selectedStatus = value ?? 'active',
-                decoration: InputDecoration(
-                  labelText: 'Status',
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: AppColors.primary,
-                      width: 2,
-                    ),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(
-                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
-                    ),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                ),
-                dropdownColor: isDark ? AppColors.darkCard : Colors.white,
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: isDark ? Colors.grey[400] : Colors.grey.shade700,
               ),
             ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await _supabase
-                    .from('vehicles')
-                    .update({
-                      'brand': brandController.text,
-                      'model': modelController.text,
-                      'year': int.parse(yearController.text),
-                      'price_per_day': double.parse(priceController.text),
-                      'status': selectedStatus,
-                    })
-                    .eq('id', vehicle['id']);
-
-                Navigator.pop(context);
-                _loadVehicles();
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Vehicle updated successfully!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text(
-              'Update Vehicle',
-              style: TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -2564,7 +2989,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       try {
         await _supabase.from('vehicles').delete().eq('id', vehicleId);
         _loadVehicles();
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Vehicle deleted successfully!'),
@@ -2584,19 +3008,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isPosted,
   ) async {
     try {
-      final isPartnerVehicle = vehicle.containsKey('operator_id');
+      await _supabase
+          .from('vehicles')
+          .update({'is_posted': isPosted})
+          .eq('id', vehicle['id']);
 
-      if (isPartnerVehicle) {
-        // Update partner_vehicles table
-        await _supabase
-            .from('partner_vehicles')
-            .update({'is_posted': isPosted})
-            .eq('id', vehicle['id']);
-      } else {
-        // For own vehicles, update local state
-        vehicle['is_posted'] = isPosted;
-      }
-
+      vehicle['is_posted'] = isPosted;
       _loadVehicles();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2656,6 +3073,402 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
             isDark,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stateful vehicle card extracted to avoid Switch overflow in GridView/Wrap
+// ---------------------------------------------------------------------------
+class _VehicleCard extends StatefulWidget {
+  final String brand;
+  final String model;
+  final String vehicleName;
+  final String category;
+  final String vehicleType;
+  final String description;
+  final String color;
+  final String location;
+  final dynamic latitude;
+  final dynamic longitude;
+  final String year;
+  final dynamic pricePerDay;
+  final dynamic pricePerHour;
+  final bool isPosted;
+  final List images;
+  final bool isDark;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onTogglePost;
+
+  const _VehicleCard({
+    required this.brand,
+    required this.model,
+    required this.vehicleName,
+    required this.category,
+    required this.vehicleType,
+    required this.description,
+    required this.color,
+    required this.location,
+    required this.latitude,
+    required this.longitude,
+    required this.year,
+    required this.pricePerDay,
+    required this.pricePerHour,
+    required this.isPosted,
+    required this.images,
+    required this.isDark,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onTogglePost,
+  });
+
+  @override
+  State<_VehicleCard> createState() => _VehicleCardState();
+}
+
+class _VehicleCardState extends State<_VehicleCard> {
+  int _currentImageIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final images = widget.images;
+    final isDark = widget.isDark;
+    final title = widget.vehicleName.isNotEmpty
+        ? widget.vehicleName
+        : '${widget.brand} ${widget.model}'.trim();
+    final metadata = <String>[
+      if (widget.category.isNotEmpty) widget.category,
+      if (widget.vehicleType.isNotEmpty) widget.vehicleType,
+      if (widget.color.isNotEmpty) widget.color,
+      if (widget.location.isNotEmpty) widget.location,
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Image gallery ──────────────────────────────────────────────
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 130,
+                  child: images.isNotEmpty
+                      ? Image.network(
+                          images[_currentImageIndex]['image_url'] ?? '',
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Center(
+                            child: Icon(
+                              Icons.image_not_supported,
+                              color: isDark
+                                  ? Colors.grey[600]
+                                  : Colors.grey.shade400,
+                            ),
+                          ),
+                        )
+                      : Container(
+                          color: isDark ? Colors.black26 : Colors.grey.shade100,
+                          child: Center(
+                            child: Icon(
+                              Icons.image_outlined,
+                              size: 32,
+                              color: isDark
+                                  ? Colors.grey[600]
+                                  : Colors.grey.shade400,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+              // Counter badge
+              if (images.isNotEmpty)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${_currentImageIndex + 1}/${images.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              // Prev arrow
+              if (images.length > 1)
+                Positioned(
+                  left: 4,
+                  child: GestureDetector(
+                    onTap: () => setState(() {
+                      _currentImageIndex =
+                          (_currentImageIndex - 1 + images.length) %
+                          images.length;
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.chevron_left,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              // Next arrow
+              if (images.length > 1)
+                Positioned(
+                  right: 4,
+                  child: GestureDetector(
+                    onTap: () => setState(() {
+                      _currentImageIndex =
+                          (_currentImageIndex + 1) % images.length;
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.chevron_right,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          // ── Title ──────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+            child: Text(
+              widget.year,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+              ),
+            ),
+          ),
+          if (metadata.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+              child: Text(
+                metadata.join(' • '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isDark ? Colors.grey : Colors.grey.shade500,
+                ),
+              ),
+            ),
+
+          Divider(
+            height: 1,
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          ),
+
+          // ── Price + post toggle ────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: RichText(
+                        text: TextSpan(
+                          children: [
+                            TextSpan(
+                              text: 'PHP ',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark ? Colors.white70 : Colors.black54,
+                              ),
+                            ),
+                            TextSpan(
+                              text: widget.pricePerDay.toString(),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            TextSpan(
+                              text: '/day',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isDark ? Colors.white54 : Colors.black38,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'PHP ${widget.pricePerHour} /hr',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      widget.latitude != null && widget.longitude != null
+                          ? '${widget.latitude}, ${widget.longitude}'
+                          : 'Location not set',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: isDark ? Colors.grey : Colors.grey.shade500,
+                      ),
+                    ),
+                    // Compact toggle (avoids Switch's large intrinsic height)
+                    GestureDetector(
+                      onTap: () => widget.onTogglePost(!widget.isPosted),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 36,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: widget.isPosted
+                              ? AppColors.primary
+                              : (isDark
+                                    ? Colors.grey[700]
+                                    : Colors.grey.shade300),
+                        ),
+                        child: AnimatedAlign(
+                          duration: const Duration(milliseconds: 200),
+                          alignment: widget.isPosted
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.all(2),
+                            child: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+            child: Text(
+              widget.isPosted ? 'Posted' : 'Not posted',
+              style: TextStyle(
+                fontSize: 10,
+                color: widget.isPosted
+                    ? AppColors.primary
+                    : (isDark ? Colors.grey : Colors.grey.shade500),
+              ),
+            ),
+          ),
+
+          Divider(
+            height: 1,
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          ),
+
+          // ── Edit / Delete ──────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.all(6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: widget.onEdit,
+                    icon: const Icon(Icons.edit, size: 13),
+                    label: const Text('Edit', style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: widget.onDelete,
+                    icon: const Icon(Icons.delete, size: 13),
+                    label: const Text('Delete', style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

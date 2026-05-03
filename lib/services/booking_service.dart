@@ -141,6 +141,7 @@ class BookingService {
     required DateTime startDate,
     required DateTime endDate,
     required double totalPrice,
+    bool withDriver = false,
     String? pickupLocation,
     String? dropoffLocation,
   }) async {
@@ -155,6 +156,7 @@ class BookingService {
             'start_date': startDate.toIso8601String(),
             'end_date': endDate.toIso8601String(),
             'total_price': totalPrice,
+            'with_driver': withDriver,
             'pickup_location': pickupLocation,
             'dropoff_location': dropoffLocation,
             'status': 'pending',
@@ -192,8 +194,9 @@ class BookingService {
 
       debugPrint('Booking status updated');
 
-      // If status changed to 'confirmed', create auto-message conversation
-      if (status == 'confirmed' && booking['conversation_created'] != true) {
+      // Create auto-message once booking is accepted by operator/owner.
+      if ((status == 'confirmed' || status == 'approved') &&
+          booking['conversation_created'] != true) {
         try {
           debugPrint(
             'Creating auto-message conversation for booking: $bookingId',
@@ -247,9 +250,11 @@ class BookingService {
 
       final counts = {
         'pending': 0,
+        'approved': 0,
         'confirmed': 0,
         'active': 0,
         'completed': 0,
+        'rejected': 0,
         'cancelled': 0,
         'total': bookings.length,
       };
@@ -267,9 +272,11 @@ class BookingService {
       debugPrint('Error getting booking counts: $e');
       return {
         'pending': 0,
+        'approved': 0,
         'confirmed': 0,
         'active': 0,
         'completed': 0,
+        'rejected': 0,
         'cancelled': 0,
         'total': 0,
       };
@@ -344,7 +351,7 @@ class BookingService {
       await supabase
           .from('bookings')
           .update({
-            'status': 'confirmed',
+            'status': 'approved',
             'operator_notes': operatorNotes,
             'approved_at': DateTime.now().toIso8601String(),
           })
@@ -367,9 +374,9 @@ class BookingService {
       await supabase
           .from('bookings')
           .update({
-            'status': 'cancelled',
-            'cancellation_reason': reason,
-            'cancelled_at': DateTime.now().toIso8601String(),
+            'status': 'rejected',
+            'rejection_reason': reason,
+            'rejected_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
 
@@ -394,10 +401,44 @@ class BookingService {
         'Assigning driver $driverId to booking $bookingId with fee: $tripFee',
       );
 
+      final booking = await supabase
+          .from('bookings')
+          .select('id, with_driver, status')
+          .eq('id', bookingId)
+          .maybeSingle();
+
+      if (booking == null) {
+        throw Exception('Booking not found');
+      }
+
+      if (booking['with_driver'] != true) {
+        throw Exception(
+          'Driver assignment is only allowed for with-driver bookings',
+        );
+      }
+
+      final driver = await supabase
+          .from('users')
+          .select('id, role, is_available')
+          .eq('id', driverId)
+          .maybeSingle();
+
+      if (driver == null || (driver['role'] as String?) != 'driver') {
+        throw Exception('Selected user is not a valid driver');
+      }
+
+      if (driver['is_available'] == false) {
+        throw Exception('Selected driver is not available');
+      }
+
       // Update booking with driver
       await supabase
           .from('bookings')
-          .update({'driver_id': driverId, 'trip_fee': tripFee})
+          .update({
+            'driver_id': driverId,
+            'trip_fee': tripFee,
+            'driver_assigned_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', bookingId);
 
       debugPrint('Driver assigned to booking');
@@ -416,7 +457,11 @@ class BookingService {
       debugPrint('Unassigning driver from booking: $bookingId');
       await supabase
           .from('bookings')
-          .update({'driver_id': null, 'trip_fee': null})
+          .update({
+            'driver_id': null,
+            'trip_fee': null,
+            'driver_assigned_at': null,
+          })
           .eq('id', bookingId);
 
       debugPrint('Driver unassigned from booking');

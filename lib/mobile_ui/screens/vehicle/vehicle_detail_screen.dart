@@ -3,6 +3,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/booking_service.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final String vehicleId;
@@ -25,6 +26,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   List<DateTime> _unavailableDates = [];
+  bool _withDriver = false;
 
   @override
   void initState() {
@@ -206,9 +208,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     });
 
     try {
-      // TODO: Implement actual booking logic with BookingService
-      // For now, show success message
-      await Future.delayed(const Duration(seconds: 1));
+      final currentUser = authService.currentUser;
+      if (currentUser == null) {
+        throw Exception('You need to log in before booking.');
+      }
+
+      await BookingService().createBooking(
+        renterId: currentUser.id,
+        vehicleId: widget.vehicleId,
+        startDate: _selectedStartDate!,
+        endDate: _selectedEndDate!,
+        totalPrice: _totalPrice,
+        withDriver: _withDriver,
+        pickupLocation: _vehicle?['location']?.toString(),
+        dropoffLocation: _vehicle?['location']?.toString(),
+      );
 
       if (mounted) {
         showDialog(
@@ -265,8 +279,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       const SizedBox(height: 8),
                       _buildSummaryRow(
                         'Total',
-                        '\$${_totalPrice.toStringAsFixed(2)}',
+                        '₱${_totalPrice.toStringAsFixed(2)}',
                         isTotal: true,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildSummaryRow(
+                        'Service',
+                        _withDriver ? 'With Driver' : 'Self-Drive',
                       ),
                     ],
                   ),
@@ -376,8 +395,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final year = _vehicle!['year']?.toString() ?? '';
     final category = _vehicle!['category'] ?? 'Standard';
     final pricePerDay = (_vehicle!['price_per_day'] as num?)?.toDouble() ?? 0.0;
-    final transmission = _vehicle!['transmission'] ?? 'Automatic';
-    final fuelType = _vehicle!['fuel_type'] ?? 'Gasoline';
+    final vehicleType = _vehicle!['vehicle_type'] ?? 'Standard';
+    final color = _vehicle!['color'] ?? 'Unknown';
     final seats = _vehicle!['seats'] ?? 5;
     final description = _vehicle!['description'] ?? 'No description available.';
     final imageUrl = _vehicle!['image_url'] as String?;
@@ -489,7 +508,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                         ),
                         Text(
-                          '\$${pricePerDay.toStringAsFixed(2)}',
+                          '₱${pricePerDay.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -506,17 +525,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     children: [
                       Expanded(
                         child: _buildSpecCard(
-                          Icons.settings,
-                          'Transmission',
-                          transmission.toString(),
+                          Icons.directions_car,
+                          'Type',
+                          vehicleType.toString(),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: _buildSpecCard(
-                          Icons.local_gas_station,
-                          'Fuel',
-                          fuelType.toString(),
+                          Icons.palette_outlined,
+                          'Color',
+                          color.toString(),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -633,6 +652,59 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                   ],
 
+                  const SizedBox(height: 14),
+
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _withDriver
+                              ? Icons.person_pin_circle
+                              : Icons.drive_eta,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Need a Driver?',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Enable if you want operator to assign an available driver.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _withDriver,
+                          activeColor: AppColors.primary,
+                          onChanged: (value) {
+                            setState(() {
+                              _withDriver = value;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 24),
 
                   // Cost breakdown (if dates selected)
@@ -648,7 +720,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         children: [
                           _buildSummaryRow(
                             'Daily rate',
-                            '\$${pricePerDay.toStringAsFixed(2)}',
+                            '₱${pricePerDay.toStringAsFixed(2)}',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
@@ -661,7 +733,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                           _buildSummaryRow(
                             'Total',
-                            '\$${_totalPrice.toStringAsFixed(2)}',
+                            '₱${_totalPrice.toStringAsFixed(2)}',
                             isTotal: true,
                           ),
                         ],
@@ -685,7 +757,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         child: SafeArea(
           child: CustomButton(
             label: _selectedStartDate != null
-                ? 'Book for \$${_totalPrice.toStringAsFixed(2)}'
+                ? 'Book for ₱${_totalPrice.toStringAsFixed(2)}'
                 : 'Select Dates to Book',
             onPressed: _selectedStartDate != null ? _handleBooking : null,
             isLoading: _isBooking,

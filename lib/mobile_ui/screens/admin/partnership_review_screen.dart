@@ -563,8 +563,8 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
     final model = vehicle['model'] ?? 'Model';
     final year = vehicle['year'] ?? '';
     final seats = vehicle['seats'] ?? 5;
-    final fuelType = vehicle['fuel_type'] ?? 'Gasoline';
-    final transmission = vehicle['transmission'] ?? 'Auto';
+    final vehicleType = vehicle['vehicle_type'] ?? 'Sedan';
+    final color = vehicle['color'] ?? 'Unknown';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -653,12 +653,12 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
               _buildSpecChip(Icons.people_outline, '$seats Seats', isDark),
               const SizedBox(width: 8),
               _buildSpecChip(
-                Icons.local_gas_station_outlined,
-                fuelType,
+                Icons.directions_car_outlined,
+                vehicleType,
                 isDark,
               ),
               const SizedBox(width: 8),
-              _buildSpecChip(Icons.settings_outlined, transmission, isDark),
+              _buildSpecChip(Icons.palette_outlined, color, isDark),
             ],
           ),
 

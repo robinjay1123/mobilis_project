@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -20,6 +23,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
   late TextEditingController phoneController;
   String? selectedIdType = 'Passport';
   bool isLoading = false;
+  File? idPhotoFile;
 
   @override
   void initState() {
@@ -131,6 +135,11 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       return;
     }
 
+    if (idPhotoFile == null) {
+      _showError('Please attach or capture a photo of your ID');
+      return;
+    }
+
     setState(() {
       isLoading = true;
     });
@@ -144,6 +153,20 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         return;
       }
 
+      final uploadResult = await VerificationService.uploadIdentityPhoto(
+        userId: user.id,
+        idPhotoFile: idPhotoFile!,
+      );
+
+      if (uploadResult['success'] != true) {
+        _showError(uploadResult['message']?.toString() ?? 'Failed to upload ID photo');
+        return;
+      }
+
+      final idDocumentUrl =
+          (uploadResult['data'] as Map<String, dynamic>)['id_photo_url']
+              ?.toString();
+
       // Update user profile with verification data
       await authService.updateUserVerification(
         fullName: fullNameController.text.trim(),
@@ -151,6 +174,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
         idNumber: idNumberController.text.trim(),
         location: locationController.text.trim(),
         phone: phoneController.text.trim(),
+        idDocumentUrl: idDocumentUrl,
       );
 
       if (mounted) {
@@ -263,6 +287,14 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     );
   }
 
+  Future<void> _pickIdPhoto(ImageSource source) async {
+    final file = await VerificationService.pickImage(source: source);
+    if (file == null) return;
+    setState(() {
+      idPhotoFile = file;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -277,15 +309,18 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               Row(
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: AppColors.primary,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(
-                      Icons.directions_car,
-                      color: Colors.black,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Image.asset(
+                        'assets/icon/logo-black.png',
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -426,16 +461,19 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   const SizedBox(height: 8),
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppColors.darkBgSecondary,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey),
+                      border: Border.all(color: AppColors.borderColor),
                     ),
                     child: TextField(
                       controller: locationController,
-                      style: const TextStyle(color: Colors.black, fontSize: 14),
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                      ),
                       decoration: InputDecoration(
                         hintText: 'City, Country',
-                        hintStyle: const TextStyle(color: Colors.grey),
+                        hintStyle: const TextStyle(color: AppColors.textSecondary),
                         prefixIcon: const Icon(
                           Icons.location_on_outlined,
                           color: AppColors.textTertiary,
@@ -453,6 +491,145 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                           vertical: 12,
                         ),
                       ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // ID photo capture/upload section
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ID Photo',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Column(
+                      children: [
+                        if (idPhotoFile != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              idPhotoFile!,
+                              width: double.infinity,
+                              height: 170,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        else
+                          Container(
+                            width: double.infinity,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              color: AppColors.darkBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.borderColor),
+                            ),
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.badge_outlined,
+                                  color: AppColors.textTertiary,
+                                  size: 28,
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Attach or capture your ID photo',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (idPhotoFile != null) ...[
+                          const SizedBox(height: 8),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'ID photo selected',
+                              style: TextStyle(
+                                color: AppColors.success,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _pickIdPhoto(ImageSource.camera),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.primary,
+                                  side: const BorderSide(
+                                    color: AppColors.primary,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.photo_camera_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  'Capture',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => _pickIdPhoto(ImageSource.gallery),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.textPrimary,
+                                  side: const BorderSide(
+                                    color: AppColors.borderColor,
+                                  ),
+                                  backgroundColor: AppColors.darkBgTertiary,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.photo_library_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text(
+                                  'Attach',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ],
