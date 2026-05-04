@@ -189,10 +189,84 @@ class BookingService {
 
       await supabase
           .from('bookings')
-          .update({'status': status})
+          .update({
+            'status': status,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', bookingId);
 
       debugPrint('Booking status updated');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle = vehicle != null
+          ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+          : 'Your rental vehicle';
+
+      // ✅ Send notifications based on status change
+      if (status == 'approved') {
+        // Notify renter of approval
+        if (booking['renter_id'] != null) {
+          try {
+            await supabase.from('notifications').insert({
+              'user_id': booking['renter_id'],
+              'title': '✅ Booking Approved!',
+              'message':
+                  'Your booking for $vehicleTitle has been approved by the owner.',
+              'type': 'booking',
+              'data': {'booking_id': bookingId, 'status': status},
+              'created_at': DateTime.now().toIso8601String(),
+            });
+            debugPrint('✅ Approval notification sent to renter');
+          } catch (e) {
+            debugPrint('⚠️ Error sending approval notification: $e');
+          }
+        }
+      } else if (status == 'rejected') {
+        // Notify renter of rejection
+        if (booking['renter_id'] != null) {
+          try {
+            await supabase.from('notifications').insert({
+              'user_id': booking['renter_id'],
+              'title': '❌ Booking Rejected',
+              'message': 'Your booking for $vehicleTitle has been rejected.',
+              'type': 'booking',
+              'data': {'booking_id': bookingId, 'status': status},
+              'created_at': DateTime.now().toIso8601String(),
+            });
+            debugPrint('✅ Rejection notification sent to renter');
+          } catch (e) {
+            debugPrint('⚠️ Error sending rejection notification: $e');
+          }
+        }
+      } else if (status == 'cancelled') {
+        // 🔴 Notify operator/owner when renter cancels (within 24 hours)
+        if (vehicle?['owner_id'] != null) {
+          try {
+            final renter = booking['users'] as Map<String, dynamic>?;
+            final renterName = renter?['full_name'] ?? 'Renter';
+
+            await supabase.from('notifications').insert({
+              'user_id': vehicle?['owner_id'],
+              'title': '🔴 Booking Cancelled by Renter',
+              'message':
+                  '$renterName has cancelled their booking for $vehicleTitle.',
+              'type': 'booking',
+              'data': {
+                'booking_id': bookingId,
+                'status': status,
+                'cancelled_by': 'renter',
+              },
+              'created_at': DateTime.now().toIso8601String(),
+            });
+
+            debugPrint('✅ Cancellation notification sent to operator');
+          } catch (e) {
+            debugPrint(
+              '⚠️ Error sending cancellation notification to operator: $e',
+            );
+          }
+        }
+      }
 
       // Create auto-message once booking is accepted by operator/owner.
       if ((status == 'confirmed' || status == 'approved') &&
@@ -201,11 +275,6 @@ class BookingService {
           debugPrint(
             'Creating auto-message conversation for booking: $bookingId',
           );
-
-          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-          final vehicleTitle = vehicle != null
-              ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-              : 'Your rental vehicle';
 
           final result = await AutoMessageService.createBookingConversation(
             bookingId: bookingId,
@@ -371,6 +440,13 @@ class BookingService {
   Future<void> rejectBooking(String bookingId, String reason) async {
     try {
       debugPrint('Rejecting booking: $bookingId');
+
+      // Get booking details before updating
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
       await supabase
           .from('bookings')
           .update({
@@ -381,6 +457,30 @@ class BookingService {
           .eq('id', bookingId);
 
       debugPrint('Booking rejected');
+
+      // ✅ Send notification to renter when booking is rejected
+      if (booking['renter_id'] != null) {
+        try {
+          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+          final vehicleTitle = vehicle != null
+              ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+              : 'Your rental vehicle';
+
+          await supabase.from('notifications').insert({
+            'user_id': booking['renter_id'],
+            'title': '❌ Booking Rejected',
+            'message':
+                'Your booking for $vehicleTitle has been rejected. Reason: $reason',
+            'type': 'booking',
+            'data': {'booking_id': bookingId, 'status': 'rejected'},
+            'created_at': DateTime.now().toIso8601String(),
+          });
+
+          debugPrint('✅ Rejection notification sent to renter');
+        } catch (e) {
+          debugPrint('⚠️ Error sending rejection notification: $e');
+        }
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error rejecting booking: ${e.message}');
       rethrow;
@@ -403,7 +503,7 @@ class BookingService {
 
       final booking = await supabase
           .from('bookings')
-          .select('id, with_driver, status')
+          .select('id, with_driver, status, renter_id')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -419,7 +519,7 @@ class BookingService {
 
       final driver = await supabase
           .from('users')
-          .select('id, role, is_available')
+          .select('id, role, is_available, full_name')
           .eq('id', driverId)
           .maybeSingle();
 
@@ -442,6 +542,27 @@ class BookingService {
           .eq('id', bookingId);
 
       debugPrint('Driver assigned to booking');
+
+      // ✅ Send notification to renter about driver assignment
+      try {
+        final driverName = driver['full_name'] ?? 'Driver';
+        await supabase.from('notifications').insert({
+          'user_id': booking['renter_id'],
+          'title': '🚗 Driver Assigned',
+          'message': '$driverName has been assigned as your driver.',
+          'type': 'booking',
+          'data': {
+            'booking_id': bookingId,
+            'driver_id': driverId,
+            'action': 'driver_assigned',
+          },
+          'created_at': DateTime.now().toIso8601String(),
+        });
+
+        debugPrint('✅ Driver assignment notification sent to renter');
+      } catch (e) {
+        debugPrint('⚠️ Error sending driver assignment notification: $e');
+      }
     } on PostgrestException catch (e) {
       debugPrint('Database error assigning driver: ${e.message}');
       rethrow;

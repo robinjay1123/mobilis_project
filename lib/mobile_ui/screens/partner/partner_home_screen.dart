@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/partner_service.dart';
@@ -64,6 +65,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   List<Map<String, dynamic>> conversations = [];
   List<Map<String, dynamic>> notifications = [];
 
+  // 🔔 Real-time bookings listener
+  RealtimeChannel? _bookingsSubscription;
+
   bool isLoading = true;
   bool dismissedVerificationBanner = false;
 
@@ -72,6 +76,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     super.initState();
     _loadPartnerData();
     _initializeConnectivity();
+    _setupBookingsListener(); // 🔔 Listen for real-time bookings
+  }
+
+  @override
+  void dispose() {
+    _bookingsSubscription?.unsubscribe();
+    super.dispose();
   }
 
   void _initializeConnectivity() async {
@@ -156,6 +167,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           isLoading = false;
         });
       }
+    }
+  }
+
+  /// 🔔 Set up real-time listener for new bookings
+  void _setupBookingsListener() {
+    try {
+      if (partnerId == null) {
+        debugPrint('⚠️ No partner ID for bookings listener');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+
+      _bookingsSubscription = supabase.realtime.channel('public:bookings');
+
+      _bookingsSubscription!
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'bookings',
+            callback: (payload) {
+              debugPrint('🔔 New booking received');
+
+              if (mounted) {
+                // Reload bookings to reflect changes
+                _loadPartnerData();
+              }
+            },
+          )
+          .subscribe();
+
+      debugPrint('✅ Real-time bookings listener started');
+    } catch (e) {
+      debugPrint('⚠️ Error setting up bookings listener: $e');
     }
   }
 
@@ -1713,49 +1758,308 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         .toList();
 
     if (filteredBookings.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.calendar_today,
-              size: 64,
-              color: AppColors.textTertiary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No $status bookings',
-              style: const TextStyle(
-                fontSize: 16,
-                color: AppColors.textSecondary,
+      return RefreshIndicator(
+        onRefresh: () async {
+          await _loadPartnerData();
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Center(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.calendar_today,
+                    size: 64,
+                    color: AppColors.textTertiary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No $status bookings',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Pull down to refresh',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filteredBookings.length,
-      itemBuilder: (context, index) {
-        final booking = filteredBookings[index];
-        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-        final renter = booking['users'] as Map<String, dynamic>?;
-
-        return BookingCard(
-          carName: '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}',
-          rentalPartner: renter?['full_name'] ?? 'Unknown Renter',
-          status: booking['status'] ?? 'pending',
-          days: _calculateDays(booking['start_date'], booking['end_date']),
-          pickupLocation: booking['pickup_location'] ?? 'Not specified',
-          dropoffLocation: booking['dropoff_location'] ?? 'Not specified',
-          totalCost: (booking['total_price'] ?? 0).toInt(),
-          rating: 0.0,
-          onTap: () {},
-          isActive: booking['status'] == 'active',
-        );
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadPartnerData();
       },
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: filteredBookings.length,
+        itemBuilder: (context, index) {
+          final booking = filteredBookings[index];
+          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+          final renter = booking['users'] as Map<String, dynamic>?;
+
+          return BookingCard(
+            carName: '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}',
+            rentalPartner: renter?['full_name'] ?? 'Unknown Renter',
+            status: booking['status'] ?? 'pending',
+            days: _calculateDays(booking['start_date'], booking['end_date']),
+            pickupLocation: booking['pickup_location'] ?? 'Not specified',
+            dropoffLocation: booking['dropoff_location'] ?? 'Not specified',
+            totalCost: ((booking['total_price'] ?? 0) as num).toInt(),
+            rating: ((booking['rating'] ?? 0) as num).toDouble(),
+            onTap: () => _showBookingDetailModal(context, booking),
+            isActive: booking['status'] == 'active',
+          );
+        },
+      ),
+    );
+  }
+
+  /// 🎯 Show booking detail modal with approve/reject and driver assignment
+  void _showBookingDetailModal(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final withDriver = booking['with_driver'] as bool? ?? false;
+    final status = booking['status'] as String? ?? 'pending';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppColors.darkBgSecondary
+          : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => BookingDetailModal(
+        booking: booking,
+        vehicle: vehicle,
+        renter: renter,
+        onApprove: () => _handleBookingApproval(context, booking),
+        onReject: () => _handleBookingRejection(context, booking),
+        onAssignDriver: withDriver && status == 'pending'
+            ? () => _showDriverAssignmentModal(context, booking)
+            : null,
+      ),
+    );
+  }
+
+  /// 🚗 Show driver assignment modal for bookings with drivers
+  void _showDriverAssignmentModal(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingService = BookingService();
+
+    try {
+      // Fetch available drivers
+      final drivers = await Supabase.instance.client
+          .from('users')
+          .select('id, full_name, is_available')
+          .eq('role', 'driver')
+          .eq('is_available', true);
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Assign Driver'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: drivers.length,
+              itemBuilder: (context, index) {
+                final driver = drivers[index] as Map<String, dynamic>;
+                return ListTile(
+                  title: Text(driver['full_name'] ?? 'Unknown Driver'),
+                  onTap: () async {
+                    Navigator.pop(context);
+
+                    // Show loading
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) =>
+                          const Center(child: CircularProgressIndicator()),
+                    );
+
+                    try {
+                      await bookingService.assignDriver(
+                        booking['id'],
+                        driver['id'],
+                        0.0, // Trip fee - can be customized
+                      );
+
+                      Navigator.pop(context); // Close loading dialog
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Driver assigned successfully'),
+                          ),
+                        );
+
+                        // Reload bookings
+                        _loadPartnerData();
+                        Navigator.pop(context); // Close modal
+                      }
+                    } catch (e) {
+                      Navigator.pop(context); // Close loading dialog
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+                      }
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading drivers: $e')));
+      }
+    }
+  }
+
+  /// ✅ Approve booking
+  Future<void> _handleBookingApproval(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingService = BookingService();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await bookingService.updateBookingStatus(booking['id'], 'approved');
+
+      Navigator.pop(context); // Close loading dialog
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('✅ Booking approved')));
+
+        // Reload bookings
+        _loadPartnerData();
+        Navigator.pop(context); // Close modal
+      }
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+      }
+    }
+  }
+
+  /// ❌ Reject booking
+  Future<void> _handleBookingRejection(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingService = BookingService();
+
+    // Show reason dialog
+    final reasonController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Booking'),
+        content: TextField(
+          controller: reasonController,
+          decoration: const InputDecoration(
+            hintText: 'Reason for rejection',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) =>
+                    const Center(child: CircularProgressIndicator()),
+              );
+
+              try {
+                await bookingService.rejectBooking(
+                  booking['id'],
+                  reasonController.text,
+                );
+
+                Navigator.pop(context); // Close loading dialog
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✅ Booking rejected')),
+                  );
+
+                  // Reload bookings
+                  _loadPartnerData();
+                  Navigator.pop(context); // Close modal
+                }
+              } catch (e) {
+                Navigator.pop(context); // Close loading dialog
+
+                if (mounted) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+                }
+              }
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2109,6 +2413,417 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Get remaining time for cancellation window (returns formatted string + breakdown)
+  Map<String, dynamic> _getRemainingCancelTime(Map<String, dynamic> booking) {
+    try {
+      final createdAtStr = booking['created_at']?.toString();
+      if (createdAtStr == null) {
+        return {
+          'canCancel': false,
+          'hours': 0,
+          'minutes': 0,
+          'remainingTime': 'Unknown',
+          'isExpired': true,
+        };
+      }
+
+      final createdAt = DateTime.parse(createdAtStr);
+      final now = DateTime.now();
+      final difference = now.difference(createdAt);
+
+      // 24 hours = 1440 minutes
+      final totalMinutesAllowed = 24 * 60;
+      final minutesElapsed = difference.inMinutes;
+      final minutesRemaining = totalMinutesAllowed - minutesElapsed;
+
+      final hoursRemaining = minutesRemaining ~/ 60;
+      final minRemaining = minutesRemaining % 60;
+
+      final canCancel = minutesRemaining > 0;
+      final remainingTimeStr = canCancel
+          ? '${hoursRemaining}h ${minRemaining}m remaining'
+          : 'Expired';
+
+      return {
+        'canCancel': canCancel,
+        'hours': hoursRemaining,
+        'minutes': minRemaining,
+        'remainingTime': remainingTimeStr,
+        'isExpired': !canCancel,
+      };
+    } catch (e) {
+      debugPrint('Error checking cancellation time: $e');
+      return {
+        'canCancel': false,
+        'hours': 0,
+        'minutes': 0,
+        'remainingTime': 'Error',
+        'isExpired': true,
+      };
+    }
+  }
+}
+
+/// 🎯 Booking Detail Modal Widget
+class BookingDetailModal extends StatelessWidget {
+  final Map<String, dynamic> booking;
+  final Map<String, dynamic>? vehicle;
+  final Map<String, dynamic>? renter;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+  final VoidCallback? onAssignDriver;
+
+  const BookingDetailModal({
+    super.key,
+    required this.booking,
+    this.vehicle,
+    this.renter,
+    required this.onApprove,
+    required this.onReject,
+    this.onAssignDriver,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final startDate = booking['start_date'] ?? '';
+    final endDate = booking['end_date'] ?? '';
+    final totalPrice = booking['total_price'] ?? 0;
+    final withDriver = booking['with_driver'] as bool? ?? false;
+    final driverId = booking['driver_id'];
+    final status = booking['status'] as String? ?? 'pending';
+
+    return DraggableScrollableSheet(
+      expand: false,
+      builder: (context, scrollController) => SingleChildScrollView(
+        controller: scrollController,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Booking Details',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Vehicle Info
+            if (vehicle != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgTertiary,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Year: ${vehicle?['year'] ?? 'N/A'}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // Renter Info
+            if (renter != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgTertiary,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Renter',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      renter?['full_name'] ?? 'Unknown',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      renter?['email'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // Dates
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgTertiary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Rental Period',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'From',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              startDate.split('T')[0],
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'To',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              endDate.split('T')[0],
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Price
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgTertiary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Price',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Text(
+                    '₱${totalPrice.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.success,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Driver Assignment Section
+            if (withDriver) ...[
+              if (driverId == null && status == 'pending') ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withAlpha(25),
+                    border: Border.all(color: AppColors.warning),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.directions_car,
+                            color: AppColors.warning,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Driver Required',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.warning,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: onAssignDriver,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.warning,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Assign Driver',
+                            style: TextStyle(color: Colors.black),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ] else if (driverId != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withAlpha(25),
+                    border: Border.all(color: AppColors.success),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: AppColors.success,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Driver Assigned',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+
+            // Action Buttons
+            if (status == 'pending') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: onReject,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.error,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Reject',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: onApprove,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Approve',
+                        style: TextStyle(color: Colors.black),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

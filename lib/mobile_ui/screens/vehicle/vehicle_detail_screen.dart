@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../utils/locations.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final String vehicleId;
@@ -27,6 +30,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   DateTime? _selectedEndDate;
   List<DateTime> _unavailableDates = [];
   bool _withDriver = false;
+
+  // Location selection state
+  String? _pickupProvince;
+  String? _pickupCity;
+  String? _pickupBarangay;
+  String? _pickupFreetext;
+  String? _dropoffProvince;
+  String? _dropoffCity;
+  String? _dropoffBarangay;
+  String? _dropoffFreetext;
 
   @override
   void initState() {
@@ -150,48 +163,87 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   Future<void> _handleBooking() async {
     final authService = AuthService();
+    final user = authService.currentUser;
 
-    // Check if user is verified
-    final isVerified = await authService.isUserVerified();
-    if (!isVerified) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: AppColors.darkBgSecondary,
-            title: const Text(
-              'Verification Required',
-              style: TextStyle(color: AppColors.textPrimary),
-            ),
-            content: const Text(
-              'You need to verify your identity before you can book a vehicle. Would you like to complete verification now?',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Later',
-                  style: TextStyle(color: AppColors.textSecondary),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).pushNamed('/id-verification');
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.black,
-                ),
-                child: const Text('Verify Now'),
-              ),
-            ],
-          ),
-        );
-      }
+    if (user == null) {
+      _showErrorDialog('Error', 'Please log in first');
       return;
     }
+
+    // Get user role from database
+    try {
+      final supabase = Supabase.instance.client;
+      final resp = await supabase
+          .from('users')
+          .select('role, id_verified')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final userRole = (resp?['role'] ?? 'renter').toString().toLowerCase();
+      final isVerified = resp?['id_verified'] as bool? ?? false;
+
+      // ✅ Skip verification requirement for drivers
+      if (userRole == 'driver') {
+        debugPrint('✅ Driver detected - skipping verification requirement');
+        // Proceed with booking for drivers
+        _proceedWithBooking();
+        return;
+      }
+
+      // For renters, require verification
+      if (!isVerified) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              title: const Text(
+                'Verification Required',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              content: const Text(
+                'You need to verify your identity before you can book a vehicle. Would you like to complete verification now?',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Later',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).pushNamed('/id-verification');
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Verify Now'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // Renter is verified, proceed with booking
+      _proceedWithBooking();
+    } catch (e) {
+      debugPrint('Error checking verification: $e');
+      _showErrorDialog(
+        'Error',
+        'Unable to verify user status. Please try again.',
+      );
+    }
+  }
+
+  Future<void> _proceedWithBooking() async {
+    final authService = AuthService();
 
     if (_selectedStartDate == null || _selectedEndDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -220,8 +272,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         endDate: _selectedEndDate!,
         totalPrice: _totalPrice,
         withDriver: _withDriver,
-        pickupLocation: _vehicle?['location']?.toString(),
-        dropoffLocation: _vehicle?['location']?.toString(),
+        pickupLocation: _getPickupLocation(),
+        dropoffLocation: _getDropoffLocation(),
       );
 
       if (mounted) {
@@ -349,6 +401,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
+  void _showErrorDialog(String title, String message) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: Text(
+          title,
+          style: const TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -398,6 +478,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final vehicleType = _vehicle!['vehicle_type'] ?? 'Standard';
     final color = _vehicle!['color'] ?? 'Unknown';
     final seats = _vehicle!['seats'] ?? 5;
+    final transmission = _vehicle!['transmission'] ?? 'Manual';
     final description = _vehicle!['description'] ?? 'No description available.';
     final imageUrl = _vehicle!['image_url'] as String?;
 
@@ -538,12 +619,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           color.toString(),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
                       Expanded(
                         child: _buildSpecCard(
                           Icons.airline_seat_recline_normal,
                           'Seats',
                           seats.toString(),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildSpecCard(
+                          Icons.settings_outlined,
+                          'Transmission',
+                          transmission.toString(),
                         ),
                       ),
                     ],
@@ -698,12 +791,107 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           onChanged: (value) {
                             setState(() {
                               _withDriver = value;
+                              // Reset location selections when toggling driver
+                              if (!value) {
+                                _pickupProvince = null;
+                                _pickupCity = null;
+                                _pickupBarangay = null;
+                                _pickupFreetext = null;
+                                _dropoffProvince = null;
+                                _dropoffCity = null;
+                                _dropoffBarangay = null;
+                                _dropoffFreetext = null;
+                              }
                             });
                           },
                         ),
                       ],
                     ),
                   ),
+
+                  // Location selection (only show if driver is enabled)
+                  if (_withDriver) ...[
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Pick-up Location',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildLocationDropdowns(
+                      isPickup: true,
+                      province: _pickupProvince,
+                      city: _pickupCity,
+                      barangay: _pickupBarangay,
+                      freetext: _pickupFreetext,
+                      onProvinceChanged: (value) {
+                        setState(() {
+                          _pickupProvince = value;
+                          _pickupCity = null;
+                          _pickupBarangay = null;
+                        });
+                      },
+                      onCityChanged: (value) {
+                        setState(() {
+                          _pickupCity = value;
+                          _pickupBarangay = null;
+                        });
+                      },
+                      onBarangayChanged: (value) {
+                        setState(() {
+                          _pickupBarangay = value;
+                        });
+                      },
+                      onFreetextChanged: (value) {
+                        setState(() {
+                          _pickupFreetext = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Drop-off Location',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildLocationDropdowns(
+                      isPickup: false,
+                      province: _dropoffProvince,
+                      city: _dropoffCity,
+                      barangay: _dropoffBarangay,
+                      freetext: _dropoffFreetext,
+                      onProvinceChanged: (value) {
+                        setState(() {
+                          _dropoffProvince = value;
+                          _dropoffCity = null;
+                          _dropoffBarangay = null;
+                        });
+                      },
+                      onCityChanged: (value) {
+                        setState(() {
+                          _dropoffCity = value;
+                          _dropoffBarangay = null;
+                        });
+                      },
+                      onBarangayChanged: (value) {
+                        setState(() {
+                          _dropoffBarangay = value;
+                        });
+                      },
+                      onFreetextChanged: (value) {
+                        setState(() {
+                          _dropoffFreetext = value;
+                        });
+                      },
+                    ),
+                  ],
 
                   const SizedBox(height: 24),
 
@@ -836,5 +1024,191 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       'Dec',
     ];
     return '${months[date.month - 1]} ${date.day}';
+  }
+
+  String _getPickupLocation() {
+    if (!_withDriver) {
+      return PhilippineLocations.psdc_garage;
+    }
+    if (_pickupBarangay != null &&
+        _pickupCity != null &&
+        _pickupProvince != null) {
+      return PhilippineLocations.formatLocation(
+        _pickupBarangay!,
+        _pickupCity!,
+        _pickupProvince!,
+      );
+    }
+    return _pickupFreetext ?? PhilippineLocations.psdc_garage;
+  }
+
+  String _getDropoffLocation() {
+    if (!_withDriver) {
+      return PhilippineLocations.psdc_garage;
+    }
+    if (_dropoffBarangay != null &&
+        _dropoffCity != null &&
+        _dropoffProvince != null) {
+      return PhilippineLocations.formatLocation(
+        _dropoffBarangay!,
+        _dropoffCity!,
+        _dropoffProvince!,
+      );
+    }
+    return _dropoffFreetext ?? PhilippineLocations.psdc_garage;
+  }
+
+  Widget _buildLocationDropdowns({
+    required bool isPickup,
+    required String? province,
+    required String? city,
+    required String? barangay,
+    required String? freetext,
+    required Function(String?) onProvinceChanged,
+    required Function(String?) onCityChanged,
+    required Function(String?) onBarangayChanged,
+    required Function(String?) onFreetextChanged,
+  }) {
+    final allProvinces = PhilippineLocations.getAllProvinces();
+    final cities = province != null
+        ? PhilippineLocations.getCitiesForProvince(province)
+        : [];
+    final barangays = city != null
+        ? PhilippineLocations.getBarangaysForCity(city)
+        : [];
+    final freetextController = TextEditingController(text: freetext ?? '');
+
+    return Column(
+      children: [
+        // Province dropdown
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgTertiary,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: DropdownButton<String>(
+            isExpanded: true,
+            underline: const SizedBox(),
+            hint: const Text(
+              'Select Province',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            value: province,
+            items: allProvinces.map((p) {
+              return DropdownMenuItem<String>(
+                value: p,
+                child: Text(
+                  p,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                ),
+              );
+            }).toList(),
+            onChanged: onProvinceChanged,
+            dropdownColor: AppColors.darkBgSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // City dropdown
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgTertiary,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: DropdownButton<String>(
+            isExpanded: true,
+            underline: const SizedBox(),
+            hint: const Text(
+              'Select City/Municipality',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            value: city,
+            disabledHint: const Text(
+              'Select Province first',
+              style: TextStyle(color: AppColors.textTertiary),
+            ),
+            items: cities.map((c) {
+              return DropdownMenuItem<String>(
+                value: c,
+                child: Text(
+                  c,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                ),
+              );
+            }).toList(),
+            onChanged: province != null ? onCityChanged : null,
+            dropdownColor: AppColors.darkBgSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Barangay dropdown
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgTertiary,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: DropdownButton<String>(
+            isExpanded: true,
+            underline: const SizedBox(),
+            hint: const Text(
+              'Select Barangay',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            value: barangay,
+            disabledHint: const Text(
+              'Select City first',
+              style: TextStyle(color: AppColors.textTertiary),
+            ),
+            items: barangays.map((b) {
+              return DropdownMenuItem<String>(
+                value: b,
+                child: Text(
+                  b,
+                  style: const TextStyle(color: AppColors.textPrimary),
+                ),
+              );
+            }).toList(),
+            onChanged: city != null ? onBarangayChanged : null,
+            dropdownColor: AppColors.darkBgSecondary,
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Free text input (landmark or specific address)
+        TextField(
+          controller: freetextController,
+          decoration: InputDecoration(
+            hintText: 'Enter landmark or specific address (optional)',
+            hintStyle: const TextStyle(color: AppColors.textTertiary),
+            filled: true,
+            fillColor: AppColors.darkBgTertiary,
+            contentPadding: const EdgeInsets.all(12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.borderColor),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.borderColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.primary),
+            ),
+          ),
+          style: const TextStyle(color: AppColors.textPrimary),
+          onChanged: (value) {
+            onFreetextChanged(value);
+          },
+        ),
+      ],
+    );
   }
 }

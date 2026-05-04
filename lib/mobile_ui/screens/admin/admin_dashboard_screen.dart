@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/admin/admin_drawer.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/notification_service.dart';
 import 'tabs/dashboard_overview_tab.dart';
 import 'tabs/user_directory_tab.dart';
 import 'tabs/verification_hub_tab.dart';
@@ -242,16 +243,81 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .maybeSingle();
       final role = user?['role']?.toString().toLowerCase();
 
+      // ✅ FIX: Sync both id_verified flag and application_status to users table
       await _supabase
           .from('users')
           .update({
             'verification_status': status,
+            'id_verified': status == 'verified',
             if (role == 'partner' || role == 'driver')
               'application_status': status == 'verified'
                   ? 'approved'
                   : 'rejected',
           })
           .eq('id', userId);
+
+      // ✅ FIX: Also update user_verifications table (source of truth) to sync properly
+      try {
+        final verification = await _supabase
+            .from('user_verifications')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (verification != null) {
+          try {
+            await _supabase
+                .from('user_verifications')
+                .update({
+                  'verification_status': status,
+                  'verified_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', verification['id']);
+          } on PostgrestException catch (e) {
+            if (e.code == '42501') {
+              debugPrint(
+                '⚠️ RLS policy prevents update to user_verifications. Sync via users table only.',
+              );
+            } else {
+              rethrow;
+            }
+          }
+        }
+      } catch (verificationError) {
+        debugPrint(
+          'Note: Could not fetch user_verifications table: $verificationError',
+        );
+        // Don't fail the approval if user_verifications doesn't exist
+      }
+
+      // ✅ FIX: Add notification for rejection (approval already has one in VerificationService)
+      try {
+        if (status == 'verified') {
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Verification Approved',
+            message:
+                'Your verification has been approved. You can now use all features in the app.',
+            type: 'verification',
+            data: {'status': 'verified'},
+          );
+        } else if (status == 'rejected') {
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Verification Rejected',
+            message:
+                'Your verification has been rejected. Please resubmit your documents.',
+            type: 'verification',
+            data: {'status': 'rejected'},
+          );
+        }
+      } catch (notificationError) {
+        debugPrint('Failed to send notification: $notificationError');
+        // Don't fail the approval if notification fails
+      }
+
+      // ✅ FIX: Add delay to ensure Supabase replication before refresh
+      await Future.delayed(const Duration(milliseconds: 500));
 
       // Refresh data
       await _loadData();
@@ -771,7 +837,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '\$${_totalRevenue.toStringAsFixed(2)}',
+                  '₱${_totalRevenue.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.bold,

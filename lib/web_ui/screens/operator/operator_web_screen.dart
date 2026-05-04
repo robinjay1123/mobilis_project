@@ -8,6 +8,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/booking_service.dart';
+import '../../../services/chat_service.dart';
 
 class OperatorWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -60,6 +62,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _locationController = TextEditingController();
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
+  final TextEditingController _transmissionController = TextEditingController();
   String _selectedStatus = 'active';
   List<XFile> _selectedImages = [];
   bool _isSubmittingVehicle = false;
@@ -86,6 +89,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _locationController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
+    _transmissionController.dispose();
     super.dispose();
   }
 
@@ -250,8 +254,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .from('bookings')
           .select('''
               *,
-              vehicles:vehicle_id (brand, model, year),
-              users:renter_id (full_name, email)
+              vehicles:vehicle_id (brand, model, year, image_url),
+              renter:renter_id (full_name, email),
+              driver:driver_id (full_name),
+              operator:operator_id (full_name)
             ''')
           .order('created_at', ascending: false)
           .limit(50);
@@ -380,6 +386,277 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         debugPrint('Logout error: $e');
       }
     }
+  }
+
+  /// ✅ Approve booking with optional driver assignment
+  Future<void> _approveBooking(
+    Map<String, dynamic> booking, {
+    String? driverId,
+  }) async {
+    try {
+      final bookingId = booking['id']?.toString() ?? '';
+      if (bookingId.isEmpty) {
+        throw Exception('Invalid booking id');
+      }
+
+      final withDriver = booking['with_driver'] == true;
+
+      // Approve booking
+      final bookingService = BookingService();
+      await bookingService.updateBookingStatus(bookingId, 'confirmed');
+
+      if (withDriver && driverId != null) {
+        await bookingService.assignDriver(bookingId, driverId, 0.0);
+      }
+
+      // Create group chat for confirmed bookings with driver
+      if (withDriver) {
+        try {
+          await _createBookingGroupChat(booking, driverId);
+        } catch (e) {
+          debugPrint('Error creating group chat: $e');
+          // Don't fail the booking approval if chat creation fails
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Booking confirmed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+
+      _loadDashboardData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _createBookingGroupChat(
+    Map<String, dynamic> booking,
+    String? driverId,
+  ) async {
+    try {
+      final bookingId = booking['id'] as String;
+      final withDriver = booking['with_driver'] as bool? ?? false;
+      final operatorId = _supabase.auth.currentUser?.id;
+      final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ?? {};
+      final ownerId = vehicle['owner_id'] as String?;
+      final renterId = booking['renter_id'] as String?;
+
+      if (!withDriver || operatorId == null || renterId == null) {
+        return;
+      }
+
+      final participantIds = <String>{renterId, operatorId};
+
+      // Case A: PSDC unit (no specific partner owner)
+      // Participants: renter_id, driver_id, operator_id
+      if (driverId != null && ownerId == null) {
+        participantIds.add(driverId);
+      }
+      // Case B: Partner unit
+      // Participants: renter_id, driver_id, partner_id, operator_id
+      else if (driverId != null && ownerId != null) {
+        participantIds.addAll([driverId, ownerId]);
+      }
+
+      await ChatService().createGroupConversation(
+        bookingId: bookingId,
+        participantIds: participantIds.toList(),
+      );
+
+      debugPrint('Group chat created for booking: $bookingId');
+    } catch (e) {
+      debugPrint('Error creating group chat: $e');
+    }
+  }
+
+  /// ❌ Reject booking with reason
+  Future<void> _rejectBooking(String bookingId, String reason) async {
+    try {
+      final bookingService = BookingService();
+      await bookingService.rejectBooking(bookingId, reason);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Booking rejected'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
+      _loadDashboardData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// 🚗 Assign driver to booking
+  Future<void> _assignDriver(String bookingId, String driverId) async {
+    try {
+      final bookingService = BookingService();
+      await bookingService.assignDriver(bookingId, driverId, 0.0);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Driver assigned successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+
+      _loadDashboardData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return month >= 1 && month <= 12 ? months[month - 1] : '';
+  }
+
+  void _showApproveDialog(Map<String, dynamic> booking) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        String? selectedDriverId;
+        final withDriver = booking['with_driver'] as bool? ?? false;
+
+        return AlertDialog(
+          title: const Text('Approve Booking'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Are you sure you want to approve this booking?'),
+              if (withDriver) ...[
+                const SizedBox(height: 16),
+                const Text('Select Driver:'),
+                const SizedBox(height: 8),
+                FutureBuilder<List<dynamic>>(
+                  future: _supabase
+                      .from('users')
+                      .select()
+                      .eq('role', 'driver')
+                      .limit(20),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData) {
+                      final drivers = snapshot.data as List<dynamic>;
+                      return DropdownButton<String>(
+                        value: selectedDriverId,
+                        hint: const Text('Choose a driver'),
+                        isExpanded: true,
+                        items: drivers.map((driver) {
+                          final driverId = driver['id'] as String;
+                          final driverName =
+                              driver['full_name'] as String? ?? 'Unknown';
+                          return DropdownMenuItem(
+                            value: driverId,
+                            child: Text(driverName),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          selectedDriverId = value;
+                        },
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _approveBooking(booking, driverId: selectedDriverId);
+                Navigator.pop(context);
+              },
+              child: const Text('Approve'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showRejectDialog(String bookingId) {
+    final reasonController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Reject Booking'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Please provide a reason for rejection:'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Enter rejection reason...',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _rejectBooking(bookingId, reasonController.text);
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Reject'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -1230,7 +1507,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     DataColumn(
                       label: Text(
-                        'Status',
+                        'Dates',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        'Days',
                         style: TextStyle(
                           color: isDark ? Colors.white : Colors.black,
                           fontWeight: FontWeight.w600,
@@ -1246,14 +1532,48 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       ),
                     ),
+                    DataColumn(
+                      label: Text(
+                        'Status',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (title == 'Pending Bookings')
+                      DataColumn(
+                        label: Text(
+                          'Actions',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                   ],
                   rows: bookings.map((booking) {
                     final vehicle =
                         booking['vehicles'] as Map<String, dynamic>?;
-                    final user = booking['users'] as Map<String, dynamic>?;
+                    final renter = booking['renter'] as Map<String, dynamic>?;
                     final status = booking['status'] as String? ?? 'pending';
                     final total =
-                        (booking['total_cost'] as num?)?.toDouble() ?? 0;
+                        (booking['total_price'] as num?)?.toDouble() ??
+                        (booking['total_cost'] as num?)?.toDouble() ??
+                        0.0;
+
+                    // Parse dates
+                    final startDateStr = booking['start_date'] as String? ?? '';
+                    final endDateStr = booking['end_date'] as String? ?? '';
+                    final startDate = DateTime.tryParse(startDateStr);
+                    final endDate = DateTime.tryParse(endDateStr);
+                    final days = endDate != null && startDate != null
+                        ? endDate.difference(startDate).inDays
+                        : 0;
+
+                    final dateRange = startDate != null && endDate != null
+                        ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
+                        : 'N/A';
 
                     return DataRow(
                       cells: [
@@ -1269,22 +1589,80 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         DataCell(
                           Text(
-                            user?['full_name'] ?? 'Unknown',
+                            renter?['full_name'] ?? 'Unknown',
                             style: TextStyle(
                               color: isDark ? Colors.white70 : Colors.black87,
                             ),
                           ),
                         ),
-                        DataCell(_buildStatusBadge(status)),
                         DataCell(
                           Text(
-                            'PHP ${total.toStringAsFixed(0)}',
+                            dateRange,
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '$days day${days != 1 ? 's' : ''}',
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '₱${total.toStringAsFixed(0)}',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               color: AppColors.primary,
                             ),
                           ),
                         ),
+                        DataCell(_buildStatusBadge(status)),
+                        if (title == 'Pending Bookings')
+                          DataCell(
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ElevatedButton(
+                                  onPressed: () => _showApproveDialog(booking),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Approve',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton(
+                                  onPressed: () => _showRejectDialog(
+                                    booking['id'].toString(),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: Colors.red),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Reject',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.red,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     );
                   }).toList(),
@@ -1538,6 +1916,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       isPosted: vehicle['is_posted'] ?? false,
       images: (vehicle['vehicle_images'] as List?) ?? [],
       isDark: isDark,
+      transmission: vehicle['transmission'] ?? '',
       onEdit: () => _showEditVehicleDialog(vehicle, isDark),
       onDelete: () => _deleteVehicle(vehicle['id']),
       onTogglePost: (value) => _togglePostingStatus(vehicle, value),
@@ -1840,6 +2219,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         const SizedBox(height: 16),
                         TextField(
+                          controller: _transmissionController,
+                          cursorColor: AppColors.primary,
+                          decoration: _fieldDecoration(
+                            'Transmission (Manual/Automatic)',
+                            isDark,
+                          ),
+                          style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
                           controller: _descriptionController,
                           cursorColor: AppColors.primary,
                           maxLines: 4,
@@ -2092,6 +2481,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           'description':
                                               _descriptionController.text,
                                           'color': _colorController.text,
+                                          'transmission':
+                                              _transmissionController
+                                                  .text
+                                                  .isEmpty
+                                              ? 'Manual'
+                                              : _transmissionController.text,
                                           'plate_number': _plateController.text,
                                           'year': int.parse(
                                             _yearController.text,
@@ -2166,6 +2561,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   _vehicleNameController.clear();
                                   _descriptionController.clear();
                                   _colorController.clear();
+                                  _transmissionController.clear();
                                   _yearController.clear();
                                   _plateController.clear();
                                   _priceController.clear();
@@ -2256,6 +2652,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       text: vehicle['description'] ?? '',
     );
     final colorController = TextEditingController(text: vehicle['color'] ?? '');
+    final transmissionController = TextEditingController(
+      text: vehicle['transmission'] ?? 'Manual',
+    );
     final locationController = TextEditingController(
       text: vehicle['location'] ?? '',
     );
@@ -2640,6 +3039,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                           const SizedBox(height: 12),
                           TextField(
+                            controller: transmissionController,
+                            cursorColor: AppColors.primary,
+                            decoration: _fieldDecoration(
+                              'Transmission (Manual/Automatic)',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
                             controller: descriptionController,
                             cursorColor: AppColors.primary,
                             maxLines: 4,
@@ -2827,6 +3236,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           'description':
                                               descriptionController.text,
                                           'color': colorController.text,
+                                          'transmission':
+                                              transmissionController
+                                                  .text
+                                                  .isEmpty
+                                              ? 'Manual'
+                                              : transmissionController.text,
                                           'year': int.parse(
                                             yearController.text,
                                           ),
@@ -3103,6 +3518,7 @@ class _VehicleCard extends StatefulWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final ValueChanged<bool> onTogglePost;
+  final String transmission;
 
   const _VehicleCard({
     required this.brand,
@@ -3124,6 +3540,7 @@ class _VehicleCard extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onTogglePost,
+    required this.transmission,
   });
 
   @override
@@ -3143,6 +3560,7 @@ class _VehicleCardState extends State<_VehicleCard> {
     final metadata = <String>[
       if (widget.category.isNotEmpty) widget.category,
       if (widget.vehicleType.isNotEmpty) widget.vehicleType,
+      if (widget.transmission.isNotEmpty) widget.transmission,
       if (widget.color.isNotEmpty) widget.color,
       if (widget.location.isNotEmpty) widget.location,
     ];
@@ -3315,118 +3733,102 @@ class _VehicleCardState extends State<_VehicleCard> {
             color: isDark ? AppColors.borderColor : Colors.grey.shade200,
           ),
 
-          // ── Price + post toggle ────────────────────────────────────────
+          // ── Price section ──────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              text: 'PHP ',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark ? Colors.white70 : Colors.black54,
-                              ),
-                            ),
-                            TextSpan(
-                              text: widget.pricePerDay.toString(),
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            TextSpan(
-                              text: '/day',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: isDark ? Colors.white54 : Colors.black38,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'PHP ${widget.pricePerHour} /hr',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white70 : Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      widget.latitude != null && widget.longitude != null
-                          ? '${widget.latitude}, ${widget.longitude}'
-                          : 'Location not set',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: isDark ? Colors.grey : Colors.grey.shade500,
-                      ),
-                    ),
-                    // Compact toggle (avoids Switch's large intrinsic height)
-                    GestureDetector(
-                      onTap: () => widget.onTogglePost(!widget.isPosted),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 36,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          color: widget.isPosted
-                              ? AppColors.primary
-                              : (isDark
-                                    ? Colors.grey[700]
-                                    : Colors.grey.shade300),
-                        ),
-                        child: AnimatedAlign(
-                          duration: const Duration(milliseconds: 200),
-                          alignment: widget.isPosted
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Padding(
-                            padding: const EdgeInsets.all(2),
-                            child: Container(
-                              width: 16,
-                              height: 16,
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'PHP ',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.white70 : Colors.black54,
                           ),
                         ),
-                      ),
+                        TextSpan(
+                          text: widget.pricePerDay.toString(),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        TextSpan(
+                          text: '/day',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark ? Colors.white54 : Colors.black38,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'PHP ${widget.pricePerHour} /hr',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                 ),
               ],
             ),
           ),
 
+          // ── Posted status + toggle ─────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-            child: Text(
-              widget.isPosted ? 'Posted' : 'Not posted',
-              style: TextStyle(
-                fontSize: 10,
-                color: widget.isPosted
-                    ? AppColors.primary
-                    : (isDark ? Colors.grey : Colors.grey.shade500),
-              ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  widget.isPosted ? 'Posted' : 'Not posted',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: widget.isPosted
+                        ? AppColors.primary
+                        : (isDark ? Colors.grey : Colors.grey.shade500),
+                  ),
+                ),
+                // Compact toggle
+                GestureDetector(
+                  onTap: () => widget.onTogglePost(!widget.isPosted),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 36,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: widget.isPosted
+                          ? AppColors.primary
+                          : (isDark ? Colors.grey[700] : Colors.grey.shade300),
+                    ),
+                    child: AnimatedAlign(
+                      duration: const Duration(milliseconds: 200),
+                      alignment: widget.isPosted
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
 

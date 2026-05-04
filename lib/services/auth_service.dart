@@ -42,15 +42,32 @@ class AuthService {
           .eq('id', user.id)
           .maybeSingle();
 
-      final role = response?['role'] as String?;
+      Map<String, dynamic>? emailResponse;
+      if (response == null || response['role'] == null) {
+        final email = user.email;
+        if (email != null && email.isNotEmpty) {
+          emailResponse = await supabase
+              .from('users')
+              .select('role')
+              .eq('email', email)
+              .maybeSingle();
+        }
+      }
+
+      final role =
+          response?['role'] as String? ?? emailResponse?['role'] as String?;
       final normalizedRole = role?.toLowerCase().trim();
       debugPrint('📋 Raw response: $response');
+      if (emailResponse != null) {
+        debugPrint('📋 Email fallback response: $emailResponse');
+      }
       debugPrint(
         '✅ User role fetched: "$role" → normalized: "$normalizedRole"',
       );
 
       if (normalizedRole == null || normalizedRole.isEmpty) {
         debugPrint('⚠️ WARNING: Role is null or empty!');
+        return null;
       }
 
       return normalizedRole;
@@ -227,26 +244,10 @@ class AuthService {
           'phone': phone,
           'id_verified': true,
         },
-        {
-          'full_name': fullName,
-          'phone': phone,
-          'id_verified': true,
-        },
-        {
-          'full_name': fullName,
-          'phone_number': phone,
-          'id_verified': true,
-        },
-        {
-          'name': fullName,
-          'phone_number': phone,
-          'id_verified': true,
-        },
-        {
-          'name': fullName,
-          'phone': phone,
-          'id_verified': true,
-        },
+        {'full_name': fullName, 'phone': phone, 'id_verified': true},
+        {'full_name': fullName, 'phone_number': phone, 'id_verified': true},
+        {'name': fullName, 'phone_number': phone, 'id_verified': true},
+        {'name': fullName, 'phone': phone, 'id_verified': true},
         {'id_verified': true},
       ];
 
@@ -270,12 +271,27 @@ class AuthService {
       }
 
       if (idDocumentUrl != null && idDocumentUrl.isNotEmpty) {
-        await supabase.from('user_verifications').upsert({
-          'user_id': user.id,
-          'id_document_url': idDocumentUrl,
-          'verification_status': 'pending',
-          'updated_at': DateTime.now().toIso8601String(),
-        }, onConflict: 'user_id');
+        try {
+          await supabase.from('user_verifications').upsert({
+            'user_id': user.id,
+            'full_name': fullName,
+            'id_type': idType,
+            'id_number': idNumber,
+            'location': location,
+            'phone': phone,
+            'id_document_url': idDocumentUrl,
+            'verification_status': 'pending',
+          }, onConflict: 'user_id');
+        } on PostgrestException catch (e) {
+          if (e.code == '42501') {
+            debugPrint(
+              '⚠️ RLS policy prevents upsert to user_verifications. Skipping.',
+            );
+            // RLS policy blocks write - skip and continue
+          } else {
+            rethrow;
+          }
+        }
       }
 
       debugPrint('User verification updated');
@@ -435,26 +451,29 @@ class AuthService {
         final meta = response.user!.userMetadata ?? <String, dynamic>{};
 
         // Check existing user profile to preserve their role
-        String userRole = 'renter'; // Default fallback
+        String? userRole;
+        final existingProfile = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', response.user!.id)
+            .maybeSingle();
         try {
-          final existingUser = await supabase
-              .from('users')
-              .select('role')
-              .eq('id', response.user!.id)
-              .maybeSingle();
-
-          if (existingUser != null && existingUser['role'] != null) {
-            userRole = existingUser['role'] as String;
+          final existingRole = existingProfile?['role']?.toString().trim();
+          if (existingRole != null && existingRole.isNotEmpty) {
+            userRole = existingRole;
             debugPrint('📋 [Login] Preserving existing role: $userRole');
-          } else if (meta['role'] != null) {
-            userRole = meta['role'] as String;
+          } else if ((meta['role']?.toString().trim() ?? '').isNotEmpty) {
+            userRole = meta['role'].toString().trim();
             debugPrint('📋 [Login] Using metadata role: $userRole');
           }
         } catch (e) {
           debugPrint(
             '⚠️ [Login] Error checking existing role: $e, using metadata or default',
           );
-          userRole = (meta['role'] as String?) ?? 'renter';
+          final fallbackRole = meta['role']?.toString().trim();
+          userRole = (fallbackRole != null && fallbackRole.isNotEmpty)
+              ? fallbackRole
+              : null;
         }
 
         try {
@@ -547,23 +566,26 @@ class AuthService {
     String? fullName,
     String? phone,
     String? location,
-    required String role,
+    String? role,
   }) async {
     debugPrint('Creating/updating user profile for: $userId with role: $role');
 
     try {
-      await supabase.from('users').upsert({
+      final payload = <String, dynamic>{
         'id': userId,
         'email': email,
         'full_name': fullName,
         'phone': phone,
         'location': location,
-        'role': role,
         'id_verified': false,
-        'application_status': role == 'partner' || role == 'driver'
-            ? 'basic'
-            : 'none',
-      });
+        if (role != null && role.isNotEmpty) 'role': role,
+        if (role != null && role.isNotEmpty)
+          'application_status': role == 'partner' || role == 'driver'
+              ? 'basic'
+              : 'none',
+      };
+
+      await supabase.from('users').upsert(payload);
 
       if (role == 'partner') {
         await _ensurePartnerProfileExists(userId);
@@ -584,13 +606,15 @@ class AuthService {
 
       // Fallback for schemas using `name` and without verification columns.
       try {
-        await supabase.from('users').upsert({
+        final fallbackPayload = <String, dynamic>{
           'id': userId,
           'email': email,
           'name': fullName,
           'phone': phone,
-          'role': role,
-        });
+          if (role != null && role.isNotEmpty) 'role': role,
+        };
+
+        await supabase.from('users').upsert(fallbackPayload);
 
         if (role == 'partner') {
           await _ensurePartnerProfileExists(userId);

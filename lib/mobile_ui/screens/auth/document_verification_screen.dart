@@ -32,6 +32,8 @@ class _DocumentVerificationScreenState
   bool _isLoading = false;
   String? _errorMessage;
   String? _successMessage;
+  String? _verificationStatus;
+  String? _rejectionReason;
   int _currentStep = 0; // 0: ID Front, 1: ID Back, 2: Face, 3: Review
 
   @override
@@ -48,11 +50,36 @@ class _DocumentVerificationScreenState
       final verification = await VerificationService.getUserVerification(
         userId,
       );
-      if (verification != null &&
-          verification['verification_status'] == 'pending') {
+      final status = (verification?['verification_status'] ?? '')
+          .toString()
+          .toLowerCase();
+      final rejectionReason = (verification?['rejection_reason'] ?? '')
+          .toString()
+          .trim();
+
+      if (!mounted) return;
+
+      if (status == 'verified') {
+        setState(() {
+          _successMessage = 'Your verification has already been approved.';
+          _verificationStatus = status;
+          _currentStep = 4;
+        });
+      } else if (verification != null &&
+          (status == 'pending' || status.isEmpty)) {
         setState(() {
           _successMessage =
               'Your verification is pending admin review. Please check back soon.';
+          _verificationStatus = status;
+        });
+      } else if (verification != null && status == 'rejected') {
+        setState(() {
+          _verificationStatus = status;
+          _rejectionReason = rejectionReason.isNotEmpty
+              ? rejectionReason
+              : 'No reason was provided by admin.';
+          _errorMessage =
+              'Your verification was rejected: $_rejectionReason. You can reapply after correcting it.';
         });
       }
     }
@@ -198,6 +225,10 @@ class _DocumentVerificationScreenState
     if (_successMessage != null &&
         _successMessage!.contains('pending admin review')) {
       return _buildPendingScreen(isDark, bgColor, textColor);
+    }
+
+    if (_errorMessage != null && _verificationStatus == 'rejected') {
+      return _buildRejectedScreen(isDark, bgColor, textColor);
     }
 
     return Scaffold(
@@ -545,6 +576,109 @@ class _DocumentVerificationScreenState
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildRejectedScreen(bool isDark, Color bgColor, Color textColor) {
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: bgColor,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: textColor),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Verification Rejected',
+          style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppColors.error.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.error.withOpacity(0.35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Your recent verification was rejected',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _rejectionReason ??
+                        'No rejection reason was provided by admin.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: isDark ? AppColors.textSecondary : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please correct the issue and submit again.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? AppColors.textSecondary : Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _buildProgressIndicator(isDark),
+            const SizedBox(height: 20),
+            if (_currentStep == 0)
+              _buildIdFrontStep(isDark, AppColors.darkBgSecondary, textColor)
+            else if (_currentStep == 1)
+              _buildIdBackStep(isDark, AppColors.darkBgSecondary, textColor)
+            else if (_currentStep == 2)
+              _buildFacePhotoStep(isDark, AppColors.darkBgSecondary, textColor)
+            else
+              _buildReviewStep(isDark, AppColors.darkBgSecondary, textColor),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                if (_currentStep > 0)
+                  Expanded(
+                    child: CustomButton(
+                      label: 'Previous',
+                      onPressed: () => setState(() => _currentStep--),
+                      backgroundColor: isDark
+                          ? AppColors.darkBgSecondary
+                          : Colors.grey[200],
+                      textColor: isDark ? AppColors.textPrimary : Colors.black,
+                    ),
+                  ),
+                if (_currentStep > 0) const SizedBox(width: 12),
+                Expanded(
+                  child: CustomButton(
+                    label: _isLoading ? 'Re-submitting...' : 'Submit Again',
+                    onPressed: _isLoading ? null : _submitVerification,
+                    backgroundColor: AppColors.primary,
+                    textColor: Colors.black,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

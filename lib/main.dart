@@ -501,8 +501,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
     final role = await authService.getUserRole();
     debugPrint('✅ Role fetched: "$role" (type: ${role.runtimeType})');
 
-    if (role == null) {
-      debugPrint('⚠️  WARNING: Role is NULL!');
+    if (role == null || role.isEmpty) {
+      debugPrint('⚠️ Default route blocked: role is null');
+      Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pushNamedAndRemoveUntil('/login', (route) => false);
+      return;
     }
 
     final applicationApproved = role == 'partner' || role == 'driver'
@@ -546,6 +551,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
       debugPrint('✅ Route: OPERATOR');
       return '/operator-home';
     }
+    if (role == 'renter') {
+      debugPrint('✅ Route: RENTER');
+      return '/dashboard';
+    }
     if (role == 'partner') {
       final route = applicationApproved
           ? '/partner-home'
@@ -560,8 +569,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       debugPrint('✅ Route: DRIVER ($route)');
       return route;
     }
-    debugPrint('⚠️ Default route: RENTER (role was: "$role")');
-    return '/dashboard';
+    debugPrint('⚠️ Default route: UNAUTHENTICATED (role was: "$role")');
+    return '/login';
   }
 
   @override
@@ -587,6 +596,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (authService.isAuthenticated) {
       final role = await authService.getUserRole();
       debugPrint('🔐 Initial screen - User authenticated with role: $role');
+      if (role == null || role.isEmpty) {
+        return const ResponsiveLoginScreen();
+      }
       final applicationApproved = role == 'partner' || role == 'driver'
           ? await authService.isApplicationApproved()
           : true;
@@ -600,6 +612,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
       if (role == 'operator') {
         return OperatorWebScreen(
+          onThemeToggle: widget.onThemeToggle,
+          isDarkMode: widget.isDarkMode,
+        );
+      }
+
+      if (role == 'renter') {
+        return DashboardScreen(
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
         );
@@ -619,11 +638,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         );
       }
 
-      // Default to renter dashboard
-      return DashboardScreen(
-        onThemeToggle: widget.onThemeToggle,
-        isDarkMode: widget.isDarkMode,
-      );
+      return const ResponsiveLoginScreen();
     }
 
     // Check if onboarding was already completed

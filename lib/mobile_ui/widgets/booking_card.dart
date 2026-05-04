@@ -12,6 +12,7 @@ class BookingCard extends StatelessWidget {
   final double rating;
   final VoidCallback onTap;
   final bool isActive;
+  final String? carImageUrl;
 
   const BookingCard({
     super.key,
@@ -25,6 +26,7 @@ class BookingCard extends StatelessWidget {
     required this.rating,
     required this.onTap,
     this.isActive = false,
+    this.carImageUrl,
   });
 
   @override
@@ -56,11 +58,20 @@ class BookingCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: AppColors.darkBgTertiary,
                     borderRadius: BorderRadius.circular(8),
+                    image: carImageUrl != null
+                        ? DecorationImage(
+                            image: NetworkImage(carImageUrl!),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
                   ),
-                  child: Image.asset(
-                    'assets/icon/logo1.png',
-                    fit: BoxFit.contain,
-                  ),
+                  child: carImageUrl == null
+                      ? const Icon(
+                          Icons.directions_car,
+                          size: 20,
+                          color: AppColors.textSecondary,
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -190,7 +201,7 @@ class BookingCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '\$$totalCost',
+                      '₱$totalCost',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,

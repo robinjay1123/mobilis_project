@@ -40,7 +40,7 @@ class DashboardOverviewTab extends StatelessWidget {
           // Total Revenue Card
           AdminStatCard(
             title: 'Total Revenue',
-            value: '\$${_formatNumber(totalRevenue)}',
+            value: '₱${_formatNumber(totalRevenue)}',
             percentChange: '12.5%',
             isPositive: true,
             isLarge: true,

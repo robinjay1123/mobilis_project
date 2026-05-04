@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 
 class VerificationDocumentsScreen extends StatefulWidget {
@@ -21,6 +22,9 @@ class _VerificationDocumentsScreenState
     extends State<VerificationDocumentsScreen> {
   bool _isLoading = true;
   bool _isVerified = false;
+  bool _hasSubmittedVerification = false;
+  String _verificationStatus = 'pending';
+  String _rejectionReason = '';
 
   @override
   void initState() {
@@ -30,10 +34,25 @@ class _VerificationDocumentsScreenState
 
   Future<void> _loadVerificationStatus() async {
     final authService = AuthService();
+    final userId = authService.currentUser?.id;
+    final verification = userId == null
+        ? null
+        : await VerificationService.getUserVerification(userId);
     final isVerified = await authService.isUserVerified();
+    final status = (verification?['verification_status'] ?? 'pending')
+        .toString()
+        .toLowerCase();
     if (!mounted) return;
     setState(() {
-      _isVerified = isVerified;
+      _isVerified =
+          isVerified ||
+          (verification?['verification_status']?.toString().toLowerCase() ==
+              'verified');
+      _hasSubmittedVerification = verification != null;
+      _verificationStatus = status;
+      _rejectionReason = (verification?['rejection_reason'] ?? '')
+          .toString()
+          .trim();
       _isLoading = false;
     });
   }
@@ -100,10 +119,18 @@ class _VerificationDocumentsScreenState
     return [
       {
         'title': 'Identity Verification',
-        'status': 'Pending',
-        'date': 'Verification required',
+        'status': _verificationStatus == 'rejected' ? 'Rejected' : 'Pending',
+        'date': _verificationStatus == 'rejected'
+            ? (_rejectionReason.isNotEmpty
+                  ? 'Rejected: $_rejectionReason'
+                  : 'Rejected by admin')
+            : _hasSubmittedVerification
+            ? 'Submitted for admin review'
+            : 'Verification required',
         'icon': Icons.verified_user,
-        'statusColor': AppColors.warning,
+        'statusColor': _verificationStatus == 'rejected'
+            ? AppColors.error
+            : AppColors.warning,
       },
     ];
   }
@@ -173,6 +200,10 @@ class _VerificationDocumentsScreenState
                         Text(
                           _isVerified
                               ? 'Verification Status: Complete'
+                              : _verificationStatus == 'rejected'
+                              ? 'Verification Status: Rejected'
+                              : _hasSubmittedVerification
+                              ? 'Verification Status: Pending Review'
                               : 'Verification Status: Pending',
                           style: TextStyle(
                             fontSize: 14,
@@ -358,16 +389,18 @@ class _VerificationDocumentsScreenState
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
+                              color: _verificationStatus == 'rejected'
+                                  ? AppColors.error.withOpacity(0.12)
+                                  : Theme.of(context).brightness ==
+                                        Brightness.dark
                                   ? AppColors.darkBgSecondary
                                   : AppColors.lightBgSecondary,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color:
-                                    Theme.of(context).brightness ==
-                                        Brightness.dark
+                                color: _verificationStatus == 'rejected'
+                                    ? AppColors.error.withOpacity(0.35)
+                                    : Theme.of(context).brightness ==
+                                          Brightness.dark
                                     ? AppColors.borderColor
                                     : AppColors.lightBorderColor,
                               ),
@@ -381,14 +414,20 @@ class _VerificationDocumentsScreenState
                                       width: 40,
                                       height: 40,
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withOpacity(
-                                          0.2,
-                                        ),
+                                        color:
+                                            (_verificationStatus == 'rejected'
+                                                    ? AppColors.error
+                                                    : AppColors.warning)
+                                                .withOpacity(0.2),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
-                                      child: const Icon(
-                                        Icons.info,
-                                        color: AppColors.warning,
+                                      child: Icon(
+                                        _verificationStatus == 'rejected'
+                                            ? Icons.cancel_outlined
+                                            : Icons.info,
+                                        color: _verificationStatus == 'rejected'
+                                            ? AppColors.error
+                                            : AppColors.warning,
                                         size: 20,
                                       ),
                                     ),
@@ -399,7 +438,11 @@ class _VerificationDocumentsScreenState
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Action Required',
+                                            _verificationStatus == 'rejected'
+                                                ? 'Rejected'
+                                                : _hasSubmittedVerification
+                                                ? 'Under Review'
+                                                : 'Action Required',
                                             style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w600,
@@ -414,7 +457,13 @@ class _VerificationDocumentsScreenState
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Please upload your address proof to complete verification',
+                                            _verificationStatus == 'rejected'
+                                                ? (_rejectionReason.isNotEmpty
+                                                      ? _rejectionReason
+                                                      : 'No reason was provided by admin.')
+                                                : _hasSubmittedVerification
+                                                ? 'Your verification request has been submitted and is waiting for admin approval.'
+                                                : 'Please upload your address proof to complete verification',
                                             style: TextStyle(
                                               fontSize: 12,
                                               color:
@@ -427,6 +476,23 @@ class _VerificationDocumentsScreenState
                                                         .lightTextSecondary,
                                             ),
                                           ),
+                                          if (_verificationStatus == 'rejected')
+                                            const SizedBox(height: 4),
+                                          if (_verificationStatus == 'rejected')
+                                            Text(
+                                              'You can correct the issue and reapply.',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color:
+                                                    Theme.of(
+                                                          context,
+                                                        ).brightness ==
+                                                        Brightness.dark
+                                                    ? AppColors.textSecondary
+                                                    : AppColors
+                                                          .lightTextSecondary,
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     ),

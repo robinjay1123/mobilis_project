@@ -57,6 +57,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   final TextEditingController _searchController = TextEditingController();
 
+  // 🔄 Real-time verification status listener
+  RealtimeChannel? _verificationSubscription;
+
+  // 🔔 Real-time notifications listener
+  RealtimeChannel? _notificationsSubscription;
+
+  // 📅 Real-time bookings listener
+  RealtimeChannel? _bookingsSubscription;
+
   final List<Map<String, dynamic>> categories = [
     {'name': 'All Cars', 'icon': Icons.directions_car},
     {'name': 'Sedan', 'icon': Icons.directions_car},
@@ -75,11 +84,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _initializeConnectivity();
     _searchController.addListener(_applyVehicleFilters);
     _loadVehicles();
+    _loadBookings(); // 📅 Load renter's bookings
+    _setupVerificationListener(); // 🔄 Listen for real-time verification updates
+    _loadNotifications(); // 🔔 Load notifications
+    _setupNotificationsListener(); // 🔔 Listen for new notifications
+    _setupBookingsListener(); // 📅 Listen for booking updates
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _verificationSubscription?.unsubscribe(); // ✅ Clean up realtime listener
+    _notificationsSubscription
+        ?.unsubscribe(); // ✅ Clean up notifications listener
+    _bookingsSubscription?.unsubscribe(); // ✅ Clean up bookings listener
     super.dispose();
   }
 
@@ -168,6 +186,280 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (e) {
       debugPrint('Profile lookup skipped for users: $e');
       return null;
+    }
+  }
+
+  /// 🔄 Set up real-time listener for verification status changes
+  /// When admin approves verification, the dashboard will update automatically
+  void _setupVerificationListener() {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('⚠️ No user found for real-time listener');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+
+      _verificationSubscription = supabase.realtime.channel(
+        'public:users:id=eq.${user.id}',
+      );
+
+      _verificationSubscription!
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'users',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: user.id,
+            ),
+            callback: (payload) {
+              debugPrint('✅ Real-time update received: ${payload.eventType}');
+              final newRecord = payload.newRecord as Map<String, dynamic>?;
+              if (newRecord != null) {
+                final isVerified = newRecord['id_verified'] as bool? ?? false;
+                debugPrint(
+                  '✅ Payload id_verified: $isVerified (current: $userVerified)',
+                );
+                if (isVerified != userVerified) {
+                  debugPrint(
+                    '✅ Real-time update: userVerified = $userVerified → $isVerified',
+                  );
+                  if (mounted) {
+                    setState(() {
+                      userVerified = isVerified;
+                    });
+                  }
+                }
+              }
+            },
+          )
+          .subscribe();
+
+      debugPrint(
+        '✅ Real-time verification listener started for user: ${user.id}',
+      );
+    } catch (e) {
+      debugPrint('⚠️ Error setting up verification listener: $e');
+      // Continue anyway - user can still book, just won't get real-time updates
+    }
+  }
+
+  /// 🔔 Load notifications from database for current user
+  Future<void> _loadNotifications() async {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('⚠️ No user for notifications');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+      final notifications = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(50);
+
+      if (mounted) {
+        setState(() {
+          _notifications = List<Map<String, dynamic>>.from(notifications);
+        });
+      }
+
+      debugPrint('✅ Loaded ${_notifications.length} notifications');
+    } catch (e) {
+      debugPrint('⚠️ Error loading notifications: $e');
+    }
+  }
+
+  /// 🔔 Set up real-time listener for new notifications
+  void _setupNotificationsListener() {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('⚠️ No user for notifications listener');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+
+      _notificationsSubscription = supabase.realtime.channel(
+        'public:notifications:user_id=eq.${user.id}',
+      );
+
+      _notificationsSubscription!
+          .onPostgresChanges(
+            event: PostgresChangeEvent.insert,
+            schema: 'public',
+            table: 'notifications',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: user.id,
+            ),
+            callback: (payload) {
+              debugPrint('🔔 New notification received');
+              final newNotification =
+                  payload.newRecord as Map<String, dynamic>?;
+              if (newNotification != null && mounted) {
+                setState(() {
+                  _notifications.insert(0, newNotification);
+                });
+                debugPrint('✅ Notification added to list');
+              }
+            },
+          )
+          .subscribe();
+
+      debugPrint(
+        '✅ Real-time notifications listener started for user: ${user.id}',
+      );
+    } catch (e) {
+      debugPrint('⚠️ Error setting up notifications listener: $e');
+    }
+  }
+
+  /// 📅 Load renter's bookings from database
+  Future<void> _loadBookings() async {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('⚠️ No user for bookings');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+      final bookings = await supabase
+          .from('bookings')
+          .select('*, vehicles(*, owner:owner_id(full_name, role)), users(*)')
+          .eq('renter_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(50);
+
+      if (mounted) {
+        setState(() {
+          _bookings = List<Map<String, dynamic>>.from(bookings);
+        });
+      }
+
+      debugPrint('✅ Loaded ${_bookings.length} bookings');
+    } catch (e) {
+      debugPrint('⚠️ Error loading bookings: $e');
+    }
+  }
+
+  /// 📅 Set up real-time listener for booking updates
+  void _setupBookingsListener() {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) {
+        debugPrint('⚠️ No user for bookings listener');
+        return;
+      }
+
+      final supabase = Supabase.instance.client;
+
+      _bookingsSubscription = supabase.realtime.channel(
+        'public:bookings:renter_id=eq.${user.id}',
+      );
+
+      _bookingsSubscription!
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'bookings',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'renter_id',
+              value: user.id,
+            ),
+            callback: (payload) async {
+              debugPrint('📅 Booking update received: ${payload.eventType}');
+
+              // Check if booking status changed to 'confirmed' and create group chat
+              if (payload.newRecord != null) {
+                final booking = payload.newRecord! as Map<String, dynamic>;
+                final oldRecord = payload.oldRecord as Map<String, dynamic>?;
+                final newStatus = (booking['status'] as String?)?.toLowerCase();
+                final oldStatus = (oldRecord?['status'] as String?)
+                    ?.toLowerCase();
+
+                if (newStatus == 'confirmed' && oldStatus != 'confirmed') {
+                  debugPrint('✅ Booking confirmed - creating group chat');
+                  await _createBookingGroupChat(booking);
+                }
+              }
+
+              if (mounted) {
+                // Reload bookings to reflect status changes
+                _loadBookings();
+              }
+            },
+          )
+          .subscribe();
+
+      debugPrint('✅ Real-time bookings listener started for user: ${user.id}');
+    } catch (e) {
+      debugPrint('⚠️ Error setting up bookings listener: $e');
+    }
+  }
+
+  Future<void> _createBookingGroupChat(Map<String, dynamic> booking) async {
+    try {
+      final authService = AuthService();
+      final currentUserId = authService.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final bookingId = booking['id'] as String;
+      final withDriver = booking['with_driver'] as bool? ?? false;
+      final assignedDriverId = booking['assigned_driver_id'] as String?;
+      final operatorId = booking['operator_id'] as String?;
+      final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ?? {};
+      final ownerId = vehicle['owner_id'] as String?;
+
+      final participantIds = <String>{currentUserId};
+
+      // Case A: Booking with driver, PSDC unit
+      // Participants: renter_id, driver_id, operator_id
+      if (withDriver && assignedDriverId != null && operatorId != null) {
+        participantIds.addAll([assignedDriverId, operatorId]);
+      }
+      // Case B: Booking with driver, partner unit
+      // Participants: renter_id, driver_id, partner_id, operator_id
+      else if (withDriver &&
+          assignedDriverId != null &&
+          ownerId != null &&
+          operatorId != null) {
+        participantIds.addAll([assignedDriverId, ownerId, operatorId]);
+      }
+      // Case C: Booking without driver - no group chat
+      else if (!withDriver) {
+        debugPrint('Booking without driver - skipping group chat creation');
+        return;
+      }
+
+      if (participantIds.isEmpty) {
+        debugPrint('No valid participants for group chat');
+        return;
+      }
+
+      await ChatService().createGroupConversation(
+        bookingId: bookingId,
+        participantIds: participantIds.toList(),
+      );
+
+      debugPrint('Group chat created for booking: $bookingId');
+    } catch (e) {
+      debugPrint('Error creating group chat: $e');
     }
   }
 
@@ -376,12 +668,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  bool _checkRentalVerification() {
-    if (!userVerified) {
-      _showRentalVerificationModal();
-      return false;
+  Future<bool> _checkRentalVerification() async {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) return false;
+
+      // ✅ ALWAYS fetch fresh verification status from DB (don't use cached value)
+      final supabase = Supabase.instance.client;
+      final resp = await supabase
+          .from('users')
+          .select('role, id_verified')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final userRole = (resp?['role'] ?? 'renter').toString().toLowerCase();
+      final isVerifiedInDb = resp?['id_verified'] as bool? ?? false;
+
+      debugPrint(
+        '✅ Fresh verification check: role=$userRole, verified=$isVerifiedInDb',
+      );
+
+      // ✅ Update local state to match DB truth
+      if (isVerifiedInDb != userVerified) {
+        if (mounted) {
+          setState(() {
+            userVerified = isVerifiedInDb;
+          });
+        }
+      }
+
+      // ✅ Skip verification for drivers
+      if (userRole == 'driver') {
+        debugPrint(
+          '✅ Driver role detected - skipping verification requirement',
+        );
+        return true;
+      }
+
+      // For renters, check if verified
+      if (!isVerifiedInDb) {
+        _showRentalVerificationModal();
+        return false;
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Error checking verification: $e');
+      // Allow proceed on error for drivers
+      return true;
     }
-    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -421,8 +756,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else if (rawStatus == 'cancelled' || rawStatus == 'rejected') {
         uiStatus = 'Cancelled';
       } else {
-        uiStatus = 'Upcoming';
+        uiStatus = 'Pending';
       }
+
+      // Determine rental partner: if vehicle has partner owner, show their name; otherwise show PSDC
+      final owner = vehicle?['owner'] as Map<String, dynamic>?;
+      final ownerRole = (owner?['role'] ?? '').toString().toLowerCase();
+      final ownerName = (owner?['full_name'] ?? '').toString().trim();
+      final rentalPartner = (ownerRole == 'partner' && ownerName.isNotEmpty)
+          ? ownerName
+          : 'PSDC';
 
       return {
         'id': booking['id']?.toString() ?? '',
@@ -430,6 +773,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             '${vehicle?['brand'] ?? 'Unknown'} ${vehicle?['model'] ?? ''}'
                 .trim(),
         'carImage': Icons.directions_car,
+        'imageUrl': (vehicle?['image_url'] as String?),
         'status': uiStatus,
         'startDate': startDate,
         'endDate': endDate,
@@ -439,8 +783,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             booking['dropoff_location']?.toString() ?? 'Drop-off not specified',
         'totalCost': totalCost,
         'days': days,
-        'rentalPartner':
-            vehicle?['owner_name']?.toString() ?? 'Mobilis Partner',
+        'rentalPartner': rentalPartner,
         'rating': (vehicle?['rating'] as num?)?.toDouble() ?? 0.0,
       };
     }).toList();
@@ -636,7 +979,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildHomeTab() {
     final uiBookings = _uiBookings();
     final homeTrips = uiBookings
-        .where((b) => b['status'] == 'Active' || b['status'] == 'Upcoming')
+        .where((b) => b['status'] == 'Active' || b['status'] == 'Pending')
         .take(10)
         .toList();
 
@@ -1359,8 +1702,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             SizedBox(
                                               height: 44,
                                               child: ElevatedButton(
-                                                onPressed: () {
-                                                  if (_checkRentalVerification()) {
+                                                onPressed: () async {
+                                                  if (await _checkRentalVerification()) {
                                                     Navigator.of(
                                                       context,
                                                     ).pushNamed(
@@ -1575,7 +1918,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     unselectedLabelColor: AppColors.textSecondary,
                     indicatorColor: AppColors.primary,
                     tabs: [
-                      Tab(text: 'Upcoming'),
+                      Tab(text: 'Pending'),
                       Tab(text: 'Active'),
                       Tab(text: 'Past'),
                       Tab(text: 'Cancelled'),
@@ -1587,7 +1930,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['status'] == 'Upcoming')
+                            .where((b) => b['status'] == 'Pending')
                             .toList(),
                       ),
                       _buildBookingsList(
@@ -1616,44 +1959,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildBookingsList(List<Map<String, dynamic>> bookings) {
     if (bookings.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.calendar_today, size: 48, color: AppColors.textTertiary),
-            const SizedBox(height: 16),
-            const Text(
-              'No bookings found',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+      return RefreshIndicator(
+        onRefresh: () async {
+          await _loadBookings();
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Center(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.7,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.calendar_today,
+                    size: 48,
+                    color: AppColors.textTertiary,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No bookings found',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Pull down to refresh',
+                    style: TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: List.generate(
-          bookings.length,
-          (index) => Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: GestureDetector(
-              onTap: () {
-                setState(() => selectedBookingIndex = index);
-                _showBookingDetails(bookings[index]);
-              },
-              child: BookingCard(
-                carName: bookings[index]['carName'],
-                rentalPartner: bookings[index]['rentalPartner'],
-                status: bookings[index]['status'],
-                days: bookings[index]['days'],
-                pickupLocation: bookings[index]['pickupLocation'],
-                dropoffLocation: bookings[index]['dropoffLocation'],
-                totalCost: bookings[index]['totalCost'],
-                rating: bookings[index]['rating'],
-                isActive: bookings[index]['status'] == 'Active',
-                onTap: () => _showBookingDetails(bookings[index]),
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadBookings();
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: List.generate(
+            bookings.length,
+            (index) => Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => selectedBookingIndex = index);
+                  _showBookingDetails(bookings[index]);
+                },
+                child: BookingCard(
+                  carName: bookings[index]['carName'],
+                  rentalPartner: bookings[index]['rentalPartner'],
+                  status: bookings[index]['status'],
+                  days: (bookings[index]['days'] as num?)?.toInt() ?? 0,
+                  pickupLocation: bookings[index]['pickupLocation'],
+                  dropoffLocation: bookings[index]['dropoffLocation'],
+                  totalCost:
+                      (bookings[index]['totalCost'] as num?)?.toInt() ?? 0,
+                  rating:
+                      (bookings[index]['rating'] as num?)?.toDouble() ?? 0.0,
+                  isActive: bookings[index]['status'] == 'Active',
+                  carImageUrl: bookings[index]['imageUrl'] as String?,
+                  onTap: () => _showBookingDetails(bookings[index]),
+                ),
               ),
             ),
           ),
@@ -1712,7 +2090,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Messages',
+            'Conversations',
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,
@@ -1730,7 +2108,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 border: Border.all(color: AppColors.borderColor),
               ),
               child: const Text(
-                'No messages yet.',
+                'No active conversations yet. Conversations will appear here when bookings are confirmed.',
                 style: TextStyle(color: AppColors.textSecondary),
               ),
             )
@@ -2185,11 +2563,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     decoration: BoxDecoration(
                       color: AppColors.darkBgTertiary,
                       borderRadius: BorderRadius.circular(8),
+                      image:
+                          booking['vehicles'] != null &&
+                              booking['vehicles']['image_url'] != null
+                          ? DecorationImage(
+                              image: NetworkImage(
+                                booking['vehicles']['image_url'] as String,
+                              ),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
-                    child: const Icon(
-                      Icons.directions_car,
-                      color: AppColors.textSecondary,
-                    ),
+                    child:
+                        booking['vehicles'] == null ||
+                            booking['vehicles']['image_url'] == null
+                        ? const Icon(
+                            Icons.directions_car,
+                            color: AppColors.textSecondary,
+                          )
+                        : null,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2293,7 +2685,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _handleBookingCancellation(booking);
+                      },
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.error,
                         side: const BorderSide(color: AppColors.error),
@@ -2307,8 +2702,259 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ],
               ),
+            if ((booking['status'] == 'Pending') && _canCancelBooking(booking))
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _handleBookingCancellation(booking);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    side: const BorderSide(color: AppColors.error),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Cancel Booking'),
+                ),
+              ),
+            if ((booking['status'] == 'Pending'))
+              Builder(
+                builder: (context) {
+                  final timeInfo = _getRemainingCancelTime(booking);
+                  final canCancel = timeInfo['canCancel'] as bool;
+                  final hours = timeInfo['hours'] as int;
+                  final minutes = timeInfo['minutes'] as int;
+
+                  if (canCancel) {
+                    // Show countdown timer with progress bar
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF3CD).withAlpha(230),
+                        border: Border.all(
+                          color: const Color(0xFFFFC107),
+                          width: 1.5,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                '⏱️ Cancel within: ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF8B6914),
+                                ),
+                              ),
+                              Text(
+                                '${hours}h ${minutes}m',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF8B6914),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          // Progress bar showing remaining time
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: (hours * 60 + minutes) / (24 * 60),
+                              minHeight: 6,
+                              backgroundColor: Colors.grey[300],
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFFFFC107),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  } else {
+                    // Show expired message
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withAlpha(25),
+                        border: Border.all(color: AppColors.error),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '⏰ Cancellation Window Closed',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.error,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Bookings can only be cancelled within 24 hours of creation.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Check if booking can be cancelled (24-hour rule)
+  /// Get remaining time for cancellation window (returns formatted string + breakdown)
+  Map<String, dynamic> _getRemainingCancelTime(Map<String, dynamic> booking) {
+    try {
+      final createdAtStr = booking['created_at']?.toString();
+      if (createdAtStr == null) {
+        return {
+          'canCancel': false,
+          'hours': 0,
+          'minutes': 0,
+          'remainingTime': 'Unknown',
+          'isExpired': true,
+        };
+      }
+
+      final createdAt = DateTime.parse(createdAtStr);
+      final now = DateTime.now();
+      final difference = now.difference(createdAt);
+
+      // 24 hours = 1440 minutes
+      final totalMinutesAllowed = 24 * 60;
+      final minutesElapsed = difference.inMinutes;
+      final minutesRemaining = totalMinutesAllowed - minutesElapsed;
+
+      final hoursRemaining = minutesRemaining ~/ 60;
+      final minRemaining = minutesRemaining % 60;
+
+      final canCancel = minutesRemaining > 0;
+      final remainingTimeStr = canCancel
+          ? '${hoursRemaining}h ${minRemaining}m remaining'
+          : 'Expired';
+
+      return {
+        'canCancel': canCancel,
+        'hours': hoursRemaining,
+        'minutes': minRemaining,
+        'remainingTime': remainingTimeStr,
+        'isExpired': !canCancel,
+      };
+    } catch (e) {
+      debugPrint('Error checking cancellation time: $e');
+      return {
+        'canCancel': false,
+        'hours': 0,
+        'minutes': 0,
+        'remainingTime': 'Error',
+        'isExpired': true,
+      };
+    }
+  }
+
+  bool _canCancelBooking(Map<String, dynamic> booking) {
+    final timeInfo = _getRemainingCancelTime(booking);
+    return timeInfo['canCancel'] as bool;
+  }
+
+  /// Handle booking cancellation with 24-hour check
+  Future<void> _handleBookingCancellation(Map<String, dynamic> booking) async {
+    final bookingService = BookingService();
+    final canCancel = _canCancelBooking(booking);
+
+    if (!canCancel) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Cancellation window has passed (24 hours limit)'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    // Show confirmation dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Booking?'),
+        content: const Text(
+          'Are you sure you want to cancel this booking? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Keep Booking'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+
+              // Show loading
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) =>
+                    const Center(child: CircularProgressIndicator()),
+              );
+
+              try {
+                // Cancel the booking
+                await bookingService.updateBookingStatus(
+                  booking['id'],
+                  'cancelled',
+                );
+
+                Navigator.pop(context); // Close loading
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Booking cancelled successfully'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+
+                  // Reload bookings
+                  _loadBookings();
+                }
+              } catch (e) {
+                Navigator.pop(context); // Close loading
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error cancelling booking: $e'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Cancel Booking',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
       ),
     );
   }

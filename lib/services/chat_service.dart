@@ -294,4 +294,71 @@ class ChatService {
     }
     return error.toString();
   }
+
+  // Create a group conversation for a booking
+  // Automatically creates conversation and adds participants
+  Future<Map<String, dynamic>> createGroupConversation({
+    required String bookingId,
+    required List<String> participantIds,
+  }) async {
+    try {
+      debugPrint(
+        'Creating group conversation for booking: $bookingId with ${participantIds.length} participants',
+      );
+
+      // Create conversation with booking_id reference
+      final newConv = await supabase
+          .from('conversations')
+          .insert({
+            'booking_id': bookingId,
+            'status': 'active',
+            'created_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .select()
+          .single();
+
+      // Add all participants
+      final participantRecords = participantIds.map((userId) {
+        return {
+          'conversation_id': newConv['id'],
+          'user_id': userId,
+          'joined_at': DateTime.now().toIso8601String(),
+        };
+      }).toList();
+
+      await supabase
+          .from('conversation_participants')
+          .insert(participantRecords);
+
+      debugPrint('Group conversation created successfully');
+      return newConv;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error creating group conversation: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error creating group conversation: $e');
+      rethrow;
+    }
+  }
+
+  // Close a conversation (typically when booking is completed/cancelled)
+  Future<void> closeConversation(String bookingId) async {
+    try {
+      debugPrint('Closing conversation for booking: $bookingId');
+
+      await supabase
+          .from('conversations')
+          .update({'status': 'closed'})
+          .eq('booking_id', bookingId);
+
+      debugPrint('Conversation closed successfully');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error closing conversation: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error closing conversation: $e');
+      rethrow;
+    }
+  }
 }

@@ -6,11 +6,11 @@ class VehicleService {
   static const String _vehicleImagesBucket = 'vehicle_images';
 
   // Single clean select string — no extra whitespace or newlines
+  // NOTE: vehicle_images fetched separately, not joined here
   static const String _vehicleSelect =
       'id,brand,model,year,plate_number,price_per_day,price_per_hour,'
       'category,vehicle_type,vehicle_name,description,color,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'vehicle_images(image_url,display_order),'
       'owner:owner_id(id,full_name,email,role)';
 
   factory VehicleService() => _instance;
@@ -41,7 +41,8 @@ class VehicleService {
     final rawImages = merged['vehicle_images'];
     final imageList = rawImages is List
         ? List<Map<String, dynamic>>.from(
-            rawImages.whereType<Map<String, dynamic>>())
+            rawImages.whereType<Map<String, dynamic>>(),
+          )
         : <Map<String, dynamic>>[];
 
     imageList.sort((a, b) {
@@ -104,7 +105,10 @@ class VehicleService {
   // Category matching
   // ---------------------------------------------------------------------------
   bool _matchesCategory(String vehicleCategory, String requested) {
-    final a = vehicleCategory.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final a = vehicleCategory.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]'),
+      '',
+    );
     final b = requested.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     if (b.isEmpty) return true;
     if (a.isEmpty) return false;
@@ -114,6 +118,46 @@ class VehicleService {
   String _categoryOf(Map<String, dynamic> v) {
     final vt = v['vehicle_type']?.toString() ?? '';
     return vt.trim().isNotEmpty ? vt : (v['category']?.toString() ?? '');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fetch and group vehicle images by vehicle_id
+  // ---------------------------------------------------------------------------
+  Future<Map<String, List<Map<String, dynamic>>>> _fetchAndGroupImages(
+    List<String> vehicleIds,
+  ) async {
+    if (vehicleIds.isEmpty) return {};
+
+    try {
+      final imagesResponse = await supabase
+          .from('vehicle_images')
+          .select('vehicle_id,image_url,display_order')
+          .inFilter('vehicle_id', vehicleIds);
+
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      for (final image in imagesResponse) {
+        final vehicleId = image['vehicle_id'] as String?;
+        if (vehicleId != null) {
+          grouped
+              .putIfAbsent(vehicleId, () => [])
+              .add(Map<String, dynamic>.from(image));
+        }
+      }
+
+      // Sort each list by display_order
+      for (final list in grouped.values) {
+        list.sort((a, b) {
+          final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
+          final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
+          return aOrder.compareTo(bOrder);
+        });
+      }
+
+      return grouped;
+    } catch (e) {
+      debugPrint('Error fetching vehicle images: $e');
+      return {};
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -127,7 +171,23 @@ class VehicleService {
           .eq('owner_id', userId)
           .order('created_at', ascending: false);
 
-      return _normalizeList(List<Map<String, dynamic>>.from(response));
+      final vehicles = List<Map<String, dynamic>>.from(response);
+
+      // Fetch images separately
+      final vehicleIds = vehicles
+          .map((v) => v['id']?.toString() ?? '')
+          .toList();
+      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
+
+      // Attach images to each vehicle
+      for (final vehicle in vehicles) {
+        final id = vehicle['id']?.toString();
+        if (id != null) {
+          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
+        }
+      }
+
+      return _normalizeList(vehicles);
     } on PostgrestException catch (e) {
       debugPrint('getPartnerVehicles error: ${e.message}');
       rethrow;
@@ -146,7 +206,23 @@ class VehicleService {
           .maybeSingle();
 
       if (response == null) return null;
-      return _normalizeVehicleRecord(Map<String, dynamic>.from(response));
+
+      final vehicle = Map<String, dynamic>.from(response);
+
+      // Fetch images for this vehicle separately
+      try {
+        final imagesResponse = await supabase
+            .from('vehicle_images')
+            .select('image_url,display_order')
+            .eq('vehicle_id', vehicleId)
+            .order('display_order', ascending: true);
+        vehicle['vehicle_images'] = imagesResponse;
+      } catch (e) {
+        debugPrint('Error fetching images for vehicle $vehicleId: $e');
+        vehicle['vehicle_images'] = [];
+      }
+
+      return _normalizeVehicleRecord(vehicle);
     } on PostgrestException catch (e) {
       debugPrint('getVehicleById error: ${e.message}');
       rethrow;
@@ -170,9 +246,25 @@ class VehicleService {
 
       debugPrint('Raw rows returned: ${response.length}');
 
-      final normalized = _normalizeList(List<Map<String, dynamic>>.from(response))
-          .where(_isVisibleForRent)
+      final vehicles = List<Map<String, dynamic>>.from(response);
+
+      // Fetch images separately
+      final vehicleIds = vehicles
+          .map((v) => v['id']?.toString() ?? '')
           .toList();
+      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
+
+      // Attach images to each vehicle
+      for (final vehicle in vehicles) {
+        final id = vehicle['id']?.toString();
+        if (id != null) {
+          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
+        }
+      }
+
+      final normalized = _normalizeList(
+        vehicles,
+      ).where(_isVisibleForRent).toList();
 
       if (category == null || category.isEmpty) return normalized;
 
@@ -207,8 +299,10 @@ class VehicleService {
     try {
       var query = supabase.from('vehicles').select(_vehicleSelect);
 
-      if (brand != null && brand.isNotEmpty) query = query.ilike('brand', '%$brand%');
-      if (model != null && model.isNotEmpty) query = query.ilike('model', '%$model%');
+      if (brand != null && brand.isNotEmpty)
+        query = query.ilike('brand', '%$brand%');
+      if (model != null && model.isNotEmpty)
+        query = query.ilike('model', '%$model%');
       if (minPrice != null) query = query.gte('price_per_day', minPrice);
       if (maxPrice != null) query = query.lte('price_per_day', maxPrice);
       if (color != null && color.isNotEmpty) query = query.eq('color', color);
@@ -219,9 +313,25 @@ class VehicleService {
 
       final response = await query.order('created_at', ascending: false);
 
-      final normalized = _normalizeList(List<Map<String, dynamic>>.from(response))
-          .where(_isVisibleForRent)
+      final vehicles = List<Map<String, dynamic>>.from(response);
+
+      // Fetch images separately
+      final vehicleIds = vehicles
+          .map((v) => v['id']?.toString() ?? '')
           .toList();
+      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
+
+      // Attach images to each vehicle
+      for (final vehicle in vehicles) {
+        final id = vehicle['id']?.toString();
+        if (id != null) {
+          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
+        }
+      }
+
+      final normalized = _normalizeList(
+        vehicles,
+      ).where(_isVisibleForRent).toList();
 
       if (category == null || category.isEmpty) return normalized;
       return normalized
@@ -240,7 +350,8 @@ class VehicleService {
   // AVAILABILITY
   // ---------------------------------------------------------------------------
   Future<List<Map<String, dynamic>>> getVehicleAvailability(
-      String vehicleId) async {
+    String vehicleId,
+  ) async {
     try {
       final response = await supabase
           .from('vehicle_availability')
@@ -273,10 +384,11 @@ class VehicleService {
     required bool isAvailable,
   }) async {
     final dateStr = date.toIso8601String().split('T')[0];
-    await supabase.from('vehicle_availability').upsert(
-      {'vehicle_id': vehicleId, 'date': dateStr, 'is_available': isAvailable},
-      onConflict: 'vehicle_id,date',
-    );
+    await supabase.from('vehicle_availability').upsert({
+      'vehicle_id': vehicleId,
+      'date': dateStr,
+      'is_available': isAvailable,
+    }, onConflict: 'vehicle_id,date');
   }
 
   Future<void> setAvailabilityRange({
@@ -469,7 +581,8 @@ class VehicleService {
   }
 
   Future<List<Map<String, dynamic>>> getVehicleDocuments(
-      String vehicleId) async {
+    String vehicleId,
+  ) async {
     try {
       final response = await supabase
           .from('vehicle_documents')

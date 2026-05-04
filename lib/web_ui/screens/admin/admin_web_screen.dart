@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/verification_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 
@@ -41,13 +42,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _allBookings = [];
   List<Map<String, dynamic>> _allVehicles = [];
-  List<Map<String, dynamic>> _pendingApplications = [];
+  List<Map<String, dynamic>> _verificationRecords = [];
 
   // Pagination & Search
   int _currentUserPage = 1;
   final int _usersPerPage = 10;
   String _userSearchQuery = '';
-  String _userRoleFilter = 'all'; // all, renter, partner, operator, admin
+  String _userRoleFilter = 'all';
 
   final _supabase = Supabase.instance.client;
 
@@ -66,7 +67,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadAllUsers(),
         _loadAllBookings(),
         _loadAllVehicles(),
-        _loadPendingApplications(),
+        _loadPendingVerifications(),
       ]);
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
@@ -77,31 +78,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadStats() async {
     try {
-      final usersResponse = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'renter');
-      _totalUsers = (usersResponse as List).length;
-
-      final partnersResponse = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'partner');
-      _totalPartners = (partnersResponse as List).length;
-
-      final operatorsResponse = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'operator');
-      _totalOperators = (operatorsResponse as List).length;
+      final usersResponse = await _supabase.from('users').select('id, role');
+      final users = List<Map<String, dynamic>>.from(usersResponse);
+      _totalUsers = users.length;
+      _totalPartners = users
+          .where((user) => (user['role'] as String? ?? '') == 'partner')
+          .length;
+      _totalOperators = users
+          .where((user) => (user['role'] as String? ?? '') == 'operator')
+          .length;
 
       final vehiclesResponse = await _supabase.from('vehicles').select('id');
       _totalVehicles = (vehiclesResponse as List).length;
 
       final pendingResponse = await _supabase
-          .from('vehicle_applications')
+          .from('user_verifications')
           .select('id')
-          .eq('status', 'pending');
+          .eq('verification_status', 'pending');
       _pendingVerifications = (pendingResponse as List).length;
 
       final activeBookingsResponse = await _supabase
@@ -145,7 +138,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .select('''
             *,
             vehicles:vehicle_id (brand, model, year),
-            users:renter_id (name, email)
+            renter:renter_id (full_name, email)
           ''')
           .order('created_at', ascending: false);
 
@@ -162,7 +155,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('vehicles')
           .select('''
             *,
-            users:owner_id (name, email)
+            owner:owner_id (full_name, email, role)
           ''')
           .order('created_at', ascending: false);
 
@@ -173,24 +166,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
-  Future<void> _loadPendingApplications() async {
+  Future<void> _loadPendingVerifications() async {
     try {
       final response = await _supabase
-          .from('vehicle_applications')
+          .from('user_verifications')
           .select('''
             *,
-            partners:partner_id (
-              user_id,
-              users:user_id (name, email)
-            )
+            users:user_id (full_name, email, role, verification_status)
           ''')
-          .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      _pendingApplications = List<Map<String, dynamic>>.from(response);
+      _verificationRecords = List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error loading applications: $e');
-      _pendingApplications = [];
+      _verificationRecords = [];
     }
   }
 
@@ -353,127 +342,152 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildSidebar(bool isDark) {
-    final sidebarWidth = _sidebarExpanded ? 280.0 : 70.0;
+  String _getPageTitle() {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Dashboard';
+      case 1:
+        return 'Users';
+      case 2:
+        return 'Vehicles';
+      case 3:
+        return 'Bookings';
+      case 4:
+        return 'Verifications';
+      case 5:
+        return 'Message Review';
+      case 6:
+        return 'Analytics';
+      case 7:
+        return 'Settings';
+      default:
+        return 'Dashboard';
+    }
+  }
 
+  Widget _buildContent(bool isDark) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    switch (_selectedIndex) {
+      case 0:
+        return _buildDashboardContent(isDark);
+      case 1:
+        return _buildUsersContent(isDark);
+      case 2:
+        return _buildVehiclesContent(isDark);
+      case 3:
+        return _buildBookingsContent(isDark);
+      case 4:
+        return _buildVerificationsContent(isDark);
+      case 5:
+        return _buildMessageReviewContent(isDark);
+      case 6:
+        return _buildAnalyticsContent(isDark);
+      case 7:
+        return _buildSettingsContent(isDark);
+      default:
+        return _buildDashboardContent(isDark);
+    }
+  }
+
+  Widget _buildSidebar(bool isDark) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      width: sidebarWidth,
+      width: _sidebarExpanded ? 260 : 70,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(2, 0),
-          ),
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20),
         ],
       ),
       child: Column(
         children: [
-          // Logo/Header
+          // Logo area
           Container(
-            height: 80,
-            padding: EdgeInsets.symmetric(
-              horizontal: _sidebarExpanded ? 20 : 10,
-            ),
+            height: 70,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
+                SizedBox(
+                  width: 30,
+                  height: 30,
                   child: Image.asset(
                     'assets/icon/logo-black.png',
                     fit: BoxFit.contain,
                   ),
                 ),
                 if (_sidebarExpanded) ...[
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Admin',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            fontSize: 16,
-                          ),
-                        ),
-                        Text(
-                          'System Control',
-                          style: TextStyle(fontSize: 11, color: Colors.white60),
-                        ),
-                      ],
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Mobilis Admin',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
                   ),
                 ],
               ],
             ),
           ),
-          Divider(height: 1, color: Colors.white.withOpacity(0.1)),
-          // Navigation Items
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              children: [
-                _buildNavItem(0, Icons.dashboard, 'Overview', isDark),
-                _buildNavItem(
-                  1,
-                  Icons.people,
-                  'Users',
-                  isDark,
-                  badge: _allUsers.length,
+          const Divider(color: Colors.white12),
+          const SizedBox(height: 12),
+          if (_sidebarExpanded)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'MAIN MENU',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withOpacity(0.4),
+                  letterSpacing: 1.5,
                 ),
-                _buildNavItem(2, Icons.directions_car, 'Vehicles', isDark),
-                _buildNavItem(3, Icons.book, 'Bookings', isDark),
-                _buildNavItem(
-                  4,
-                  Icons.assignment,
-                  'Applications',
-                  isDark,
-                  badge: _pendingVerifications > 0
-                      ? _pendingVerifications
-                      : null,
-                ),
-                _buildNavItem(5, Icons.mail, 'Message Review', isDark),
-                const SizedBox(height: 24),
-                if (_sidebarExpanded)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      'SYSTEM',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white.withOpacity(0.4),
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                _buildNavItem(6, Icons.analytics, 'Analytics', isDark),
-                _buildNavItem(7, Icons.settings, 'Settings', isDark),
-              ],
+              ),
             ),
+          const SizedBox(height: 12),
+          _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
+          _buildNavItem(
+            1,
+            Icons.people,
+            'Users',
+            isDark,
+            badge: _allUsers.length,
           ),
+          _buildNavItem(2, Icons.directions_car, 'Vehicles', isDark),
+          _buildNavItem(3, Icons.book, 'Bookings', isDark),
+          _buildNavItem(
+            4,
+            Icons.verified_user,
+            'Verifications',
+            isDark,
+            badge: _pendingVerifications > 0 ? _pendingVerifications : null,
+          ),
+          _buildNavItem(5, Icons.mail, 'Message Review', isDark),
+          const SizedBox(height: 24),
+          if (_sidebarExpanded)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'SYSTEM',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withOpacity(0.4),
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          _buildNavItem(6, Icons.analytics, 'Analytics', isDark),
+          _buildNavItem(7, Icons.settings, 'Settings', isDark),
+          const Spacer(),
           // Collapse Button
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
@@ -596,12 +610,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           ),
           const Spacer(),
-          // Quick Actions
           _buildQuickAction('Export', Icons.download, Colors.green, () {
             _generateAndExportReport(isDark);
           }),
           const SizedBox(width: 20),
-          // Theme Toggle
           IconButton(
             onPressed: () => widget.onThemeToggle?.call(!widget.isDarkMode),
             icon: Icon(
@@ -617,7 +629,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           ),
           const SizedBox(width: 16),
-          // User Menu
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
@@ -711,71 +722,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  String _getPageTitle() {
-    switch (_selectedIndex) {
-      case 0:
-        return 'Dashboard Overview';
-      case 1:
-        return 'User Management';
-      case 2:
-        return 'Vehicle Management';
-      case 3:
-        return 'Booking Management';
-      case 4:
-        return 'Applications';
-      case 5:
-        return 'Message Review';
-      case 6:
-        return 'Analytics';
-      case 7:
-        return 'System Settings';
-      default:
-        return 'Dashboard';
-    }
-  }
-
-  Widget _buildContent(bool isDark) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.red));
-    }
-
-    switch (_selectedIndex) {
-      case 0:
-        return _buildOverviewContent(isDark);
-      case 1:
-        return _buildUsersContent(isDark);
-      case 2:
-        return _buildVehiclesContent(isDark);
-      case 3:
-        return _buildBookingsContent(isDark);
-      case 4:
-        return _buildApplicationsContent(isDark);
-      case 5:
-        return _buildMessageReviewContent(isDark);
-      case 6:
-        return _buildAnalyticsContent(isDark);
-      case 7:
-        return _buildSettingsContent(isDark);
-      default:
-        return _buildOverviewContent(isDark);
-    }
-  }
-
-  Widget _buildOverviewContent(bool isDark) {
+  Widget _buildDashboardContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Revenue Card
+          // Revenue Banner
           Container(
-            width: double.infinity,
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
+                colors: [Colors.red, Colors.deepOrange],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Colors.red, Colors.deepOrange],
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
@@ -873,7 +833,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 30),
-          // Two Column Layout
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1038,7 +997,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
             DataCell(
               Text(
-                user?['name'] ?? 'Unknown',
+                user?['full_name'] ?? 'Unknown',
                 style: TextStyle(
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
@@ -1131,9 +1090,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildUsersContent(bool isDark) {
-    // Filter users based on search and role
     final filteredUsers = _allUsers.where((user) {
-      final name = (user['name'] ?? '').toLowerCase();
+      final name = (user['full_name'] ?? '').toLowerCase();
       final email = (user['email'] ?? '').toLowerCase();
       final role = user['role'] as String? ?? 'renter';
       final matchesSearch =
@@ -1143,7 +1101,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       return matchesSearch && matchesRole;
     }).toList();
 
-    // Calculate pagination
     final totalPages = (filteredUsers.length / _usersPerPage).ceil();
     final startIndex = (_currentUserPage - 1) * _usersPerPage;
     final endIndex = (startIndex + _usersPerPage).clamp(
@@ -1152,13 +1109,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
     final paginatedUsers = filteredUsers.sublist(startIndex, endIndex.toInt());
 
-    // Calculate role statistics
-    final rentersCount = _allUsers.where((u) => u['role'] == 'renter').length;
     final partnersCount = _allUsers.where((u) => u['role'] == 'partner').length;
     final operatorsCount = _allUsers
         .where((u) => u['role'] == 'operator')
         .length;
-    final driverCount = _allUsers.where((u) => u['role'] == 'driver').length;
     final verifiedCount = _allUsers
         .where((u) => u['id_verified'] == true)
         .length;
@@ -1168,7 +1122,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // User Statistics
           Row(
             children: [
               Expanded(
@@ -1213,7 +1166,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          // Search and Filter
           Row(
             children: [
               Expanded(
@@ -1274,7 +1226,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              // Role Filter Dropdown
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
@@ -1339,7 +1290,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          // Users Table Card
           Container(
             decoration: BoxDecoration(
               color: isDark ? AppColors.darkCard : Colors.white,
@@ -1350,7 +1300,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
             child: Column(
               children: [
-                // Table Header
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -1412,7 +1361,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ],
                   ),
                 ),
-                // Table Rows
                 if (paginatedUsers.isEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 40),
@@ -1473,7 +1421,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         0.2,
                                       ),
                                       child: Text(
-                                        (user['name'] as String?)?[0]
+                                        (user['full_name'] as String?)?[0]
                                                 .toString()
                                                 .toUpperCase() ??
                                             'U',
@@ -1486,7 +1434,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
-                                        user['name'] ?? 'User',
+                                        user['full_name'] ?? 'User',
                                         style: TextStyle(
                                           color: isDark
                                               ? Colors.white
@@ -1570,7 +1518,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ],
                     );
                   }).toList(),
-                // Pagination Footer
                 if (totalPages > 1)
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -1595,9 +1542,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           children: [
                             ElevatedButton.icon(
                               onPressed: _currentUserPage > 1
-                                  ? () {
-                                      setState(() => _currentUserPage--);
-                                    }
+                                  ? () => setState(() => _currentUserPage--)
                                   : null,
                               icon: const Icon(Icons.chevron_left, size: 18),
                               label: const Text('Previous'),
@@ -1629,9 +1574,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
                               onPressed: _currentUserPage < totalPages
-                                  ? () {
-                                      setState(() => _currentUserPage++);
-                                    }
+                                  ? () => setState(() => _currentUserPage++)
                                   : null,
                               icon: const Icon(Icons.chevron_right, size: 18),
                               label: const Text('Next'),
@@ -1783,7 +1726,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                 ],
                 rows: _allVehicles.map((vehicle) {
-                  final owner = vehicle['users'] as Map<String, dynamic>?;
+                  final owner = vehicle['owner'] as Map<String, dynamic>?;
                   final status = vehicle['status'] as String? ?? 'pending';
 
                   return DataRow(
@@ -1798,7 +1741,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                       DataCell(
                         Text(
-                          owner?['name'] ?? 'Unknown',
+                          owner?['full_name'] ?? 'Unknown',
                           style: TextStyle(
                             color: isDark ? Colors.white70 : Colors.black87,
                           ),
@@ -1867,7 +1810,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ],
                 rows: _allBookings.map((booking) {
                   final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-                  final user = booking['users'] as Map<String, dynamic>?;
+                  final user = booking['renter'] as Map<String, dynamic>?;
                   final status = booking['status'] as String? ?? 'pending';
                   final total =
                       (booking['total_cost'] as num?)?.toDouble() ?? 0;
@@ -1886,7 +1829,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                       DataCell(
                         Text(
-                          user?['name'] ?? 'Unknown',
+                          user?['full_name'] ?? 'Unknown',
                           style: TextStyle(
                             color: isDark ? Colors.white70 : Colors.black87,
                           ),
@@ -1911,99 +1854,446 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildApplicationsContent(bool isDark) {
+  Widget _buildVerificationsContent(bool isDark) {
+    final pendingVerifications = _verificationRecords
+        .where(
+          (r) =>
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+              'pending',
+        )
+        .toList();
+    final approvedVerifications = _verificationRecords
+        .where(
+          (r) =>
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+              'verified',
+        )
+        .toList();
+    final rejectedVerifications = _verificationRecords
+        .where(
+          (r) =>
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+              'rejected',
+        )
+        .toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
-      child: _buildCard(
-        'Pending Applications (${_pendingApplications.length})',
-        _pendingApplications.isEmpty
-            ? Center(
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.check_circle,
-                      size: 60,
-                      color: Colors.green.withOpacity(0.5),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text('All applications reviewed!'),
-                  ],
-                ),
-              )
-            : Column(
-                children: _pendingApplications.map((app) {
-                  final partner = app['partners'] as Map<String, dynamic>?;
-                  final user = partner?['users'] as Map<String, dynamic>?;
+      child: Column(
+        children: [
+          _buildVerificationSection(
+            title: 'Pending Verifications',
+            records: pendingVerifications,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildVerificationSection(
+            title: 'Approved Verifications',
+            records: approvedVerifications,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildVerificationSection(
+            title: 'Rejected Verifications',
+            records: rejectedVerifications,
+            isDark: isDark,
+          ),
+        ],
+      ),
+    );
+  }
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.black26 : Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
+  Widget _buildVerificationSection({
+    required String title,
+    required List<Map<String, dynamic>> records,
+    required bool isDark,
+  }) {
+    return _buildCard(
+      '$title (${records.length})',
+      records.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text(
+                  'No ${title.toLowerCase()}.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              children: records
+                  .map(
+                    (record) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _buildVerificationCard(record, isDark),
                     ),
-                    child: Row(
+                  )
+                  .toList(),
+            ),
+      isDark,
+    );
+  }
+
+  Widget _buildVerificationCard(Map<String, dynamic> record, bool isDark) {
+    final user = record['users'] as Map<String, dynamic>?;
+    final submittedName = (record['full_name'] as String?)?.trim();
+    final idParts = (record['id_document_url'] as String? ?? '').split('|');
+    final idImageUrls = idParts
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+    final facePhotoUrl = record['face_photo_url'] as String?;
+    final status = (record['verification_status'] as String? ?? 'pending')
+        .toLowerCase();
+
+    Color badgeColor;
+    switch (status) {
+      case 'verified':
+        badgeColor = Colors.green;
+        break;
+      case 'rejected':
+        badgeColor = Colors.red;
+        break;
+      default:
+        badgeColor = Colors.orange;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${app['brand']} ${app['model']} (${app['year']})',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? Colors.white : Colors.black,
-                                ),
-                              ),
-                              Text(
-                                user?['full_name'] ?? 'Unknown',
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.grey
-                                      : Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            submittedName?.isNotEmpty == true
+                                ? submittedName!
+                                : (user?['full_name'] ?? 'Unknown User'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await _supabase
-                                .from('vehicle_applications')
-                                .update({'status': 'approved'})
-                                .eq('id', app['id']);
-                            _loadDashboardData();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
                           ),
-                          child: const Text(
-                            'Approve',
-                            style: TextStyle(color: Colors.white),
+                          decoration: BoxDecoration(
+                            color: badgeColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(999),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton(
-                          onPressed: () async {
-                            await _supabase
-                                .from('vehicle_applications')
-                                .update({'status': 'rejected'})
-                                .eq('id', app['id']);
-                            _loadDashboardData();
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red,
+                          child: Text(
+                            status.toUpperCase(),
+                            style: TextStyle(
+                              color: badgeColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                          child: const Text('Reject'),
                         ),
                       ],
                     ),
-                  );
-                }).toList(),
+                    const SizedBox(height: 4),
+                    Text(
+                      user?['email'] ?? '',
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-        isDark,
+              if (status == 'pending') ...[
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final adminId = _supabase.auth.currentUser?.id ?? '';
+                    final result =
+                        await VerificationService.approveVerification(
+                          verificationId: record['id'].toString(),
+                          adminId: adminId,
+                          faceMatchPercentage: 85.0,
+                        );
+                    if (!mounted) return;
+                    if (result['success'] == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Verification approved')),
+                      );
+                      _loadDashboardData();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            result['message']?.toString() ?? 'Approval failed',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
+                    shape: const StadiumBorder(),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Approve'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final adminId = _supabase.auth.currentUser?.id ?? '';
+                    final result = await VerificationService.rejectVerification(
+                      verificationId: record['id'].toString(),
+                      rejectionReason: 'Rejected by admin',
+                      adminId: adminId,
+                    );
+                    if (!mounted) return;
+                    if (result['success'] == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Verification rejected')),
+                      );
+                      _loadDashboardData();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            result['message']?.toString() ?? 'Rejection failed',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.redAccent),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
+                    shape: const StadiumBorder(),
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Reject'),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 700;
+              final imageWidgets = <Widget>[
+                if (idImageUrls.isNotEmpty)
+                  _buildDocumentPreview(
+                    title: 'ID Image',
+                    url: idImageUrls.first,
+                    isDark: isDark,
+                  ),
+                if (idImageUrls.length > 1)
+                  _buildDocumentPreview(
+                    title: 'ID Back',
+                    url: idImageUrls[1],
+                    isDark: isDark,
+                  ),
+                if ((facePhotoUrl ?? '').isNotEmpty)
+                  _buildDocumentPreview(
+                    title: 'Face Photo',
+                    url: facePhotoUrl!,
+                    isDark: isDark,
+                  ),
+              ];
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: isNarrow ? constraints.maxWidth : 240,
+                    child: _buildDetailCard(
+                      'Name',
+                      submittedName?.isNotEmpty == true
+                          ? submittedName!
+                          : (user?['full_name'] ?? 'Unknown User'),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isNarrow ? constraints.maxWidth : 240,
+                    child: _buildDetailCard(
+                      'ID Type',
+                      (record['id_type'] as String?)?.isNotEmpty == true
+                          ? record['id_type']
+                          : 'Not provided',
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isNarrow ? constraints.maxWidth : 240,
+                    child: _buildDetailCard(
+                      'ID Number',
+                      (record['id_number'] as String?)?.isNotEmpty == true
+                          ? record['id_number']
+                          : 'Not provided',
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: isNarrow ? constraints.maxWidth : 240,
+                    child: _buildDetailCard(
+                      'Submitted',
+                      _formatDate(record['created_at']),
+                      isDark,
+                    ),
+                  ),
+                  if ((record['location'] as String?)?.trim().isNotEmpty ==
+                      true)
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'Location',
+                        record['location'] as String,
+                        isDark,
+                      ),
+                    ),
+                  if ((record['phone'] as String?)?.trim().isNotEmpty == true)
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'Phone',
+                        record['phone'] as String,
+                        isDark,
+                      ),
+                    ),
+                  ...imageWidgets
+                      .map(
+                        (widget) => SizedBox(
+                          width: isNarrow ? constraints.maxWidth : 240,
+                          child: widget,
+                        ),
+                      )
+                      .toList(),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _buildDetailCard(String label, String value, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black12 : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              letterSpacing: 0.4,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocumentPreview({
+    required String title,
+    required String url,
+    required bool isDark,
+  }) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black12 : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 11,
+                letterSpacing: 0.4,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+            ),
+          ),
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(dynamic value) {
+    if (value == null) return 'Unknown';
+    final parsed = DateTime.tryParse(value.toString());
+    if (parsed == null) return value.toString();
+    return '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}';
   }
 
   Widget _buildMessageReviewContent(bool isDark) {
@@ -2016,7 +2306,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Charts Row 1
           Row(
             children: [
               Expanded(
@@ -2037,7 +2326,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          // Charts Row 2
           Row(
             children: [
               Expanded(
@@ -2063,8 +2351,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildBookingsLineChart(bool isDark) {
-    // Calculate booking distribution for the week based on available data
-    // Use total bookings and distribute proportionally
     final weeklyData = _calculateWeeklyBookingData();
     final horizontalInterval = (_totalBookings / 7).ceil().toDouble();
 
@@ -2075,18 +2361,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           drawVerticalLine: true,
           horizontalInterval: horizontalInterval > 0 ? horizontalInterval : 1.0,
           verticalInterval: 1,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-              strokeWidth: 1,
-            );
-          },
-          getDrawingVerticalLine: (value) {
-            return FlLine(
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-              strokeWidth: 1,
-            );
-          },
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+            strokeWidth: 1,
+          ),
+          getDrawingVerticalLine: (value) => FlLine(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+            strokeWidth: 1,
+          ),
         ),
         titlesData: FlTitlesData(
           show: true,
@@ -2124,15 +2406,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 42,
-              getTitlesWidget: (value, meta) {
-                return Text(
-                  '${value.toInt()}',
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey,
-                    fontSize: 12,
-                  ),
-                );
-              },
+              getTitlesWidget: (value, meta) => Text(
+                '${value.toInt()}',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
             ),
           ),
         ),
@@ -2166,7 +2446,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   List<FlSpot> _calculateWeeklyBookingData() {
-    // Distribute total bookings across 7 days based on active bookings percentage
     final avgPerDay = (_totalBookings / 7).toDouble();
     final activeRatio = _activeBookings > 0
         ? _activeBookings / _totalBookings
@@ -2184,14 +2463,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildRevenueChart(bool isDark) {
-    // Calculate revenue distribution based on booking statuses
     final revenueData = _calculateRevenueDistribution();
-
     return PieChart(PieChartData(centerSpaceRadius: 60, sections: revenueData));
   }
 
   List<PieChartSectionData> _calculateRevenueDistribution() {
-    // Categorize bookings by status and calculate revenue percentages
     int completedCount = 0;
     int activeCount = 0;
     int cancelledCount = 0;
@@ -2210,7 +2486,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
     }
 
-    // Calculate percentages
     final total = _totalBookings > 0 ? _totalBookings : 1;
     final completedPct = (completedCount / total * 100).toStringAsFixed(0);
     final activePct = (activeCount / total * 100).toStringAsFixed(0);
@@ -2304,27 +2579,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 40,
-              getTitlesWidget: (value, meta) {
-                return Text(
-                  '${value.toInt()}',
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.grey,
-                    fontSize: 12,
-                  ),
-                );
-              },
+              getTitlesWidget: (value, meta) => Text(
+                '${value.toInt()}',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
             ),
           ),
         ),
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: isDark ? Colors.white10 : Colors.grey.shade200,
-              strokeWidth: 1,
-            );
-          },
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+            strokeWidth: 1,
+          ),
         ),
         borderData: FlBorderData(show: false),
         barGroups: List.generate(
@@ -2345,16 +2616,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   List<double> _calculateUserGrowthData() {
-    // Calculate growth trend based on current total users
-    // Simulate 6-month growth with increasing pattern
     final baseUsers = (_totalUsers / 6).toDouble();
     return [
-      baseUsers * 0.6, // Month 1: 60% of average
-      baseUsers * 0.7, // Month 2: 70%
-      baseUsers * 0.8, // Month 3: 80%
-      baseUsers * 0.9, // Month 4: 90%
-      baseUsers * 0.95, // Month 5: 95%
-      baseUsers, // Month 6: Current total
+      baseUsers * 0.6,
+      baseUsers * 0.7,
+      baseUsers * 0.8,
+      baseUsers * 0.9,
+      baseUsers * 0.95,
+      baseUsers,
     ];
   }
 
@@ -2568,17 +2837,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final reportText = _buildReportText();
       final pdf = pw.Document();
 
-      // Try to load logo image
       pw.MemoryImage? image;
       try {
         final imageData = await rootBundle.load('assets/icon/logo1.png');
         image = pw.MemoryImage(imageData.buffer.asUint8List());
       } catch (logoError) {
         debugPrint('Warning: Could not load logo: $logoError');
-        // Continue without logo
       }
 
-      // Build report lines
       final lines = reportText.split('\n');
 
       pdf.addPage(
@@ -2587,7 +2853,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           margin: pw.EdgeInsets.all(30),
           build: (pw.Context context) {
             final widgets = <pw.Widget>[
-              // Logo and Header (if available)
               if (image != null) ...[
                 pw.Center(child: pw.Image(image, height: 60)),
                 pw.SizedBox(height: 20),
@@ -2611,7 +2876,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               pw.SizedBox(height: 20),
               pw.Divider(),
               pw.SizedBox(height: 20),
-              // Report Content
               pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: lines
@@ -2632,14 +2896,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ),
       );
 
-      // Generate PDF bytes
       final pdfBytes = await pdf.save();
       final fileName =
           'mobilis_admin_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      // Download PDF based on platform
       if (kIsWeb) {
-        // Web: Direct download using HTML
         final blob = html.Blob([pdfBytes], 'application/pdf');
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.AnchorElement(href: url)
@@ -2650,7 +2911,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         html.Url.revokeObjectUrl(url);
         anchor.remove();
       } else {
-        // Mobile: Use printing package to share or save PDF
         await Printing.sharePdf(bytes: pdfBytes, filename: fileName);
       }
 
@@ -2679,7 +2939,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
 
-    // Calculate booking distribution
     int completedCount = 0;
     int activeCount = 0;
     int cancelledCount = 0;
@@ -2715,17 +2974,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     buffer.writeln('Report Generated: $dateStr at $timeStr');
     buffer.writeln('');
 
-    // System Overview
     buffer.writeln('SYSTEM OVERVIEW');
     buffer.writeln(subDivider);
-    buffer.writeln('Total Users (Renters)    : ${_totalUsers}');
-    buffer.writeln('Total Partners           : ${_totalPartners}');
-    buffer.writeln('Total Operators          : ${_totalOperators}');
-    buffer.writeln('Total Vehicles           : ${_totalVehicles}');
-    buffer.writeln('Pending Verifications    : ${_pendingVerifications}');
+    buffer.writeln('Total Users (Renters)    : $_totalUsers');
+    buffer.writeln('Total Partners           : $_totalPartners');
+    buffer.writeln('Total Operators          : $_totalOperators');
+    buffer.writeln('Total Vehicles           : $_totalVehicles');
+    buffer.writeln('Pending Verifications    : $_pendingVerifications');
     buffer.writeln('');
 
-    // Revenue Summary
     buffer.writeln('REVENUE SUMMARY');
     buffer.writeln(subDivider);
     buffer.writeln(
@@ -2739,23 +2996,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
     buffer.writeln('');
 
-    // Bookings Analytics
     buffer.writeln('BOOKINGS ANALYTICS');
     buffer.writeln(subDivider);
-    buffer.writeln('Total Bookings      : ${_totalBookings}');
-    buffer.writeln('Active Bookings     : ${_activeBookings}');
-    buffer.writeln('Completed Bookings  : ${completedCount}');
-    buffer.writeln('Pending Bookings    : ${pendingCount}');
-    buffer.writeln('Cancelled Bookings  : ${cancelledCount}');
+    buffer.writeln('Total Bookings      : $_totalBookings');
+    buffer.writeln('Active Bookings     : $_activeBookings');
+    buffer.writeln('Completed Bookings  : $completedCount');
+    buffer.writeln('Pending Bookings    : $pendingCount');
+    buffer.writeln('Cancelled Bookings  : $cancelledCount');
     buffer.writeln('');
 
-    // Applications Status
-    buffer.writeln('APPLICATIONS STATUS');
+    final pendingVerifCount = _verificationRecords
+        .where(
+          (r) =>
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+              'pending',
+        )
+        .length;
+
+    buffer.writeln('VERIFICATION STATUS');
     buffer.writeln(subDivider);
-    buffer.writeln('Pending Applications : ${_pendingApplications.length}');
+    buffer.writeln('Pending Verifications : $pendingVerifCount');
     buffer.writeln('');
 
-    // Recent Bookings
     buffer.writeln('RECENT BOOKINGS (Last 6)');
     buffer.writeln(subDivider);
     if (_allBookings.isEmpty) {
@@ -2772,7 +3034,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final vehicleName = vehicle != null
             ? '${vehicle['brand']} ${vehicle['model']}'
             : 'Unknown Vehicle';
-        final userName = user?['name'] ?? 'Unknown User';
+        final userName = user?['full_name'] ?? 'Unknown User';
 
         buffer.writeln('Booking ${i + 1}:');
         buffer.writeln('  Vehicle: $vehicleName');
@@ -2783,7 +3045,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
     }
 
-    // All Vehicles
     buffer.writeln('ALL VEHICLES (${_allVehicles.length})');
     buffer.writeln(subDivider);
     if (_allVehicles.isEmpty) {
@@ -2792,12 +3053,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       buffer.writeln('');
       for (var i = 0; i < _allVehicles.take(10).length; i++) {
         final vehicle = _allVehicles.take(10).elementAt(i);
-        final owner = vehicle['users'] as Map<String, dynamic>?;
+        final owner = vehicle['owner'] as Map<String, dynamic>?;
         final status = vehicle['status'] as String? ?? 'pending';
         final price = vehicle['price_per_day'] ?? 0;
 
         final vehicleName = '${vehicle['brand']} ${vehicle['model']}';
-        final ownerName = owner?['name'] ?? 'Unknown';
+        final ownerName = owner?['full_name'] ?? 'Unknown';
 
         buffer.writeln('Vehicle ${i + 1}: $vehicleName');
         buffer.writeln('  Owner: $ownerName');
@@ -2807,22 +3068,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
     }
 
-    // Pending Applications
-    buffer.writeln('PENDING APPLICATIONS (${_pendingApplications.length})');
+    final pendingRecords = _verificationRecords
+        .where(
+          (r) =>
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+              'pending',
+        )
+        .toList();
+
+    buffer.writeln('PENDING VERIFICATIONS (${pendingRecords.length})');
     buffer.writeln(subDivider);
-    if (_pendingApplications.isEmpty) {
-      buffer.writeln('All applications have been reviewed!');
+    if (pendingRecords.isEmpty) {
+      buffer.writeln('All verifications have been reviewed!');
     } else {
       buffer.writeln('');
-      for (var i = 0; i < _pendingApplications.take(10).length; i++) {
-        final app = _pendingApplications.take(10).elementAt(i);
-        final partner = app['partners'] as Map<String, dynamic>?;
-        final user = partner?['users'] as Map<String, dynamic>?;
+      for (var i = 0; i < pendingRecords.take(10).length; i++) {
+        final app = pendingRecords.take(10).elementAt(i);
+        final user = app['users'] as Map<String, dynamic>?;
         final appId = app['id'] ?? 'N/A';
-        final partnerName = user?['name'] ?? 'Unknown';
+        final partnerName = user?['full_name'] ?? 'Unknown';
 
-        buffer.writeln('Application ${i + 1}: $appId');
-        buffer.writeln('  Partner: $partnerName');
+        buffer.writeln('Verification ${i + 1}: $appId');
+        buffer.writeln('  User: $partnerName');
         buffer.writeln('  Status: Pending Review');
         buffer.writeln('');
       }
