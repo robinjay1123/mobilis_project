@@ -1,0 +1,159 @@
+<mxfile host="app.diagrams.net" modified="2026-03-27T00:00:00.000Z" agent="GPT-5.3-Codex" version="24.7.17" type="device">
+  <diagram id="conceptual-framework" name="Conceptual Framework">
+    <mxGraphModel dx="1720" dy="980" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="actorsHeader" value="Actors" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="120" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="renter" value="Renter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="partner" value="Partner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="140" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="driver" value="Driver" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="operator" value="Operator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="280" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="admin" value="Admin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="350" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="platformHeader" value="Platform Core" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="300" y="20" width="180" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="identity" value="Identity and Access" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="80" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="verification" value="Verification and Trust" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="170" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="supply" value="Supply Management" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="260" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="booking" value="Dispatch and Fulfillment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="350" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="demand" value="Demand Management" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="300" y="440" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="trip" value="Trip Execution" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="620" y="260" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="financial" value="Financial Governance" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="620" y="350" width="250" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="feedback" value="Feedback and Ratings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="620" y="170" width="250" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="outcomesHeader" value="Outcomes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="980" y="20" width="160" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="quality" value="Experience Quality" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="170" width="220" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="economic" value="Economic Value" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="260" width="220" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="compliance" value="Trust and Safety" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="350" width="220" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="reliability" value="Service Reliability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="440" width="220" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" edge="1" parent="1" source="renter" target="identity" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="partner" target="identity" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="driver" target="identity" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="operator" target="identity" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="admin" target="identity" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e6" edge="1" parent="1" source="identity" target="verification" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="verification" target="supply" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="supply" target="booking" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_v_dm" edge="1" parent="1" source="verification" target="demand" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dm_b" edge="1" parent="1" source="demand" target="booking" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="booking" target="trip" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="trip" target="financial" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="trip" target="feedback" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_t_sr" edge="1" parent="1" source="trip" target="reliability" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_b_sr" edge="1" parent="1" source="booking" target="reliability" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e12" edge="1" parent="1" source="feedback" target="quality" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="financial" target="economic" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="verification" target="compliance" style="endArrow=block;endFill=1;strokeWidth=1.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="admin" target="verification" style="endArrow=block;endFill=1;strokeWidth=1.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="admin" target="compliance" style="endArrow=block;endFill=1;strokeWidth=1.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="operator" target="booking" style="endArrow=block;endFill=1;strokeWidth=1.5;dashed=1;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e18" value="learning loop" edge="1" parent="1" source="feedback" target="verification" style="endArrow=open;endFill=0;strokeWidth=1.2;dashed=1;strokeColor=#666666;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="640" y="120" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e19" value="optimization loop" edge="1" parent="1" source="feedback" target="supply" style="endArrow=open;endFill=0;strokeWidth=1.2;dashed=1;strokeColor=#666666;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="540" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" value="incentive loop" edge="1" parent="1" source="financial" target="driver" style="endArrow=open;endFill=0;strokeWidth=1.2;dashed=1;strokeColor=#666666;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" value="incentive loop" edge="1" parent="1" source="financial" target="partner" style="endArrow=open;endFill=0;strokeWidth=1.2;dashed=1;strokeColor=#666666;labelBackgroundColor=#ffffff;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
