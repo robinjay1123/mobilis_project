@@ -177,7 +177,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String userId,
   ) async {
     try {
-      // Keep this schema-safe across projects where users.location is absent.
       return await supabase
           .from('users')
           .select('full_name, id_verified, created_at')
@@ -189,8 +188,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// 🔄 Set up real-time listener for verification status changes
-  /// When admin approves verification, the dashboard will update automatically
   void _setupVerificationListener() {
     try {
       final authService = AuthService();
@@ -221,13 +218,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final newRecord = payload.newRecord as Map<String, dynamic>?;
               if (newRecord != null) {
                 final isVerified = newRecord['id_verified'] as bool? ?? false;
-                debugPrint(
-                  '✅ Payload id_verified: $isVerified (current: $userVerified)',
-                );
                 if (isVerified != userVerified) {
-                  debugPrint(
-                    '✅ Real-time update: userVerified = $userVerified → $isVerified',
-                  );
                   if (mounted) {
                     setState(() {
                       userVerified = isVerified;
@@ -238,25 +229,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           )
           .subscribe();
-
-      debugPrint(
-        '✅ Real-time verification listener started for user: ${user.id}',
-      );
     } catch (e) {
       debugPrint('⚠️ Error setting up verification listener: $e');
-      // Continue anyway - user can still book, just won't get real-time updates
     }
   }
 
-  /// 🔔 Load notifications from database for current user
   Future<void> _loadNotifications() async {
     try {
       final authService = AuthService();
       final user = authService.currentUser;
-      if (user == null) {
-        debugPrint('⚠️ No user for notifications');
-        return;
-      }
+      if (user == null) return;
 
       final supabase = Supabase.instance.client;
       final notifications = await supabase
@@ -271,22 +253,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _notifications = List<Map<String, dynamic>>.from(notifications);
         });
       }
-
-      debugPrint('✅ Loaded ${_notifications.length} notifications');
     } catch (e) {
       debugPrint('⚠️ Error loading notifications: $e');
     }
   }
 
-  /// 🔔 Set up real-time listener for new notifications
   void _setupNotificationsListener() {
     try {
       final authService = AuthService();
       final user = authService.currentUser;
-      if (user == null) {
-        debugPrint('⚠️ No user for notifications listener');
-        return;
-      }
+      if (user == null) return;
 
       final supabase = Supabase.instance.client;
 
@@ -305,36 +281,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               value: user.id,
             ),
             callback: (payload) {
-              debugPrint('🔔 New notification received');
               final newNotification =
                   payload.newRecord as Map<String, dynamic>?;
               if (newNotification != null && mounted) {
                 setState(() {
                   _notifications.insert(0, newNotification);
                 });
-                debugPrint('✅ Notification added to list');
               }
             },
           )
           .subscribe();
-
-      debugPrint(
-        '✅ Real-time notifications listener started for user: ${user.id}',
-      );
     } catch (e) {
       debugPrint('⚠️ Error setting up notifications listener: $e');
     }
   }
 
-  /// 📅 Load renter's bookings from database
   Future<void> _loadBookings() async {
     try {
       final authService = AuthService();
       final user = authService.currentUser;
-      if (user == null) {
-        debugPrint('⚠️ No user for bookings');
-        return;
-      }
+      if (user == null) return;
 
       final supabase = Supabase.instance.client;
       final bookings = await supabase
@@ -349,22 +315,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _bookings = List<Map<String, dynamic>>.from(bookings);
         });
       }
-
-      debugPrint('✅ Loaded ${_bookings.length} bookings');
     } catch (e) {
       debugPrint('⚠️ Error loading bookings: $e');
     }
   }
 
-  /// 📅 Set up real-time listener for booking updates
   void _setupBookingsListener() {
     try {
       final authService = AuthService();
       final user = authService.currentUser;
-      if (user == null) {
-        debugPrint('⚠️ No user for bookings listener');
-        return;
-      }
+      if (user == null) return;
 
       final supabase = Supabase.instance.client;
 
@@ -383,31 +343,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
               value: user.id,
             ),
             callback: (payload) async {
-              debugPrint('📅 Booking update received: ${payload.eventType}');
-
-              // Check if booking status changed to 'confirmed' and create group chat
               if (payload.newRecord != null) {
                 final booking = payload.newRecord! as Map<String, dynamic>;
                 final oldRecord = payload.oldRecord as Map<String, dynamic>?;
                 final newStatus = (booking['status'] as String?)?.toLowerCase();
-                final oldStatus = (oldRecord?['status'] as String?)
-                    ?.toLowerCase();
+                final oldStatus =
+                    (oldRecord?['status'] as String?)?.toLowerCase();
 
                 if (newStatus == 'confirmed' && oldStatus != 'confirmed') {
-                  debugPrint('✅ Booking confirmed - creating group chat');
                   await _createBookingGroupChat(booking);
                 }
               }
 
               if (mounted) {
-                // Reload bookings to reflect status changes
                 _loadBookings();
               }
             },
           )
           .subscribe();
-
-      debugPrint('✅ Real-time bookings listener started for user: ${user.id}');
     } catch (e) {
       debugPrint('⚠️ Error setting up bookings listener: $e');
     }
@@ -428,36 +381,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final participantIds = <String>{currentUserId};
 
-      // Case A: Booking with driver, PSDC unit
-      // Participants: renter_id, driver_id, operator_id
       if (withDriver && assignedDriverId != null && operatorId != null) {
         participantIds.addAll([assignedDriverId, operatorId]);
-      }
-      // Case B: Booking with driver, partner unit
-      // Participants: renter_id, driver_id, partner_id, operator_id
-      else if (withDriver &&
+      } else if (withDriver &&
           assignedDriverId != null &&
           ownerId != null &&
           operatorId != null) {
         participantIds.addAll([assignedDriverId, ownerId, operatorId]);
-      }
-      // Case C: Booking without driver - no group chat
-      else if (!withDriver) {
-        debugPrint('Booking without driver - skipping group chat creation');
+      } else if (!withDriver) {
         return;
       }
 
-      if (participantIds.isEmpty) {
-        debugPrint('No valid participants for group chat');
-        return;
-      }
+      if (participantIds.isEmpty) return;
 
       await ChatService().createGroupConversation(
         bookingId: bookingId,
         participantIds: participantIds.toList(),
       );
-
-      debugPrint('Group chat created for booking: $bookingId');
     } catch (e) {
       debugPrint('Error creating group chat: $e');
     }
@@ -470,7 +410,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final req = await Geolocator.requestPermission();
         if (req == LocationPermission.denied ||
             req == LocationPermission.deniedForever) {
-          debugPrint('Location permission denied');
           return;
         }
       }
@@ -674,7 +613,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = authService.currentUser;
       if (user == null) return false;
 
-      // ✅ ALWAYS fetch fresh verification status from DB (don't use cached value)
       final supabase = Supabase.instance.client;
       final resp = await supabase
           .from('users')
@@ -685,11 +623,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final userRole = (resp?['role'] ?? 'renter').toString().toLowerCase();
       final isVerifiedInDb = resp?['id_verified'] as bool? ?? false;
 
-      debugPrint(
-        '✅ Fresh verification check: role=$userRole, verified=$isVerifiedInDb',
-      );
-
-      // ✅ Update local state to match DB truth
       if (isVerifiedInDb != userVerified) {
         if (mounted) {
           setState(() {
@@ -698,15 +631,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
 
-      // ✅ Skip verification for drivers
-      if (userRole == 'driver') {
-        debugPrint(
-          '✅ Driver role detected - skipping verification requirement',
-        );
-        return true;
-      }
+      if (userRole == 'driver') return true;
 
-      // For renters, check if verified
       if (!isVerifiedInDb) {
         _showRentalVerificationModal();
         return false;
@@ -714,7 +640,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return true;
     } catch (e) {
       debugPrint('Error checking verification: $e');
-      // Allow proceed on error for drivers
       return true;
     }
   }
@@ -759,7 +684,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         uiStatus = 'Pending';
       }
 
-      // Determine rental partner: if vehicle has partner owner, show their name; otherwise show PSDC
       final owner = vehicle?['owner'] as Map<String, dynamic>?;
       final ownerRole = (owner?['role'] ?? '').toString().toLowerCase();
       final ownerName = (owner?['full_name'] ?? '').toString().trim();
@@ -882,18 +806,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final d = DateTime.parse(date).toLocal();
       const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
       ];
       return '${d.day} ${months[d.month - 1]} ${d.year}';
     } catch (_) {
@@ -1257,7 +1171,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   GestureDetector(
                     onTap: () {
-                      // Navigate to full categories/vehicles list
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => VehicleSearchScreen(
@@ -1459,14 +1372,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           (car['vehicle_type'] ?? car['category'] ?? 'Standard')
                               .toString()
                               .toUpperCase();
-                      final price =
-                          (car['price_per_hour'] as num?)?.toDouble() ??
-                          (car['price_per_day'] as num?)?.toDouble() ??
-                          0.0;
+
+                      // ✅ FIX: Separate hour and day prices
+                      final pricePerHour =
+                          (car['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+                      final pricePerDay =
+                          (car['price_per_day'] as num?)?.toDouble() ?? 0.0;
+
                       final rating = (car['rating'] as num?)?.toDouble() ?? 4.5;
                       final vehicleType = car['vehicle_type'] ?? 'Standard';
                       final color = car['color'] ?? 'Unknown';
                       final seats = car['seats'] ?? 5;
+
+                      // ✅ FIX: Read transmission field instead of reusing vehicleType
+                      final transmission =
+                          car['transmission'] ?? 'Manual';
+
                       final imageUrl = car['image_url'] as String?;
                       const providerName = 'PSDC';
 
@@ -1635,6 +1556,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 8),
+                                        // ✅ FIX: Show vehicleType, color, seats
+                                        // then transmission on second row
                                         Row(
                                           children: [
                                             _buildFeatureIcon(
@@ -1672,31 +1595,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ],
                                         ),
+                                        const SizedBox(height: 6),
+                                        // ✅ FIX: Transmission row with correct icon & value
+                                        Row(
+                                          children: [
+                                            _buildFeatureIcon(
+                                              Icons.settings_outlined,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              transmission.toString(),
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: AppColors.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                         const SizedBox(height: 12),
                                         Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.spaceBetween,
                                           children: [
+                                            // ✅ FIX: Show both per hour and per day prices
                                             Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                Text(
-                                                  '₱${price.toStringAsFixed(0)}',
-                                                  style: const TextStyle(
-                                                    fontSize: 20,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: AppColors.primary,
+                                                if (pricePerHour > 0)
+                                                  RichText(
+                                                    text: TextSpan(
+                                                      children: [
+                                                        TextSpan(
+                                                          text:
+                                                              '₱${pricePerHour.toStringAsFixed(0)}',
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 20,
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                            color:
+                                                                AppColors.primary,
+                                                          ),
+                                                        ),
+                                                        const TextSpan(
+                                                          text: '/hr',
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: AppColors
+                                                                .textSecondary,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
                                                   ),
-                                                ),
-                                                const Text(
-                                                  '/hour',
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    color:
-                                                        AppColors.textSecondary,
+                                                if (pricePerDay > 0)
+                                                  RichText(
+                                                    text: TextSpan(
+                                                      children: [
+                                                        TextSpan(
+                                                          text:
+                                                              '₱${pricePerDay.toStringAsFixed(0)}',
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 13,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color: AppColors
+                                                                .textSecondary,
+                                                          ),
+                                                        ),
+                                                        const TextSpan(
+                                                          text: '/day',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color: AppColors
+                                                                .textSecondary,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
                                                   ),
-                                                ),
                                               ],
                                             ),
                                             SizedBox(
@@ -2730,7 +2709,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final minutes = timeInfo['minutes'] as int;
 
                   if (canCancel) {
-                    // Show countdown timer with progress bar
                     return Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -2765,7 +2743,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          // Progress bar showing remaining time
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
@@ -2781,7 +2758,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     );
                   } else {
-                    // Show expired message
                     return Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -2820,8 +2796,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  /// Check if booking can be cancelled (24-hour rule)
-  /// Get remaining time for cancellation window (returns formatted string + breakdown)
   Map<String, dynamic> _getRemainingCancelTime(Map<String, dynamic> booking) {
     try {
       final createdAtStr = booking['created_at']?.toString();
@@ -2839,7 +2813,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final now = DateTime.now();
       final difference = now.difference(createdAt);
 
-      // 24 hours = 1440 minutes
       final totalMinutesAllowed = 24 * 60;
       final minutesElapsed = difference.inMinutes;
       final minutesRemaining = totalMinutesAllowed - minutesElapsed;
@@ -2876,7 +2849,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return timeInfo['canCancel'] as bool;
   }
 
-  /// Handle booking cancellation with 24-hour check
   Future<void> _handleBookingCancellation(Map<String, dynamic> booking) async {
     final bookingService = BookingService();
     final canCancel = _canCancelBooking(booking);
@@ -2891,7 +2863,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    // Show confirmation dialog
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -2908,7 +2879,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             onPressed: () async {
               Navigator.pop(context);
 
-              // Show loading
               showDialog(
                 context: context,
                 barrierDismissible: false,
@@ -2917,13 +2887,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               );
 
               try {
-                // Cancel the booking
                 await bookingService.updateBookingStatus(
                   booking['id'],
                   'cancelled',
                 );
 
-                Navigator.pop(context); // Close loading
+                Navigator.pop(context);
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -2932,12 +2901,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       backgroundColor: AppColors.success,
                     ),
                   );
-
-                  // Reload bookings
                   _loadBookings();
                 }
               } catch (e) {
-                Navigator.pop(context); // Close loading
+                Navigator.pop(context);
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

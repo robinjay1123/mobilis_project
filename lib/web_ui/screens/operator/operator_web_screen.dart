@@ -75,6 +75,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void initState() {
     super.initState();
     _loadDashboardData();
+    _loadConversations();
   }
 
   @override
@@ -2039,8 +2040,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildMessagesContent(bool isDark) {
+    // Show empty state if no conversations
     if (_conversations.isEmpty) {
-      _loadConversations();
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(30),
@@ -2076,7 +2077,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     if (_selectedConversationId.isEmpty) {
-      // Show conversation list
+      // Show conversation list only
       return Row(
         children: [
           // Conversations list (left sidebar)
@@ -2095,20 +2096,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               separatorBuilder: (context, index) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final conversation = _conversations[index];
-                final booking =
-                    conversation['bookings'] as Map<String, dynamic>?;
-                final otherUser =
-                    conversation['other_users'] as Map<String, dynamic>? ??
-                    conversation['users'] as Map<String, dynamic>?;
-                final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
-                final renter = booking?['renter'] as Map<String, dynamic>?;
+                final conversationId = conversation['id'] as String? ?? '';
+
+                // Safely extract booking info
+                var renterName = 'Unknown Renter';
+                var vehicleInfo = 'No vehicle info';
+                var status = 'PENDING';
+
+                try {
+                  final bookings = conversation['bookings'];
+                  if (bookings is Map<String, dynamic>) {
+                    final renter = bookings['renter'];
+                    if (renter is Map<String, dynamic>) {
+                      renterName =
+                          renter['full_name'] as String? ?? 'Unknown Renter';
+                    }
+
+                    final vehicles = bookings['vehicles'];
+                    if (vehicles is Map<String, dynamic>) {
+                      final brand = vehicles['brand'] as String? ?? '';
+                      final model = vehicles['model'] as String? ?? '';
+                      vehicleInfo = '$brand $model'.trim();
+                    }
+
+                    status = (bookings['status'] as String? ?? 'PENDING')
+                        .toUpperCase();
+                  }
+                } catch (e) {
+                  debugPrint('[Messages] Error extracting booking info: $e');
+                }
 
                 return InkWell(
                   onTap: () {
-                    setState(
-                      () => _selectedConversationId = conversation['id'],
-                    );
-                    _loadConversationMessages(conversation['id']);
+                    setState(() => _selectedConversationId = conversationId);
+                    _loadConversationMessages(conversationId);
                   },
                   child: Container(
                     padding: const EdgeInsets.all(12),
@@ -2120,7 +2141,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          renter?['full_name'] ?? 'Unknown Renter',
+                          renterName,
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: isDark ? Colors.white : Colors.black,
@@ -2128,9 +2149,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          vehicle != null
-                              ? '${vehicle['brand']} ${vehicle['model']}'
-                              : 'No vehicle info',
+                          vehicleInfo.isEmpty ? 'No vehicle info' : vehicleInfo,
                           style: TextStyle(
                             fontSize: 12,
                             color: isDark
@@ -2140,12 +2159,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          booking?['status']?.toString().toUpperCase() ??
-                              'PENDING',
+                          status,
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: booking?['status'] == 'confirmed'
+                            color: status == 'CONFIRMED'
                                 ? Colors.green
                                 : Colors.orange,
                           ),
@@ -2161,7 +2179,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Select a conversation',
+                'Select a conversation to start messaging',
                 style: TextStyle(
                   color: isDark ? Colors.grey[500] : Colors.grey.shade600,
                 ),
@@ -2172,19 +2190,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
     }
 
-    // Show conversation detail
-    final conversation = _conversations.firstWhere(
-      (c) => c['id'] == _selectedConversationId,
-      orElse: () => {},
-    );
-    final booking = conversation['bookings'] as Map<String, dynamic>?;
-    final renter = booking?['renter'] as Map<String, dynamic>?;
-    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    // Show conversation detail with chat
+    var renterName = 'Conversation';
+    var vehicleInfo = 'Vehicle';
+    var status = 'pending';
+
+    try {
+      final conversation = _conversations.firstWhere(
+        (c) => c['id'] == _selectedConversationId,
+        orElse: () => {},
+      );
+
+      if (conversation.isNotEmpty) {
+        final bookings = conversation['bookings'];
+        if (bookings is Map<String, dynamic>) {
+          final renter = bookings['renter'];
+          if (renter is Map<String, dynamic>) {
+            renterName = renter['full_name'] as String? ?? 'Unknown';
+          }
+
+          final vehicles = bookings['vehicles'];
+          if (vehicles is Map<String, dynamic>) {
+            final brand = vehicles['brand'] as String? ?? '';
+            final model = vehicles['model'] as String? ?? '';
+            vehicleInfo = '$brand $model'.trim();
+          }
+
+          status = bookings['status'] as String? ?? 'pending';
+        }
+      }
+    } catch (e) {
+      debugPrint('[Messages] Error extracting conversation data: $e');
+    }
+
     final conversationMessages = _messages[_selectedConversationId] ?? [];
 
     return Row(
       children: [
-        // Messages list (left sidebar)
+        // Conversations list (left sidebar)
         Container(
           width: 320,
           decoration: BoxDecoration(
@@ -2207,10 +2250,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     Expanded(
                       child: Text(
-                        renter?['full_name'] ?? 'Conversation',
+                        renterName,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           color: isDark ? Colors.white : Colors.black,
+                          fontSize: 14,
                         ),
                       ),
                     ),
@@ -2226,9 +2270,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   itemBuilder: (context, index) {
                     final conv = _conversations[index];
                     final isSelected = conv['id'] == _selectedConversationId;
-                    final rnt =
-                        (conv['bookings'] as Map<String, dynamic>?)?['renter']
-                            as Map<String, dynamic>?;
+
+                    var rnt = 'Unknown';
+                    try {
+                      final bookings = conv['bookings'];
+                      if (bookings is Map<String, dynamic>) {
+                        final renter = bookings['renter'];
+                        if (renter is Map<String, dynamic>) {
+                          rnt = renter['full_name'] as String? ?? 'Unknown';
+                        }
+                      }
+                    } catch (e) {
+                      debugPrint('[Messages] Error extracting renter name: $e');
+                    }
 
                     return InkWell(
                       onTap: () {
@@ -2247,7 +2301,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               : null,
                         ),
                         child: Text(
-                          rnt?['full_name'] ?? 'Unknown',
+                          rnt,
                           style: TextStyle(
                             fontWeight: isSelected
                                 ? FontWeight.w600
@@ -2267,7 +2321,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         Expanded(
           child: Column(
             children: [
-              // Header with vehicle info
+              // Header
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -2300,7 +2354,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${renter?['full_name'] ?? 'Unknown'} - Booking',
+                            '$renterName - Booking',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 16,
@@ -2308,7 +2362,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                           Text(
-                            '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''} (${booking?['status'] ?? 'pending'}).toUpperCase()',
+                            '$vehicleInfo (${status.toUpperCase()})',
                             style: TextStyle(
                               fontSize: 12,
                               color: isDark
@@ -2322,7 +2376,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
               ),
-              // Messages area
+              // Messages
               Expanded(
                 child: conversationMessages.isEmpty
                     ? Center(
@@ -2342,11 +2396,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           final message = conversationMessages[index];
                           final currentUserId = _supabase.auth.currentUser?.id;
                           final isOwn = message['sender_id'] == currentUserId;
-                          final senderName = message['sender'] != null
-                              ? (message['sender']
-                                        as Map<String, dynamic>)['full_name'] ??
-                                    'System'
-                              : 'System';
+
+                          var senderName = 'System';
+                          try {
+                            final sender = message['sender'];
+                            if (sender is Map<String, dynamic>) {
+                              senderName =
+                                  sender['full_name'] as String? ?? 'System';
+                            }
+                          } catch (e) {
+                            debugPrint(
+                              '[Messages] Error extracting sender name: $e',
+                            );
+                          }
 
                           return Align(
                             alignment: isOwn
@@ -2377,9 +2439,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                             : Colors.grey.shade600,
                                       ),
                                     ),
-                                  const SizedBox(height: 4),
+                                  if (!isOwn) const SizedBox(height: 4),
                                   Text(
-                                    message['content'] ?? '',
+                                    message['content'] as String? ?? '',
                                     style: TextStyle(
                                       color: isOwn
                                           ? Colors.white
@@ -2390,7 +2452,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    _formatMessageTime(message['created_at']),
+                                    _formatMessageTime(
+                                      message['created_at'] as String?,
+                                    ),
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: isOwn
@@ -2407,7 +2471,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         },
                       ),
               ),
-              // Input area
+              // Input
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(

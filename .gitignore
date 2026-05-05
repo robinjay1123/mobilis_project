@@ -46,3 +46,11 @@ app.*.map.json
 
 # Supabase local secrets
 supabase/.env.local
+
+build/
+.cxx/
+*.ninja
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.bin
