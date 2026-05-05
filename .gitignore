@@ -47,10 +47,20 @@ app.*.map.json
 # Supabase local secrets
 supabase/.env.local
 
-build/
+ 
 .cxx/
 *.ninja
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 *.bin
+
+# Ignore native build artifacts only
+build/android/
+build/ios/
+build/linux/
+build/windows/
+build/macos/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
