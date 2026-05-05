@@ -43,6 +43,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _recentBookings = [];
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
+  List<Map<String, dynamic>> _conversations = [];
+  Map<String, List<Map<String, dynamic>>> _messages = {};
 
   final _supabase = Supabase.instance.client;
   final _imagePicker = ImagePicker();
@@ -63,6 +65,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _transmissionController = TextEditingController();
+  final TextEditingController _messageController = TextEditingController();
+  String _selectedConversationId = '';
   String _selectedStatus = 'active';
   List<XFile> _selectedImages = [];
   bool _isSubmittingVehicle = false;
@@ -90,6 +94,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _latitudeController.dispose();
     _longitudeController.dispose();
     _transmissionController.dispose();
+    _messageController.dispose();
     super.dispose();
   }
 
@@ -804,7 +809,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               children: [
                 _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
                 _buildNavItem(1, Icons.book, 'Bookings', isDark),
-                _buildNavItem(2, Icons.directions_car, 'Vehicles', isDark),
+                _buildNavItem(2, Icons.message, 'Messages', isDark),
+                _buildNavItem(3, Icons.directions_car, 'Vehicles', isDark),
                 const SizedBox(height: 20),
                 if (_sidebarExpanded)
                   Padding(
@@ -820,7 +826,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                 const SizedBox(height: 10),
-                _buildNavItem(3, Icons.settings, 'Settings', isDark),
+                _buildNavItem(4, Icons.settings, 'Settings', isDark),
               ],
             ),
           ),
@@ -1020,8 +1026,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       case 1:
         return 'Bookings';
       case 2:
-        return 'Vehicles';
+        return 'Messages';
       case 3:
+        return 'Vehicles';
+      case 4:
         return 'Settings';
       default:
         return 'Dashboard';
@@ -1041,8 +1049,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       case 1:
         return _buildBookingsContent(isDark);
       case 2:
-        return _buildVehiclesContent(isDark);
+        return _buildMessagesContent(isDark);
       case 3:
+        return _buildVehiclesContent(isDark);
+      case 4:
         return _buildSettingsContent(isDark);
       default:
         return _buildDashboardContent(isDark);
@@ -1438,51 +1448,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         .where((b) => (b['status'] as String? ?? 'pending') == 'cancelled')
         .toList();
 
-    final sections = <Widget>[];
-    if (pendingBookings.isNotEmpty) {
-      sections.addAll([
-        _buildBookingSection(
-          'Pending Bookings',
-          pendingBookings,
-          isDark,
-          Colors.orange,
-        ),
-        const SizedBox(height: 30),
-      ]);
-    }
-    if (activeBookings.isNotEmpty) {
-      sections.addAll([
-        _buildBookingSection(
-          'Active Bookings',
-          activeBookings,
-          isDark,
-          Colors.green,
-        ),
-        const SizedBox(height: 30),
-      ]);
-    }
-    if (completedBookings.isNotEmpty) {
-      sections.addAll([
-        _buildBookingSection(
-          'Completed Bookings',
-          completedBookings,
-          isDark,
-          Colors.blue,
-        ),
-        const SizedBox(height: 30),
-      ]);
-    }
-    if (cancelledBookings.isNotEmpty) {
-      sections.add(
-        _buildBookingSection(
-          'Cancelled Bookings',
-          cancelledBookings,
-          isDark,
-          Colors.red,
-        ),
-      );
-    }
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
@@ -1497,12 +1462,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          if (sections.isEmpty)
+          if (_recentBookings.isEmpty)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 60),
                 child: Text(
-                  'No bookings',
+                  'No bookings yet',
                   style: TextStyle(
                     fontSize: 16,
                     color: isDark ? Colors.grey[500] : Colors.grey.shade600,
@@ -1513,7 +1478,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: sections,
+              children: [
+                // Pending section - always show
+                _buildBookingSection(
+                  'Pending Bookings',
+                  pendingBookings,
+                  isDark,
+                  Colors.orange,
+                  showEmpty: true,
+                ),
+                const SizedBox(height: 30),
+                // Active section - always show
+                _buildBookingSection(
+                  'Active Bookings',
+                  activeBookings,
+                  isDark,
+                  Colors.green,
+                  showEmpty: true,
+                ),
+                const SizedBox(height: 30),
+                // Completed section - always show
+                _buildBookingSection(
+                  'Completed Bookings',
+                  completedBookings,
+                  isDark,
+                  Colors.blue,
+                  showEmpty: true,
+                ),
+                const SizedBox(height: 30),
+                // Cancelled section - always show
+                _buildBookingSection(
+                  'Cancelled Bookings',
+                  cancelledBookings,
+                  isDark,
+                  Colors.red,
+                  showEmpty: true,
+                ),
+              ],
             ),
         ],
       ),
@@ -1524,8 +1525,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String title,
     List<Map<String, dynamic>> bookings,
     bool isDark,
-    Color statusColor,
-  ) {
+    Color statusColor, {
+    bool showEmpty = false,
+  }) {
+    final isEmpty = bookings.isEmpty;
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -1560,291 +1564,308 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: bookings.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final booking = bookings[index];
-              final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-              final renter = booking['renter'] as Map<String, dynamic>?;
-              final driver = booking['driver'] as Map<String, dynamic>?;
-              final withDriver = booking['with_driver'] as bool? ?? false;
-              final status = booking['status'] as String? ?? 'pending';
-              final total =
-                  (booking['total_price'] as num?)?.toDouble() ??
-                  (booking['total_cost'] as num?)?.toDouble() ??
-                  0.0;
-
-              // Parse dates
-              final startDateStr = booking['start_date'] as String? ?? '';
-              final endDateStr = booking['end_date'] as String? ?? '';
-              final startDate = DateTime.tryParse(startDateStr);
-              final endDate = DateTime.tryParse(endDateStr);
-              final days = endDate != null && startDate != null
-                  ? endDate.difference(startDate).inDays
-                  : 0;
-
-              final dateRange = startDate != null && endDate != null
-                  ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
-                  : 'N/A';
-
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.black26 : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+          if (isEmpty && showEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Text(
+                  'No $title.toLowerCase() at this time',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header row with vehicle and renter
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Vehicle thumbnail
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            color: isDark
-                                ? Colors.black38
-                                : Colors.grey.shade200,
-                          ),
-                          child: vehicle?['image_url'] != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    vehicle!['image_url'],
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) => Center(
-                                          child: Icon(
-                                            Icons.directions_car,
-                                            color: isDark
-                                                ? Colors.grey[600]
-                                                : Colors.grey.shade400,
-                                          ),
-                                        ),
+              ),
+            )
+          else if (!isEmpty)
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: bookings.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final booking = bookings[index];
+                final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+                final renter = booking['renter'] as Map<String, dynamic>?;
+                final driver = booking['driver'] as Map<String, dynamic>?;
+                final withDriver = booking['with_driver'] as bool? ?? false;
+                final status = booking['status'] as String? ?? 'pending';
+                final total =
+                    (booking['total_price'] as num?)?.toDouble() ??
+                    (booking['total_cost'] as num?)?.toDouble() ??
+                    0.0;
+
+                // Parse dates
+                final startDateStr = booking['start_date'] as String? ?? '';
+                final endDateStr = booking['end_date'] as String? ?? '';
+                final startDate = DateTime.tryParse(startDateStr);
+                final endDate = DateTime.tryParse(endDateStr);
+                final days = endDate != null && startDate != null
+                    ? endDate.difference(startDate).inDays
+                    : 0;
+
+                final dateRange = startDate != null && endDate != null
+                    ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
+                    : 'N/A';
+
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.black26 : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header row with vehicle and renter
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Vehicle thumbnail
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              color: isDark
+                                  ? Colors.black38
+                                  : Colors.grey.shade200,
+                            ),
+                            child: vehicle?['image_url'] != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      vehicle!['image_url'],
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Center(
+                                                child: Icon(
+                                                  Icons.directions_car,
+                                                  color: isDark
+                                                      ? Colors.grey[600]
+                                                      : Colors.grey.shade400,
+                                                ),
+                                              ),
+                                    ),
+                                  )
+                                : Center(
+                                    child: Icon(
+                                      Icons.directions_car,
+                                      color: isDark
+                                          ? Colors.grey[600]
+                                          : Colors.grey.shade400,
+                                    ),
                                   ),
-                                )
-                              : Center(
-                                  child: Icon(
-                                    Icons.directions_car,
-                                    color: isDark
-                                        ? Colors.grey[600]
-                                        : Colors.grey.shade400,
+                          ),
+                          const SizedBox(width: 16),
+                          // Vehicle and renter info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Vehicle name + year
+                                Text(
+                                  vehicle != null
+                                      ? '${vehicle['brand']} ${vehicle['model']} (${vehicle['year'] ?? 'N/A'})'
+                                      : 'Unknown Vehicle',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? Colors.white : Colors.black,
                                   ),
                                 ),
-                        ),
-                        const SizedBox(width: 16),
-                        // Vehicle and renter info
-                        Expanded(
-                          child: Column(
+                                const SizedBox(height: 8),
+                                // Renter name
+                                Text(
+                                  'Renter: ${renter?['full_name'] ?? 'Unknown'}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                // Driver chip if applicable
+                                if (withDriver && driver != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Text(
+                                      'Driver: ${driver['full_name'] ?? 'TBA'}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Details row: dates, days, total, status
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Date range
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Vehicle name + year
                               Text(
-                                vehicle != null
-                                    ? '${vehicle['brand']} ${vehicle['model']} (${vehicle['year'] ?? 'N/A'})'
-                                    : 'Unknown Vehicle',
+                                'Dates',
                                 style: TextStyle(
-                                  fontSize: 15,
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.grey[500]
+                                      : Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                dateRange,
+                                style: TextStyle(
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              // Renter name
+                            ],
+                          ),
+                          // Days
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
                               Text(
-                                'Renter: ${renter?['full_name'] ?? 'Unknown'}',
+                                'Days',
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 11,
                                   color: isDark
-                                      ? Colors.grey[400]
+                                      ? Colors.grey[500]
                                       : Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              // Driver chip if applicable
-                              if (withDriver && driver != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '$days',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                            ],
+                          ),
+                          // Total
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                'Total',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.grey[500]
+                                      : Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '₱${total.toStringAsFixed(0)}',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
                                   ),
-                                  child: Text(
-                                    'Driver: ${driver['full_name'] ?? 'TBA'}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.blue,
-                                      fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Status and actions
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildStatusBadge(status),
+                          if (status == 'pending')
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: () => _showApproveDialog(booking),
+                                  icon: const Icon(Icons.check, size: 16),
+                                  label: const Text('Confirm'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
                                     ),
                                   ),
                                 ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Details row: dates, days, total, status
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Date range
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Dates',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? Colors.grey[500]
-                                    : Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              dateRange,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Days
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Days',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? Colors.grey[500]
-                                    : Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                '$days',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Total
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'Total',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? Colors.grey[500]
-                                    : Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                '₱${total.toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Status and actions
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildStatusBadge(status),
-                        if (status == 'pending')
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: () => _showApproveDialog(booking),
-                                icon: const Icon(Icons.check, size: 16),
-                                label: const Text('Confirm'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  onPressed: () => _showRejectDialog(
+                                    booking['id'].toString(),
+                                  ),
+                                  icon: const Icon(Icons.close, size: 16),
+                                  label: const Text('Reject'),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: Colors.red),
+                                    foregroundColor: Colors.red,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    _showRejectDialog(booking['id'].toString()),
-                                icon: const Icon(Icons.close, size: 16),
-                                label: const Text('Reject'),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.red),
-                                  foregroundColor: Colors.red,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -1909,6 +1930,573 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       },
     );
+  }
+
+  Future<void> _loadConversations() async {
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      debugPrint(
+        '[Messages] Loading conversations for operator: $currentUserId',
+      );
+
+      // Get conversations where operator is either user_id or other_user_id
+      final response = await _supabase
+          .from('conversations')
+          .select('''
+              id,
+              booking_id,
+              user_id,
+              other_user_id,
+              created_at,
+              bookings!conversations_booking_id_fkey (
+                id,
+                vehicle_id,
+                start_date,
+                end_date,
+                status,
+                vehicles!bookings_vehicle_id_fkey (brand, model, year),
+                renter:users!bookings_renter_id_fkey (id, full_name, email)
+              ),
+              users!conversations_user_id_fkey (id, full_name, email),
+              other_users:users!conversations_other_user_id_fkey (id, full_name, email)
+            ''')
+          .or('user_id.eq.$currentUserId,other_user_id.eq.$currentUserId')
+          .order('created_at', ascending: false);
+
+      _conversations = List<Map<String, dynamic>>.from(response);
+      debugPrint('[Messages] Loaded ${_conversations.length} conversations');
+
+      setState(() {});
+    } catch (e) {
+      debugPrint('[Messages] Error loading conversations: $e');
+    }
+  }
+
+  Future<void> _loadConversationMessages(String conversationId) async {
+    try {
+      debugPrint(
+        '[Messages] Loading messages for conversation: $conversationId',
+      );
+
+      final response = await _supabase
+          .from('messages')
+          .select('''
+              id,
+              conversation_id,
+              sender_id,
+              content,
+              is_auto_generated,
+              created_at,
+              sender:users!messages_sender_id_fkey (id, full_name)
+            ''')
+          .eq('conversation_id', conversationId)
+          .order('created_at', ascending: true);
+
+      _messages[conversationId] = List<Map<String, dynamic>>.from(response);
+      debugPrint(
+        '[Messages] Loaded ${_messages[conversationId]?.length ?? 0} messages',
+      );
+
+      setState(() {});
+    } catch (e) {
+      debugPrint('[Messages] Error loading messages: $e');
+    }
+  }
+
+  Future<void> _sendMessage(String conversationId, String content) async {
+    if (content.trim().isEmpty) return;
+
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      debugPrint('[Messages] Sending message to conversation: $conversationId');
+
+      await _supabase.from('messages').insert({
+        'conversation_id': conversationId,
+        'sender_id': currentUserId,
+        'content': content,
+        'is_auto_generated': false,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      _messageController.clear();
+      await _loadConversationMessages(conversationId);
+      debugPrint('[Messages] Message sent successfully');
+    } catch (e) {
+      debugPrint('[Messages] Error sending message: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending message: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildMessagesContent(bool isDark) {
+    if (_conversations.isEmpty) {
+      _loadConversations();
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.message_outlined,
+                size: 64,
+                color: isDark ? Colors.grey[600] : Colors.grey.shade400,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No conversations yet',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Conversations will appear when you confirm bookings',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey[500] : Colors.grey.shade500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_selectedConversationId.isEmpty) {
+      // Show conversation list
+      return Row(
+        children: [
+          // Conversations list (left sidebar)
+          Container(
+            width: 320,
+            decoration: BoxDecoration(
+              border: Border(
+                right: BorderSide(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _conversations.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final conversation = _conversations[index];
+                final booking =
+                    conversation['bookings'] as Map<String, dynamic>?;
+                final otherUser =
+                    conversation['other_users'] as Map<String, dynamic>? ??
+                    conversation['users'] as Map<String, dynamic>?;
+                final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+                final renter = booking?['renter'] as Map<String, dynamic>?;
+
+                return InkWell(
+                  onTap: () {
+                    setState(
+                      () => _selectedConversationId = conversation['id'],
+                    );
+                    _loadConversationMessages(conversation['id']);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black26 : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          renter?['full_name'] ?? 'Unknown Renter',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          vehicle != null
+                              ? '${vehicle['brand']} ${vehicle['model']}'
+                              : 'No vehicle info',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark
+                                ? Colors.grey[400]
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          booking?['status']?.toString().toUpperCase() ??
+                              'PENDING',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: booking?['status'] == 'confirmed'
+                                ? Colors.green
+                                : Colors.orange,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Empty chat area
+          Expanded(
+            child: Center(
+              child: Text(
+                'Select a conversation',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Show conversation detail
+    final conversation = _conversations.firstWhere(
+      (c) => c['id'] == _selectedConversationId,
+      orElse: () => {},
+    );
+    final booking = conversation['bookings'] as Map<String, dynamic>?;
+    final renter = booking?['renter'] as Map<String, dynamic>?;
+    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    final conversationMessages = _messages[_selectedConversationId] ?? [];
+
+    return Row(
+      children: [
+        // Messages list (left sidebar)
+        Container(
+          width: 320,
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () =>
+                          setState(() => _selectedConversationId = ''),
+                    ),
+                    Expanded(
+                      child: Text(
+                        renter?['full_name'] ?? 'Conversation',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _conversations.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final conv = _conversations[index];
+                    final isSelected = conv['id'] == _selectedConversationId;
+                    final rnt =
+                        (conv['bookings'] as Map<String, dynamic>?)?['renter']
+                            as Map<String, dynamic>?;
+
+                    return InkWell(
+                      onTap: () {
+                        setState(() => _selectedConversationId = conv['id']);
+                        _loadConversationMessages(conv['id']);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.primary.withOpacity(0.2)
+                              : (isDark ? Colors.black26 : Colors.grey.shade50),
+                          borderRadius: BorderRadius.circular(8),
+                          border: isSelected
+                              ? Border.all(color: AppColors.primary)
+                              : null,
+                        ),
+                        child: Text(
+                          rnt?['full_name'] ?? 'Unknown',
+                          style: TextStyle(
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Chat area (right side)
+        Expanded(
+          child: Column(
+            children: [
+              // Header with vehicle info
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isDark
+                          ? AppColors.borderColor
+                          : Colors.grey.shade200,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: isDark ? Colors.black26 : Colors.grey.shade200,
+                      ),
+                      child: Icon(
+                        Icons.directions_car,
+                        color: isDark ? Colors.grey[600] : Colors.grey.shade400,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${renter?['full_name'] ?? 'Unknown'} - Booking',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                          Text(
+                            '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''} (${booking?['status'] ?? 'pending'}).toUpperCase()',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Messages area
+              Expanded(
+                child: conversationMessages.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No messages yet',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.grey[500]
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: conversationMessages.length,
+                        itemBuilder: (context, index) {
+                          final message = conversationMessages[index];
+                          final currentUserId = _supabase.auth.currentUser?.id;
+                          final isOwn = message['sender_id'] == currentUserId;
+                          final senderName = message['sender'] != null
+                              ? (message['sender']
+                                        as Map<String, dynamic>)['full_name'] ??
+                                    'System'
+                              : 'System';
+
+                          return Align(
+                            alignment: isOwn
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isOwn
+                                    ? AppColors.primary
+                                    : (isDark
+                                          ? Colors.black26
+                                          : Colors.grey.shade200),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (!isOwn)
+                                    Text(
+                                      senderName,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? Colors.grey[400]
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    message['content'] ?? '',
+                                    style: TextStyle(
+                                      color: isOwn
+                                          ? Colors.white
+                                          : (isDark
+                                                ? Colors.white
+                                                : Colors.black),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _formatMessageTime(message['created_at']),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isOwn
+                                          ? Colors.white70
+                                          : (isDark
+                                                ? Colors.grey[500]
+                                                : Colors.grey.shade600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              // Input area
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  border: Border(
+                    top: BorderSide(
+                      color: isDark
+                          ? AppColors.borderColor
+                          : Colors.grey.shade200,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        maxLines: 1,
+                        decoration: InputDecoration(
+                          hintText: 'Type a message...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.grey[600]
+                                : Colors.grey.shade400,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? AppColors.borderColor
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: () => _sendMessage(
+                        _selectedConversationId,
+                        _messageController.text,
+                      ),
+                      icon: const Icon(Icons.send, size: 18),
+                      label: const Text('Send'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatMessageTime(String? dateTimeStr) {
+    if (dateTimeStr == null) return '';
+    try {
+      final dateTime = DateTime.parse(dateTimeStr);
+      final now = DateTime.now();
+      final difference = now.difference(dateTime);
+
+      if (difference.inSeconds < 60) {
+        return 'just now';
+      } else if (difference.inMinutes < 60) {
+        return '${difference.inMinutes}m ago';
+      } else if (difference.inHours < 24) {
+        return '${difference.inHours}h ago';
+      } else {
+        return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+      }
+    } catch (e) {
+      return '';
+    }
   }
 
   Widget _buildVehiclesContent(bool isDark) {
