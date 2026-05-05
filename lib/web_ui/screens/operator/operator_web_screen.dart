@@ -250,6 +250,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadRecentBookings() async {
     try {
+      final currentUserId = _supabase.auth.currentUser?.id;
       final response = await _supabase
           .from('bookings')
           .select('''
@@ -259,6 +260,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               driver:driver_id (full_name),
               operator:operator_id (full_name)
             ''')
+          .eq('operator_id', currentUserId!)
           .order('created_at', ascending: false)
           .limit(50);
       _recentBookings = List<Map<String, dynamic>>.from(response);
@@ -2336,36 +2338,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: _fieldTextStyle(isDark),
                         ),
                         const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _latitudeController,
-                                cursorColor: AppColors.primary,
-                                keyboardType: TextInputType.number,
-                                decoration: _fieldDecoration(
-                                  'Latitude',
-                                  isDark,
-                                ),
-                                style: _fieldTextStyle(isDark),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: _longitudeController,
-                                cursorColor: AppColors.primary,
-                                keyboardType: TextInputType.number,
-                                decoration: _fieldDecoration(
-                                  'Longitude',
-                                  isDark,
-                                ),
-                                style: _fieldTextStyle(isDark),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
                           value: _selectedStatus,
                           items: const [
@@ -2434,9 +2406,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     _yearController.text.isEmpty ||
                                     _priceController.text.isEmpty ||
                                     _pricePerHourController.text.isEmpty ||
-                                    _locationController.text.isEmpty ||
-                                    _latitudeController.text.isEmpty ||
-                                    _longitudeController.text.isEmpty) {
+                                    _locationController.text.isEmpty) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Please fill all fields'),
@@ -2488,22 +2458,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                               ? 'Manual'
                                               : _transmissionController.text,
                                           'plate_number': _plateController.text,
-                                          'year': int.parse(
-                                            _yearController.text,
-                                          ),
-                                          'price_per_day': double.parse(
-                                            _priceController.text,
-                                          ),
-                                          'price_per_hour': double.parse(
-                                            _pricePerHourController.text,
-                                          ),
+                                          'year':
+                                              int.tryParse(
+                                                _yearController.text,
+                                              ) ??
+                                              0,
+                                          'price_per_day':
+                                              double.tryParse(
+                                                _priceController.text,
+                                              ) ??
+                                              0.0,
+                                          'price_per_hour':
+                                              double.tryParse(
+                                                _pricePerHourController.text,
+                                              ) ??
+                                              0.0,
                                           'location': _locationController.text,
-                                          'latitude': double.parse(
-                                            _latitudeController.text,
-                                          ),
-                                          'longitude': double.parse(
-                                            _longitudeController.text,
-                                          ),
+                                          'latitude':
+                                              double.tryParse(
+                                                _latitudeController.text,
+                                              ) ??
+                                              0.0,
+                                          'longitude':
+                                              double.tryParse(
+                                                _longitudeController.text,
+                                              ) ??
+                                              0.0,
                                           'status': _selectedStatus,
                                           'is_available': true,
                                           'owner_id': currentUserId,
@@ -2659,10 +2639,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       text: vehicle['location'] ?? '',
     );
     final latitudeController = TextEditingController(
-      text: (vehicle['latitude'] ?? '').toString(),
+      text: vehicle['latitude'] != null
+          ? (vehicle['latitude'] as num?)?.toString() ?? ''
+          : '',
     );
     final longitudeController = TextEditingController(
-      text: (vehicle['longitude'] ?? '').toString(),
+      text: vehicle['longitude'] != null
+          ? (vehicle['longitude'] as num?)?.toString() ?? ''
+          : '',
     );
     final yearController = TextEditingController(
       text: (vehicle['year'] ?? '').toString(),
@@ -3136,36 +3120,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: latitudeController,
-                                  cursorColor: AppColors.primary,
-                                  keyboardType: TextInputType.number,
-                                  decoration: _fieldDecoration(
-                                    'Latitude',
-                                    isDark,
-                                  ),
-                                  style: _fieldTextStyle(isDark),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: longitudeController,
-                                  cursorColor: AppColors.primary,
-                                  keyboardType: TextInputType.number,
-                                  decoration: _fieldDecoration(
-                                    'Longitude',
-                                    isDark,
-                                  ),
-                                  style: _fieldTextStyle(isDark),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
                             value: selectedStatus,
                             items: const [
@@ -3242,22 +3196,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                   .isEmpty
                                               ? 'Manual'
                                               : transmissionController.text,
-                                          'year': int.parse(
-                                            yearController.text,
-                                          ),
-                                          'price_per_day': double.parse(
-                                            priceController.text,
-                                          ),
-                                          'price_per_hour': double.parse(
-                                            pricePerHourController.text,
-                                          ),
+                                          'year':
+                                              int.tryParse(
+                                                yearController.text,
+                                              ) ??
+                                              0,
+                                          'price_per_day':
+                                              double.tryParse(
+                                                priceController.text,
+                                              ) ??
+                                              0.0,
+                                          'price_per_hour':
+                                              double.tryParse(
+                                                pricePerHourController.text,
+                                              ) ??
+                                              0.0,
                                           'location': locationController.text,
-                                          'latitude': double.parse(
-                                            latitudeController.text,
-                                          ),
-                                          'longitude': double.parse(
-                                            longitudeController.text,
-                                          ),
+                                          'latitude':
+                                              double.tryParse(
+                                                latitudeController.text,
+                                              ) ??
+                                              0.0,
+                                          'longitude':
+                                              double.tryParse(
+                                                longitudeController.text,
+                                              ) ??
+                                              0.0,
                                           'status': selectedStatus,
                                         })
                                         .eq('id', vehicle['id']);
