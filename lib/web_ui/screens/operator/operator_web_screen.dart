@@ -148,8 +148,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
 
       final location = placemarks.isNotEmpty
-          ? '${placemarks.first.locality ?? placemarks.first.administrativeArea ?? ''}, ${placemarks.first.country ?? ''}'
-                .trim()
+          ? [
+              placemarks.first.street,
+              placemarks.first.subLocality,
+              placemarks.first.locality,
+              placemarks.first.administrativeArea,
+              placemarks.first.country,
+            ].where((s) => s != null && s.isNotEmpty).toList().join(', ')
           : 'Current Location';
 
       onLocationFound(
@@ -251,21 +256,65 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _loadRecentBookings() async {
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
+      debugPrint('[Bookings] Current user ID: $currentUserId');
+      if (currentUserId == null) {
+        debugPrint('[Bookings] No authenticated user found');
+        _recentBookings = [];
+        return;
+      }
+
+      // Query all bookings - RLS policy will filter to only those for user's owned vehicles
+      debugPrint(
+        '[Bookings] Fetching bookings with RLS filtering for user: $currentUserId',
+      );
       final response = await _supabase
           .from('bookings')
           .select('''
-              *,
-              vehicles:vehicle_id (brand, model, year, image_url),
-              renter:renter_id (full_name, email),
-              driver:driver_id (full_name),
-              operator:operator_id (full_name)
+              id,
+              vehicle_id,
+              renter_id,
+              driver_id,
+              status,
+              start_date,
+              end_date,
+              total_price,
+              total_cost,
+              with_driver,
+              created_at,
+              vehicles!vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                image_url
+              ),
+              renter:users!renter_id (
+                id,
+                full_name,
+                email
+              ),
+              driver:users!driver_id (
+                id,
+                full_name
+              )
             ''')
-          .eq('operator_id', currentUserId!)
           .order('created_at', ascending: false)
-          .limit(50);
+          .limit(100);
+
+      debugPrint('[Bookings] Response type: ${response.runtimeType}');
+      debugPrint('[Bookings] Response length: ${(response as List).length}');
+
       _recentBookings = List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint('Error loading recent bookings: $e');
+      debugPrint(
+        '[Bookings] Successfully loaded ${_recentBookings.length} bookings',
+      );
+
+      if (_recentBookings.isNotEmpty) {
+        debugPrint('[Bookings] First booking: ${_recentBookings.first}');
+      }
+    } catch (e, st) {
+      debugPrint('[Bookings] Error loading recent bookings: $e');
+      debugPrint('[Bookings] Stack trace: $st');
       _recentBookings = [];
     }
   }
@@ -1389,6 +1438,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         .where((b) => (b['status'] as String? ?? 'pending') == 'cancelled')
         .toList();
 
+    final sections = <Widget>[];
+    if (pendingBookings.isNotEmpty) {
+      sections.addAll([
+        _buildBookingSection(
+          'Pending Bookings',
+          pendingBookings,
+          isDark,
+          Colors.orange,
+        ),
+        const SizedBox(height: 30),
+      ]);
+    }
+    if (activeBookings.isNotEmpty) {
+      sections.addAll([
+        _buildBookingSection(
+          'Active Bookings',
+          activeBookings,
+          isDark,
+          Colors.green,
+        ),
+        const SizedBox(height: 30),
+      ]);
+    }
+    if (completedBookings.isNotEmpty) {
+      sections.addAll([
+        _buildBookingSection(
+          'Completed Bookings',
+          completedBookings,
+          isDark,
+          Colors.blue,
+        ),
+        const SizedBox(height: 30),
+      ]);
+    }
+    if (cancelledBookings.isNotEmpty) {
+      sections.add(
+        _buildBookingSection(
+          'Cancelled Bookings',
+          cancelledBookings,
+          isDark,
+          Colors.red,
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
@@ -1403,33 +1497,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 30),
-          _buildBookingSection(
-            'Pending Bookings',
-            pendingBookings,
-            isDark,
-            Colors.orange,
-          ),
-          const SizedBox(height: 30),
-          _buildBookingSection(
-            'Active Bookings',
-            activeBookings,
-            isDark,
-            Colors.green,
-          ),
-          const SizedBox(height: 30),
-          _buildBookingSection(
-            'Completed Bookings',
-            completedBookings,
-            isDark,
-            Colors.blue,
-          ),
-          const SizedBox(height: 30),
-          _buildBookingSection(
-            'Cancelled Bookings',
-            cancelledBookings,
-            isDark,
-            Colors.red,
-          ),
+          if (sections.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 60),
+                child: Text(
+                  'No bookings',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: sections,
+            ),
         ],
       ),
     );
@@ -1474,201 +1559,292 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          bookings.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: Text(
-                      'No ${title.toLowerCase()}',
-                      style: TextStyle(
-                        color: isDark ? Colors.grey : Colors.grey.shade600,
-                      ),
-                    ),
+          const SizedBox(height: 20),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: bookings.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final booking = bookings[index];
+              final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+              final renter = booking['renter'] as Map<String, dynamic>?;
+              final driver = booking['driver'] as Map<String, dynamic>?;
+              final withDriver = booking['with_driver'] as bool? ?? false;
+              final status = booking['status'] as String? ?? 'pending';
+              final total =
+                  (booking['total_price'] as num?)?.toDouble() ??
+                  (booking['total_cost'] as num?)?.toDouble() ??
+                  0.0;
+
+              // Parse dates
+              final startDateStr = booking['start_date'] as String? ?? '';
+              final endDateStr = booking['end_date'] as String? ?? '';
+              final startDate = DateTime.tryParse(startDateStr);
+              final endDate = DateTime.tryParse(endDateStr);
+              final days = endDate != null && startDate != null
+                  ? endDate.difference(startDate).inDays
+                  : 0;
+
+              final dateRange = startDate != null && endDate != null
+                  ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
+                  : 'N/A';
+
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.black26 : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
                   ),
-                )
-              : DataTable(
-                  columns: [
-                    DataColumn(
-                      label: Text(
-                        'Vehicle',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Renter',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Dates',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Days',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Total',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Status',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (title == 'Pending Bookings')
-                      DataColumn(
-                        label: Text(
-                          'Actions',
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontWeight: FontWeight.w600,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header row with vehicle and renter
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Vehicle thumbnail
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: isDark
+                                ? Colors.black38
+                                : Colors.grey.shade200,
                           ),
-                        ),
-                      ),
-                  ],
-                  rows: bookings.map((booking) {
-                    final vehicle =
-                        booking['vehicles'] as Map<String, dynamic>?;
-                    final renter = booking['renter'] as Map<String, dynamic>?;
-                    final status = booking['status'] as String? ?? 'pending';
-                    final total =
-                        (booking['total_price'] as num?)?.toDouble() ??
-                        (booking['total_cost'] as num?)?.toDouble() ??
-                        0.0;
-
-                    // Parse dates
-                    final startDateStr = booking['start_date'] as String? ?? '';
-                    final endDateStr = booking['end_date'] as String? ?? '';
-                    final startDate = DateTime.tryParse(startDateStr);
-                    final endDate = DateTime.tryParse(endDateStr);
-                    final days = endDate != null && startDate != null
-                        ? endDate.difference(startDate).inDays
-                        : 0;
-
-                    final dateRange = startDate != null && endDate != null
-                        ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
-                        : 'N/A';
-
-                    return DataRow(
-                      cells: [
-                        DataCell(
-                          Text(
-                            vehicle != null
-                                ? '${vehicle['brand']} ${vehicle['model']}'
-                                : 'Unknown',
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          Text(
-                            renter?['full_name'] ?? 'Unknown',
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          Text(
-                            dateRange,
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          Text(
-                            '$days day${days != 1 ? 's' : ''}',
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          Text(
-                            '₱${total.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        DataCell(_buildStatusBadge(status)),
-                        if (title == 'Pending Bookings')
-                          DataCell(
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ElevatedButton(
-                                  onPressed: () => _showApproveDialog(booking),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
+                          child: vehicle?['image_url'] != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    vehicle!['image_url'],
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Center(
+                                          child: Icon(
+                                            Icons.directions_car,
+                                            color: isDark
+                                                ? Colors.grey[600]
+                                                : Colors.grey.shade400,
+                                          ),
+                                        ),
                                   ),
-                                  child: const Text(
-                                    'Approve',
-                                    style: TextStyle(fontSize: 12),
+                                )
+                              : Center(
+                                  child: Icon(
+                                    Icons.directions_car,
+                                    color: isDark
+                                        ? Colors.grey[600]
+                                        : Colors.grey.shade400,
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                OutlinedButton(
-                                  onPressed: () => _showRejectDialog(
-                                    booking['id'].toString(),
+                        ),
+                        const SizedBox(width: 16),
+                        // Vehicle and renter info
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Vehicle name + year
+                              Text(
+                                vehicle != null
+                                    ? '${vehicle['brand']} ${vehicle['model']} (${vehicle['year'] ?? 'N/A'})'
+                                    : 'Unknown Vehicle',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              // Renter name
+                              Text(
+                                'Renter: ${renter?['full_name'] ?? 'Unknown'}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              // Driver chip if applicable
+                              if (withDriver && driver != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
                                   ),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: Colors.red),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                  child: const Text(
-                                    'Reject',
-                                    style: TextStyle(
+                                  child: Text(
+                                    'Driver: ${driver['full_name'] ?? 'TBA'}',
+                                    style: const TextStyle(
                                       fontSize: 12,
-                                      color: Colors.red,
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
-                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Details row: dates, days, total, status
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Date range
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Dates',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
+                            const SizedBox(height: 4),
+                            Text(
+                              dateRange,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Days
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Days',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$days',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Total
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'Total',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '₱${total.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Status and actions
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildStatusBadge(status),
+                        if (status == 'pending')
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: () => _showApproveDialog(booking),
+                                icon: const Icon(Icons.check, size: 16),
+                                label: const Text('Confirm'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    _showRejectDialog(booking['id'].toString()),
+                                icon: const Icon(Icons.close, size: 16),
+                                label: const Text('Reject'),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.red),
+                                  foregroundColor: Colors.red,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                       ],
-                    );
-                  }).toList(),
+                    ),
+                  ],
                 ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -2336,6 +2512,48 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           cursorColor: AppColors.primary,
                           decoration: _fieldDecoration('Location', isDark),
                           style: _fieldTextStyle(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _latitudeController,
+                                readOnly: true,
+                                cursorColor: AppColors.primary,
+                                keyboardType: TextInputType.number,
+                                decoration: _fieldDecoration(
+                                  'Latitude',
+                                  isDark,
+                                ),
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey[500]
+                                      : Colors.grey.shade600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: _longitudeController,
+                                readOnly: true,
+                                cursorColor: AppColors.primary,
+                                keyboardType: TextInputType.number,
+                                decoration: _fieldDecoration(
+                                  'Longitude',
+                                  isDark,
+                                ),
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey[500]
+                                      : Colors.grey.shade600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
@@ -3114,6 +3332,48 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         color: Colors.black,
                                       ),
                                     ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: latitudeController,
+                                  readOnly: true,
+                                  cursorColor: AppColors.primary,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _fieldDecoration(
+                                    'Latitude',
+                                    isDark,
+                                  ),
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey[500]
+                                        : Colors.grey.shade600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: longitudeController,
+                                  readOnly: true,
+                                  cursorColor: AppColors.primary,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _fieldDecoration(
+                                    'Longitude',
+                                    isDark,
+                                  ),
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey[500]
+                                        : Colors.grey.shade600,
+                                    fontSize: 14,
                                   ),
                                 ),
                               ),
