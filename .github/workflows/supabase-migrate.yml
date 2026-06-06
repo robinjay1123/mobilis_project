@@ -35,4 +35,4 @@ jobs:
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
 
       - name: Push migrations to Supabase
-        run: supabase db push --linked
+        run: supabase db push --linked --include-all
