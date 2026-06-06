@@ -31,8 +31,20 @@ class BookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isActiveTrip = status == 'Active';
-    final statusColor = isActiveTrip ? AppColors.success : AppColors.warning;
+    final normalizedStatus = status.toLowerCase();
+    final statusColor =
+        normalizedStatus == 'approved' ||
+            normalizedStatus == 'active' ||
+            normalizedStatus == 'confirmed'
+        ? AppColors.success
+        : normalizedStatus == 'completed' || normalizedStatus == 'past'
+        ? AppColors.primary
+        : normalizedStatus == 'declined' ||
+              normalizedStatus == 'rejected' ||
+              normalizedStatus == 'cancelled' ||
+              normalizedStatus == 'canceled'
+        ? AppColors.error
+        : AppColors.warning;
 
     return GestureDetector(
       onTap: onTap,

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/connectivity_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -16,13 +19,21 @@ class DriverNBIUploadScreen extends StatefulWidget {
 class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
   late TextEditingController nbiNumberController;
   DateTime? selectedExpiryDate;
-  String? nbiDocumentFile;
+  File? nbiDocumentFile;
   bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
     nbiNumberController = TextEditingController();
+  }
+
+  Future<void> _pickNBIDocument() async {
+    final file = await VerificationService.pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+    setState(() {
+      nbiDocumentFile = file;
+    });
   }
 
   @override
@@ -125,12 +136,17 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
         var driverProfile = await driverService.getDriverProfile(user.id);
 
         if (driverProfile != null) {
+          final nbiUrl = await driverService.uploadToDriverDocumentsBucket(
+            userId: user.id,
+            file: nbiDocumentFile!,
+            documentType: 'nbi_clearance',
+          );
+
           // Upload NBI clearance document
           await driverService.uploadDriverDocument(
             driverId: driverProfile['id'],
             documentType: 'nbi_clearance',
-            fileUrl:
-                'nbi_clearance_${user.id}.pdf', // In production, upload to storage
+            fileUrl: nbiUrl,
             issueDate: DateTime.now().subtract(const Duration(days: 365)),
             expiryDate: selectedExpiryDate!,
           );
@@ -139,8 +155,8 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
           await driverService.updateDriverProfile(
             driverProfile['id'],
             {
-              'nbi_clearance_number': nbiNumberController.text.trim(),
-              'nbi_expiry': selectedExpiryDate!.toIso8601String(),
+              'nbi_file_url': nbiUrl,
+              'verification_status': 'pending',
             },
           );
 
@@ -304,7 +320,9 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
             const SizedBox(height: 16),
 
             // Document Upload
-            Container(
+            GestureDetector(
+              onTap: _pickNBIDocument,
+              child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkCard : Colors.white,
@@ -362,6 +380,7 @@ class _DriverNBIUploadScreenState extends State<DriverNBIUploadScreen> {
                     ],
                   ),
                 ],
+              ),
               ),
             ),
             const SizedBox(height: 32),

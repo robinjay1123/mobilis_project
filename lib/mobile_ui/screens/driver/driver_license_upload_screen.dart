@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/connectivity_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -17,14 +20,26 @@ class DriverLicenseUploadScreen extends StatefulWidget {
 class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
   late TextEditingController licenseNumberController;
   DateTime? selectedExpiryDate;
-  String? licenseImageFront;
-  String? licenseImageBack;
+  File? licenseImageFront;
+  File? licenseImageBack;
   bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
     licenseNumberController = TextEditingController();
+  }
+
+  Future<void> _pickLicenseImage(bool isFront) async {
+    final file = await VerificationService.pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+    setState(() {
+      if (isFront) {
+        licenseImageFront = file;
+      } else {
+        licenseImageBack = file;
+      }
+    });
   }
 
   @override
@@ -133,27 +148,43 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
 
         if (driverProfile == null) {
           // Create driver profile with initial license info
+          final licenseUrl = await driverService.uploadToDriverDocumentsBucket(
+            userId: user.id,
+            file: licenseImageFront!,
+            documentType: 'license_front',
+          );
           driverProfile = await driverService.createDriverProfile(
             userId: user.id,
             licenseNumber: licenseNumberController.text.trim(),
             licenseExpiry: selectedExpiryDate!,
             nbiClearanceNumber: 'PENDING', // Set temporarily
             nbiExpiry: DateTime.now().add(const Duration(days: 365)),
+            licenseUrl: licenseUrl,
           );
         } else {
           // If pre-provisioned, persist latest license details.
+          final licenseUrl = await driverService.uploadToDriverDocumentsBucket(
+            userId: user.id,
+            file: licenseImageFront!,
+            documentType: 'license_front',
+          );
           await driverService.updateDriverProfile(driverProfile['id'], {
             'license_number': licenseNumberController.text.trim(),
             'license_expiry': selectedExpiryDate!.toIso8601String(),
+            'license_url': licenseUrl,
           });
         }
 
         // Upload license document
+        final licenseDocumentUrl = await driverService.uploadToDriverDocumentsBucket(
+          userId: user.id,
+          file: licenseImageFront!,
+          documentType: 'license',
+        );
         await driverService.uploadDriverDocument(
           driverId: driverProfile['id'],
           documentType: 'license',
-          fileUrl:
-              'license_${user.id}_front.png', // In production, upload to storage
+          fileUrl: licenseDocumentUrl,
           issueDate: DateTime.now().subtract(const Duration(days: 365)),
           expiryDate: selectedExpiryDate!,
         );
@@ -315,7 +346,9 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             const SizedBox(height: 16),
 
             // Front Photo
-            Container(
+            GestureDetector(
+              onTap: () => _pickLicenseImage(true),
+              child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkCard : Colors.white,
@@ -374,11 +407,14 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
                   ),
                 ],
               ),
+              ),
             ),
             const SizedBox(height: 12),
 
             // Back Photo
-            Container(
+            GestureDetector(
+              onTap: () => _pickLicenseImage(false),
+              child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.darkCard : Colors.white,
@@ -436,6 +472,7 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
                     ],
                   ),
                 ],
+              ),
               ),
             ),
             const SizedBox(height: 32),

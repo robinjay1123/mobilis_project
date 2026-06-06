@@ -14,6 +14,7 @@ import 'mobile_ui/screens/auth/license_upload_screen.dart';
 import 'mobile_ui/screens/auth/profile_picture_upload_screen.dart';
 import 'mobile_ui/screens/auth/account_verification_screen.dart';
 import 'mobile_ui/screens/auth/id_verification_screen.dart';
+import 'mobile_ui/screens/auth/identity_verification_form_screen.dart';
 import 'mobile_ui/screens/auth/verification_options_screen.dart';
 import 'mobile_ui/screens/auth/forgot_password_screen.dart';
 import 'mobile_ui/screens/auth/reset_password_screen.dart';
@@ -22,7 +23,6 @@ import 'mobile_ui/screens/offline/no_internet_screen.dart';
 import 'mobile_ui/screens/partner/partner_home_screen.dart';
 import 'mobile_ui/screens/partner/apply_vehicle_screen.dart';
 import 'mobile_ui/screens/partner/vehicle_availability_screen.dart';
-import 'mobile_ui/screens/partner/owner_verification_screen.dart';
 import 'mobile_ui/screens/partner/vehicle_registration_upload_screen.dart';
 import 'mobile_ui/screens/partner/verification_success_screen.dart';
 import 'mobile_ui/screens/vehicle/vehicle_detail_screen.dart';
@@ -158,6 +158,10 @@ class _MyAppState extends State<MyApp> {
         '/account-verification': (context) => const AccountVerificationScreen(),
         '/verification-options': (context) => const VerificationOptionsScreen(),
         '/id-verification': (context) => const IdVerificationScreen(),
+        '/identity-verification-form': (context) =>
+            const IdentityVerificationFormScreen(),
+        '/driver-identity-verification': (context) =>
+            const IdentityVerificationFormScreen(userRole: 'driver'),
         '/dashboard': (context) {
           // Protect dashboard route - redirect to login if not authenticated
           final authService = AuthService();
@@ -201,7 +205,8 @@ class _MyAppState extends State<MyApp> {
           }
           return const VehicleAvailabilityScreen();
         },
-        '/owner-verification': (context) => const OwnerVerificationScreen(),
+        '/owner-verification': (context) =>
+            const IdentityVerificationFormScreen(userRole: 'partner'),
         '/vehicle-registration-upload': (context) =>
             const VehicleRegistrationUploadScreen(),
         '/verification-success': (context) => const VerificationSuccessScreen(),
@@ -247,6 +252,8 @@ class _MyAppState extends State<MyApp> {
           return VehicleDetailScreen(
             vehicleId: args?['vehicleId'] ?? '',
             vehicleData: args?['vehicleData'],
+            initialStartDate: args?['initialStartDate'] as DateTime?,
+            initialEndDate: args?['initialEndDate'] as DateTime?,
           );
         },
         '/driver-license-upload': (context) =>
@@ -558,14 +565,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (role == 'partner') {
       final route = applicationApproved
           ? '/partner-home'
-          : '/owner-verification';
+          : '/identity-verification-form';
       debugPrint('✅ Route: PARTNER ($route)');
       return route;
     }
     if (role == 'driver') {
       final route = applicationApproved
           ? '/driver-home'
-          : '/driver-license-upload';
+          : '/driver-identity-verification';
       debugPrint('✅ Route: DRIVER ($route)');
       return route;
     }

@@ -158,6 +158,17 @@ class ChatService {
     try {
       debugPrint('Sending message to conversation: $conversationId');
 
+      final conversation = await supabase
+          .from('conversations')
+          .select('status')
+          .eq('id', conversationId)
+          .maybeSingle();
+
+      if ((conversation?['status']?.toString().toLowerCase() ?? 'active') ==
+          'closed') {
+        throw Exception('This booking conversation is closed');
+      }
+
       final response = await supabase
           .from('messages')
           .insert({
@@ -306,38 +317,105 @@ class ChatService {
         'Creating group conversation for booking: $bookingId with ${participantIds.length} participants',
       );
 
-      // Create conversation with booking_id reference
-      final newConv = await supabase
+      final uniqueParticipantIds = participantIds
+          .where((id) => id.trim().isNotEmpty)
+          .toSet()
+          .toList();
+
+      final existing = await supabase
           .from('conversations')
-          .insert({
-            'booking_id': bookingId,
-            'status': 'active',
-            'created_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
-          })
           .select()
-          .single();
+          .eq('booking_id', bookingId)
+          .maybeSingle();
 
-      // Add all participants
-      final participantRecords = participantIds.map((userId) {
-        return {
-          'conversation_id': newConv['id'],
-          'user_id': userId,
-          'joined_at': DateTime.now().toIso8601String(),
-        };
-      }).toList();
+      final conversation = existing ??
+          await supabase
+              .from('conversations')
+              .insert({
+                'booking_id': bookingId,
+                'status': 'active',
+                'created_at': DateTime.now().toIso8601String(),
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .select()
+              .single();
 
-      await supabase
-          .from('conversation_participants')
-          .insert(participantRecords);
+      await addParticipantsToBookingConversation(
+        bookingId: bookingId,
+        participantIds: uniqueParticipantIds,
+      );
 
-      debugPrint('Group conversation created successfully');
-      return newConv;
+      debugPrint('Group conversation ready');
+      return conversation;
     } on PostgrestException catch (e) {
       debugPrint('Database error creating group conversation: ${e.message}');
       rethrow;
     } catch (e) {
       debugPrint('Unexpected error creating group conversation: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> addParticipantsToBookingConversation({
+    required String bookingId,
+    required List<String> participantIds,
+  }) async {
+    try {
+      final uniqueParticipantIds = participantIds
+          .where((id) => id.trim().isNotEmpty)
+          .toSet()
+          .toList();
+
+      if (uniqueParticipantIds.isEmpty) return;
+
+      final conversation = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .maybeSingle();
+
+      if (conversation == null) return;
+
+      final conversationId = conversation['id'] as String;
+      final existingParticipants = await supabase
+          .from('conversation_participants')
+          .select('user_id')
+          .eq('conversation_id', conversationId);
+
+      final existingUserIds = List<Map<String, dynamic>>.from(
+        existingParticipants,
+      ).map((row) => row['user_id']?.toString()).whereType<String>().toSet();
+
+      final participantRecords = uniqueParticipantIds
+          .where((userId) => !existingUserIds.contains(userId))
+          .map((userId) {
+        return {
+          'conversation_id': conversationId,
+          'user_id': userId,
+          'joined_at': DateTime.now().toIso8601String(),
+        };
+      }).toList();
+
+      if (participantRecords.isEmpty) return;
+
+      await supabase.from('conversation_participants').insert(
+            participantRecords,
+          );
+
+      await supabase
+          .from('conversations')
+          .update({
+            'status': 'active',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', conversationId);
+
+      debugPrint('Participants added to booking conversation');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error adding group participants: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error adding group participants: $e');
       rethrow;
     }
   }
@@ -349,7 +427,10 @@ class ChatService {
 
       await supabase
           .from('conversations')
-          .update({'status': 'closed'})
+          .update({
+            'status': 'closed',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
           .eq('booking_id', bookingId);
 
       debugPrint('Conversation closed successfully');

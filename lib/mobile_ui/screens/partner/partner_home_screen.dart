@@ -11,6 +11,16 @@ import '../../widgets/booking_card.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
 
+bool _bookingNeedsDriver(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'true' || normalized == 'yes' || normalized == '1';
+  }
+  return false;
+}
+
 class PartnerHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
   final bool isDarkMode;
@@ -70,6 +80,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   bool isLoading = true;
   bool dismissedVerificationBanner = false;
+
+  String _normalizeVerificationStatus(String? status) {
+    final value = (status ?? 'pending').toLowerCase();
+    if (value == 'approved') return 'verified';
+    return value;
+  }
+
+  bool get _isPartnerVerified =>
+      verificationStatus == 'verified' || partnershipStatus == 'certified';
+
+  bool get _isPartnerCertified => partnershipStatus == 'certified';
 
   @override
   void initState() {
@@ -148,8 +169,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         setState(() {
           partnerProfile = profile;
           partnerName = user.userMetadata?['full_name'] ?? 'Partner';
-          verificationStatus = profile?['verification_status'] ?? 'pending';
-          partnershipStatus = profile?['partnership_status'] ?? 'basic';
+          verificationStatus = _normalizeVerificationStatus(
+            profile?['verification_status']?.toString(),
+          );
+          partnershipStatus = (profile?['partnership_status'] ?? 'basic')
+              .toString()
+              .toLowerCase();
           applicationCounts = appCounts;
           applications = apps;
           bookingCounts = bCounts;
@@ -234,6 +259,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  void _handleApplyVehicleNavigation() {
+    if (_isPartnerVerified) {
+      Navigator.pushNamed(context, '/apply-vehicle');
+      return;
+    }
+
+    _showErrorSnackBar(
+      'Complete your verification first before applying a vehicle.',
+    );
+    Navigator.pushNamed(context, '/identity-verification-form');
   }
 
   @override
@@ -364,7 +401,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     label: 'Partnership',
                     onTap: () {
                       Navigator.pop(context);
-                      Navigator.pushNamed(context, '/apply-vehicle');
+                      _handleApplyVehicleNavigation();
                     },
                   ),
                   _buildDrawerItem(
@@ -528,9 +565,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   String _getPartnerBadge() {
-    if (partnershipStatus == 'certified') {
+    if (_isPartnerCertified) {
       return 'CERTIFIED PSDC PARTNER';
-    } else if (verificationStatus == 'verified') {
+    } else if (_isPartnerVerified) {
       return 'VERIFIED PARTNER';
     } else {
       return 'BASIC PARTNER';
@@ -538,9 +575,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Color _getPartnerBadgeColor() {
-    if (partnershipStatus == 'certified') {
+    if (_isPartnerCertified) {
       return const Color(0xFF6366F1); // Indigo for certified
-    } else if (verificationStatus == 'verified') {
+    } else if (_isPartnerVerified) {
       return AppColors.success;
     } else {
       return AppColors.warning;
@@ -574,10 +611,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           _buildDashboardHeader(),
 
           // Verification Banner
-          if (verificationStatus != 'verified' && !dismissedVerificationBanner)
-            _buildVerificationBanner()
-          else if (verificationStatus == 'verified')
-            _buildVerifiedBanner(),
+          if (!_isPartnerVerified && !dismissedVerificationBanner)
+            _buildVerificationBanner(),
 
           const SizedBox(height: 20),
 
@@ -631,8 +666,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     _buildQuickAction(
                       icon: Icons.add_circle_outline,
                       label: 'Add Vehicle',
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/apply-vehicle'),
+                      onTap: _handleApplyVehicleNavigation,
                     ),
                     const SizedBox(width: 12),
                     _buildQuickAction(
@@ -796,7 +830,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    if (verificationStatus == 'verified')
+                    if (_isPartnerVerified)
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 6,
@@ -806,17 +840,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           color: AppColors.success.withAlpha(30),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.verified,
                               color: AppColors.success,
                               size: 12,
                             ),
-                            SizedBox(width: 2),
+                            const SizedBox(width: 2),
                             Text(
-                              'VERIFIED',
-                              style: TextStyle(
+                              _isPartnerCertified ? 'CERTIFIED' : 'VERIFIED',
+                              style: const TextStyle(
                                 fontSize: 8,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.success,
@@ -950,8 +984,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () =>
-                      Navigator.pushNamed(context, '/owner-verification'),
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    '/identity-verification-form',
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.warning,
                     foregroundColor: Colors.black,
@@ -997,9 +1033,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Verified Owner',
-                  style: TextStyle(
+                Text(
+                  _isPartnerCertified
+                      ? 'Certified Partner'
+                      : 'Verified Partner',
+                  style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppColors.success,
@@ -1836,8 +1874,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   ) {
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final renter = booking['users'] as Map<String, dynamic>?;
-    final withDriver = booking['with_driver'] as bool? ?? false;
-    final status = booking['status'] as String? ?? 'pending';
+    final withDriver = _bookingNeedsDriver(booking['with_driver']);
+    final driverId = booking['driver_id'];
+    final status = (booking['status'] as String? ?? 'pending').toLowerCase();
+    final canAssignDriver =
+        withDriver &&
+        driverId == null &&
+        (status == 'pending' || status == 'approved' || status == 'confirmed');
 
     showModalBottomSheet(
       context: context,
@@ -1854,7 +1897,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         renter: renter,
         onApprove: () => _handleBookingApproval(context, booking),
         onReject: () => _handleBookingRejection(context, booking),
-        onAssignDriver: withDriver && status == 'pending'
+        onAssignDriver: canAssignDriver
             ? () => _showDriverAssignmentModal(context, booking)
             : null,
       ),
@@ -1869,12 +1912,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final bookingService = BookingService();
 
     try {
-      // Fetch available drivers
-      final drivers = await Supabase.instance.client
-          .from('users')
-          .select('id, full_name, is_available')
-          .eq('role', 'driver')
-          .eq('is_available', true);
+      final drivers = await bookingService.getAvailableVerifiedDrivers();
 
       if (!mounted) return;
 
@@ -1886,11 +1924,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             width: double.maxFinite,
             child: ListView.builder(
               shrinkWrap: true,
-              itemCount: drivers.length,
+              itemCount: drivers.isEmpty ? 1 : drivers.length,
               itemBuilder: (context, index) {
-                final driver = drivers[index] as Map<String, dynamic>;
+                if (drivers.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('No available verified drivers found.'),
+                  );
+                }
+                final driver = drivers[index];
+                final driverUser = driver['users'] as Map<String, dynamic>?;
                 return ListTile(
-                  title: Text(driver['full_name'] ?? 'Unknown Driver'),
+                  title: Text(
+                    driverUser?['full_name']?.toString() ?? 'Unknown Driver',
+                  ),
                   onTap: () async {
                     Navigator.pop(context);
 
@@ -2166,10 +2213,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            verificationStatus == 'verified'
-                                ? Icons.verified
-                                : Icons.pending,
-                            color: verificationStatus == 'verified'
+                            _isPartnerVerified ? Icons.verified : Icons.pending,
+                            color: _isPartnerVerified
                                 ? AppColors.success
                                 : AppColors.warning,
                             size: 16,
@@ -2231,8 +2276,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 _buildProfileMenuItem(
                   Icons.security,
                   'Verification',
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/owner-verification'),
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/identity-verification-form',
+                  ),
                 ),
                 _buildProfileMenuItem(
                   Icons.account_balance_wallet,
@@ -2492,9 +2539,9 @@ class BookingDetailModal extends StatelessWidget {
     final startDate = booking['start_date'] ?? '';
     final endDate = booking['end_date'] ?? '';
     final totalPrice = booking['total_price'] ?? 0;
-    final withDriver = booking['with_driver'] as bool? ?? false;
+    final withDriver = _bookingNeedsDriver(booking['with_driver']);
     final driverId = booking['driver_id'];
-    final status = booking['status'] as String? ?? 'pending';
+    final status = (booking['status'] as String? ?? 'pending').toLowerCase();
 
     return DraggableScrollableSheet(
       expand: false,
@@ -2703,7 +2750,10 @@ class BookingDetailModal extends StatelessWidget {
 
             // Driver Assignment Section
             if (withDriver) ...[
-              if (driverId == null && status == 'pending') ...[
+              if (driverId == null &&
+                  (status == 'pending' ||
+                      status == 'approved' ||
+                      status == 'confirmed')) ...[
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(

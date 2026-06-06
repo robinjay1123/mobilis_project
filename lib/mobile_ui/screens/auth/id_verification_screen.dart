@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/verification_service.dart';
@@ -49,67 +47,28 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
     final user = authService.currentUser;
 
     if (user != null) {
-      setState(() {
-        fullNameController.text = user.userMetadata?['name'] ?? '';        locationController.text = user.userMetadata?['location'] ?? '';
-        phoneController.text = user.userMetadata?['phone'] ?? '';
-      });
-    }
-  }
-
-  Future<void> _getCurrentLocation() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location services are disabled.'),
-              backgroundColor: AppColors.warning,
-            ),
-          );
-        }
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Location permission denied.'),
-                backgroundColor: AppColors.error,
-              ),
-            );
-          }
-          return;
-        }
-      }
-
-      final position = await Geolocator.getCurrentPosition();
-      final placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final location =
-            '${place.locality}, ${place.administrativeArea}, ${place.country}';
-        setState(() {
-          locationController.text = location;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error getting location: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+      authService.supabase
+          .from('users')
+          .select('full_name, location, phone')
+          .eq('id', user.id)
+          .maybeSingle()
+          .then((profile) {
+            if (!mounted) return;
+            setState(() {
+              fullNameController.text =
+                  profile?['full_name']?.toString() ??
+                  user.userMetadata?['full_name']?.toString() ??
+                  '';
+              locationController.text =
+                  profile?['location']?.toString() ??
+                  user.userMetadata?['location']?.toString() ??
+                  '';
+              phoneController.text =
+                  profile?['phone']?.toString() ??
+                  user.userMetadata?['phone']?.toString() ??
+                  '';
+            });
+          });
     }
   }
 
@@ -159,7 +118,9 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
       );
 
       if (uploadResult['success'] != true) {
-        _showError(uploadResult['message']?.toString() ?? 'Failed to upload ID photo');
+        _showError(
+          uploadResult['message']?.toString() ?? 'Failed to upload ID photo',
+        );
         return;
       }
 
@@ -235,7 +196,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   ),
                   const SizedBox(height: 24),
                   const Text(
-                    'ID Verification Complete!',
+                    'Verification Submitted',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -244,7 +205,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Your identity has been verified\nYou can now start renting',
+                    'Your identity details were sent for admin review.\nYou can keep browsing while this is pending.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
@@ -446,54 +407,15 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Location with auto-detect
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Location',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: TextField(
-                      controller: locationController,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 14,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'City, Country',
-                        hintStyle: const TextStyle(color: AppColors.textSecondary),
-                        prefixIcon: const Icon(
-                          Icons.location_on_outlined,
-                          color: AppColors.textTertiary,
-                        ),
-                        suffixIcon: IconButton(
-                          icon: const Icon(
-                            Icons.location_searching,
-                            color: AppColors.primary,
-                          ),
-                          onPressed: _getCurrentLocation,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              // Location (simple input field)
+              CustomTextField(
+                label: 'Location',
+                hintText: 'Enter your location',
+                controller: locationController,
+                prefixIcon: const Icon(
+                  Icons.location_on_outlined,
+                  color: AppColors.textTertiary,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -577,7 +499,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () => _pickIdPhoto(ImageSource.camera),
+                                onPressed: () =>
+                                    _pickIdPhoto(ImageSource.camera),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.primary,
                                   side: const BorderSide(
@@ -603,7 +526,8 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () => _pickIdPhoto(ImageSource.gallery),
+                                onPressed: () =>
+                                    _pickIdPhoto(ImageSource.gallery),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.textPrimary,
                                   side: const BorderSide(
@@ -638,7 +562,7 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
 
               // Submit Button
               CustomButton(
-                label: 'Complete Verification',
+                label: 'Submit Verification',
                 onPressed: _handleVerification,
                 isLoading: isLoading,
               ),

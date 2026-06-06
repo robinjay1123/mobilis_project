@@ -256,41 +256,62 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           })
           .eq('id', userId);
 
-      // ✅ FIX: Also update user_verifications table (source of truth) to sync properly
+      // Also update user_verifications table (source of truth) to sync properly
       try {
         final verification = await _supabase
             .from('user_verifications')
-            .select('id')
+            .select('id, full_name, location')
             .eq('user_id', userId)
             .maybeSingle();
 
         if (verification != null) {
-          try {
-            await _supabase
-                .from('user_verifications')
-                .update({
-                  'verification_status': status,
-                  'verified_at': DateTime.now().toIso8601String(),
-                })
-                .eq('id', verification['id']);
-          } on PostgrestException catch (e) {
-            if (e.code == '42501') {
-              debugPrint(
-                '⚠️ RLS policy prevents update to user_verifications. Sync via users table only.',
-              );
+          await _supabase
+              .from('user_verifications')
+              .update({
+                'verification_status': status,
+                'verified_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', verification['id']);
+
+          if (role == 'partner') {
+            final existingPartner = await _supabase
+                .from('partners')
+                .select('id')
+                .eq('user_id', userId)
+                .maybeSingle();
+
+            final businessName =
+                (verification['full_name']?.toString().trim() ?? '');
+            final address = (verification['location']?.toString().trim() ?? '');
+            final payload = <String, dynamic>{
+              'user_id': userId,
+              if (businessName.isNotEmpty) 'business_name': businessName,
+              if (address.isNotEmpty) ...{
+                'address': address,
+                'business_address': address,
+              },
+              'verification_status': status == 'verified'
+                  ? 'approved'
+                  : 'rejected',
+            };
+
+            if (existingPartner == null) {
+              await _supabase.from('partners').insert(payload);
             } else {
-              rethrow;
+              await _supabase
+                  .from('partners')
+                  .update(payload)
+                  .eq('id', existingPartner['id']);
             }
           }
         }
       } catch (verificationError) {
         debugPrint(
-          'Note: Could not fetch user_verifications table: $verificationError',
+          'Note: Could not update user_verifications table: $verificationError',
         );
-        // Don't fail the approval if user_verifications doesn't exist
       }
 
-      // ✅ FIX: Add notification for rejection (approval already has one in VerificationService)
+      // Add notification for rejection (approval already has one in VerificationService)
       try {
         if (status == 'verified') {
           await NotificationService().createNotification(

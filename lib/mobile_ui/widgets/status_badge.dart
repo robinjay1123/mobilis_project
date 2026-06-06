@@ -22,15 +22,21 @@ class StatusBadge extends StatelessWidget {
       case 'completed':
         return AppColors.primary;
       case 'cancelled':
+      case 'canceled':
+      case 'declined':
         return AppColors.error;
       case 'pending':
+      case 'required':
         return AppColors.warning;
       case 'approved':
+      case 'verified':
         return AppColors.success;
       case 'rejected':
         return AppColors.error;
       case 'confirmed':
         return AppColors.success;
+      case 'basic renter':
+        return AppColors.primary;
       default:
         return AppColors.textSecondary;
     }

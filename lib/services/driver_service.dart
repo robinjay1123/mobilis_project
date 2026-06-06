@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'booking_service.dart';
 
 class DriverService {
   static final DriverService _instance = DriverService._internal();
@@ -43,6 +45,8 @@ class DriverService {
     required DateTime licenseExpiry,
     required String nbiClearanceNumber,
     required DateTime nbiExpiry,
+    String? licenseUrl,
+    String? nbiFileUrl,
   }) async {
     try {
       debugPrint('Creating driver profile for user: $userId');
@@ -54,9 +58,11 @@ class DriverService {
             'license_number': licenseNumber,
             'license_expiry': licenseExpiry.toIso8601String().split('T')[0],
             'license_verified': false,
-            'nbi_clearance_number': nbiClearanceNumber,
-            'nbi_expiry': nbiExpiry.toIso8601String().split('T')[0],
             'nbi_verified': false,
+            if (licenseUrl != null && licenseUrl.isNotEmpty)
+              'license_url': licenseUrl,
+            if (nbiFileUrl != null && nbiFileUrl.isNotEmpty)
+              'nbi_file_url': nbiFileUrl,
             'verification_status': 'pending',
             'driver_tier': 'standard',
             'rating': 0.0,
@@ -131,6 +137,30 @@ class DriverService {
       debugPrint('Unexpected error uploading document: $e');
       rethrow;
     }
+  }
+
+  /// Upload a driver document file to `driver_documents` bucket.
+  Future<String> uploadToDriverDocumentsBucket({
+    required String userId,
+    required File file,
+    required String documentType,
+  }) async {
+    final bytes = await file.readAsBytes();
+    final extension = file.path.contains('.')
+        ? file.path.split('.').last.toLowerCase()
+        : 'jpg';
+    final objectPath =
+        '$userId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    await supabase.storage
+        .from('driver_documents')
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: const FileOptions(upsert: true),
+        );
+
+    return supabase.storage.from('driver_documents').getPublicUrl(objectPath);
   }
 
   /// Get driver documents
@@ -290,24 +320,56 @@ class DriverService {
     }
   }
 
-  /// Get pending job offers for driver
-  Future<List<Map<String, dynamic>>> getPendingOffers(String driverId) async {
+  /// Get pending or newly assigned job offers for the current driver user.
+  Future<List<Map<String, dynamic>>> getPendingOffers(String userId) async {
     try {
-      debugPrint('Fetching pending offers for driver: $driverId');
+      debugPrint('Fetching pending offers for driver user: $userId');
+
+      final driverProfile = await supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final driverProfileId = driverProfile?['id']?.toString();
+      if (driverProfileId == null || driverProfileId.isEmpty) {
+        return [];
+      }
 
       final response = await supabase
           .from('driver_job_assignments')
           .select('''
             *,
             bookings:booking_id (
-              *,
-              vehicles:vehicle_id (brand, model, year, plate_number),
-              renter:renter_id (full_name, phone)
+              id,
+              renter_id,
+              status,
+              start_date,
+              end_date,
+              start_at,
+              end_at,
+              total_price,
+              total_cost,
+              pickup_location,
+              dropoff_location,
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                year,
+                vehicle_name,
+                plate_number
+              ),
+              renter:renter_id (
+                id,
+                full_name,
+                email,
+                phone
+              )
             )
           ''')
-          .eq('driver_id', driverId)
-          .eq('status', 'pending_offer')
-          .order('offered_at', ascending: false);
+          .eq('driver_id', driverProfileId)
+          .inFilter('status', ['pending_offer', 'assigned'])
+          .order('created_at', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);
     } on PostgrestException catch (e) {
@@ -681,13 +743,23 @@ class DriverService {
       debugPrint('Fetching stats for driver: $driverId');
 
       final profile = await getDriverProfile(driverId);
+      final user = await supabase
+          .from('users')
+          .select('verification_status, application_status, is_available')
+          .eq('id', driverId)
+          .maybeSingle();
 
       if (profile == null) {
         return {
-          'totalTrips': 0,
+          'total_trips': 0,
           'rating': 0.0,
-          'tier': 'standard',
+          'driver_tier': 'standard',
           'earnings': 0.0,
+          'verification_status':
+              user?['verification_status'] ??
+              user?['application_status'] ??
+              'pending',
+          'is_available': user?['is_available'] ?? false,
         };
       }
 
@@ -700,19 +772,26 @@ class DriverService {
       final earnings = await getEarnings(driverId);
 
       return {
-        'totalTrips': (trips as List).length,
+        'total_trips': (trips as List).length,
         'rating': profile['rating'] ?? 0.0,
-        'tier': profile['driver_tier'] ?? 'standard',
+        'driver_tier': profile['driver_tier'] ?? 'standard',
         'earnings': earnings,
-        'verification': profile['verification_status'] ?? 'pending',
+        'verification_status':
+            profile['verification_status'] ??
+            user?['verification_status'] ??
+            user?['application_status'] ??
+            'pending',
+        'is_available': user?['is_available'] ?? false,
       };
     } catch (e) {
       debugPrint('Error fetching driver stats: $e');
       return {
-        'totalTrips': 0,
+        'total_trips': 0,
         'rating': 0.0,
-        'tier': 'standard',
+        'driver_tier': 'standard',
         'earnings': 0.0,
+        'verification_status': 'pending',
+        'is_available': false,
       };
     }
   }
@@ -922,6 +1001,80 @@ class DriverService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getAssignedBookings(String userId) async {
+    try {
+      debugPrint('Fetching assigned bookings for driver: $userId');
+
+      final driverProfile = await supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final driverProfileId = driverProfile?['id']?.toString();
+      if (driverProfileId == null || driverProfileId.isEmpty) {
+        return [];
+      }
+
+      final response = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            renter_id,
+            vehicle_id,
+            driver_id,
+            status,
+            start_at,
+            end_at,
+            start_date,
+            end_date,
+            total_price,
+            total_cost,
+            pickup_location,
+            dropoff_location,
+            picked_up_at,
+            returned_at,
+            vehicles:vehicle_id (
+              id,
+              brand,
+              model,
+              year,
+              vehicle_name
+            ),
+            renter:renter_id (
+              id,
+              full_name,
+              email,
+              phone
+            )
+          ''')
+          .eq('driver_id', driverProfileId)
+          .inFilter('status', ['confirmed', 'approved', 'active'])
+          .order('start_date', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching assigned bookings: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching assigned bookings: $e');
+      return [];
+    }
+  }
+
+  Future<void> markAssignedBookingPickedUp(String bookingId) {
+    return BookingService().markBookingPickedUp(bookingId);
+  }
+
+  Future<double> completeAssignedBookingReturn({
+    required String bookingId,
+    required DateTime returnedAt,
+  }) {
+    return BookingService().completeBookingReturn(
+      bookingId: bookingId,
+      returnedAt: returnedAt,
+    );
+  }
+
   // ==================== DOCUMENT RENEWAL ====================
 
   /// Renew an expired/expiring driver document
@@ -1076,6 +1229,270 @@ class DriverService {
     } catch (e) {
       debugPrint('Error requesting document renewal: $e');
       return false;
+    }
+  }
+
+  // ==================== DRIVER VERIFICATION WORKFLOW ====================
+
+  /// Upload driver license to storage and create document record
+  Future<Map<String, dynamic>> uploadLicenseDocument({
+    required String driverId,
+    required String userId,
+    required File licenseFile,
+    required String licenseNumber,
+    required DateTime issueDate,
+    required DateTime expiryDate,
+  }) async {
+    try {
+      debugPrint('Uploading driver license for driver: $driverId');
+
+      // Upload file to storage
+      final fileUrl = await uploadToDriverDocumentsBucket(
+        userId: userId,
+        file: licenseFile,
+        documentType: 'license',
+      );
+
+      // Create document record
+      final docRecord = await uploadDriverDocument(
+        driverId: driverId,
+        documentType: 'license',
+        fileUrl: fileUrl,
+        issueDate: issueDate,
+        expiryDate: expiryDate,
+      );
+
+      // Update drivers table with license URL
+      await updateDriverProfile(driverId, {'license_url': fileUrl});
+
+      debugPrint('License document uploaded and recorded successfully');
+      return {
+        'success': true,
+        'document_id': docRecord['id'],
+        'file_url': fileUrl,
+      };
+    } catch (e) {
+      debugPrint('Error uploading license document: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Upload NBI clearance to storage and create document record
+  Future<Map<String, dynamic>> uploadNBIDocument({
+    required String driverId,
+    required String userId,
+    required File nbiFile,
+    required String nbiNumber,
+    required DateTime issueDate,
+    required DateTime expiryDate,
+  }) async {
+    try {
+      debugPrint('Uploading NBI clearance for driver: $driverId');
+
+      // Upload file to storage
+      final fileUrl = await uploadToDriverDocumentsBucket(
+        userId: userId,
+        file: nbiFile,
+        documentType: 'nbi',
+      );
+
+      // Create document record
+      final docRecord = await uploadDriverDocument(
+        driverId: driverId,
+        documentType: 'nbi',
+        fileUrl: fileUrl,
+        issueDate: issueDate,
+        expiryDate: expiryDate,
+      );
+
+      // Update drivers table with NBI URL
+      await updateDriverProfile(driverId, {'nbi_file_url': fileUrl});
+
+      debugPrint('NBI document uploaded and recorded successfully');
+      return {
+        'success': true,
+        'document_id': docRecord['id'],
+        'file_url': fileUrl,
+      };
+    } catch (e) {
+      debugPrint('Error uploading NBI document: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Approve individual driver document (called by admin)
+  Future<bool> approveDriverDocument(
+    String documentId, {
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Approving driver document: $documentId');
+
+      await supabase
+          .from('driver_documents')
+          .update({
+            'status': 'verified',
+            'verified_at': DateTime.now().toIso8601String(),
+            if (adminNotes != null) 'admin_notes': adminNotes,
+          })
+          .eq('id', documentId);
+
+      debugPrint('Document approved successfully');
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error approving document: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error approving document: $e');
+      return false;
+    }
+  }
+
+  /// Reject individual driver document (called by admin)
+  Future<bool> rejectDriverDocument(
+    String documentId, {
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting driver document: $documentId');
+
+      await supabase
+          .from('driver_documents')
+          .update({
+            'status': 'rejected',
+            'admin_notes': reason,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', documentId);
+
+      debugPrint('Document rejected successfully');
+      return true;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting document: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error rejecting document: $e');
+      return false;
+    }
+  }
+
+  /// Complete driver verification - mark all documents as verified and update driver status
+  Future<Map<String, dynamic>> completeDriverVerification({
+    required String driverId,
+    String? tier = 'standard',
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Completing driver verification for: $driverId');
+
+      // Get all pending documents
+      final docs = await supabase
+          .from('driver_documents')
+          .select()
+          .eq('driver_id', driverId)
+          .eq('status', 'pending');
+
+      // Mark all as verified
+      for (var doc in docs) {
+        await supabase
+            .from('driver_documents')
+            .update({
+              'status': 'verified',
+              'verified_at': DateTime.now().toIso8601String(),
+              if (adminNotes != null) 'admin_notes': adminNotes,
+            })
+            .eq('id', doc['id']);
+      }
+
+      // Update driver profile
+      await updateDriverProfile(driverId, {
+        'verification_status': 'verified',
+        'license_verified': true,
+        'nbi_verified': true,
+        'driver_tier': tier,
+      });
+
+      final driverProfile = await supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', driverId)
+          .maybeSingle();
+      final driverUserId = driverProfile?['user_id']?.toString();
+      if (driverUserId != null && driverUserId.isNotEmpty) {
+        await supabase
+            .from('users')
+            .update({
+              'verification_status': 'verified',
+              'id_verified': true,
+              'is_available': true,
+            })
+            .eq('id', driverUserId);
+      }
+
+      debugPrint('Driver verification completed successfully');
+      return {
+        'success': true,
+        'message': 'Driver verified successfully',
+        'documents_verified': docs.length,
+      };
+    } catch (e) {
+      debugPrint('Error completing driver verification: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Reject driver verification - update driver status and reject all documents
+  Future<Map<String, dynamic>> rejectDriverVerification({
+    required String driverId,
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting driver verification for: $driverId');
+
+      // Get all pending documents
+      final docs = await supabase
+          .from('driver_documents')
+          .select()
+          .eq('driver_id', driverId)
+          .eq('status', 'pending');
+
+      // Mark all as rejected
+      for (var doc in docs) {
+        await supabase
+            .from('driver_documents')
+            .update({
+              'status': 'rejected',
+              'admin_notes': reason,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', doc['id']);
+      }
+
+      // Update driver profile
+      await updateDriverProfile(driverId, {'verification_status': 'rejected'});
+
+      final driverProfile = await supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', driverId)
+          .maybeSingle();
+      final driverUserId = driverProfile?['user_id']?.toString();
+      if (driverUserId != null && driverUserId.isNotEmpty) {
+        await supabase
+            .from('users')
+            .update({'verification_status': 'rejected', 'id_verified': false})
+            .eq('id', driverUserId);
+      }
+
+      debugPrint('Driver verification rejected successfully');
+      return {
+        'success': true,
+        'message': 'Driver verification rejected',
+        'documents_rejected': docs.length,
+      };
+    } catch (e) {
+      debugPrint('Error rejecting driver verification: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 

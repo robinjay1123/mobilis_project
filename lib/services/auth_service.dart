@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'preferences_service.dart';
+import 'verification_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -42,25 +43,9 @@ class AuthService {
           .eq('id', user.id)
           .maybeSingle();
 
-      Map<String, dynamic>? emailResponse;
-      if (response == null || response['role'] == null) {
-        final email = user.email;
-        if (email != null && email.isNotEmpty) {
-          emailResponse = await supabase
-              .from('users')
-              .select('role')
-              .eq('email', email)
-              .maybeSingle();
-        }
-      }
-
-      final role =
-          response?['role'] as String? ?? emailResponse?['role'] as String?;
+      final role = response?['role'] as String?;
       final normalizedRole = role?.toLowerCase().trim();
       debugPrint('📋 Raw response: $response');
-      if (emailResponse != null) {
-        debugPrint('📋 Email fallback response: $emailResponse');
-      }
       debugPrint(
         '✅ User role fetched: "$role" → normalized: "$normalizedRole"',
       );
@@ -242,13 +227,34 @@ class AuthService {
           'full_name': fullName,
           'location': location,
           'phone': phone,
-          'id_verified': true,
+          'id_verified': false,
+          'verification_status': 'pending',
         },
-        {'full_name': fullName, 'phone': phone, 'id_verified': true},
-        {'full_name': fullName, 'phone_number': phone, 'id_verified': true},
-        {'name': fullName, 'phone_number': phone, 'id_verified': true},
-        {'name': fullName, 'phone': phone, 'id_verified': true},
-        {'id_verified': true},
+        {
+          'full_name': fullName,
+          'phone': phone,
+          'id_verified': false,
+          'verification_status': 'pending',
+        },
+        {
+          'full_name': fullName,
+          'phone_number': phone,
+          'id_verified': false,
+          'verification_status': 'pending',
+        },
+        {
+          'name': fullName,
+          'phone_number': phone,
+          'id_verified': false,
+          'verification_status': 'pending',
+        },
+        {
+          'name': fullName,
+          'phone': phone,
+          'id_verified': false,
+          'verification_status': 'pending',
+        },
+        {'id_verified': false, 'verification_status': 'pending'},
       ];
 
       PostgrestException? lastSchemaError;
@@ -271,27 +277,16 @@ class AuthService {
       }
 
       if (idDocumentUrl != null && idDocumentUrl.isNotEmpty) {
-        try {
-          await supabase.from('user_verifications').upsert({
-            'user_id': user.id,
-            'full_name': fullName,
-            'id_type': idType,
-            'id_number': idNumber,
-            'location': location,
-            'phone': phone,
-            'id_document_url': idDocumentUrl,
-            'verification_status': 'pending',
-          }, onConflict: 'user_id');
-        } on PostgrestException catch (e) {
-          if (e.code == '42501') {
-            debugPrint(
-              '⚠️ RLS policy prevents upsert to user_verifications. Skipping.',
-            );
-            // RLS policy blocks write - skip and continue
-          } else {
-            rethrow;
-          }
-        }
+        await supabase.from('user_verifications').upsert({
+          'user_id': user.id,
+          'full_name': fullName,
+          'id_type': idType,
+          'id_number': idNumber,
+          'location': location,
+          'phone': phone,
+          'id_document_url': idDocumentUrl,
+          'verification_status': 'pending',
+        }, onConflict: 'user_id');
       }
 
       debugPrint('User verification updated');
@@ -413,13 +408,9 @@ class AuthService {
 
       debugPrint('Checking verification status for user: ${user.id}');
 
-      final response = await supabase
-          .from('users')
-          .select('id_verified')
-          .eq('id', user.id)
-          .maybeSingle();
-
-      final isVerified = response?['id_verified'] as bool? ?? false;
+      final verificationState =
+          await VerificationService.getUserVerificationState(user.id);
+      final isVerified = verificationState['is_verified'] as bool? ?? false;
       debugPrint('User verification status: $isVerified');
       return isVerified;
     } on PostgrestException catch (e) {
@@ -528,6 +519,15 @@ class AuthService {
     try {
       debugPrint('Attempting signup for: $email');
 
+      final existingProfile = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+      if (existingProfile != null) {
+        throw const AuthException('User already registered');
+      }
+
       final response = await supabase.auth.signUp(
         email: email,
         password: password,
@@ -547,6 +547,18 @@ class AuthService {
           location: userMetadata['location'] as String?,
           role: userMetadata['role'] as String? ?? 'renter',
         );
+      }
+
+      if (response.session == null) {
+        try {
+          final loginResponse = await supabase.auth.signInWithPassword(
+            email: email,
+            password: password,
+          );
+          return loginResponse;
+        } catch (e) {
+          debugPrint('Auto-login after signup skipped: $e');
+        }
       }
 
       return response;
@@ -570,11 +582,17 @@ class AuthService {
   }) async {
     debugPrint('Creating/updating user profile for: $userId with role: $role');
 
-    try {
-      final payload = <String, dynamic>{
+    // Ensure fullName is never null (database constraint)
+    final safeName = fullName?.isNotEmpty == true
+        ? fullName
+        : email.split('@').first;
+
+    final payloadVariants = <Map<String, dynamic>>[
+      {
         'id': userId,
         'email': email,
-        'full_name': fullName,
+        'name': safeName,
+        'full_name': safeName,
         'phone': phone,
         'location': location,
         'id_verified': false,
@@ -583,65 +601,76 @@ class AuthService {
           'application_status': role == 'partner' || role == 'driver'
               ? 'basic'
               : 'none',
-      };
+      },
+      {
+        'id': userId,
+        'email': email,
+        'name': safeName,
+        'full_name': safeName,
+        'phone': phone,
+        'id_verified': false,
+        if (role != null && role.isNotEmpty) 'role': role,
+        if (role != null && role.isNotEmpty)
+          'application_status': role == 'partner' || role == 'driver'
+              ? 'basic'
+              : 'none',
+      },
+      {
+        'id': userId,
+        'email': email,
+        'name': safeName,
+        'full_name': safeName,
+        'id_verified': false,
+        if (role != null && role.isNotEmpty) 'role': role,
+        if (role != null && role.isNotEmpty)
+          'application_status': role == 'partner' || role == 'driver'
+              ? 'basic'
+              : 'none',
+      },
+      {
+        'id': userId,
+        'email': email,
+        'name': safeName,
+        'full_name': safeName,
+        'id_verified': false,
+        if (role != null && role.isNotEmpty) 'role': role,
+      },
+      {'id': userId, 'email': email, 'name': safeName, 'full_name': safeName},
+      {'id': userId, 'email': email, 'name': safeName},
+    ];
 
-      await supabase.from('users').upsert(payload);
-
-      if (role == 'partner') {
-        await _ensurePartnerProfileExists(userId);
-      }
-
-      if (role == 'driver') {
-        await _ensureDriverProfileExists(userId);
-      }
-
-      if (role == 'renter') {
-        await _ensureRenterProfileExists(userId);
-      }
-
-      debugPrint('User profile created/updated successfully (full schema)');
-      return;
-    } on PostgrestException catch (e) {
-      debugPrint('Primary profile upsert failed: ${e.message}');
-
-      // Fallback for schemas using `name` and without verification columns.
+    PostgrestException? lastSchemaError;
+    var profileSaved = false;
+    for (final payload in payloadVariants) {
       try {
-        final fallbackPayload = <String, dynamic>{
-          'id': userId,
-          'email': email,
-          'name': fullName,
-          'phone': phone,
-          if (role != null && role.isNotEmpty) 'role': role,
-        };
-
-        await supabase.from('users').upsert(fallbackPayload);
-
-        if (role == 'partner') {
-          await _ensurePartnerProfileExists(userId);
-        }
-
-        if (role == 'driver') {
-          await _ensureDriverProfileExists(userId);
-        }
-
-        if (role == 'renter') {
-          await _ensureRenterProfileExists(userId);
-        }
-
-        debugPrint(
-          'User profile created/updated successfully (fallback schema)',
-        );
-        return;
-      } on PostgrestException catch (fallbackError) {
-        debugPrint('Fallback profile upsert failed: ${fallbackError.message}');
-        throw Exception(
-          'Unable to create profile in public.users. '
-          'Primary error: ${e.message}. '
-          'Fallback error: ${fallbackError.message}. '
-          'Check public.users columns and RLS policies.',
-        );
+        await supabase.from('users').upsert(payload);
+        profileSaved = true;
+        break;
+      } on PostgrestException catch (e) {
+        lastSchemaError = e;
       }
     }
+
+    if (!profileSaved) {
+      throw lastSchemaError ??
+          PostgrestException(
+            message: 'Unable to create or update users profile',
+          );
+    }
+
+    if (role == 'partner') {
+      await _ensurePartnerProfileExists(userId);
+    }
+
+    if (role == 'driver') {
+      await _ensureDriverProfileExists(userId);
+    }
+
+    if (role == 'renter') {
+      await _ensureRenterProfileExists(userId);
+    }
+
+    debugPrint('User profile created/updated successfully');
   }
 
   // Sign in with Google OAuth

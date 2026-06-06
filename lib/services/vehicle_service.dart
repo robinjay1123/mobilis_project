@@ -9,9 +9,9 @@ class VehicleService {
   // NOTE: vehicle_images fetched separately, not joined here
   static const String _vehicleSelect =
       'id,brand,model,year,plate_number,price_per_day,price_per_hour,'
-      'category,vehicle_type,vehicle_name,description,color,location,'
-      'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'owner:owner_id(id,full_name,email,role)';
+      'category,vehicle_type,vehicle_name,description,color,fuel_type,'
+      'transmission,location,'
+      'latitude,longitude,seats,is_available,is_posted,status,owner_id';
 
   factory VehicleService() => _instance;
   VehicleService._internal();
@@ -73,9 +73,8 @@ class VehicleService {
 
     debugPrint('Vehicle ${merged['id']}: image=$primaryUrl');
 
-    // Compatibility shims
-    merged['transmission'] = merged['vehicle_type'] ?? 'Standard';
-    merged['fuel_type'] = merged['category'] ?? 'Standard';
+    merged['transmission'] = _cleanText(merged['transmission']) ?? 'Manual';
+    merged['fuel_type'] = _cleanText(merged['fuel_type']) ?? 'Gasoline';
 
     try {
       final ownerValue = merged['owner'];
@@ -92,10 +91,16 @@ class VehicleService {
   List<Map<String, dynamic>> _normalizeList(List<Map<String, dynamic>> list) =>
       list.map(_normalizeVehicleRecord).toList();
 
+  String? _cleanText(dynamic value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
   // ---------------------------------------------------------------------------
   // Visibility filter
   // ---------------------------------------------------------------------------
   bool _isVisibleForRent(Map<String, dynamic> v) {
+    if (v['is_posted'] != true) return false;
     if (v['is_available'] == false) return false;
     final status = (v['status'] ?? '').toString().toLowerCase();
     return status != 'inactive' && status != 'archived' && status != 'deleted';
@@ -234,6 +239,8 @@ class VehicleService {
   // ---------------------------------------------------------------------------
   Future<List<Map<String, dynamic>>> getAvailableVehicles({
     DateTime? date,
+    DateTime? availableFrom,
+    DateTime? availableTo,
     String? category,
   }) async {
     debugPrint('getAvailableVehicles: category=$category');
@@ -242,6 +249,8 @@ class VehicleService {
       final response = await supabase
           .from('vehicles')
           .select(_vehicleSelect)
+          .eq('is_posted', true)
+          .eq('is_available', true)
           .order('created_at', ascending: false);
 
       debugPrint('Raw rows returned: ${response.length}');
@@ -266,11 +275,16 @@ class VehicleService {
         vehicles,
       ).where(_isVisibleForRent).toList();
 
-      if (category == null || category.isEmpty) return normalized;
-
-      return normalized
-          .where((v) => _matchesCategory(_categoryOf(v), category))
-          .toList();
+      final categoryFiltered = category == null || category.isEmpty
+          ? normalized
+          : normalized
+                .where((v) => _matchesCategory(_categoryOf(v), category))
+                .toList();
+      return _filterVehiclesAvailableForRange(
+        categoryFiltered,
+        availableFrom ?? date,
+        availableTo ?? date,
+      );
     } on PostgrestException catch (e) {
       debugPrint('getAvailableVehicles error: ${e.message}');
       return [];
@@ -297,7 +311,11 @@ class VehicleService {
     String? category,
   }) async {
     try {
-      var query = supabase.from('vehicles').select(_vehicleSelect);
+      var query = supabase
+          .from('vehicles')
+          .select(_vehicleSelect)
+          .eq('is_posted', true)
+          .eq('is_available', true);
 
       if (brand != null && brand.isNotEmpty)
         query = query.ilike('brand', '%$brand%');
@@ -306,6 +324,9 @@ class VehicleService {
       if (minPrice != null) query = query.gte('price_per_day', minPrice);
       if (maxPrice != null) query = query.lte('price_per_day', maxPrice);
       if (color != null && color.isNotEmpty) query = query.eq('color', color);
+      if (fuelType != null && fuelType.isNotEmpty) {
+        query = query.eq('fuel_type', fuelType);
+      }
       if (minSeats != null) query = query.gte('seats', minSeats);
       if (location != null && location.isNotEmpty) {
         query = query.ilike('location', '%$location%');
@@ -333,10 +354,17 @@ class VehicleService {
         vehicles,
       ).where(_isVisibleForRent).toList();
 
-      if (category == null || category.isEmpty) return normalized;
-      return normalized
-          .where((v) => _matchesCategory(_categoryOf(v), category))
-          .toList();
+      final categoryFiltered = category == null || category.isEmpty
+          ? normalized
+          : normalized
+                .where((v) => _matchesCategory(_categoryOf(v), category))
+                .toList();
+
+      return _filterVehiclesAvailableForRange(
+        categoryFiltered,
+        availableFrom,
+        availableTo,
+      );
     } on PostgrestException catch (e) {
       debugPrint('searchVehicles error: ${e.message}');
       return [];
@@ -368,12 +396,51 @@ class VehicleService {
   Future<List<DateTime>> getUnavailableDates(String vehicleId) async {
     try {
       final availability = await getVehicleAvailability(vehicleId);
-      return availability
+      final unavailableDates = availability
           .where((r) => r['is_available'] == false)
           .map((r) => DateTime.parse(r['date'] as String))
           .toList();
+
+      final bookedDates = await getBookedDates(vehicleId);
+      final byDay = <String, DateTime>{};
+      for (final date in [...unavailableDates, ...bookedDates]) {
+        byDay[_dateKey(date)] = DateTime(date.year, date.month, date.day);
+      }
+      return byDay.values.toList()..sort();
     } catch (e) {
       debugPrint('getUnavailableDates error: $e');
+      return [];
+    }
+  }
+
+  Future<List<DateTime>> getBookedDates(String vehicleId) async {
+    try {
+      final response = await supabase
+          .from('bookings')
+          .select('start_at,end_at,start_date,end_date')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active']);
+
+      final dates = <String, DateTime>{};
+      for (final row in List<Map<String, dynamic>>.from(response)) {
+        final start = DateTime.tryParse(
+          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
+        )?.toLocal();
+        final end = DateTime.tryParse(
+          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
+        )?.toLocal();
+        if (start == null || end == null) continue;
+
+        var current = DateTime(start.year, start.month, start.day);
+        final last = DateTime(end.year, end.month, end.day);
+        while (!current.isAfter(last)) {
+          dates[_dateKey(current)] = current;
+          current = current.add(const Duration(days: 1));
+        }
+      }
+      return dates.values.toList()..sort();
+    } catch (e) {
+      debugPrint('getBookedDates error: $e');
       return [];
     }
   }
@@ -443,6 +510,58 @@ class VehicleService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> _filterVehiclesAvailableForRange(
+    List<Map<String, dynamic>> vehicles,
+    DateTime? availableFrom,
+    DateTime? availableTo,
+  ) async {
+    if (availableFrom == null && availableTo == null) return vehicles;
+    if (vehicles.isEmpty) return vehicles;
+
+    final startDay = availableFrom ?? availableTo!;
+    final endDay = availableTo ?? availableFrom!;
+    final rangeStart = DateTime(startDay.year, startDay.month, startDay.day);
+    final rangeEndExclusive = DateTime(
+      endDay.year,
+      endDay.month,
+      endDay.day,
+    ).add(const Duration(days: 1));
+
+    final vehicleIds = vehicles
+        .map((v) => v['id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (vehicleIds.isEmpty) return vehicles;
+
+    try {
+      final overlapping = await supabase
+          .from('bookings')
+          .select('vehicle_id')
+          .inFilter('vehicle_id', vehicleIds)
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          .lt('start_at', rangeEndExclusive.toUtc().toIso8601String())
+          .gt('end_at', rangeStart.toUtc().toIso8601String());
+
+      final bookedVehicleIds = List<Map<String, dynamic>>.from(
+        overlapping,
+      ).map((row) => row['vehicle_id']?.toString()).whereType<String>().toSet();
+
+      return vehicles
+          .where(
+            (vehicle) => !bookedVehicleIds.contains(vehicle['id']?.toString()),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('Date availability filter skipped: $e');
+      return vehicles;
+    }
+  }
+
+  String _dateKey(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
   // ---------------------------------------------------------------------------
   // VEHICLE CRUD
   // ---------------------------------------------------------------------------
@@ -457,6 +576,8 @@ class VehicleService {
     String? vehicleName,
     String? category,
     String? vehicleType,
+    String? fuelType,
+    String? transmission,
     String? description,
     String? color,
     String? location,
@@ -478,6 +599,8 @@ class VehicleService {
           'vehicle_name': vehicleName,
           'category': category,
           'vehicle_type': vehicleType,
+          'fuel_type': fuelType,
+          'transmission': transmission ?? 'Manual',
           'description': description,
           'color': color,
           'location': location,
@@ -505,6 +628,8 @@ class VehicleService {
     String? vehicleName,
     String? category,
     String? vehicleType,
+    String? fuelType,
+    String? transmission,
     String? description,
     String? color,
     String? location,
@@ -524,6 +649,8 @@ class VehicleService {
       if (vehicleName != null) 'vehicle_name': vehicleName,
       if (category != null) 'category': category,
       if (vehicleType != null) 'vehicle_type': vehicleType,
+      if (fuelType != null) 'fuel_type': fuelType,
+      if (transmission != null) 'transmission': transmission,
       if (description != null) 'description': description,
       if (color != null) 'color': color,
       if (location != null) 'location': location,

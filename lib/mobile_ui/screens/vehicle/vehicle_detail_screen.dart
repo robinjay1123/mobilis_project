@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/foundation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/verification_service.dart';
 import '../../../utils/locations.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final String vehicleId;
   final Map<String, dynamic>? vehicleData;
+  final DateTime? initialStartDate;
+  final DateTime? initialEndDate;
 
   const VehicleDetailScreen({
     super.key,
     required this.vehicleId,
     this.vehicleData,
+    this.initialStartDate,
+    this.initialEndDate,
   });
 
   @override
@@ -30,6 +33,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   DateTime? _selectedEndDate;
   List<DateTime> _unavailableDates = [];
   bool _withDriver = false;
+  TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _returnTime = const TimeOfDay(hour: 6, minute: 0);
 
   // Location selection state
   String? _pickupProvince;
@@ -44,6 +49,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedStartDate = widget.initialStartDate == null
+        ? null
+        : DateTime(
+            widget.initialStartDate!.year,
+            widget.initialStartDate!.month,
+            widget.initialStartDate!.day,
+          );
+    _selectedEndDate = widget.initialEndDate == null
+        ? _selectedStartDate
+        : DateTime(
+            widget.initialEndDate!.year,
+            widget.initialEndDate!.month,
+            widget.initialEndDate!.day,
+          );
     _loadVehicle();
   }
 
@@ -86,18 +105,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   Future<void> _selectDates() async {
     final now = DateTime.now();
-    final initialDate = now.add(const Duration(days: 1));
+    final firstDate = DateTime(now.year, now.month, now.day);
+    final initialDate = _firstAvailableDate(
+      _selectedStartDate ?? now.add(const Duration(days: 1)),
+    );
+    final initialEnd = _firstAvailableDate(
+      _selectedEndDate ?? initialDate.add(const Duration(days: 2)),
+      from: initialDate,
+    );
 
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
+      firstDate: firstDate,
+      lastDate: firstDate.add(const Duration(days: 365)),
       initialDateRange: _selectedStartDate != null && _selectedEndDate != null
           ? DateTimeRange(start: _selectedStartDate!, end: _selectedEndDate!)
-          : DateTimeRange(
-              start: initialDate,
-              end: initialDate.add(const Duration(days: 2)),
-            ),
+          : DateTimeRange(start: initialDate, end: initialEnd),
+      selectableDayPredicate: (date, selectedStart, selectedEnd) =>
+          !_isUnavailableDate(date),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -106,6 +131,71 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               onPrimary: Colors.black,
               surface: AppColors.darkBgSecondary,
               onSurface: AppColors.textPrimary,
+            ),
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: AppColors.darkBgSecondary,
+              surfaceTintColor: Colors.transparent,
+              headerBackgroundColor: AppColors.darkBg,
+              headerForegroundColor: AppColors.textPrimary,
+              rangePickerBackgroundColor: AppColors.darkBgSecondary,
+              rangePickerHeaderBackgroundColor: AppColors.darkBg,
+              rangePickerHeaderForegroundColor: AppColors.textPrimary,
+              rangePickerSurfaceTintColor: Colors.transparent,
+              dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return AppColors.textTertiary;
+                }
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.black;
+                }
+                return AppColors.textPrimary;
+              }),
+              dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return AppColors.primary;
+                }
+                return Colors.transparent;
+              }),
+              todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
+              todayBorder: const BorderSide(color: AppColors.primary),
+              yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return AppColors.textTertiary;
+                }
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.black;
+                }
+                return AppColors.textPrimary;
+              }),
+              yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return AppColors.primary;
+                }
+                return Colors.transparent;
+              }),
+            ),
+            dialogBackgroundColor: AppColors.darkBgSecondary,
+            scaffoldBackgroundColor: AppColors.darkBg,
+            textTheme: Theme.of(context).textTheme.apply(
+              bodyColor: AppColors.textPrimary,
+              displayColor: AppColors.textPrimary,
+            ),
+            inputDecorationTheme: const InputDecorationTheme(
+              filled: true,
+              fillColor: AppColors.darkBgTertiary,
+              labelStyle: TextStyle(color: AppColors.textSecondary),
+              hintStyle: TextStyle(color: AppColors.textTertiary),
+              helperStyle: TextStyle(color: AppColors.textSecondary),
+              errorStyle: TextStyle(color: AppColors.error),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: AppColors.primary),
+              ),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
             ),
           ),
           child: child!,
@@ -151,14 +241,84 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
-  int get _rentalDays {
-    if (_selectedStartDate == null || _selectedEndDate == null) return 0;
-    return _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
+  DateTime _firstAvailableDate(DateTime preferred, {DateTime? from}) {
+    final lowerBound = from == null
+        ? DateTime(
+            DateTime.now().year,
+            DateTime.now().month,
+            DateTime.now().day,
+          )
+        : DateTime(from.year, from.month, from.day);
+    var candidate = DateTime(preferred.year, preferred.month, preferred.day);
+    if (candidate.isBefore(lowerBound)) candidate = lowerBound;
+    for (var i = 0; i < 365; i++) {
+      if (!_isUnavailableDate(candidate)) return candidate;
+      candidate = candidate.add(const Duration(days: 1));
+    }
+    return lowerBound;
+  }
+
+  bool _isUnavailableDate(DateTime date) {
+    return _unavailableDates.any(
+      (d) => d.year == date.year && d.month == date.month && d.day == date.day,
+    );
+  }
+
+  DateTime? get _startAtLocal {
+    final d = _selectedStartDate;
+    if (d == null) return null;
+    return DateTime(d.year, d.month, d.day, _startTime.hour, _startTime.minute);
+  }
+
+  DateTime? get _endAtLocal {
+    final d = _selectedEndDate;
+    if (d == null) return null;
+    return DateTime(
+      d.year,
+      d.month,
+      d.day,
+      _returnTime.hour,
+      _returnTime.minute,
+    );
+  }
+
+  Duration get _rentalDuration {
+    final start = _startAtLocal;
+    final end = _endAtLocal;
+    if (start == null || end == null) return Duration.zero;
+    final diff = end.difference(start);
+    return diff.isNegative ? Duration.zero : diff;
+  }
+
+  int get _billableHours {
+    final minutes = _rentalDuration.inMinutes;
+    if (minutes <= 0) return 0;
+    return (minutes / 60).ceil();
   }
 
   double get _totalPrice {
+    final pricePerHour =
+        (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+    if (pricePerHour > 0) return pricePerHour * _billableHours;
+
     final pricePerDay = (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-    return pricePerDay * _rentalDays;
+    final days = _selectedStartDate == null || _selectedEndDate == null
+        ? 0
+        : _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
+    return pricePerDay * (days < 0 ? 0 : days);
+  }
+
+  Future<void> _selectTime({required bool isStartTime}) async {
+    final initial = isStartTime ? _startTime : _returnTime;
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked == null) return;
+    setState(() {
+      if (isStartTime) {
+        _startTime = picked;
+      } else {
+        _returnTime = picked;
+      }
+    });
   }
 
   Future<void> _handleBooking() async {
@@ -172,15 +332,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
     // Get user role from database
     try {
-      final supabase = Supabase.instance.client;
-      final resp = await supabase
-          .from('users')
-          .select('role, id_verified')
-          .eq('id', user.id)
-          .maybeSingle();
-
-      final userRole = (resp?['role'] ?? 'renter').toString().toLowerCase();
-      final isVerified = resp?['id_verified'] as bool? ?? false;
+      final verificationState =
+          await VerificationService.getUserVerificationState(user.id);
+      final userRole = verificationState['role']?.toString() ?? 'renter';
+      final isVerified = verificationState['is_verified'] as bool? ?? false;
 
       // ✅ Skip verification requirement for drivers
       if (userRole == 'driver') {
@@ -255,6 +410,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    final startAtLocal = _startAtLocal;
+    final endAtLocal = _endAtLocal;
+    if (startAtLocal == null || endAtLocal == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select booking times'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (!endAtLocal.isAfter(startAtLocal)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Return time must be after start time'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isBooking = true;
     });
@@ -268,8 +445,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       await BookingService().createBooking(
         renterId: currentUser.id,
         vehicleId: widget.vehicleId,
-        startDate: _selectedStartDate!,
-        endDate: _selectedEndDate!,
+        startAt: startAtLocal.toUtc(),
+        endAt: endAtLocal.toUtc(),
         totalPrice: _totalPrice,
         withDriver: _withDriver,
         pickupLocation: _getPickupLocation(),
@@ -326,7 +503,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     children: [
                       _buildSummaryRow(
                         'Duration',
-                        '$_rentalDays day${_rentalDays > 1 ? 's' : ''}',
+                        '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
                       ),
                       const SizedBox(height: 8),
                       _buildSummaryRow(
@@ -362,11 +539,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final message = e.toString().toLowerCase().contains('unavailable')
+            ? 'Selected dates are unavailable for bookings'
+            : 'Error creating booking: $e';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error creating booking: $e'),
-            backgroundColor: AppColors.error,
-          ),
+          SnackBar(content: Text(message), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -475,10 +652,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final year = _vehicle!['year']?.toString() ?? '';
     final category = _vehicle!['category'] ?? 'Standard';
     final pricePerDay = (_vehicle!['price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final pricePerHour =
+        (_vehicle!['price_per_hour'] as num?)?.toDouble() ?? 0.0;
     final vehicleType = _vehicle!['vehicle_type'] ?? 'Standard';
     final color = _vehicle!['color'] ?? 'Unknown';
     final seats = _vehicle!['seats'] ?? 5;
     final transmission = _vehicle!['transmission'] ?? 'Manual';
+    final plateNumber = _vehicle!['plate_number'] ?? 'N/A';
+    final fuelType = _vehicle!['fuel_type'] ?? 'Gasoline';
     final description = _vehicle!['description'] ?? 'No description available.';
     final imageUrl = _vehicle!['image_url'] as String?;
 
@@ -581,15 +762,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Price per day',
-                          style: TextStyle(
+                        Text(
+                          pricePerHour > 0 ? 'Price per hour' : 'Price per day',
+                          style: const TextStyle(
                             fontSize: 14,
                             color: AppColors.textSecondary,
                           ),
                         ),
                         Text(
-                          '₱${pricePerDay.toStringAsFixed(2)}',
+                          '₱${(pricePerHour > 0 ? pricePerHour : pricePerDay).toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -637,6 +818,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           Icons.settings_outlined,
                           'Transmission',
                           transmission.toString(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSpecCard(
+                          Icons.confirmation_number_outlined,
+                          'Plate No.',
+                          plateNumber.toString(),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildSpecCard(
+                          Icons.local_gas_station_outlined,
+                          'Fuel Type',
+                          fuelType.toString(),
                         ),
                       ),
                     ],
@@ -715,7 +916,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 ),
                                 if (_selectedStartDate != null)
                                   Text(
-                                    '$_rentalDays day${_rentalDays > 1 ? 's' : ''}',
+                                    '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: AppColors.primary,
@@ -895,6 +1096,128 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
                   const SizedBox(height: 24),
 
+                  if (_selectedStartDate != null &&
+                      _selectedEndDate != null) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _selectTime(isStartTime: true),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.darkBgSecondary,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.borderColor,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.schedule,
+                                      color: AppColors.primary,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Start time',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _startTime.format(context),
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _selectTime(isStartTime: false),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.darkBgSecondary,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.borderColor,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.schedule_outlined,
+                                      color: AppColors.primary,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Return time',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _returnTime.format(context),
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
                   // Cost breakdown (if dates selected)
                   if (_selectedStartDate != null && _selectedEndDate != null)
                     Container(
@@ -907,13 +1230,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       child: Column(
                         children: [
                           _buildSummaryRow(
-                            'Daily rate',
-                            '₱${pricePerDay.toStringAsFixed(2)}',
+                            ((_vehicle?['price_per_hour'] as num?)
+                                            ?.toDouble() ??
+                                        0.0) >
+                                    0
+                                ? 'Hourly rate'
+                                : 'Daily rate',
+                            ((_vehicle?['price_per_hour'] as num?)
+                                            ?.toDouble() ??
+                                        0.0) >
+                                    0
+                                ? '₱${((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}'
+                                : '₱${pricePerDay.toStringAsFixed(2)}',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
                             'Duration',
-                            '$_rentalDays day${_rentalDays > 1 ? 's' : ''}',
+                            ((_vehicle?['price_per_hour'] as num?)
+                                            ?.toDouble() ??
+                                        0.0) >
+                                    0
+                                ? '$_billableHours hour${_billableHours == 1 ? '' : 's'}'
+                                : '${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1)} day${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1) == 1 ? '' : 's'}',
                           ),
                           const Divider(
                             color: AppColors.borderColor,

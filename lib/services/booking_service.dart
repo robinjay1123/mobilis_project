@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
-import 'auto_message_service.dart';
+import 'chat_service.dart';
+import 'notification_service.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -97,7 +98,34 @@ class BookingService {
 
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*)')
+          .select('''
+            id,
+            renter_id,
+            vehicle_id,
+            driver_id,
+            status,
+            start_at,
+            end_at,
+            start_date,
+            end_date,
+            total_price,
+            total_cost,
+            with_driver,
+            pickup_location,
+            dropoff_location,
+            created_at,
+            vehicles:vehicle_id (
+              id,
+              brand,
+              model,
+              year,
+              owner_id,
+              vehicle_name,
+              rating,
+              price_per_day,
+              vehicle_images(image_url, display_order)
+            )
+          ''')
           .eq('renter_id', userId)
           .order('created_at', ascending: false);
 
@@ -138,8 +166,8 @@ class BookingService {
   Future<Map<String, dynamic>> createBooking({
     required String renterId,
     required String vehicleId,
-    required DateTime startDate,
-    required DateTime endDate,
+    required DateTime startAt,
+    required DateTime endAt,
     required double totalPrice,
     bool withDriver = false,
     String? pickupLocation,
@@ -148,13 +176,39 @@ class BookingService {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
 
+      final overlappingBookings = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          // Half-open overlap rule:
+          // overlap if new_start < existing_end AND new_end > existing_start
+          .lt('start_at', endAt.toIso8601String())
+          .gt('end_at', startAt.toIso8601String())
+          .limit(1);
+
+      if (overlappingBookings.isNotEmpty) {
+        throw Exception('Selected dates are unavailable for bookings');
+      }
+
       final response = await supabase
           .from('bookings')
           .insert({
             'renter_id': renterId,
             'vehicle_id': vehicleId,
-            'start_date': startDate.toIso8601String(),
-            'end_date': endDate.toIso8601String(),
+            'start_at': startAt.toIso8601String(),
+            'end_at': endAt.toIso8601String(),
+            // Keep legacy fields for existing screens/queries (date-only intent).
+            'start_date': DateTime(
+              startAt.toLocal().year,
+              startAt.toLocal().month,
+              startAt.toLocal().day,
+            ).toIso8601String(),
+            'end_date': DateTime(
+              endAt.toLocal().year,
+              endAt.toLocal().month,
+              endAt.toLocal().day,
+            ).toIso8601String(),
             'total_price': totalPrice,
             'with_driver': withDriver,
             'pickup_location': pickupLocation,
@@ -165,10 +219,29 @@ class BookingService {
           .select()
           .single();
 
+      try {
+        final bookingId = response['id']?.toString();
+        if (bookingId != null && bookingId.isNotEmpty) {
+          final createdBooking = await getBookingById(bookingId) ?? response;
+          final vehicle = createdBooking['vehicles'] as Map<String, dynamic>?;
+          final vehicleTitle = _vehicleTitle(vehicle);
+          await _ensureBookingGroupChatAndSummary(
+            booking: createdBooking,
+            vehicleTitle: vehicleTitle,
+            summaryTitle: 'Booking Request Created',
+          );
+        }
+      } catch (e) {
+        debugPrint('Booking created but conversation setup failed: $e');
+      }
+
       debugPrint('Booking created successfully');
       return response;
     } on PostgrestException catch (e) {
       debugPrint('Database error creating booking: ${e.message}');
+      if (e.message.toLowerCase().contains('unavailable')) {
+        throw Exception('Selected dates are unavailable for bookings');
+      }
       rethrow;
     } catch (e) {
       debugPrint('Unexpected error creating booking: $e');
@@ -185,6 +258,28 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) {
         throw Exception('Booking not found: $bookingId');
+      }
+
+      if (status == 'cancelled') {
+        final currentStatus =
+            booking['status']?.toString().trim().toLowerCase() ?? '';
+        if (currentStatus != 'pending') {
+          throw Exception('Only pending bookings can be cancelled');
+        }
+
+        final createdAtStr = booking['created_at']?.toString();
+        final createdAt = createdAtStr == null
+            ? null
+            : DateTime.tryParse(createdAtStr);
+        if (createdAt == null) {
+          throw Exception('Booking cancellation window could not be verified');
+        }
+
+        if (DateTime.now().isAfter(createdAt.add(const Duration(hours: 24)))) {
+          throw Exception(
+            'Cancellation window has passed. Pending bookings can only be cancelled within 24 hours.',
+          );
+        }
       }
 
       await supabase
@@ -268,37 +363,18 @@ class BookingService {
         }
       }
 
-      // Create auto-message once booking is accepted by operator/owner.
+      // Create booking group chat + summary once booking is accepted.
       if ((status == 'confirmed' || status == 'approved') &&
           booking['conversation_created'] != true) {
         try {
-          debugPrint(
-            'Creating auto-message conversation for booking: $bookingId',
-          );
-
-          final result = await AutoMessageService.createBookingConversation(
-            bookingId: bookingId,
-            renterId: booking['renter_id'] as String,
-            recipientId:
-                booking['partner_id'] as String? ??
-                vehicle?['owner_id'] as String? ??
-                '',
+          await _ensureBookingGroupChatAndSummary(
+            booking: booking,
             vehicleTitle: vehicleTitle,
-            pickupDate: booking['start_date']?.toString() ?? '',
-            dropoffDate: booking['end_date']?.toString() ?? '',
+            summaryTitle:
+                'Booking ${status == 'approved' ? 'Approved' : 'Confirmed'}',
           );
-
-          if (result['success'] == true) {
-            // Mark conversation as created
-            await supabase
-                .from('bookings')
-                .update({'conversation_created': true})
-                .eq('id', bookingId);
-            debugPrint('Auto-message conversation created and marked');
-          }
         } catch (e) {
-          debugPrint('Error creating auto-message conversation: $e');
-          // Don't fail the booking update if auto-message fails
+          debugPrint('Error creating booking group chat summary: $e');
         }
       }
     } on PostgrestException catch (e) {
@@ -398,7 +474,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users(full_name, email, phone)',
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users(full_name, email, phone)',
           )
           .eq('status', 'pending')
           .order('created_at', ascending: false);
@@ -511,35 +587,90 @@ class BookingService {
         throw Exception('Booking not found');
       }
 
-      if (booking['with_driver'] != true) {
-        throw Exception(
-          'Driver assignment is only allowed for with-driver bookings',
-        );
-      }
-
-      final driver = await supabase
-          .from('users')
-          .select('id, role, is_available, full_name')
-          .eq('id', driverId)
-          .maybeSingle();
-
-      if (driver == null || (driver['role'] as String?) != 'driver') {
+      final driver = await _getDriverAssignmentTarget(driverId);
+      if (driver == null) {
         throw Exception('Selected user is not a valid driver');
       }
 
-      if (driver['is_available'] == false) {
+      if (_isExplicitlyUnavailable(driver['is_available'])) {
         throw Exception('Selected driver is not available');
       }
 
-      // Update booking with driver
+      final driverProfileId = driver['driver_id']?.toString();
+      final driverUserId = driver['user_id']?.toString();
+      if (driverProfileId == null ||
+          driverProfileId.isEmpty ||
+          driverUserId == null ||
+          driverUserId.isEmpty) {
+        throw Exception('Selected driver is missing profile linkage');
+      }
+
+      final currentStatus =
+          booking['status']?.toString().trim().toLowerCase() ?? '';
+
+      // Update booking with driver. If a partner assigns directly from a
+      // pending request, make it visible as an approved assigned trip.
+      final updatePayload = <String, dynamic>{
+        'driver_id': driverProfileId,
+        'with_driver': true,
+        'driver_assigned_at': DateTime.now().toIso8601String(),
+        if (currentStatus == 'pending') 'status': 'approved',
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+
+      try {
+        await supabase.from('driver_job_assignments').insert({
+          'booking_id': bookingId,
+          'driver_id': driverProfileId,
+          'trip_fee': tripFee,
+          'status': 'assigned',
+          'assigned_at': DateTime.now().toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Driver assignment job record skipped: $e');
+      }
+
       await supabase
-          .from('bookings')
-          .update({
-            'driver_id': driverId,
-            'trip_fee': tripFee,
-            'driver_assigned_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+          .from('users')
+          .update({'is_available': false})
+          .eq('id', driverUserId);
+
+      try {
+        final currentUserId = supabase.auth.currentUser?.id;
+        await ChatService().addParticipantsToBookingConversation(
+          bookingId: bookingId,
+          participantIds: [
+            driverUserId,
+            if (currentUserId != null && currentUserId.isNotEmpty)
+              currentUserId,
+          ],
+        );
+
+        final bookingAfterAssign = await getBookingById(bookingId);
+        if (bookingAfterAssign != null) {
+          final chatSenderId =
+              currentUserId ??
+              bookingAfterAssign['renter_id']?.toString() ??
+              driverUserId;
+          final renter = bookingAfterAssign['users'] as Map<String, dynamic>?;
+          final renterName = renter?['full_name']?.toString() ?? 'Renter';
+          final driverName = driver['full_name']?.toString() ?? 'Driver';
+          final driverMessage =
+              'Driver assigned: $driverName\n'
+              'Renter: $renterName (${bookingAfterAssign['renter_id'] ?? 'n/a'})\n'
+              'Pickup: ${bookingAfterAssign['pickup_location'] ?? 'N/A'}\n'
+              'Drop-off: ${bookingAfterAssign['dropoff_location'] ?? 'N/A'}';
+          await _sendBookingGroupMessage(
+            bookingId: bookingId,
+            senderId: chatSenderId,
+            content: driverMessage,
+          );
+        }
+      } catch (e) {
+        debugPrint('Could not add driver to group chat: $e');
+      }
 
       debugPrint('Driver assigned to booking');
 
@@ -553,7 +684,7 @@ class BookingService {
           'type': 'booking',
           'data': {
             'booking_id': bookingId,
-            'driver_id': driverId,
+            'driver_id': driverUserId,
             'action': 'driver_assigned',
           },
           'created_at': DateTime.now().toIso8601String(),
@@ -562,6 +693,38 @@ class BookingService {
         debugPrint('✅ Driver assignment notification sent to renter');
       } catch (e) {
         debugPrint('⚠️ Error sending driver assignment notification: $e');
+      }
+
+      // ✅ Notify the assigned driver with booking + renter details
+      try {
+        final bookingDetails = await getBookingById(bookingId);
+        final renter = bookingDetails?['users'] as Map<String, dynamic>?;
+        final renterName = renter?['full_name']?.toString() ?? 'Renter';
+        final renterPhone = renter?['phone']?.toString() ?? '';
+        await supabase.from('notifications').insert({
+          'user_id': driverUserId,
+          'title': '🧾 New Driver Job Assigned',
+          'message':
+              'You have a new assigned booking. Renter: $renterName${renterPhone.isNotEmpty ? " • $renterPhone" : ""}',
+          'type': 'driver_assignment',
+          'data': {
+            'booking_id': bookingId,
+            'renter_id': booking['renter_id'],
+            'renter_name': renterName,
+            'renter_phone': renterPhone,
+            'pickup_location': bookingDetails?['pickup_location'],
+            'dropoff_location': bookingDetails?['dropoff_location'],
+            'start_date': bookingDetails?['start_date'],
+            'end_date': bookingDetails?['end_date'],
+            'start_at': bookingDetails?['start_at'],
+            'end_at': bookingDetails?['end_at'],
+            'trip_fee': tripFee,
+          },
+          'created_at': DateTime.now().toIso8601String(),
+        });
+        debugPrint('✅ Driver assignment notification sent to driver');
+      } catch (e) {
+        debugPrint('⚠️ Error sending driver notification: $e');
       }
     } on PostgrestException catch (e) {
       debugPrint('Database error assigning driver: ${e.message}');
@@ -578,11 +741,7 @@ class BookingService {
       debugPrint('Unassigning driver from booking: $bookingId');
       await supabase
           .from('bookings')
-          .update({
-            'driver_id': null,
-            'trip_fee': null,
-            'driver_assigned_at': null,
-          })
+          .update({'driver_id': null, 'driver_assigned_at': null})
           .eq('id', bookingId);
 
       debugPrint('Driver unassigned from booking');
@@ -593,6 +752,613 @@ class BookingService {
       debugPrint('Error unassigning driver: $e');
       rethrow;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getAvailableVerifiedDrivers() async {
+    try {
+      final response = await supabase
+          .from('drivers')
+          .select(
+            'id, user_id, verification_status, driver_tier, users!drivers_user_id_fkey(id, full_name, email, role, is_available, id_verified, verification_status)',
+          );
+
+      final drivers = List<Map<String, dynamic>>.from(response).where((driver) {
+        final user = driver['users'] as Map<String, dynamic>?;
+        if (user == null) return false;
+
+        final role = user['role']?.toString().trim().toLowerCase() ?? '';
+        if (role.isNotEmpty && role != 'driver') return false;
+
+        final isAvailable = user['is_available'] == true;
+        final isVerified =
+            _isVerifiedDriverStatus(driver['verification_status']) ||
+            _isVerifiedDriverStatus(user['verification_status']) ||
+            user['id_verified'] == true;
+
+        return isAvailable && isVerified;
+      }).toList();
+
+      drivers.sort((a, b) {
+        final aUser = a['users'] as Map<String, dynamic>?;
+        final bUser = b['users'] as Map<String, dynamic>?;
+        final aName = aUser?['full_name']?.toString() ?? '';
+        final bName = bUser?['full_name']?.toString() ?? '';
+        return aName.compareTo(bName);
+      });
+
+      return drivers;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching available drivers: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching available drivers: $e');
+      return [];
+    }
+  }
+
+  /// Mark a confirmed booking as picked up and active.
+  Future<void> markBookingPickedUp(String bookingId) async {
+    try {
+      debugPrint('Marking booking picked up: $bookingId');
+
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
+      final status = (booking['status'] as String? ?? '').toLowerCase();
+      if (status != 'confirmed' && status != 'approved') {
+        throw Exception('Only confirmed bookings can be marked as picked up');
+      }
+
+      final currentUserId = supabase.auth.currentUser?.id;
+      final assignedDriverId = booking['driver_id']?.toString();
+      final withDriver = booking['with_driver'] == true;
+      if (!withDriver) {
+        throw Exception(
+          'Pickup updates are only allowed for with-driver bookings',
+        );
+      }
+      final currentDriverProfileId = currentUserId == null
+          ? null
+          : await _getDriverProfileIdForUser(currentUserId);
+      if (currentUserId == null ||
+          assignedDriverId == null ||
+          currentDriverProfileId == null ||
+          assignedDriverId != currentDriverProfileId) {
+        throw Exception('Only the assigned driver can mark pickup time');
+      }
+
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'active',
+            'picked_up_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      try {
+        await supabase
+            .from('driver_job_assignments')
+            .update({
+              'status': 'in_progress',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('booking_id', bookingId)
+            .eq('driver_id', currentDriverProfileId);
+      } catch (e) {
+        debugPrint('Could not update assignment status to in_progress: $e');
+      }
+
+      await _notifyOperatorsForBooking(
+        booking,
+        title: 'Unit Picked Up',
+        message: 'The driver marked the unit as picked up.',
+        action: 'picked_up',
+      );
+
+      debugPrint('Booking marked as active');
+    } on PostgrestException catch (e) {
+      debugPrint('Database error marking pickup: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error marking pickup: $e');
+      rethrow;
+    }
+  }
+
+  /// Complete a returned booking and recalculate the total from the actual
+  /// return date when it differs from the scheduled end date.
+  Future<double> completeBookingReturn({
+    required String bookingId,
+    required DateTime returnedAt,
+  }) async {
+    try {
+      debugPrint('Completing returned booking: $bookingId');
+
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        throw Exception('Booking not found: $bookingId');
+      }
+
+      final status = (booking['status'] as String? ?? '').toLowerCase();
+      if (status != 'active' && status != 'confirmed' && status != 'approved') {
+        throw Exception('Only confirmed or active bookings can be returned');
+      }
+
+      final currentUserId = supabase.auth.currentUser?.id;
+      final assignedDriverId = booking['driver_id']?.toString();
+      final withDriver = booking['with_driver'] == true;
+      if (!withDriver) {
+        throw Exception(
+          'Return updates are only allowed for with-driver bookings',
+        );
+      }
+      final currentDriverProfileId = currentUserId == null
+          ? null
+          : await _getDriverProfileIdForUser(currentUserId);
+      if (currentUserId == null ||
+          assignedDriverId == null ||
+          currentDriverProfileId == null ||
+          assignedDriverId != currentDriverProfileId) {
+        throw Exception('Only the assigned driver can mark return time');
+      }
+
+      final startDate = DateTime.tryParse(
+        booking['start_date']?.toString() ?? '',
+      );
+      final scheduledEndDate = DateTime.tryParse(
+        booking['end_date']?.toString() ?? '',
+      );
+      if (startDate == null || scheduledEndDate == null) {
+        throw Exception('Booking dates are incomplete');
+      }
+
+      final originalTotal =
+          (booking['total_price'] as num?)?.toDouble() ??
+          (booking['total_cost'] as num?)?.toDouble() ??
+          0.0;
+      final bookedDays = _inclusiveRentalDays(startDate, scheduledEndDate);
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final dailyRate =
+          _asDouble(vehicle?['price_per_day']) ??
+          (bookedDays > 0 ? originalTotal / bookedDays : originalTotal);
+      final actualDays = _inclusiveRentalDays(startDate, returnedAt);
+      final recalculatedTotal = actualDays == bookedDays
+          ? originalTotal
+          : dailyRate * actualDays;
+
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'completed',
+            'returned_at': returnedAt.toIso8601String(),
+            'completed_at': DateTime.now().toIso8601String(),
+            'total_price': recalculatedTotal,
+            'total_cost': recalculatedTotal,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      final driverId = booking['driver_id']?.toString();
+      final driverUserId = driverId == null || driverId.isEmpty
+          ? null
+          : await _getDriverUserIdForProfile(driverId);
+      if (driverUserId != null && driverUserId.isNotEmpty) {
+        await supabase
+            .from('users')
+            .update({'is_available': true})
+            .eq('id', driverUserId);
+      }
+
+      try {
+        await supabase
+            .from('driver_job_assignments')
+            .update({
+              'status': 'completed',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('booking_id', bookingId)
+            .eq('driver_id', currentDriverProfileId);
+      } catch (e) {
+        debugPrint('Could not update assignment status to completed: $e');
+      }
+
+      await _notifyOperatorsForBooking(
+        booking,
+        title: 'Unit Returned',
+        message:
+            'The driver marked the unit as returned. Final total: PHP ${recalculatedTotal.toStringAsFixed(0)}.',
+        action: 'returned',
+      );
+
+      try {
+        await ChatService().closeConversation(bookingId);
+      } catch (e) {
+        debugPrint('Could not close booking conversation: $e');
+      }
+
+      debugPrint('Booking completed with total: $recalculatedTotal');
+      return recalculatedTotal;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error completing return: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Error completing return: $e');
+      rethrow;
+    }
+  }
+
+  int _inclusiveRentalDays(DateTime startDate, DateTime endDate) {
+    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+    final endDay = DateTime(endDate.year, endDate.month, endDate.day);
+    final calendarDays = endDay.difference(startDay).inDays + 1;
+    return calendarDays < 1 ? 1 : calendarDays;
+  }
+
+  double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  bool _isExplicitlyUnavailable(dynamic value) {
+    if (value is bool) return value == false;
+    if (value is String) return value.toLowerCase() == 'false';
+    return false;
+  }
+
+  bool _isVerifiedDriverStatus(dynamic value) {
+    final status = value?.toString().trim().toLowerCase() ?? '';
+    return status == 'verified' ||
+        status == 'approved' ||
+        status == 'certified';
+  }
+
+  Future<Map<String, dynamic>?> _getDriverAssignmentTarget(
+    String driverIdOrUserId,
+  ) async {
+    Map<String, dynamic>? driver = await supabase
+        .from('drivers')
+        .select(
+          'id, user_id, verification_status, users!drivers_user_id_fkey(id, full_name, role, is_available)',
+        )
+        .eq('id', driverIdOrUserId)
+        .maybeSingle();
+
+    driver ??= await supabase
+        .from('drivers')
+        .select(
+          'id, user_id, verification_status, users!drivers_user_id_fkey(id, full_name, role, is_available)',
+        )
+        .eq('user_id', driverIdOrUserId)
+        .maybeSingle();
+
+    if (driver == null) return null;
+
+    final user = driver['users'] as Map<String, dynamic>?;
+    final role = user?['role']?.toString().toLowerCase();
+    if (role != 'driver') return null;
+
+    return {
+      'driver_id': driver['id'],
+      'user_id': driver['user_id'],
+      'verification_status': driver['verification_status'],
+      'full_name': user?['full_name'],
+      'is_available': user?['is_available'],
+    };
+  }
+
+  Future<String?> _getDriverProfileIdForUser(String userId) async {
+    final driver = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+    return driver?['id']?.toString();
+  }
+
+  Future<String?> _getDriverUserIdForProfile(String driverProfileId) async {
+    final driver = await supabase
+        .from('drivers')
+        .select('user_id')
+        .eq('id', driverProfileId)
+        .maybeSingle();
+    return driver?['user_id']?.toString();
+  }
+
+  Future<void> _notifyOperatorsForBooking(
+    Map<String, dynamic> booking, {
+    required String title,
+    required String message,
+    required String action,
+  }) async {
+    final operatorIds = <String>{};
+    final operatorId = booking['operator_id']?.toString();
+    if (operatorId != null && operatorId.isNotEmpty) {
+      operatorIds.add(operatorId);
+    }
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleOperatorId = vehicle?['operator_id']?.toString();
+    if (vehicleOperatorId != null && vehicleOperatorId.isNotEmpty) {
+      operatorIds.add(vehicleOperatorId);
+    }
+
+    if (operatorIds.isEmpty) {
+      final operators = await supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'operator')
+          .limit(20);
+      for (final operator in List<Map<String, dynamic>>.from(operators)) {
+        final id = operator['id']?.toString();
+        if (id != null && id.isNotEmpty) operatorIds.add(id);
+      }
+    }
+
+    for (final id in operatorIds) {
+      try {
+        await NotificationService().createNotification(
+          userId: id,
+          title: title,
+          message: message,
+          type: 'booking_driver_update',
+          data: {
+            'booking_id': booking['id'],
+            'vehicle_id': booking['vehicle_id'],
+            'driver_id': booking['driver_id'],
+            'action': action,
+          },
+        );
+      } catch (e) {
+        debugPrint('Could not notify operator $id: $e');
+      }
+    }
+  }
+
+  Future<void> _ensureBookingGroupChatAndSummary({
+    required Map<String, dynamic> booking,
+    required String vehicleTitle,
+    String summaryTitle = 'Booking Details',
+  }) async {
+    final bookingId = booking['id']?.toString();
+    final renterId = booking['renter_id']?.toString();
+    if (bookingId == null ||
+        bookingId.isEmpty ||
+        renterId == null ||
+        renterId.isEmpty) {
+      return;
+    }
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final ownerId = vehicle?['owner_id']?.toString();
+    final operatorId =
+        booking['operator_id']?.toString() ??
+        vehicle?['operator_id']?.toString() ??
+        await _getDefaultOperatorId();
+    final driverId = booking['driver_id']?.toString();
+    final driverUserId = driverId == null || driverId.isEmpty
+        ? null
+        : await _getDriverUserIdForProfile(driverId);
+    final currentUserId = supabase.auth.currentUser?.id;
+    final participantIds = <String>{renterId};
+    if (ownerId != null && ownerId.isNotEmpty) participantIds.add(ownerId);
+    if (operatorId != null && operatorId.isNotEmpty) {
+      participantIds.add(operatorId);
+    }
+    if (currentUserId != null && currentUserId.isNotEmpty) {
+      participantIds.add(currentUserId);
+    }
+    if (driverUserId != null && driverUserId.isNotEmpty) {
+      participantIds.add(driverUserId);
+    }
+
+    final conversation = await ChatService().createGroupConversation(
+      bookingId: bookingId,
+      participantIds: participantIds.toList(),
+    );
+
+    final hasSummary = await _conversationHasBookingSummary(
+      conversation['id'] as String,
+    );
+    if (hasSummary) {
+      await supabase
+          .from('bookings')
+          .update({'conversation_created': true})
+          .eq('id', bookingId);
+      return;
+    }
+
+    final startLabel = _formatBookingDateTime(
+      booking['start_at']?.toString() ?? booking['start_date']?.toString(),
+    );
+    final endLabel = _formatBookingDateTime(
+      booking['end_at']?.toString() ?? booking['end_date']?.toString(),
+    );
+    final total =
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0.0;
+    final withDriver = booking['with_driver'] == true ? 'Yes' : 'No';
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final renterLabel = _partyLabel(
+      renter,
+      fallbackName: 'Renter',
+      fallbackId: renterId,
+    );
+    final partner = ownerId == null || ownerId.isEmpty
+        ? null
+        : await _getUserById(ownerId);
+    final partnerLabel = _partyLabel(
+      partner,
+      fallbackName: 'Partner/Owner',
+      fallbackId: ownerId ?? 'N/A',
+    );
+    final operator = operatorId == null || operatorId.isEmpty
+        ? null
+        : await _getUserById(operatorId);
+    final operatorLabel = operator == null
+        ? 'Not assigned yet'
+        : _partyLabel(
+            operator,
+            fallbackName: 'Operator',
+            fallbackId: operatorId ?? 'N/A',
+          );
+    final driver = driverUserId == null || driverUserId.isEmpty
+        ? null
+        : await _getUserById(driverUserId);
+    final driverLabel = booking['with_driver'] == true
+        ? (driver == null
+              ? 'Requested, waiting for operator assignment'
+              : _partyLabel(
+                  driver,
+                  fallbackName: 'Driver',
+                  fallbackId: driverUserId ?? 'N/A',
+                ))
+        : 'Not requested';
+    final plateNumber = vehicle?['plate_number']?.toString();
+    final summaryLines = <String>[
+      summaryTitle,
+      'Vehicle: $vehicleTitle',
+      if (plateNumber != null && plateNumber.isNotEmpty)
+        'Plate Number: $plateNumber',
+      'Booking ID: $bookingId',
+      'Status: ${booking['status'] ?? 'pending'}',
+      'Schedule: $startLabel -> $endLabel',
+      'Total: PHP ${total.toStringAsFixed(0)}',
+      'With Driver: $withDriver',
+      'Renter: $renterLabel',
+      'Partner/Owner: $partnerLabel',
+      'Operator: $operatorLabel',
+      'Driver: $driverLabel',
+      'Pickup: ${booking['pickup_location'] ?? 'N/A'}',
+      'Drop-off: ${booking['dropoff_location'] ?? 'N/A'}',
+      '',
+      'Use this conversation for booking coordination and keep updates inside the app.',
+    ];
+    final summaryMessage = summaryLines.join('\n');
+
+    final senderId = currentUserId ?? renterId;
+    await ChatService().sendMessage(
+      conversationId: conversation['id'] as String,
+      senderId: senderId,
+      content: summaryMessage,
+    );
+
+    await supabase
+        .from('bookings')
+        .update({'conversation_created': true})
+        .eq('id', bookingId);
+  }
+
+  Future<bool> _conversationHasBookingSummary(String conversationId) async {
+    try {
+      final existingMessages = await supabase
+          .from('messages')
+          .select('content')
+          .eq('conversation_id', conversationId)
+          .order('created_at', ascending: true)
+          .limit(20);
+      return List<Map<String, dynamic>>.from(existingMessages).any((message) {
+        final content = message['content']?.toString().toLowerCase() ?? '';
+        return content.startsWith('booking request created') ||
+            content.startsWith('booking details') ||
+            content.startsWith('booking confirmed') ||
+            content.startsWith('booking approved');
+      });
+    } catch (e) {
+      debugPrint('Could not check existing booking summary: $e');
+      return false;
+    }
+  }
+
+  String _vehicleTitle(Map<String, dynamic>? vehicle) {
+    if (vehicle == null) return 'Your rental vehicle';
+    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    if (vehicleName.isNotEmpty) return vehicleName;
+    final brand = vehicle['brand']?.toString().trim() ?? '';
+    final model = vehicle['model']?.toString().trim() ?? '';
+    final title = [brand, model].where((part) => part.isNotEmpty).join(' ');
+    return title.isEmpty ? 'Your rental vehicle' : title;
+  }
+
+  Future<Map<String, dynamic>?> _getUserById(String userId) async {
+    try {
+      return await supabase
+          .from('users')
+          .select('id, full_name, email, phone, role')
+          .eq('id', userId)
+          .maybeSingle();
+    } catch (e) {
+      debugPrint('Could not fetch user $userId for booking chat: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _getDefaultOperatorId() async {
+    try {
+      final operator = await supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'operator')
+          .limit(1)
+          .maybeSingle();
+      return operator?['id']?.toString();
+    } catch (e) {
+      debugPrint('Could not fetch default operator for booking chat: $e');
+      return null;
+    }
+  }
+
+  String _partyLabel(
+    Map<String, dynamic>? user, {
+    required String fallbackName,
+    required String fallbackId,
+  }) {
+    final name = user?['full_name']?.toString().trim();
+    final email = user?['email']?.toString().trim();
+    final phone = user?['phone']?.toString().trim();
+    final role = user?['role']?.toString().trim();
+    final parts = <String>[
+      if (name != null && name.isNotEmpty) name else fallbackName,
+      if (role != null && role.isNotEmpty) 'Role: $role',
+      if (email != null && email.isNotEmpty) email,
+      if (phone != null && phone.isNotEmpty) phone,
+      'ID: ${user?['id'] ?? fallbackId}',
+    ];
+    return parts.join(' | ');
+  }
+
+  Future<void> _sendBookingGroupMessage({
+    required String bookingId,
+    required String senderId,
+    required String content,
+  }) async {
+    final conversation = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .maybeSingle();
+    if (conversation == null) return;
+    await ChatService().sendMessage(
+      conversationId: conversation['id'] as String,
+      senderId: senderId,
+      content: content,
+    );
+  }
+
+  String _formatBookingDateTime(String? value) {
+    if (value == null || value.isEmpty) return 'N/A';
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return value;
+
+    final local = parsed.toLocal();
+    final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final suffix = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} $hour12:$minute $suffix';
   }
 
   // ================== SEARCH & FILTER ==================
@@ -614,7 +1380,7 @@ class BookingService {
       var query = supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(brand, model, year, plate_number), users(full_name, email)',
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(brand, model, year, plate_number), users(full_name, email)',
           );
 
       if (status != null && status.isNotEmpty) {

@@ -3,30 +3,30 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/partner_verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 
-class DocumentVerificationScreen extends StatefulWidget {
+class PartnerDocumentVerificationScreen extends StatefulWidget {
   final VoidCallback? onVerificationComplete;
   final bool isDarkMode;
 
-  const DocumentVerificationScreen({
+  const PartnerDocumentVerificationScreen({
     super.key,
     this.onVerificationComplete,
     this.isDarkMode = true,
   });
 
   @override
-  State<DocumentVerificationScreen> createState() =>
-      _DocumentVerificationScreenState();
+  State<PartnerDocumentVerificationScreen> createState() =>
+      _PartnerDocumentVerificationScreenState();
 }
 
-class _DocumentVerificationScreenState
-    extends State<DocumentVerificationScreen> {
+class _PartnerDocumentVerificationScreenState
+    extends State<PartnerDocumentVerificationScreen> {
   // Files
   File? _idFrontFile;
   File? _idBackFile;
-  File? _facePhotoFile;
 
   // UI State
   bool _isLoading = false;
@@ -34,7 +34,7 @@ class _DocumentVerificationScreenState
   String? _successMessage;
   String? _verificationStatus;
   String? _rejectionReason;
-  int _currentStep = 0; // 0: ID Front, 1: ID Back, 2: Face, 3: Review
+  int _currentStep = 0; // 0: ID Front, 1: ID Back, 2: Review
 
   @override
   void initState() {
@@ -63,7 +63,7 @@ class _DocumentVerificationScreenState
         setState(() {
           _successMessage = 'Your verification has already been approved.';
           _verificationStatus = status;
-          _currentStep = 4;
+          _currentStep = 3;
         });
       } else if (verification != null &&
           (status == 'pending' || status.isEmpty)) {
@@ -133,34 +133,10 @@ class _DocumentVerificationScreenState
     }
   }
 
-  Future<void> _captureFacePhoto() async {
-    final file = await VerificationService.pickImage(
-      source: ImageSource.camera,
-    );
-    if (file != null) {
-      setState(() {
-        _facePhotoFile = file;
-        _errorMessage = null;
-      });
-    }
-  }
-
-  Future<void> _uploadFacePhoto() async {
-    final file = await VerificationService.pickImage(
-      source: ImageSource.gallery,
-    );
-    if (file != null) {
-      setState(() {
-        _facePhotoFile = file;
-        _errorMessage = null;
-      });
-    }
-  }
-
   Future<void> _submitVerification() async {
-    if (_idFrontFile == null || _idBackFile == null || _facePhotoFile == null) {
+    if (_idFrontFile == null || _idBackFile == null) {
       setState(() {
-        _errorMessage = 'Please upload all required documents';
+        _errorMessage = 'Please upload both ID front and back';
       });
       return;
     }
@@ -178,18 +154,33 @@ class _DocumentVerificationScreenState
         throw Exception('User not authenticated');
       }
 
-      final result = await VerificationService.submitVerification(
+      // Upload files
+      final idFrontUrl = await VerificationService.uploadIdentityPhoto(
         userId: userId,
-        idFrontFile: _idFrontFile!,
-        idBackFile: _idBackFile!,
-        facePhotoFile: _facePhotoFile!,
+        idPhotoFile: _idFrontFile!,
+      );
+
+      final idBackUrl = await VerificationService.uploadIdentityPhoto(
+        userId: userId,
+        idPhotoFile: _idBackFile!,
+      );
+
+      // Combine both URLs
+      final combinedIdUrl =
+          '${idFrontUrl['file_url']}|${idBackUrl['file_url']}';
+
+      // Submit partner verification (ID only, no face photo)
+      final partnerVerifyService = PartnerVerificationService();
+      final result = await partnerVerifyService.submitPartnerVerification(
+        userId: userId,
+        idDocumentUrl: combinedIdUrl,
       );
 
       if (result['success']) {
         setState(() {
           _successMessage = result['message'];
           _isLoading = false;
-          _currentStep = 4; // Completion step
+          _currentStep = 3; // Completion step
         });
 
         widget.onVerificationComplete?.call();
@@ -217,7 +208,7 @@ class _DocumentVerificationScreenState
         : AppColors.lightTextPrimary;
 
     // Show completion screen
-    if (_currentStep == 4) {
+    if (_currentStep == 3) {
       return _buildCompletionScreen(isDark, bgColor, textColor);
     }
 
@@ -241,7 +232,7 @@ class _DocumentVerificationScreenState
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Document Verification',
+          'Identity Verification',
           style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
         ),
         centerTitle: true,
@@ -281,14 +272,12 @@ class _DocumentVerificationScreenState
             if (_currentStep == 1)
               _buildIdBackStep(isDark, cardColor, textColor),
             if (_currentStep == 2)
-              _buildFacePhotoStep(isDark, cardColor, textColor),
-            if (_currentStep == 3)
               _buildReviewStep(isDark, cardColor, textColor),
 
             const SizedBox(height: 24),
 
             // Navigation buttons
-            if (_currentStep < 3)
+            if (_currentStep < 2)
               Row(
                 children: [
                   if (_currentStep > 0)
@@ -333,7 +322,7 @@ class _DocumentVerificationScreenState
   }
 
   Widget _buildProgressIndicator(bool isDark) {
-    final steps = ['ID Front', 'ID Back', 'Face Photo', 'Review'];
+    final steps = ['ID Front', 'ID Back', 'Review'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -401,20 +390,26 @@ class _DocumentVerificationScreenState
                 : Colors.blue[50],
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: isDark ? AppColors.borderColor : Colors.blue[200]!,
+              color: isDark ? AppColors.borderColor : Colors.blue[300]!,
             ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline, color: AppColors.primary, size: 20),
-              const SizedBox(width: 12),
+              Icon(
+                Icons.info_outline,
+                color: isDark ? AppColors.primary : Colors.blue,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Ensure your ID is clear, well-lit, and covers the entire card with all text visible.',
+                  'Make sure the ID is clear and fully visible',
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? AppColors.textSecondary : Colors.blue[900],
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
                   ),
                 ),
               ),
@@ -447,32 +442,6 @@ class _DocumentVerificationScreenState
           onGalleryPress: _uploadIdBack,
           label: 'ID Back',
         ),
-      ],
-    );
-  }
-
-  Widget _buildFacePhotoStep(bool isDark, Color cardColor, Color textColor) {
-    return Column(
-      children: [
-        Text(
-          'Take a selfie for face verification',
-          style: TextStyle(
-            fontSize: 14,
-            color: isDark
-                ? AppColors.textSecondary
-                : AppColors.lightTextSecondary,
-          ),
-        ),
-        const SizedBox(height: 20),
-        _buildImageUploadCard(
-          isDark: isDark,
-          cardColor: cardColor,
-          textColor: textColor,
-          image: _facePhotoFile,
-          onCameraPress: _captureFacePhoto,
-          onGalleryPress: _uploadFacePhoto,
-          label: 'Face Photo',
-        ),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(12),
@@ -482,20 +451,26 @@ class _DocumentVerificationScreenState
                 : Colors.blue[50],
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: isDark ? AppColors.borderColor : Colors.blue[200]!,
+              color: isDark ? AppColors.borderColor : Colors.blue[300]!,
             ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline, color: AppColors.primary, size: 20),
-              const SizedBox(width: 12),
+              Icon(
+                Icons.info_outline,
+                color: isDark ? AppColors.primary : Colors.blue,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Look directly at the camera with good lighting and a neutral expression.',
+                  'Make sure the back side is clear and fully visible',
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? AppColors.textSecondary : Colors.blue[900],
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
                   ),
                 ),
               ),
@@ -510,65 +485,58 @@ class _DocumentVerificationScreenState
     return Column(
       children: [
         Text(
-          'Review your documents',
+          'Review Your Documents',
           style: TextStyle(
-            fontSize: 14,
-            color: isDark
-                ? AppColors.textSecondary
-                : AppColors.lightTextSecondary,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: textColor,
           ),
         ),
         const SizedBox(height: 20),
-        _buildDocumentReview(
-          isDark: isDark,
-          cardColor: cardColor,
-          textColor: textColor,
-          label: 'ID Front',
-          image: _idFrontFile,
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardColor,
+            border: Border.all(color: AppColors.borderColor),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              _buildDocumentReviewItem(
+                isDark,
+                cardColor,
+                'ID Front',
+                _idFrontFile,
+              ),
+              const SizedBox(height: 12),
+              _buildDocumentReviewItem(
+                isDark,
+                cardColor,
+                'ID Back',
+                _idBackFile,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-        _buildDocumentReview(
-          isDark: isDark,
-          cardColor: cardColor,
-          textColor: textColor,
-          label: 'ID Back',
-          image: _idBackFile,
-        ),
-        const SizedBox(height: 12),
-        _buildDocumentReview(
-          isDark: isDark,
-          cardColor: cardColor,
-          textColor: textColor,
-          label: 'Face Photo',
-          image: _facePhotoFile,
-        ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isDark
-                ? AppColors.darkBgSecondary.withOpacity(0.5)
-                : Colors.green[50],
+            color: AppColors.success.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDark ? AppColors.borderColor : AppColors.success,
-            ),
+            border: Border.all(color: AppColors.success),
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.check_circle_outline,
-                color: AppColors.success,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
+              Icon(Icons.check_circle, color: AppColors.success, size: 20),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Your documents look good. Click Submit to send for admin verification.',
+                  'Documents look good! Ready to submit?',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? AppColors.textSecondary : Colors.green[900],
+                    fontSize: 13,
+                    color: AppColors.success,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
@@ -579,106 +547,61 @@ class _DocumentVerificationScreenState
     );
   }
 
-  Widget _buildRejectedScreen(bool isDark, Color bgColor, Color textColor) {
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: textColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Verification Rejected',
-          style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: AppColors.error.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.error.withOpacity(0.35)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Your recent verification was rejected',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _rejectionReason ??
-                        'No rejection reason was provided by admin.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: isDark ? AppColors.textSecondary : Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Please correct the issue and submit again.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppColors.textSecondary : Colors.black54,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            _buildProgressIndicator(isDark),
-            const SizedBox(height: 20),
-            if (_currentStep == 0)
-              _buildIdFrontStep(isDark, AppColors.darkBgSecondary, textColor)
-            else if (_currentStep == 1)
-              _buildIdBackStep(isDark, AppColors.darkBgSecondary, textColor)
-            else if (_currentStep == 2)
-              _buildFacePhotoStep(isDark, AppColors.darkBgSecondary, textColor)
-            else
-              _buildReviewStep(isDark, AppColors.darkBgSecondary, textColor),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                if (_currentStep > 0)
-                  Expanded(
-                    child: CustomButton(
-                      label: 'Previous',
-                      onPressed: () => setState(() => _currentStep--),
-                      backgroundColor: isDark
-                          ? AppColors.darkBgSecondary
-                          : Colors.grey[200],
-                      textColor: isDark ? AppColors.textPrimary : Colors.black,
-                    ),
-                  ),
-                if (_currentStep > 0) const SizedBox(width: 12),
-                Expanded(
-                  child: CustomButton(
-                    label: _isLoading ? 'Re-submitting...' : 'Submit Again',
-                    onPressed: _isLoading ? null : _submitVerification,
-                    backgroundColor: AppColors.primary,
-                    textColor: Colors.black,
-                  ),
+  Widget _buildDocumentReviewItem(
+    bool isDark,
+    Color cardColor,
+    String label,
+    File? image,
+  ) {
+    return Row(
+      children: [
+        Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.grey[200],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.primary, width: 2),
+          ),
+          child: image != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(image, fit: BoxFit.cover),
+                )
+              : const Icon(
+                  Icons.image_not_supported,
+                  color: AppColors.textSecondary,
                 ),
-              ],
-            ),
-          ],
         ),
-      ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                image != null ? 'Ready' : 'Not uploaded',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: image != null ? AppColors.success : AppColors.warning,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          image != null ? Icons.check_circle : Icons.error_outline,
+          color: image != null ? AppColors.success : AppColors.warning,
+        ),
+      ],
     );
   }
 
@@ -692,183 +615,108 @@ class _DocumentVerificationScreenState
     required String label,
   }) {
     return Container(
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+          color: image != null ? AppColors.primary : AppColors.borderColor,
+          width: image != null ? 2 : 1,
         ),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: image == null
+      child: image != null
           ? Column(
               children: [
-                Container(
-                  height: 200,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.darkBgSecondary
-                        : Colors.grey[100],
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      topRight: Radius.circular(12),
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.image_not_supported_outlined,
-                      size: 48,
-                      color: isDark
-                          ? AppColors.textTertiary
-                          : AppColors.lightTextTertiary,
-                    ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    image,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Text(
-                        'Upload $label',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: textColor,
-                        ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: onCameraPress,
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Retake'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: onCameraPress,
-                              icon: const Icon(Icons.camera_alt),
-                              label: const Text('Camera'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: onGalleryPress,
-                              icon: const Icon(Icons.image),
-                              label: const Text('Gallery'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: isDark
-                                    ? AppColors.textPrimary
-                                    : Colors.black,
-                                side: BorderSide(
-                                  color: isDark
-                                      ? AppColors.borderColor
-                                      : AppColors.lightBorderColor,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: onGalleryPress,
+                      icon: const Icon(Icons.photo_library),
+                      label: const Text('Change'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
             )
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.file(
-                image,
-                fit: BoxFit.cover,
-                height: 250,
-                width: double.infinity,
-              ),
-            ),
-    );
-  }
-
-  Widget _buildDocumentReview({
-    required bool isDark,
-    required Color cardColor,
-    required Color textColor,
-    required String label,
-    required File? image,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
-        ),
-      ),
-      child: Row(
-        children: [
-          if (image != null)
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                bottomLeft: Radius.circular(12),
-              ),
-              child: Image.file(
-                image,
-                fit: BoxFit.cover,
-                width: 80,
-                height: 80,
-              ),
-            ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: textColor,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        image != null ? 'Uploaded' : 'Pending',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: image != null
-                              ? AppColors.success
-                              : AppColors.warning,
-                        ),
-                      ),
-                    ],
+          : Column(
+              children: [
+                Icon(
+                  Icons.image_not_supported,
+                  size: 48,
+                  color: isDark
+                      ? AppColors.textSecondary
+                      : AppColors.lightTextSecondary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'No image selected',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
                   ),
-                  Icon(
-                    image != null ? Icons.check_circle : Icons.pending,
-                    color: image != null
-                        ? AppColors.success
-                        : AppColors.warning,
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: onCameraPress,
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Take Photo'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: onGalleryPress,
+                      icon: const Icon(Icons.photo_library),
+                      label: const Text('Upload'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
   Widget _buildCompletionScreen(bool isDark, Color bgColor, Color textColor) {
     return Scaffold(
       backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: bgColor,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+      ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -879,7 +727,7 @@ class _DocumentVerificationScreenState
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
+                  color: AppColors.success.withOpacity(0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -896,28 +744,18 @@ class _DocumentVerificationScreenState
                   fontWeight: FontWeight.w700,
                   color: textColor,
                 ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
               Text(
-                'Your documents have been submitted for verification.',
-                textAlign: TextAlign.center,
+                'Your documents have been submitted for admin review. We\'ll notify you once your verification is complete.',
                 style: TextStyle(
                   fontSize: 14,
                   color: isDark
                       ? AppColors.textSecondary
                       : AppColors.lightTextSecondary,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'An admin will review your documents shortly.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark
-                      ? AppColors.textTertiary
-                      : AppColors.lightTextTertiary,
-                ),
               ),
               const SizedBox(height: 32),
               CustomButton(
@@ -954,50 +792,145 @@ class _DocumentVerificationScreenState
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
+                  color: AppColors.warning.withOpacity(0.2),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.schedule,
-                  color: AppColors.primary,
+                  color: AppColors.warning,
                   size: 48,
                 ),
               ),
               const SizedBox(height: 24),
               Text(
-                'Verification In Progress',
+                'Verification Pending',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
                   color: textColor,
                 ),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
               Text(
-                'Your documents are being verified by an admin.',
-                textAlign: TextAlign.center,
+                'Your verification is being reviewed by our admin team. This usually takes 1-2 business days.',
                 style: TextStyle(
                   fontSize: 14,
                   color: isDark
                       ? AppColors.textSecondary
                       : AppColors.lightTextSecondary,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'You will receive a notification once verification is complete.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark
-                      ? AppColors.textTertiary
-                      : AppColors.lightTextTertiary,
-                ),
               ),
               const SizedBox(height: 32),
               CustomButton(
-                label: 'Return',
+                label: 'Back to Home',
                 onPressed: () => Navigator.pop(context),
+                backgroundColor: AppColors.primary,
+                textColor: Colors.black,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRejectedScreen(bool isDark, Color bgColor, Color textColor) {
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: bgColor,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: textColor),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: AppColors.error.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.error_outline,
+                  color: AppColors.error,
+                  size: 48,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Verification Rejected',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              if (_rejectionReason != null)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.error),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reason:',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.error,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _rejectionReason!,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDark
+                              ? AppColors.textPrimary
+                              : AppColors.lightTextPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 24),
+              Text(
+                'Please correct the issue and resubmit.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark
+                      ? AppColors.textSecondary
+                      : AppColors.lightTextSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              CustomButton(
+                label: 'Resubmit',
+                onPressed: () {
+                  setState(() {
+                    _currentStep = 0;
+                    _idFrontFile = null;
+                    _idBackFile = null;
+                    _errorMessage = null;
+                  });
+                },
                 backgroundColor: AppColors.primary,
                 textColor: Colors.black,
               ),
@@ -1011,7 +944,6 @@ class _DocumentVerificationScreenState
   bool _isNextDisabled() {
     if (_currentStep == 0) return _idFrontFile == null;
     if (_currentStep == 1) return _idBackFile == null;
-    if (_currentStep == 2) return _facePhotoFile == null;
     return false;
   }
 

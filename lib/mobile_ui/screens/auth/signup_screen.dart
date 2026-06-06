@@ -39,7 +39,7 @@ class _SignupScreenState extends State<SignupScreen> {
     addressController = TextEditingController();
     passwordController = TextEditingController();
     confirmPasswordController = TextEditingController();
-    _loadSavedFormData();
+    // Don't load saved form data - sign-up should always start fresh
   }
 
   /// Load previously saved signup form data
@@ -99,9 +99,6 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   void _handleSignup() async {
-    // Save form data first (in case of validation failure or network error)
-    await _saveFormData();
-
     // Check internet connection first
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
@@ -175,12 +172,20 @@ class _SignupScreenState extends State<SignupScreen> {
     try {
       final authService = AuthService();
 
+      // Ensure fullName is not empty (database constraint)
+      final fullName = fullNameController.text.trim();
+      if (fullName.isEmpty) {
+        _showErrorSnackBar('Full name is required');
+        setState(() => isLoading = false);
+        return;
+      }
+
       // Create user account with metadata
       final response = await authService.signup(
         email: emailController.text.trim(),
         password: passwordController.text,
         userMetadata: {
-          'full_name': fullNameController.text.trim(),
+          'full_name': fullName,
           'phone': phoneController.text.trim(),
           'location': locationController.text.trim(),
           'address': addressController.text.trim(),
@@ -758,85 +763,35 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Phone and Location row
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Phone Number',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: phoneController,
-                          keyboardType: TextInputType.phone,
-                          style: const TextStyle(
-                            color: Colors.black,
-                            fontSize: 14,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: '+63',
-                            hintStyle: const TextStyle(color: Colors.grey),
-                            prefixIcon: const Icon(
-                              Icons.phone_outlined,
-                              color: AppColors.textTertiary,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
+              // Phone
+              CustomTextField(
+                label: 'Phone Number',
+                hintText: '+63',
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                prefixIcon: const Icon(
+                  Icons.phone_outlined,
+                  color: AppColors.textTertiary,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Location
+              CustomTextField(
+                label: 'Location',
+                hintText: 'City, Country',
+                controller: locationController,
+                prefixIcon: const Icon(
+                  Icons.location_on_outlined,
+                  color: AppColors.textTertiary,
+                ),
+                suffixIcon: IconButton(
+                  icon: const Icon(
+                    Icons.location_searching,
+                    color: AppColors.primary,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Location',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: locationController,
-                          style: const TextStyle(
-                            color: Colors.black,
-                            fontSize: 14,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'City, Country',
-                            hintStyle: const TextStyle(color: Colors.grey),
-                            prefixIcon: const Icon(
-                              Icons.location_on_outlined,
-                              color: AppColors.textTertiary,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            suffixIcon: IconButton(
-                              icon: const Icon(
-                                Icons.location_searching,
-                                color: AppColors.primary,
-                              ),
-                              onPressed: _getCurrentLocation,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  onPressed: _getCurrentLocation,
+                ),
               ),
               const SizedBox(height: 16),
 

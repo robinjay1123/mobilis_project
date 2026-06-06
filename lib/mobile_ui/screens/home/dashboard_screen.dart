@@ -9,8 +9,10 @@ import '../../../services/vehicle_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
+import '../../widgets/conversation_tile.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/cost_breakdown_row.dart';
@@ -49,11 +51,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String selectedCategory = '';
 
   bool _isLoadingVehicles = false;
+  bool _hasShownVerificationPrompt = false;
+  DateTime? _bookingFilterFrom;
+  DateTime? _bookingFilterTo;
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _filteredVehicles = [];
   List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _conversations = [];
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -85,6 +91,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _searchController.addListener(_applyVehicleFilters);
     _loadVehicles();
     _loadBookings(); // 📅 Load renter's bookings
+    _loadConversations();
     _setupVerificationListener(); // 🔄 Listen for real-time verification updates
     _loadNotifications(); // 🔔 Load notifications
     _setupNotificationsListener(); // 🔔 Listen for new notifications
@@ -142,7 +149,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           userLocation = (location != null && location.isNotEmpty)
               ? location
               : userLocation;
-          userVerified = (resp['id_verified'] as bool?) ?? userVerified;
+          userVerified =
+              resp['is_verified'] as bool? ??
+              (resp['id_verified'] as bool?) ??
+              userVerified;
           if (resp['created_at'] != null) {
             try {
               _userCreatedYear = DateTime.parse(resp['created_at']).year;
@@ -177,11 +187,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String userId,
   ) async {
     try {
-      return await supabase
+      final record = await supabase
           .from('users')
-          .select('full_name, id_verified, created_at')
+          .select('full_name, id_verified, verification_status, created_at')
           .eq('id', userId)
           .maybeSingle();
+      if (record == null) return null;
+
+      final verificationState =
+          await VerificationService.getUserVerificationState(userId);
+      return {
+        ...record,
+        'is_verified': verificationState['is_verified'] as bool? ?? false,
+      };
     } catch (e) {
       debugPrint('Profile lookup skipped for users: $e');
       return null;
@@ -222,16 +240,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   if (mounted) {
                     setState(() {
                       userVerified = isVerified;
+                      _hasShownVerificationPrompt = isVerified;
                     });
+                  }
+                  // Show verification prompt if newly unverified
+                  if (!isVerified && !_hasShownVerificationPrompt && mounted) {
+                    _showVerificationPromptOnce();
                   }
                 }
               }
             },
           )
           .subscribe();
+
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        if (!mounted) return;
+        await _showVerificationPromptOnce();
+      });
     } catch (e) {
       debugPrint('⚠️ Error setting up verification listener: $e');
     }
+  }
+
+  Future<void> _showVerificationPromptOnce() async {
+    if (_hasShownVerificationPrompt) return;
+    final latestVerified = await AuthService().isUserVerified();
+    if (!mounted || latestVerified) {
+      if (mounted) {
+        setState(() {
+          userVerified = latestVerified;
+          _hasShownVerificationPrompt = latestVerified;
+        });
+      }
+      return;
+    }
+    _hasShownVerificationPrompt = true;
+    _showRentalVerificationModal();
   }
 
   Future<void> _loadNotifications() async {
@@ -255,6 +299,78 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       debugPrint('⚠️ Error loading notifications: $e');
+    }
+  }
+
+  Future<void> _loadConversations() async {
+    try {
+      final authService = AuthService();
+      final user = authService.currentUser;
+      if (user == null) return;
+
+      final chatService = ChatService();
+      final conversations = await chatService.getConversations(user.id);
+      final hydratedConversations = <Map<String, dynamic>>[];
+
+      for (final conversation in conversations) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId == null || conversationId.isEmpty) continue;
+
+        final otherUser = await chatService.getOtherUserId(
+          conversationId,
+          user.id,
+        );
+        final messages = List<Map<String, dynamic>>.from(
+          conversation['messages'] as List? ?? const [],
+        );
+
+        messages.sort((a, b) {
+          final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '');
+          final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '');
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          return bDate.compareTo(aDate);
+        });
+
+        final lastMessage = messages.isNotEmpty ? messages.first : null;
+        final unreadCount = messages.where((message) {
+          final senderId = message['sender_id']?.toString();
+          final isRead = message['is_read'] == true;
+          return senderId != user.id && !isRead;
+        }).length;
+
+        hydratedConversations.add({
+          ...Map<String, dynamic>.from(conversation),
+          'other_user': otherUser,
+          'last_message': lastMessage,
+          'unread_count': unreadCount,
+        });
+      }
+
+      hydratedConversations.sort((a, b) {
+        final aLast = a['last_message'] as Map<String, dynamic>?;
+        final bLast = b['last_message'] as Map<String, dynamic>?;
+        final aDate = DateTime.tryParse(aLast?['created_at']?.toString() ?? '');
+        final bDate = DateTime.tryParse(bLast?['created_at']?.toString() ?? '');
+        if (aDate == null && bDate == null) return 0;
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
+
+      if (mounted) {
+        setState(() {
+          _conversations = hydratedConversations;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading conversations: ');
+      if (mounted) {
+        setState(() {
+          _conversations = [];
+        });
+      }
     }
   }
 
@@ -302,17 +418,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = authService.currentUser;
       if (user == null) return;
 
-      final supabase = Supabase.instance.client;
-      final bookings = await supabase
-          .from('bookings')
-          .select('*, vehicles(*, owner:owner_id(full_name, role)), users(*)')
-          .eq('renter_id', user.id)
-          .order('created_at', ascending: false)
-          .limit(50);
+      final bookings = await BookingService().getRenterBookings(user.id);
+
+      final hydratedBookings = List<Map<String, dynamic>>.from(bookings).map((
+        booking,
+      ) {
+        final normalizedBooking = Map<String, dynamic>.from(booking);
+        final vehicle = booking['vehicles'];
+        if (vehicle is Map<String, dynamic>) {
+          final normalizedVehicle = Map<String, dynamic>.from(vehicle);
+          normalizedVehicle['image_url'] = _bookingVehicleImageUrl(
+            normalizedVehicle,
+          );
+          normalizedBooking['vehicles'] = normalizedVehicle;
+        }
+        return normalizedBooking;
+      }).toList();
 
       if (mounted) {
         setState(() {
-          _bookings = List<Map<String, dynamic>>.from(bookings);
+          _bookings = hydratedBookings;
         });
       }
     } catch (e) {
@@ -347,8 +472,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final booking = payload.newRecord! as Map<String, dynamic>;
                 final oldRecord = payload.oldRecord as Map<String, dynamic>?;
                 final newStatus = (booking['status'] as String?)?.toLowerCase();
-                final oldStatus =
-                    (oldRecord?['status'] as String?)?.toLowerCase();
+                final oldStatus = (oldRecord?['status'] as String?)
+                    ?.toLowerCase();
 
                 if (newStatus == 'confirmed' && oldStatus != 'confirmed') {
                   await _createBookingGroupChat(booking);
@@ -357,6 +482,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               if (mounted) {
                 _loadBookings();
+                _loadConversations();
               }
             },
           )
@@ -451,6 +577,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final vehicles = await VehicleService().getAvailableVehicles(
         category: selectedCategory.isEmpty ? null : selectedCategory,
+        availableFrom: _bookingFilterFrom,
+        availableTo: _bookingFilterTo,
       );
       if (!mounted) return;
       setState(() => _vehicles = vehicles);
@@ -495,7 +623,130 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _refreshDashboard() async {
     await _loadVehicles();
+    await _loadBookings();
+    await _loadNotifications();
+    await _loadConversations();
     _loadUserData();
+  }
+
+  Future<void> _selectBookNowDates() async {
+    if (!await _checkRentalVerification()) return;
+    if (!mounted) return;
+
+    final now = DateTime.now();
+    final firstDate = DateTime(now.year, now.month, now.day);
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: firstDate,
+      lastDate: firstDate.add(const Duration(days: 365)),
+      initialDateRange: _bookingFilterFrom != null && _bookingFilterTo != null
+          ? DateTimeRange(start: _bookingFilterFrom!, end: _bookingFilterTo!)
+          : DateTimeRange(
+              start: firstDate.add(const Duration(days: 1)),
+              end: firstDate.add(const Duration(days: 1)),
+            ),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.black,
+              surface: AppColors.darkBgSecondary,
+              onSurface: AppColors.textPrimary,
+            ),
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: AppColors.darkBgSecondary,
+              surfaceTintColor: Colors.transparent,
+              headerBackgroundColor: AppColors.darkBg,
+              headerForegroundColor: AppColors.textPrimary,
+              rangePickerBackgroundColor: AppColors.darkBgSecondary,
+              rangePickerHeaderBackgroundColor: AppColors.darkBg,
+              rangePickerHeaderForegroundColor: AppColors.textPrimary,
+              rangePickerSurfaceTintColor: Colors.transparent,
+              dayForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return AppColors.textTertiary;
+                }
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.black;
+                }
+                return AppColors.textPrimary;
+              }),
+              dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return AppColors.primary;
+                }
+                return Colors.transparent;
+              }),
+              todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
+              todayBorder: const BorderSide(color: AppColors.primary),
+              yearForegroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.disabled)) {
+                  return AppColors.textTertiary;
+                }
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.black;
+                }
+                return AppColors.textPrimary;
+              }),
+              yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return AppColors.primary;
+                }
+                return Colors.transparent;
+              }),
+            ),
+            scaffoldBackgroundColor: AppColors.darkBg,
+            dialogBackgroundColor: AppColors.darkBgSecondary,
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      _bookingFilterFrom = picked.start;
+      _bookingFilterTo = picked.end;
+    });
+    await _loadVehicles();
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VehicleSearchScreen(
+          initialCategory: selectedCategory.isEmpty ? null : selectedCategory,
+          initialAvailableFrom: picked.start,
+          initialAvailableTo: picked.end,
+        ),
+      ),
+    );
+  }
+
+  String _formatDateRange(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return '';
+    return '${_shortDate(start)} - ${_shortDate(end)}';
+  }
+
+  String _shortDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}';
   }
 
   // ---------------------------------------------------------------------------
@@ -613,15 +864,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = authService.currentUser;
       if (user == null) return false;
 
-      final supabase = Supabase.instance.client;
-      final resp = await supabase
-          .from('users')
-          .select('role, id_verified')
-          .eq('id', user.id)
-          .maybeSingle();
-
-      final userRole = (resp?['role'] ?? 'renter').toString().toLowerCase();
-      final isVerifiedInDb = resp?['id_verified'] as bool? ?? false;
+      final verificationState =
+          await VerificationService.getUserVerificationState(user.id);
+      final userRole = verificationState['role']?.toString() ?? 'renter';
+      final isVerifiedInDb = verificationState['is_verified'] as bool? ?? false;
 
       if (isVerifiedInDb != userVerified) {
         if (mounted) {
@@ -647,6 +893,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ---------------------------------------------------------------------------
   // Data mappers
   // ---------------------------------------------------------------------------
+  int _inclusiveRentalDays(DateTime startDate, DateTime endDate) {
+    final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+    final endDay = DateTime(endDate.year, endDate.month, endDate.day);
+    final calendarDays = endDay.difference(startDay).inDays.abs() + 1;
+
+    return calendarDays < 1 ? 1 : calendarDays;
+  }
+
+  String _vehicleTitle(Map<String, dynamic>? vehicle) {
+    if (vehicle == null) return 'Unknown Vehicle';
+
+    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    if (vehicleName.isNotEmpty) return vehicleName;
+
+    final brand = vehicle['brand']?.toString().trim() ?? '';
+    final model = vehicle['model']?.toString().trim() ?? '';
+    final name = [brand, model].where((part) => part.isNotEmpty).join(' ');
+
+    return name.isEmpty ? 'Unknown Vehicle' : name;
+  }
+
+  String? _bookingVehicleImageUrl(Map<String, dynamic> vehicle) {
+    final directUrl = vehicle['image_url']?.toString().trim();
+    if (directUrl != null && directUrl.isNotEmpty) {
+      return directUrl;
+    }
+
+    final images = vehicle['vehicle_images'];
+    if (images is! List) return null;
+
+    for (final image in images) {
+      if (image is! Map) continue;
+      final imageUrl = image['image_url']?.toString().trim();
+      if (imageUrl != null && imageUrl.isNotEmpty) {
+        return imageUrl;
+      }
+    }
+
+    return null;
+  }
+
   List<Map<String, dynamic>> _uiBookings() {
     return _bookings.map((booking) {
       final vehicle = booking['vehicles'] as Map<String, dynamic>?;
@@ -665,8 +952,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (startDateRaw != null && endDateRaw != null) {
           final start = DateTime.parse(startDateRaw);
           final end = DateTime.parse(endDateRaw);
-          days = end.difference(start).inDays.abs();
-          if (days == 0) days = 1;
+          days = _inclusiveRentalDays(start, end);
         }
       } catch (_) {
         days = 1;
@@ -674,14 +960,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final rawStatus = (booking['status'] ?? '').toString().toLowerCase();
       String uiStatus;
-      if (rawStatus == 'active') {
-        uiStatus = 'Active';
+      String statusGroup;
+      if (rawStatus == 'active' ||
+          rawStatus == 'approved' ||
+          rawStatus == 'confirmed') {
+        uiStatus = 'Approved';
+        statusGroup = 'Approved';
       } else if (rawStatus == 'completed') {
-        uiStatus = 'Past';
-      } else if (rawStatus == 'cancelled' || rawStatus == 'rejected') {
+        uiStatus = 'Completed';
+        statusGroup = 'Completed';
+      } else if (rawStatus == 'rejected') {
+        uiStatus = 'Declined';
+        statusGroup = 'Declined';
+      } else if (rawStatus == 'cancelled' || rawStatus == 'canceled') {
         uiStatus = 'Cancelled';
+        statusGroup = 'Declined';
       } else {
         uiStatus = 'Pending';
+        statusGroup = 'Pending';
       }
 
       final owner = vehicle?['owner'] as Map<String, dynamic>?;
@@ -693,12 +989,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       return {
         'id': booking['id']?.toString() ?? '',
-        'carName':
-            '${vehicle?['brand'] ?? 'Unknown'} ${vehicle?['model'] ?? ''}'
-                .trim(),
+        'created_at': booking['created_at'],
+        'carName': _vehicleTitle(vehicle),
         'carImage': Icons.directions_car,
         'imageUrl': (vehicle?['image_url'] as String?),
         'status': uiStatus,
+        'statusGroup': statusGroup,
+        'rawStatus': rawStatus,
         'startDate': startDate,
         'endDate': endDate,
         'pickupLocation':
@@ -740,6 +1037,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'iconColor': iconColor,
       };
     }).toList();
+  }
+
+  List<Map<String, dynamic>> _uiConversations() {
+    return _conversations.map((conversation) {
+      final otherUser = conversation['other_user'] as Map<String, dynamic>?;
+      final lastMessage = conversation['last_message'] as Map<String, dynamic>?;
+      final unreadCount = conversation['unread_count'] as int? ?? 0;
+
+      return {
+        'conversationId': conversation['id']?.toString() ?? '',
+        'recipientName':
+            otherUser?['full_name']?.toString().trim().isNotEmpty == true
+            ? otherUser!['full_name'].toString().trim()
+            : otherUser?['email']?.toString().trim().isNotEmpty == true
+            ? otherUser!['email'].toString().trim()
+            : 'Conversation',
+        'lastMessage':
+            lastMessage?['content']?.toString().trim().isNotEmpty == true
+            ? lastMessage!['content'].toString().trim()
+            : 'No messages yet',
+        'timestamp': _formatTimeAgo(lastMessage?['created_at']?.toString()),
+        'unreadCount': unreadCount,
+        'isAutoGenerated': lastMessage?['is_auto_generated'] == true,
+      };
+    }).toList();
+  }
+
+  int _totalUnreadMessages() {
+    return _conversations.fold<int>(
+      0,
+      (sum, conversation) =>
+          sum + ((conversation['unread_count'] as int?) ?? 0),
+    );
+  }
+
+  void _openConversation(Map<String, dynamic> conversation) {
+    final conversationId = conversation['conversationId']?.toString() ?? '';
+    if (conversationId.isEmpty) return;
+
+    Navigator.of(context)
+        .pushNamed(
+          '/chat-detail',
+          arguments: {
+            'conversationId': conversationId,
+            'recipientName':
+                conversation['recipientName']?.toString() ?? 'Chat',
+            'recipientAvatar': '',
+            'isAutoGenerated': conversation['isAutoGenerated'] == true,
+          },
+        )
+        .then((_) {
+          _loadConversations();
+          _loadNotifications();
+        });
   }
 
   List<Map<String, dynamic>> _topRentalPartners() {
@@ -806,8 +1157,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final d = DateTime.parse(date).toLocal();
       const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${d.day} ${months[d.month - 1]} ${d.year}';
     } catch (_) {
@@ -893,7 +1254,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildHomeTab() {
     final uiBookings = _uiBookings();
     final homeTrips = uiBookings
-        .where((b) => b['status'] == 'Active' || b['status'] == 'Pending')
+        .where(
+          (b) =>
+              b['statusGroup'] == 'Approved' || b['statusGroup'] == 'Pending',
+        )
         .take(10)
         .toList();
 
@@ -938,13 +1302,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 color: AppColors.textSecondary,
                               ),
                             ),
-                            Text(
-                              userName,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    userName,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                StatusBadge(
+                                  status: userVerified
+                                      ? 'Verified'
+                                      : 'Basic Renter',
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  borderRadius: 6,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1013,6 +1396,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: Colors.black,
                             size: 18,
                           ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _selectBookNowDates,
+                      icon: const Icon(Icons.calendar_month),
+                      label: Text(
+                        _bookingFilterFrom == null
+                            ? 'Book Now!'
+                            : 'Book Now! ${_formatDateRange(_bookingFilterFrom, _bookingFilterTo)}',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                     ),
@@ -1177,6 +1581,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             initialCategory: selectedCategory.isEmpty
                                 ? null
                                 : selectedCategory,
+                            initialAvailableFrom: _bookingFilterFrom,
+                            initialAvailableTo: _bookingFilterTo,
                           ),
                         ),
                       );
@@ -1297,6 +1703,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 initialCategory: selectedCategory.isEmpty
                                     ? null
                                     : selectedCategory,
+                                initialAvailableFrom: _bookingFilterFrom,
+                                initialAvailableTo: _bookingFilterTo,
                               ),
                             ),
                           );
@@ -1385,8 +1793,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final seats = car['seats'] ?? 5;
 
                       // ✅ FIX: Read transmission field instead of reusing vehicleType
-                      final transmission =
-                          car['transmission'] ?? 'Manual';
+                      final transmission = car['transmission'] ?? 'Manual';
 
                       final imageUrl = car['image_url'] as String?;
                       const providerName = 'PSDC';
@@ -1400,6 +1807,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               arguments: {
                                 'vehicleId': car['id']?.toString() ?? '',
                                 'vehicleData': car,
+                                'initialStartDate': _bookingFilterFrom,
+                                'initialEndDate': _bookingFilterTo,
                               },
                             );
                           },
@@ -1558,42 +1967,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         const SizedBox(height: 8),
                                         // ✅ FIX: Show vehicleType, color, seats
                                         // then transmission on second row
-                                        Row(
-                                          children: [
-                                            _buildFeatureIcon(
-                                              Icons.directions_car,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              vehicleType.toString(),
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: AppColors.textSecondary,
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            children: [
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _buildFeatureIcon(
+                                                    Icons.directions_car,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    vehicleType.toString(),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: AppColors
+                                                          .textSecondary,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            _buildFeatureIcon(
-                                              Icons.palette_outlined,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              color.toString(),
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: AppColors.textSecondary,
+                                              const SizedBox(width: 12),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _buildFeatureIcon(
+                                                    Icons.palette_outlined,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    color.toString(),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: AppColors
+                                                          .textSecondary,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            _buildFeatureIcon(Icons.person),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              '$seats Seats',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: AppColors.textSecondary,
+                                              const SizedBox(width: 12),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _buildFeatureIcon(
+                                                    Icons.person,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    '$seats Seats',
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: AppColors
+                                                          .textSecondary,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ),
-                                          ],
+                                            ],
+                                          ),
                                         ),
                                         const SizedBox(height: 6),
                                         // ✅ FIX: Transmission row with correct icon & value
@@ -1602,12 +2043,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             _buildFeatureIcon(
                                               Icons.settings_outlined,
                                             ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              transmission.toString(),
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: AppColors.textSecondary,
+                                            const SizedBox(width: 4),
+                                            Flexible(
+                                              child: Text(
+                                                transmission.toString(),
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color:
+                                                      AppColors.textSecondary,
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -1631,12 +2077,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                               '₱${pricePerHour.toStringAsFixed(0)}',
                                                           style:
                                                               const TextStyle(
-                                                            fontSize: 20,
-                                                            fontWeight:
-                                                                FontWeight.w700,
-                                                            color:
-                                                                AppColors.primary,
-                                                          ),
+                                                                fontSize: 20,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                color: AppColors
+                                                                    .primary,
+                                                              ),
                                                         ),
                                                         const TextSpan(
                                                           text: '/hr',
@@ -1656,8 +2103,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                         TextSpan(
                                                           text:
                                                               '₱${pricePerDay.toStringAsFixed(0)}',
-                                                          style:
-                                                              const TextStyle(
+                                                          style: const TextStyle(
                                                             fontSize: 13,
                                                             fontWeight:
                                                                 FontWeight.w600,
@@ -1693,6 +2139,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                                 ?.toString() ??
                                                             '',
                                                         'vehicleData': car,
+                                                        'initialStartDate':
+                                                            _bookingFilterFrom,
+                                                        'initialEndDate':
+                                                            _bookingFilterTo,
                                                       },
                                                     );
                                                   }
@@ -1898,9 +2348,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     indicatorColor: AppColors.primary,
                     tabs: [
                       Tab(text: 'Pending'),
-                      Tab(text: 'Active'),
-                      Tab(text: 'Past'),
-                      Tab(text: 'Cancelled'),
+                      Tab(text: 'Approved'),
+                      Tab(text: 'Completed'),
+                      Tab(text: 'Declined'),
                     ],
                   ),
                 ),
@@ -1909,20 +2359,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['status'] == 'Pending')
+                            .where((b) => b['statusGroup'] == 'Pending')
                             .toList(),
                       ),
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['status'] == 'Active')
+                            .where((b) => b['statusGroup'] == 'Approved')
                             .toList(),
                       ),
                       _buildBookingsList(
-                        uiBookings.where((b) => b['status'] == 'Past').toList(),
+                        uiBookings
+                            .where((b) => b['statusGroup'] == 'Completed')
+                            .toList(),
                       ),
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['status'] == 'Cancelled')
+                            .where((b) => b['statusGroup'] == 'Declined')
                             .toList(),
                       ),
                     ],
@@ -2007,7 +2459,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       (bookings[index]['totalCost'] as num?)?.toInt() ?? 0,
                   rating:
                       (bookings[index]['rating'] as num?)?.toDouble() ?? 0.0,
-                  isActive: bookings[index]['status'] == 'Active',
+                  isActive: bookings[index]['statusGroup'] == 'Approved',
                   carImageUrl: bookings[index]['imageUrl'] as String?,
                   onTap: () => _showBookingDetails(bookings[index]),
                 ),
@@ -2033,19 +2485,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
         16,
       ),
       child: Column(
-        children: List.generate(
-          notificationItems.length,
-          (index) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: NotificationItem(
-              icon: notificationItems[index]['icon'],
-              title: notificationItems[index]['title'],
-              message: notificationItems[index]['message'],
-              timestamp: notificationItems[index]['timestamp'],
-              iconColor: notificationItems[index]['iconColor'],
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          const Text(
+            'Notifications',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+
+          // Empty State
+          if (notificationItems.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgSecondary,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_none,
+                      color: AppColors.primary,
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No Notifications Yet',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'You\'ll receive notifications about bookings, messages, and updates here',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            )
+          else
+            // Notifications List
+            Column(
+              children: List.generate(
+                notificationItems.length,
+                (index) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        // Icon
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: notificationItems[index]['iconColor']
+                                .withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            notificationItems[index]['icon'],
+                            color: notificationItems[index]['iconColor'],
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Content
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                notificationItems[index]['title'],
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                notificationItems[index]['message'],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                notificationItems[index]['timestamp'],
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2054,9 +2627,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Messages Tab
   // ---------------------------------------------------------------------------
   Widget _buildMessagesTab() {
-    final messageItems = _uiNotifications()
-        .where((item) => item['icon'] == Icons.message)
-        .toList();
+    final conversations = _uiConversations();
 
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
@@ -2068,41 +2639,214 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Conversations',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Messages',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              if (conversations.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    conversations
+                        .fold<int>(
+                          0,
+                          (sum, c) => sum + (c['unreadCount'] as int? ?? 0),
+                        )
+                        .toString(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 16),
-          if (messageItems.isEmpty)
+
+          // Empty State
+          if (conversations.isEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
                 color: AppColors.darkBgSecondary,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppColors.borderColor),
               ),
-              child: const Text(
-                'No active conversations yet. Conversations will appear here when bookings are confirmed.',
-                style: TextStyle(color: AppColors.textSecondary),
+              child: Column(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.chat_bubble_outline,
+                      color: AppColors.primary,
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No Conversations Yet',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Start by booking a car or get in touch with owners',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
             )
           else
+            // Conversations List
             Column(
               children: List.generate(
-                messageItems.length,
+                conversations.length,
                 (index) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: NotificationItem(
-                    icon: messageItems[index]['icon'],
-                    title: messageItems[index]['title'],
-                    message: messageItems[index]['message'],
-                    timestamp: messageItems[index]['timestamp'],
-                    iconColor: messageItems[index]['iconColor'],
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: GestureDetector(
+                    onTap: () => _openConversation(conversations[index]),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBgSecondary,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.borderColor),
+                      ),
+                      child: Row(
+                        children: [
+                          // Avatar
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.person_outline,
+                              color: AppColors.primary,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Content
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        conversations[index]['recipientName'],
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      conversations[index]['timestamp'],
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.textTertiary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        conversations[index]['lastMessage'],
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if ((conversations[index]['unreadCount']
+                                                as int? ??
+                                            0) >
+                                        0)
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 8),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            (conversations[index]['unreadCount']
+                                                        as int?)
+                                                    ?.toString() ??
+                                                '0',
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: AppColors.textTertiary,
+                            size: 14,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2612,7 +3356,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               date: booking['endDate'],
               time: '2:00 PM',
               icon: Icons.location_on,
-              isCompleted: booking['status'] == 'Completed',
+              isCompleted: booking['statusGroup'] == 'Completed',
             ),
             const SizedBox(height: 16),
             const Text(
@@ -2644,7 +3388,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               amountColor: AppColors.primary,
             ),
             const SizedBox(height: 20),
-            if (booking['status'] == 'Active')
+            if (booking['statusGroup'] == 'Approved')
               Row(
                 children: [
                   Expanded(
@@ -2661,27 +3405,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: const Text('Extend Trip'),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _handleBookingCancellation(booking);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        side: const BorderSide(color: AppColors.error),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Cancel Trip'),
-                    ),
-                  ),
                 ],
               ),
-            if ((booking['status'] == 'Pending') && _canCancelBooking(booking))
+            if ((booking['statusGroup'] == 'Pending') &&
+                _canCancelBooking(booking))
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
@@ -2700,7 +3427,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: const Text('Cancel Booking'),
                 ),
               ),
-            if ((booking['status'] == 'Pending'))
+            if ((booking['statusGroup'] == 'Pending'))
               Builder(
                 builder: (context) {
                   final timeInfo = _getRemainingCancelTime(booking);

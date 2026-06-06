@@ -9,12 +9,77 @@ class VerificationService {
   static final imagePicker = ImagePicker();
   static const String _idImagesBucket = 'id_images';
 
-  /// Upload ID verification documents and face photo
+  static bool isVerifiedStatus(dynamic status) {
+    final normalized = status?.toString().trim().toLowerCase() ?? '';
+    return normalized == 'verified' ||
+        normalized == 'approved' ||
+        normalized == 'certified';
+  }
+
+  /// Read verification from both the users row and the verification request.
+  ///
+  /// Older approval flows can leave users.id_verified stale even when the
+  /// user_verifications row is already verified, so booking/profile gates should
+  /// use this combined state.
+  static Future<Map<String, dynamic>> getUserVerificationState(
+    String userId,
+  ) async {
+    Map<String, dynamic>? userRecord;
+    Map<String, dynamic>? verificationRecord;
+
+    try {
+      userRecord = await supabase
+          .from('users')
+          .select('role, id_verified, verification_status')
+          .eq('id', userId)
+          .maybeSingle();
+    } catch (e) {
+      debugPrint('Unable to read user verification fields: $e');
+    }
+
+    try {
+      verificationRecord = await supabase
+          .from('user_verifications')
+          .select('verification_status')
+          .eq('user_id', userId)
+          .maybeSingle();
+    } catch (e) {
+      debugPrint('Unable to read verification record: $e');
+    }
+
+    final userStatus = userRecord?['verification_status'];
+    final requestStatus = verificationRecord?['verification_status'];
+    final idVerified = userRecord?['id_verified'] as bool? ?? false;
+    final isVerified =
+        idVerified ||
+        isVerifiedStatus(userStatus) ||
+        isVerifiedStatus(requestStatus);
+
+    if (isVerified && !idVerified) {
+      try {
+        await supabase
+            .from('users')
+            .update({'id_verified': true, 'verification_status': 'verified'})
+            .eq('id', userId);
+      } catch (e) {
+        debugPrint('Unable to sync verified status to users row: $e');
+      }
+    }
+
+    return {
+      'role': (userRecord?['role'] ?? 'renter').toString().toLowerCase(),
+      'is_verified': isVerified,
+      'verification_status': isVerified
+          ? 'verified'
+          : (requestStatus ?? userStatus ?? 'pending').toString(),
+    };
+  }
+
+  /// Upload ID verification documents.
   static Future<Map<String, dynamic>> submitVerification({
     required String userId,
     required File idFrontFile,
     required File idBackFile,
-    required File facePhotoFile,
   }) async {
     try {
       // Upload ID front
@@ -27,90 +92,23 @@ class VerificationService {
           'verifications/$userId/id_back_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final idBackUrl = await _uploadFile(idBackPath, idBackFile);
 
-      // Upload face photo
-      final facePath =
-          'verifications/$userId/face_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final faceUrl = await _uploadFile(facePath, facePhotoFile);
-
-      // Check if verification record exists
-      final existing = await supabase
+      final response = await supabase
           .from('user_verifications')
+          .upsert({
+            'user_id': userId,
+            'rejection_reason': null,
+            'verified_at': null,
+            'id_document_url': '$idFrontUrl|$idBackUrl',
+            'verification_status': 'pending',
+          }, onConflict: 'user_id')
           .select()
-          .eq('user_id', userId)
-          .maybeSingle();
+          .single();
 
-      if (existing != null) {
-        // Update existing verification
-        Map<String, dynamic>? response;
-        try {
-          response = await supabase
-              .from('user_verifications')
-              .update({
-                'rejection_reason': null,
-                'verified_at': null,
-                'id_document_url':
-                    '$idFrontUrl|$idBackUrl', // Store both as pipe-separated
-                'face_photo_url': faceUrl,
-                'verification_status': 'pending',
-              })
-              .eq('user_id', userId)
-              .select()
-              .single();
-        } on PostgrestException catch (e) {
-          if (e.code == '42501') {
-            debugPrint(
-              '⚠️ RLS policy prevents update. Fetching existing record instead.',
-            );
-            response = existing;
-          } else {
-            rethrow;
-          }
-        }
-
-        return {
-          'success': true,
-          'message': 'Verification documents submitted successfully',
-          'data': response,
-        };
-      } else {
-        // Create new verification
-        Map<String, dynamic>? response;
-        try {
-          response = await supabase
-              .from('user_verifications')
-              .insert({
-                'user_id': userId,
-                'rejection_reason': null,
-                'verified_at': null,
-                'id_document_url':
-                    '$idFrontUrl|$idBackUrl', // Store both as pipe-separated
-                'face_photo_url': faceUrl,
-                'verification_status': 'pending',
-                'created_at': DateTime.now().toIso8601String(),
-              })
-              .select()
-              .single();
-        } on PostgrestException catch (e) {
-          if (e.code == '42501') {
-            debugPrint(
-              '⚠️ RLS policy prevents insert. Returning success anyway.',
-            );
-            response = {
-              'user_id': userId,
-              'verification_status': 'pending',
-              'created_at': DateTime.now().toIso8601String(),
-            };
-          } else {
-            rethrow;
-          }
-        }
-
-        return {
-          'success': true,
-          'message': 'Verification submitted for admin review',
-          'data': response,
-        };
-      }
+      return {
+        'success': true,
+        'message': 'Verification submitted for admin review',
+        'data': response,
+      };
     } catch (e) {
       return {
         'success': false,
@@ -148,12 +146,14 @@ class VerificationService {
       return {
         'success': true,
         'message': 'ID photo uploaded successfully',
+        'file_url': idPhotoUrl,
         'data': {'id_photo_url': idPhotoUrl, 'storage_path': path},
       };
     } catch (e) {
       return {
         'success': false,
         'message': 'Failed to upload ID photo: $e',
+        'file_url': null,
         'data': null,
       };
     }
@@ -193,7 +193,6 @@ class VerificationService {
   static Future<Map<String, dynamic>> approveVerification({
     required String verificationId,
     required String adminId,
-    required double faceMatchPercentage,
   }) async {
     try {
       final payload = <String, dynamic>{
@@ -201,38 +200,52 @@ class VerificationService {
         'verified_at': DateTime.now().toIso8601String(),
       };
 
-      // ✅ FIX: Handle RLS policy gracefully - skip if no permission, continue anyway
-      Map<String, dynamic>? response;
-      try {
-        response = await supabase
-            .from('user_verifications')
-            .update(payload)
-            .eq('id', verificationId)
-            .select()
-            .single();
-      } on PostgrestException catch (e) {
-        if (e.code == '42501') {
-          debugPrint(
-            '⚠️ RLS policy prevents direct update to user_verifications. Sync via users table instead.',
-          );
-          // Fetch the record to get userId even if update fails
-          response = await supabase
-              .from('user_verifications')
-              .select()
-              .eq('id', verificationId)
-              .single();
-        } else {
-          rethrow;
-        }
-      }
+      final response = await supabase
+          .from('user_verifications')
+          .update(payload)
+          .eq('id', verificationId)
+          .select()
+          .single();
 
-      // ✅ FIX: Sync approval status to the users table so the app gate reads correctly
+      // Sync approval status to the users table so the app gate reads correctly
       final userId = response['user_id']?.toString();
       if (userId != null && userId.isNotEmpty) {
+        final userRecord = await supabase
+            .from('users')
+            .select('id, role, full_name, location')
+            .eq('id', userId)
+            .maybeSingle();
+        final role = (userRecord?['role'] ?? '').toString().toLowerCase();
+
+        // Get the full_name from verification and sync to users table
+        final fullName = response['full_name']?.toString() ?? '';
         await supabase
             .from('users')
-            .update({'id_verified': true, 'verification_status': 'verified'})
+            .update({
+              'id_verified': true,
+              'verification_status': 'verified',
+              if (role == 'driver') 'is_available': true,
+              if (fullName.isNotEmpty) 'full_name': fullName,
+            })
             .eq('id', userId);
+
+        // Partner role: ensure profile exists and mirror verification details.
+        if (role == 'partner') {
+          await _syncPartnerProfileFromVerification(
+            userId: userId,
+            fallbackFullName: fullName.isNotEmpty
+                ? fullName
+                : (userRecord?['full_name']?.toString() ?? ''),
+            fallbackLocation: userRecord?['location']?.toString() ?? '',
+            verificationRecord: response,
+            status: 'verified',
+          );
+        } else if (role == 'driver') {
+          await _syncDriverProfileFromVerification(
+            userId: userId,
+            status: 'verified',
+          );
+        }
       }
 
       try {
@@ -279,38 +292,42 @@ class VerificationService {
         'verified_at': DateTime.now().toIso8601String(),
       };
 
-      // ✅ FIX: Handle RLS policy gracefully - skip if no permission, continue anyway
-      Map<String, dynamic>? response;
-      try {
-        response = await supabase
-            .from('user_verifications')
-            .update(payload)
-            .eq('id', verificationId)
-            .select()
-            .single();
-      } on PostgrestException catch (e) {
-        if (e.code == '42501') {
-          debugPrint(
-            '⚠️ RLS policy prevents direct update to user_verifications. Sync via users table instead.',
-          );
-          // Fetch the record to get userId even if update fails
-          response = await supabase
-              .from('user_verifications')
-              .select()
-              .eq('id', verificationId)
-              .single();
-        } else {
-          rethrow;
-        }
-      }
+      final response = await supabase
+          .from('user_verifications')
+          .update(payload)
+          .eq('id', verificationId)
+          .select()
+          .single();
 
-      // ✅ FIX: Sync rejection status to the users table so the app gate reads correctly
+      // Sync rejection status to the users table so the app gate reads correctly
       final userId = response['user_id']?.toString();
       if (userId != null && userId.isNotEmpty) {
+        final userRecord = await supabase
+            .from('users')
+            .select('id, role, full_name, location')
+            .eq('id', userId)
+            .maybeSingle();
+
         await supabase
             .from('users')
             .update({'id_verified': false, 'verification_status': 'rejected'})
             .eq('id', userId);
+
+        final role = (userRecord?['role'] ?? '').toString().toLowerCase();
+        if (role == 'partner') {
+          await _syncPartnerProfileFromVerification(
+            userId: userId,
+            fallbackFullName: userRecord?['full_name']?.toString() ?? '',
+            fallbackLocation: userRecord?['location']?.toString() ?? '',
+            verificationRecord: response,
+            status: 'rejected',
+          );
+        } else if (role == 'driver') {
+          await _syncDriverProfileFromVerification(
+            userId: userId,
+            status: 'rejected',
+          );
+        }
       }
 
       try {
@@ -356,6 +373,129 @@ class VerificationService {
       return null;
     } catch (e) {
       return null;
+    }
+  }
+
+  static Future<void> _syncPartnerProfileFromVerification({
+    required String userId,
+    required String fallbackFullName,
+    required String fallbackLocation,
+    required Map<String, dynamic> verificationRecord,
+    required String status,
+  }) async {
+    final submittedFullName =
+        verificationRecord['full_name']?.toString().trim() ?? '';
+    final submittedLocation =
+        verificationRecord['location']?.toString().trim() ?? '';
+
+    final businessName = submittedFullName.isNotEmpty
+        ? submittedFullName
+        : fallbackFullName;
+    final address = submittedLocation.isNotEmpty
+        ? submittedLocation
+        : fallbackLocation;
+
+    final existingPartner = await supabase
+        .from('partners')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    final payload = <String, dynamic>{
+      'user_id': userId,
+      if (businessName.isNotEmpty) 'business_name': businessName,
+      if (address.isNotEmpty) ...{
+        'address': address,
+        'business_address': address,
+      },
+      'verification_status': status,
+    };
+
+    if (existingPartner == null) {
+      await supabase.from('partners').insert(payload);
+    } else {
+      await supabase
+          .from('partners')
+          .update(payload)
+          .eq('id', existingPartner['id']);
+    }
+  }
+
+  static Future<void> _syncDriverProfileFromVerification({
+    required String userId,
+    required String status,
+  }) async {
+    final existingDriver = await supabase
+        .from('drivers')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    final payload = <String, dynamic>{
+      'user_id': userId,
+      'verification_status': status,
+    };
+
+    if (existingDriver == null) {
+      await supabase.from('drivers').insert({
+        ...payload,
+        'driver_tier': status == 'verified' ? 'standard' : 'standard',
+      });
+    } else {
+      await supabase
+          .from('drivers')
+          .update(payload)
+          .eq('id', existingDriver['id']);
+    }
+  }
+
+  /// Submit verification with complete form details (name, location, ID type, ID number, image)
+  static Future<Map<String, dynamic>> submitVerificationWithDetails({
+    required String userId,
+    required String fullName,
+    required String location,
+    required String idType,
+    required String idNumber,
+    required String idDocumentUrl,
+  }) async {
+    try {
+      debugPrint('Submitting verification with details for user: $userId');
+
+      final response = await supabase
+          .from('user_verifications')
+          .upsert({
+            'user_id': userId,
+            'full_name': fullName,
+            'location': location,
+            'id_type': idType,
+            'id_number': idNumber,
+            'id_document_url': idDocumentUrl,
+            'verification_status': 'pending',
+            'created_at': DateTime.now().toIso8601String(),
+          }, onConflict: 'user_id')
+          .select()
+          .single();
+
+      debugPrint('Verification submitted with details successfully');
+      return {
+        'success': true,
+        'message': 'Verification submitted for admin review',
+        'data': response,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error submitting verification: ${e.message}');
+      return {
+        'success': false,
+        'message': 'Failed to submit verification: ${e.message}',
+        'data': null,
+      };
+    } catch (e) {
+      debugPrint('Error submitting verification: $e');
+      return {
+        'success': false,
+        'message': 'Failed to submit verification: $e',
+        'data': null,
+      };
     }
   }
 }

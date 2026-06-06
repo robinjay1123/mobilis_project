@@ -69,7 +69,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
     final authService = AuthService();
     await authService.updateUserApplicationStatus(status: 'pending');
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/owner-verification');
+    Navigator.of(context).pushReplacementNamed('/identity-verification-form');
   }
 
   Future<void> _handleDriverVerification() async {

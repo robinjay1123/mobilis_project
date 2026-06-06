@@ -17,6 +17,13 @@ class VehicleAvailabilityScreen extends StatefulWidget {
 class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
   String? selectedVehicleId;
   List<Map<String, dynamic>> vehicles = [];
+  List<Map<String, dynamic>> applications = [];
+  Map<String, int> applicationCounts = {
+    'pending': 0,
+    'approved': 0,
+    'rejected': 0,
+    'total': 0,
+  };
   Set<DateTime> unavailableDates = {};
   Set<DateTime> selectedDates = {};
   DateTime focusedDay = DateTime.now();
@@ -39,6 +46,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
       if (user != null) {
         final profile = await partnerService.getPartnerProfile(user.id);
+        final appList = await partnerService.getVehicleApplications(user.id);
+        final counts = await partnerService.getApplicationCounts(user.id);
         if (profile != null) {
           final vehicleService = VehicleService();
           final vehicleList = await vehicleService.getPartnerVehicles(
@@ -47,9 +56,21 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
           setState(() {
             vehicles = vehicleList;
+            applications = appList;
+            applicationCounts = counts;
+            isLoading = false;
+          });
+        } else {
+          setState(() {
+            applications = appList;
+            applicationCounts = counts;
             isLoading = false;
           });
         }
+      } else {
+        setState(() {
+          isLoading = false;
+        });
       }
     } catch (e) {
       debugPrint('Error loading vehicles: $e');
@@ -240,6 +261,11 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
             )
           : Column(
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: _buildApplicationOverview(),
+                ),
+
                 // Vehicle selector
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -538,5 +564,170 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildApplicationOverview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Vehicle Applications',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildStatusChip(
+                    'Pending ${applicationCounts['pending'] ?? 0}',
+                    AppColors.warning,
+                  ),
+                  _buildStatusChip(
+                    'Approved ${applicationCounts['approved'] ?? 0}',
+                    AppColors.success,
+                  ),
+                  _buildStatusChip(
+                    'Rejected ${applicationCounts['rejected'] ?? 0}',
+                    AppColors.error,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (applications.isEmpty)
+                const Text(
+                  'No vehicle applications yet.',
+                  style: TextStyle(color: AppColors.textSecondary),
+                )
+              else
+                ...applications.take(3).map(_buildApplicationCard),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildApplicationCard(Map<String, dynamic> application) {
+    final status =
+        (application['application_status'] ?? application['status'] ?? 'pending')
+            .toString()
+            .toLowerCase();
+    final brand = application['brand']?.toString() ?? 'Vehicle';
+    final model = application['model']?.toString() ?? '';
+    final plateNumber = application['plate_number']?.toString() ?? '';
+    final createdAt = application['created_at']?.toString();
+
+    Color statusColor = AppColors.warning;
+    if (status == 'approved') {
+      statusColor = AppColors.success;
+    } else if (status == 'rejected') {
+      statusColor = AppColors.error;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$brand $model'.trim(),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              _buildStatusChip(status.toUpperCase(), statusColor),
+            ],
+          ),
+          if (plateNumber.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Plate: $plateNumber',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          if (createdAt != null && createdAt.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Submitted: ${_formatDate(createdAt)}',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          if (status == 'rejected' &&
+              application['rejection_reason'] != null &&
+              application['rejection_reason'].toString().trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Reason: ${application['rejection_reason']}',
+              style: const TextStyle(
+                color: AppColors.error,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String value) {
+    try {
+      final date = DateTime.parse(value);
+      final month = date.month.toString().padLeft(2, '0');
+      final day = date.day.toString().padLeft(2, '0');
+      return '${date.year}-$month-$day';
+    } catch (_) {
+      return value;
+    }
   }
 }

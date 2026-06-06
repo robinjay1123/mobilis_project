@@ -285,7 +285,7 @@ class AdminService {
       final response = await supabase
           .from('partner_vehicle_applications')
           .select(
-            'id, partner_id, brand, model, year, plate_number, vehicle_photo_url, application_status, created_at, users(full_name, email)',
+            'id, partner_id, brand, model, year, plate_number, seats, fuel_type, transmission, vehicle_photo_url, application_status, created_at, users(full_name, email)',
           )
           .eq('application_status', 'pending')
           .order('created_at', ascending: false);
@@ -351,9 +351,98 @@ class AdminService {
   ) async {
     try {
       debugPrint('Approving vehicle application: $applicationId');
+
+      final application = await supabase
+          .from('partner_vehicle_applications')
+          .select('*')
+          .eq('id', applicationId)
+          .single();
+
+      final partnerId = application['partner_id']?.toString();
+      if (partnerId == null || partnerId.isEmpty) {
+        throw Exception('Application is missing partner_id');
+      }
+
+      final vehicle = await supabase
+          .from('vehicles')
+          .insert({
+            'owner_id': partnerId,
+            'brand': application['brand'],
+            'model': application['model'],
+            'year': application['year'],
+            'plate_number': application['plate_number'],
+            'seats': application['seats'] ?? 5,
+            'fuel_type': application['fuel_type'] ?? 'Gasoline',
+            'transmission': application['transmission'] ?? 'Manual',
+            'price_per_day': application['price_per_day'] ?? 0,
+            'price_per_hour': application['price_per_hour'] ?? 0,
+            'is_available': false,
+            'is_posted': false,
+            'status': 'active',
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
+      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
+        await supabase.from('vehicle_images').insert({
+          'vehicle_id': vehicle['id'],
+          'image_url': vehiclePhotoUrl,
+          'display_order': 0,
+        });
+      }
+
+      final partnerVehicle = await supabase
+          .from('partner_vehicles')
+          .insert({
+            'partner_id': partnerId,
+            'vehicle_id': vehicle['id'],
+            'plate_number': application['plate_number'],
+            'seats': application['seats'] ?? 5,
+            'fuel_type': application['fuel_type'] ?? 'Gasoline',
+            'transmission': application['transmission'] ?? 'Manual',
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      final partnerVehicleId = partnerVehicle['id'];
+
+      final orUrl = application['or_document_url']?.toString();
+      if (orUrl != null && orUrl.isNotEmpty) {
+        await supabase.from('partner_vehicle_documents').insert({
+          'partner_vehicle_id': partnerVehicleId,
+          'document_type': 'or',
+          'file_url': orUrl,
+          'status': 'approved',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      final crUrl = application['cr_document_url']?.toString();
+      if (crUrl != null && crUrl.isNotEmpty) {
+        await supabase.from('partner_vehicle_documents').insert({
+          'partner_vehicle_id': partnerVehicleId,
+          'document_type': 'cr',
+          'file_url': crUrl,
+          'status': 'approved',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+
       await supabase
           .from('partner_vehicle_applications')
-          .update({'application_status': 'approved'})
+          .update({
+            'application_status': 'approved',
+            'status': 'approved',
+            'verified_by': supabase.auth.currentUser?.id,
+            'verified_at': DateTime.now().toIso8601String(),
+            'reviewed_at': DateTime.now().toIso8601String(),
+            'partner_vehicle_id': partnerVehicleId,
+            'created_vehicle_id': vehicle['id'],
+            'rejection_reason': null,
+          })
           .eq('id', applicationId);
 
       // Log approval
@@ -380,7 +469,11 @@ class AdminService {
           .from('partner_vehicle_applications')
           .update({
             'application_status': 'rejected',
+            'status': 'rejected',
             'rejection_reason': reason,
+            'verified_by': supabase.auth.currentUser?.id,
+            'verified_at': DateTime.now().toIso8601String(),
+            'reviewed_at': DateTime.now().toIso8601String(),
           })
           .eq('id', applicationId);
 
@@ -1485,6 +1578,497 @@ class AdminService {
     } catch (e) {
       debugPrint('Error fetching partner summary: $e');
       return {};
+    }
+  }
+
+  // ================== DRIVER DOCUMENT VERIFICATION ==================
+
+  /// Get all pending driver documents across all drivers
+  Future<List<Map<String, dynamic>>> getAllPendingDriverDocuments() async {
+    try {
+      debugPrint('Fetching all pending driver documents');
+
+      final response = await supabase
+          .from('driver_documents')
+          .select('*, drivers(user_id), users(full_name, email)')
+          .eq('status', 'pending')
+          .order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching pending documents: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching pending documents: $e');
+      return [];
+    }
+  }
+
+  /// Get driver document details for review
+  Future<Map<String, dynamic>?> getDriverDocumentForReview(
+    String documentId,
+  ) async {
+    try {
+      debugPrint('Fetching driver document for review: $documentId');
+
+      final response = await supabase
+          .from('driver_documents')
+          .select(
+            '*, drivers(user_id, license_number, nbi_clearance_number, verification_status), users(full_name, email)',
+          )
+          .eq('id', documentId)
+          .maybeSingle();
+
+      return response;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching document: ${e.message}');
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching document: $e');
+      return null;
+    }
+  }
+
+  /// Verify individual driver document and update drivers table if all docs verified
+  Future<Map<String, dynamic>> verifyDriverDocument({
+    required String documentId,
+    required String driverId,
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Verifying driver document: $documentId');
+
+      // Mark document as verified
+      await supabase
+          .from('driver_documents')
+          .update({
+            'status': 'verified',
+            'verified_at': DateTime.now().toIso8601String(),
+            if (adminNotes != null) 'admin_notes': adminNotes,
+          })
+          .eq('id', documentId);
+
+      // Check if all documents for this driver are now verified
+      final pendingDocs = await supabase
+          .from('driver_documents')
+          .select('id')
+          .eq('driver_id', driverId)
+          .eq('status', 'pending');
+
+      // If no more pending docs, get the document type that was just verified
+      final verifiedDoc = await supabase
+          .from('driver_documents')
+          .select('document_type')
+          .eq('id', documentId)
+          .single();
+
+      final docType = verifiedDoc['document_type'] as String;
+
+      // Update drivers table based on document type
+      Map<String, dynamic> driverUpdate = {};
+
+      if (docType == 'license') {
+        driverUpdate['license_verified'] = true;
+      } else if (docType == 'nbi') {
+        driverUpdate['nbi_verified'] = true;
+      }
+
+      // If all documents are verified, mark as approved
+      if (pendingDocs.isEmpty) {
+        driverUpdate['verification_status'] = 'approved';
+      }
+
+      if (driverUpdate.isNotEmpty) {
+        await supabase.from('drivers').update(driverUpdate).eq('id', driverId);
+      }
+
+      debugPrint('Document verified successfully');
+      return {
+        'success': true,
+        'message': 'Document verified',
+        'all_verified': pendingDocs.isEmpty,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error verifying document: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error verifying document: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Reject driver document with reason
+  Future<Map<String, dynamic>> rejectDriverDocument({
+    required String documentId,
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting driver document: $documentId');
+
+      await supabase
+          .from('driver_documents')
+          .update({
+            'status': 'rejected',
+            'admin_notes': reason,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', documentId);
+
+      debugPrint('Document rejected successfully');
+      return {'success': true, 'message': 'Document rejected'};
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting document: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error rejecting document: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Complete driver verification (all documents approved, mark driver as verified)
+  Future<Map<String, dynamic>> completeDriverVerification({
+    required String driverId,
+    required String tier,
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Completing driver verification for: $driverId');
+
+      // Update driver with final verification status and tier
+      await supabase
+          .from('drivers')
+          .update({
+            'verification_status': 'approved',
+            'license_verified': true,
+            'nbi_verified': true,
+            'driver_tier': tier,
+          })
+          .eq('id', driverId);
+
+      // Also update users table application_status
+      await supabase
+          .from('users')
+          .update({'application_status': 'approved'})
+          .eq('id', driverId);
+
+      debugPrint('Driver verification completed successfully');
+      return {
+        'success': true,
+        'message': 'Driver verification completed',
+        'tier': tier,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error completing verification: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error completing verification: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Reject entire driver verification
+  Future<Map<String, dynamic>> rejectDriverVerification({
+    required String driverId,
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting driver verification for: $driverId');
+
+      // Get all pending documents
+      final pendingDocs = await supabase
+          .from('driver_documents')
+          .select('id')
+          .eq('driver_id', driverId)
+          .eq('status', 'pending');
+
+      // Mark all as rejected
+      for (var doc in pendingDocs) {
+        await supabase
+            .from('driver_documents')
+            .update({
+              'status': 'rejected',
+              'admin_notes': reason,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', doc['id']);
+      }
+
+      // Update driver status
+      await supabase
+          .from('drivers')
+          .update({'verification_status': 'rejected'})
+          .eq('id', driverId);
+
+      // Update users table
+      await supabase
+          .from('users')
+          .update({'application_status': 'rejected'})
+          .eq('id', driverId);
+
+      debugPrint('Driver verification rejected successfully');
+      return {
+        'success': true,
+        'message': 'Driver verification rejected',
+        'documents_rejected': pendingDocs.length,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting verification: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error rejecting verification: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Get driver verification summary
+  Future<Map<String, dynamic>> getDriverVerificationSummary(
+    String driverId,
+  ) async {
+    try {
+      debugPrint('Fetching verification summary for driver: $driverId');
+
+      final driver = await supabase
+          .from('drivers')
+          .select()
+          .eq('id', driverId)
+          .single();
+
+      final documents = await supabase
+          .from('driver_documents')
+          .select()
+          .eq('driver_id', driverId);
+
+      final user = await supabase
+          .from('users')
+          .select()
+          .eq('id', driver['user_id'])
+          .single();
+
+      return {
+        'driver_id': driverId,
+        'user_id': driver['user_id'],
+        'full_name': user['full_name'],
+        'email': user['email'],
+        'verification_status': driver['verification_status'],
+        'tier': driver['driver_tier'],
+        'license_verified': driver['license_verified'],
+        'nbi_verified': driver['nbi_verified'],
+        'documents': documents,
+        'total_documents': documents.length,
+        'verified_documents': (documents as List)
+            .where((d) => d['status'] == 'verified')
+            .length,
+        'pending_documents': (documents as List)
+            .where((d) => d['status'] == 'pending')
+            .length,
+        'rejected_documents': (documents as List)
+            .where((d) => d['status'] == 'rejected')
+            .length,
+      };
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching summary: ${e.message}');
+      return {'error': e.message};
+    } catch (e) {
+      debugPrint('Error fetching summary: $e');
+      return {'error': e.toString()};
+    }
+  }
+
+  // ================== PARTNER VERIFICATION ==================
+
+  /// Get all pending partner identity verifications (separate from vehicle docs)
+  /// Partners complete this FIRST (like renters)
+  Future<List<Map<String, dynamic>>> getPendingPartnerVerifications() async {
+    try {
+      debugPrint('Fetching pending partner verifications');
+
+      final response = await supabase
+          .from('user_verifications')
+          .select(
+            '*, users!inner(id, full_name, email, phone, created_at, role)',
+          )
+          .eq('verification_status', 'pending')
+          .eq('users.role', 'partner') // works with !inner join
+          .order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching partner verifications: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching partner verifications: $e');
+      return [];
+    }
+  }
+
+  /// Get partner verification details for review
+  Future<Map<String, dynamic>?> getPartnerVerificationForReview(
+    String userId,
+  ) async {
+    try {
+      debugPrint('Fetching partner verification for review: $userId');
+
+      final response = await supabase
+          .from('user_verifications')
+          .select('*, users(id, full_name, email, phone, location, created_at)')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      return response;
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching verification: ${e.message}');
+      return null;
+    } catch (e) {
+      debugPrint('Error fetching verification: $e');
+      return null;
+    }
+  }
+
+  /// Approve partner identity verification
+  Future<Map<String, dynamic>> approvePartnerVerification({
+    required String userId,
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Approving partner verification for: $userId');
+
+      // Update user_verifications
+      await supabase
+          .from('user_verifications')
+          .update({
+            'verification_status': 'verified',
+            'verified_at': DateTime.now().toIso8601String(),
+            if (adminNotes != null) 'admin_notes': adminNotes,
+          })
+          .eq('user_id', userId);
+
+      // Update users table
+      await supabase
+          .from('users')
+          .update({'id_verified': true, 'application_status': 'approved'})
+          .eq('id', userId);
+
+      debugPrint('Partner verification approved successfully');
+      return {'success': true, 'message': 'Partner verification approved'};
+    } on PostgrestException catch (e) {
+      debugPrint('Database error approving verification: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error approving verification: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Reject partner identity verification
+  Future<Map<String, dynamic>> rejectPartnerVerification({
+    required String userId,
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting partner verification for: $userId');
+
+      // Update user_verifications
+      await supabase
+          .from('user_verifications')
+          .update({
+            'verification_status': 'rejected',
+            'rejection_reason': reason,
+          })
+          .eq('user_id', userId);
+
+      // Update users table
+      await supabase
+          .from('users')
+          .update({'id_verified': false, 'application_status': 'rejected'})
+          .eq('id', userId);
+
+      debugPrint('Partner verification rejected successfully');
+      return {'success': true, 'message': 'Partner verification rejected'};
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting verification: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error rejecting verification: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  // ================== VEHICLE DOCUMENT VERIFICATION ==================
+
+  /// Get all pending vehicle documents (for vehicle applications)
+  /// This is SEPARATE from partner verification
+  /// Called AFTER partner submits a vehicle for approval
+  Future<List<Map<String, dynamic>>> getAllPendingVehicleDocuments() async {
+    try {
+      debugPrint('Fetching all pending vehicle documents');
+
+      final response = await supabase
+          .from('vehicle_documents')
+          .select(
+            '*, partner_vehicle_applications(id, partner_id, vehicle_info), users(full_name, email)',
+          )
+          .eq('status', 'pending')
+          .order('uploaded_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching vehicle documents: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching vehicle documents: $e');
+      return [];
+    }
+  }
+
+  /// Verify individual vehicle document (OR/CR, etc)
+  Future<Map<String, dynamic>> verifyVehicleDocument({
+    required String documentId,
+    String? adminNotes,
+  }) async {
+    try {
+      debugPrint('Verifying vehicle document: $documentId');
+
+      await supabase
+          .from('vehicle_documents')
+          .update({
+            'status': 'verified',
+            'verified_at': DateTime.now().toIso8601String(),
+            if (adminNotes != null) 'admin_notes': adminNotes,
+          })
+          .eq('id', documentId);
+
+      debugPrint('Vehicle document verified successfully');
+      return {'success': true, 'message': 'Document verified'};
+    } on PostgrestException catch (e) {
+      debugPrint('Database error verifying document: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error verifying document: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  /// Reject vehicle document
+  Future<Map<String, dynamic>> rejectVehicleDocument({
+    required String documentId,
+    required String reason,
+  }) async {
+    try {
+      debugPrint('Rejecting vehicle document: $documentId');
+
+      await supabase
+          .from('vehicle_documents')
+          .update({'status': 'rejected', 'admin_notes': reason})
+          .eq('id', documentId);
+
+      debugPrint('Vehicle document rejected successfully');
+      return {'success': true, 'message': 'Document rejected'};
+    } on PostgrestException catch (e) {
+      debugPrint('Database error rejecting document: ${e.message}');
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      debugPrint('Error rejecting document: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 

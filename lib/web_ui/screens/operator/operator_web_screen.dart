@@ -10,6 +10,18 @@ import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/notification_service.dart';
+import '../../../services/tracking_service.dart';
+
+bool _bookingNeedsDriver(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'true' || normalized == 'yes' || normalized == '1';
+  }
+  return false;
+}
 
 class OperatorWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -44,6 +56,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
   List<Map<String, dynamic>> _conversations = [];
+  List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _trackingLocations = [];
   Map<String, List<Map<String, dynamic>>> _messages = {};
 
   final _supabase = Supabase.instance.client;
@@ -190,11 +204,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Future<void> _loadDashboardData() async {
     setState(() => _isLoading = true);
     try {
-      await Future.wait([_loadStats(), _loadRecentBookings(), _loadVehicles()]);
+      await Future.wait([
+        _loadStats(),
+        _loadNotifications(),
+        _loadVehicles(),
+        _loadRecentBookings(),
+        _loadTrackingLocations(),
+      ]);
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
     }
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadNotifications() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) {
+      _notifications = [];
+      return;
+    }
+
+    try {
+      _notifications = await NotificationService().getNotifications(
+        currentUserId,
+      );
+    } catch (e) {
+      debugPrint('Error loading notifications: $e');
+      _notifications = [];
+    }
+  }
+
+  Future<void> _loadTrackingLocations() async {
+    _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
   Future<void> _loadStats() async {
@@ -226,7 +267,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final activeBookingsResponse = await _supabase
           .from('bookings')
           .select('id')
-          .eq('status', 'active');
+          .inFilter('status', ['active', 'approved', 'confirmed']);
       _activeBookings = (activeBookingsResponse as List).length;
 
       final totalBookingsResponse = await _supabase
@@ -261,17 +302,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadRecentBookings() async {
     try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      debugPrint('[Bookings] Current user ID: $currentUserId');
-      if (currentUserId == null) {
-        debugPrint('[Bookings] No authenticated user found');
-        _recentBookings = [];
-        return;
-      }
-
-      // Query all bookings - RLS policy will filter to only those for user's owned vehicles
       debugPrint(
-        '[Bookings] Fetching bookings with RLS filtering for user: $currentUserId',
+        '[Bookings] Loading recent bookings (driver embed via drivers -> users)',
       );
       final response = await _supabase
           .from('bookings')
@@ -281,45 +313,64 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               renter_id,
               driver_id,
               status,
+              start_at,
+              end_at,
               start_date,
               end_date,
               total_price,
               total_cost,
               with_driver,
+              pickup_location,
+              dropoff_location,
+              picked_up_at,
+              returned_at,
+              completed_at,
               created_at,
-              vehicles!vehicle_id (
+              vehicles:vehicle_id (
                 id,
                 brand,
                 model,
                 year,
-                image_url
+                owner_id,
+                vehicle_name,
+                price_per_day,
+                vehicle_images(id, image_url, display_order)
               ),
-              renter:users!renter_id (
+              renter:users!bookings_renter_id_fkey (
                 id,
                 full_name,
                 email
               ),
-              driver:users!driver_id (
-                id,
-                full_name
+              driver:drivers!bookings_driver_id_fkey (
+                user_id,
+                user:users!drivers_user_id_fkey (
+                  id,
+                  full_name,
+                  email
+                )
               )
             ''')
           .order('created_at', ascending: false)
           .limit(100);
 
-      debugPrint('[Bookings] Response type: ${response.runtimeType}');
-      debugPrint('[Bookings] Response length: ${(response as List).length}');
-
-      _recentBookings = List<Map<String, dynamic>>.from(response);
-      debugPrint(
-        '[Bookings] Successfully loaded ${_recentBookings.length} bookings',
-      );
-
-      if (_recentBookings.isNotEmpty) {
-        debugPrint('[Bookings] First booking: ${_recentBookings.first}');
-      }
+      _recentBookings = List<Map<String, dynamic>>.from(response).map((
+        booking,
+      ) {
+        final normalizedBooking = Map<String, dynamic>.from(booking);
+        final vehicle = booking['vehicles'];
+        if (vehicle is Map<String, dynamic>) {
+          final normalizedVehicle = Map<String, dynamic>.from(vehicle);
+          normalizedVehicle['image_url'] = _primaryVehicleImageUrl(
+            normalizedVehicle,
+          );
+          normalizedBooking['vehicles'] = normalizedVehicle;
+        }
+        return normalizedBooking;
+      }).toList();
     } catch (e, st) {
-      debugPrint('[Bookings] Error loading recent bookings: $e');
+      debugPrint(
+        '[Bookings] Error loading recent bookings (driver embed via drivers -> users): $e',
+      );
       debugPrint('[Bookings] Stack trace: $st');
       _recentBookings = [];
     }
@@ -386,6 +437,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _vehicles = [];
       _partnerVehicles = [];
     }
+  }
+
+  String _primaryVehicleImageUrl(Map<String, dynamic>? vehicle) {
+    if (vehicle == null || vehicle.isEmpty) return '';
+
+    final directImageUrl = vehicle['image_url']?.toString().trim() ?? '';
+    if (directImageUrl.isNotEmpty) return directImageUrl;
+
+    final images = vehicle['vehicle_images'];
+    if (images is! List) return '';
+
+    for (final image in images) {
+      if (image is! Map) continue;
+      final imageMap = Map<String, dynamic>.from(image);
+      final imageUrl = imageMap['image_url']?.toString().trim() ?? '';
+      if (imageUrl.isNotEmpty) return imageUrl;
+    }
+
+    return '';
   }
 
   Future<void> _handleApplicationAction(
@@ -456,24 +526,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         throw Exception('Invalid booking id');
       }
 
-      final withDriver = booking['with_driver'] == true;
-
       // Approve booking
       final bookingService = BookingService();
       await bookingService.updateBookingStatus(bookingId, 'confirmed');
 
-      if (withDriver && driverId != null) {
+      if (driverId != null) {
         await bookingService.assignDriver(bookingId, driverId, 0.0);
       }
 
-      // Create group chat for confirmed bookings with driver
-      if (withDriver) {
-        try {
-          await _createBookingGroupChat(booking, driverId);
-        } catch (e) {
-          debugPrint('Error creating group chat: $e');
-          // Don't fail the booking approval if chat creation fails
-        }
+      try {
+        await _createBookingGroupChat(booking, driverId);
+      } catch (e) {
+        debugPrint('Error creating group chat: $e');
+        // Don't fail the booking approval if chat creation fails
       }
 
       if (mounted) {
@@ -501,27 +566,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   ) async {
     try {
       final bookingId = booking['id'] as String;
-      final withDriver = booking['with_driver'] as bool? ?? false;
       final operatorId = _supabase.auth.currentUser?.id;
       final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ?? {};
       final ownerId = vehicle['owner_id'] as String?;
       final renterId = booking['renter_id'] as String?;
 
-      if (!withDriver || operatorId == null || renterId == null) {
+      if (operatorId == null || renterId == null) {
         return;
       }
 
       final participantIds = <String>{renterId, operatorId};
 
-      // Case A: PSDC unit (no specific partner owner)
-      // Participants: renter_id, driver_id, operator_id
-      if (driverId != null && ownerId == null) {
-        participantIds.add(driverId);
+      if (driverId != null) {
+        final driver = await _supabase
+            .from('drivers')
+            .select('user_id')
+            .eq('id', driverId)
+            .maybeSingle();
+        final driverUserId = driver?['user_id']?.toString();
+        if (driverUserId != null && driverUserId.isNotEmpty) {
+          participantIds.add(driverUserId);
+        }
       }
-      // Case B: Partner unit
-      // Participants: renter_id, driver_id, partner_id, operator_id
-      else if (driverId != null && ownerId != null) {
-        participantIds.addAll([driverId, ownerId]);
+
+      if (ownerId != null) {
+        participantIds.add(ownerId);
       }
 
       await ChatService().createGroupConversation(
@@ -603,70 +672,134 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return month >= 1 && month <= 12 ? months[month - 1] : '';
   }
 
+  String _formatBookingDateTime(DateTime? value) {
+    if (value == null) return 'N/A';
+    final localValue = value.toLocal();
+    final hour12 = localValue.hour % 12 == 0 ? 12 : localValue.hour % 12;
+    final minute = localValue.minute.toString().padLeft(2, '0');
+    final suffix = localValue.hour >= 12 ? 'PM' : 'AM';
+    return '${localValue.day.toString().padLeft(2, '0')} ${_getMonthName(localValue.month)} ${localValue.year}, $hour12:$minute $suffix';
+  }
+
+  int _inclusiveRentalDays(DateTime? startDate, DateTime? endDate) {
+    if (startDate == null || endDate == null) return 0;
+
+    final localStartDate = startDate.toLocal();
+    final localEndDate = endDate.toLocal();
+    final startDay = DateTime(
+      localStartDate.year,
+      localStartDate.month,
+      localStartDate.day,
+    );
+    final endDay = DateTime(
+      localEndDate.year,
+      localEndDate.month,
+      localEndDate.day,
+    );
+    final calendarDays = endDay.difference(startDay).inDays + 1;
+
+    return calendarDays < 1 ? 1 : calendarDays;
+  }
+
+  String _vehicleTitle(Map<String, dynamic> vehicle) {
+    final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+    if (vehicleName.isNotEmpty) return vehicleName;
+
+    final brand = vehicle['brand']?.toString().trim() ?? '';
+    final model = vehicle['model']?.toString().trim() ?? '';
+    final year = vehicle['year']?.toString().trim() ?? '';
+    final name = [brand, model].where((part) => part.isNotEmpty).join(' ');
+
+    if (name.isEmpty) return 'Unknown Vehicle';
+    return year.isEmpty ? name : '$name ($year)';
+  }
+
   void _showApproveDialog(Map<String, dynamic> booking) {
     showDialog(
       context: context,
       builder: (context) {
         String? selectedDriverId;
-        final withDriver = booking['with_driver'] as bool? ?? false;
+        final withDriver = _bookingNeedsDriver(booking['with_driver']);
 
-        return AlertDialog(
-          title: const Text('Approve Booking'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Are you sure you want to approve this booking?'),
-              if (withDriver) ...[
-                const SizedBox(height: 16),
-                const Text('Select Driver:'),
-                const SizedBox(height: 8),
-                FutureBuilder<List<dynamic>>(
-                  future: _supabase
-                      .from('users')
-                      .select()
-                      .eq('role', 'driver')
-                      .limit(20),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasData) {
-                      final drivers = snapshot.data as List<dynamic>;
-                      return DropdownButton<String>(
-                        value: selectedDriverId,
-                        hint: const Text('Choose a driver'),
-                        isExpanded: true,
-                        items: drivers.map((driver) {
-                          final driverId = driver['id'] as String;
-                          final driverName =
-                              driver['full_name'] as String? ?? 'Unknown';
-                          return DropdownMenuItem(
-                            value: driverId,
-                            child: Text(driverName),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Approve Booking'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Are you sure you want to approve this booking?'),
+                  if (withDriver) ...[
+                    const SizedBox(height: 16),
+                    const Text('Select Driver:'),
+                    const SizedBox(height: 8),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: BookingService().getAvailableVerifiedDrivers(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: LinearProgressIndicator(),
                           );
-                        }).toList(),
-                        onChanged: (value) {
-                          selectedDriverId = value;
-                        },
+                        }
+
+                        final drivers = snapshot.data ?? [];
+                        if (drivers.isEmpty) {
+                          return const Text('No available drivers found');
+                        }
+
+                        return DropdownButtonFormField<String>(
+                          value: selectedDriverId,
+                          hint: const Text('Choose a driver'),
+                          isExpanded: true,
+                          items: drivers.map((driverMap) {
+                            final driverId = driverMap['id'].toString();
+                            final driverUser =
+                                driverMap['users'] as Map<String, dynamic>?;
+                            final driverName =
+                                driverUser?['full_name'] as String? ??
+                                'Unknown';
+                            return DropdownMenuItem(
+                              value: driverId,
+                              child: Text(driverName),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setDialogState(() => selectedDriverId = value);
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (withDriver && selectedDriverId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select an available driver'),
+                          backgroundColor: Colors.orange,
+                        ),
                       );
+                      return;
                     }
-                    return const SizedBox.shrink();
+
+                    _approveBooking(booking, driverId: selectedDriverId);
+                    Navigator.pop(context);
                   },
+                  child: const Text('Approve'),
                 ),
               ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _approveBooking(booking, driverId: selectedDriverId);
-                Navigator.pop(context);
-              },
-              child: const Text('Approve'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -811,7 +944,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
                 _buildNavItem(1, Icons.book, 'Bookings', isDark),
                 _buildNavItem(2, Icons.message, 'Messages', isDark),
-                _buildNavItem(3, Icons.directions_car, 'Vehicles', isDark),
+                _buildNavItem(
+                  3,
+                  Icons.notifications,
+                  'Notifications',
+                  isDark,
+                  badge:
+                      _notifications.where((n) => n['is_read'] == false).isEmpty
+                      ? null
+                      : _notifications
+                            .where((n) => n['is_read'] == false)
+                            .length,
+                ),
+                _buildNavItem(4, Icons.directions_car, 'Vehicles', isDark),
+                _buildNavItem(
+                  6,
+                  Icons.location_on,
+                  'Live Tracking',
+                  isDark,
+                  badge: _trackingLocations.isEmpty
+                      ? null
+                      : _trackingLocations.length,
+                ),
                 const SizedBox(height: 20),
                 if (_sidebarExpanded)
                   Padding(
@@ -827,7 +981,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                 const SizedBox(height: 10),
-                _buildNavItem(4, Icons.settings, 'Settings', isDark),
+                _buildNavItem(5, Icons.settings, 'Settings', isDark),
               ],
             ),
           ),
@@ -1029,9 +1183,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       case 2:
         return 'Messages';
       case 3:
-        return 'Vehicles';
+        return 'Notifications';
       case 4:
+        return 'Vehicles';
+      case 5:
         return 'Settings';
+      case 6:
+        return 'Live Tracking';
       default:
         return 'Dashboard';
     }
@@ -1052,9 +1210,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       case 2:
         return _buildMessagesContent(isDark);
       case 3:
-        return _buildVehiclesContent(isDark);
+        return _buildNotificationsContent(isDark);
       case 4:
+        return _buildVehiclesContent(isDark);
+      case 5:
         return _buildSettingsContent(isDark);
+      case 6:
+        return _buildTrackingContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -1208,6 +1370,181 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Widget _buildTrackingContent(bool isDark) {
+    final mapUrl = _buildMapboxStaticUrl(_trackingLocations);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: _buildCard(
+        'Live Tracking (${_trackingLocations.length})',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await _loadTrackingLocations();
+                    if (mounted) setState(() {});
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Tracking comes from the driver app while an assigned trip is active.',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                height: 360,
+                width: double.infinity,
+                color: isDark ? AppColors.darkBg : Colors.grey.shade100,
+                child: mapUrl == null
+                    ? Center(
+                        child: Text(
+                          _trackingLocations.isEmpty
+                              ? 'No active tracking locations yet'
+                              : 'Add MAPBOX_ACCESS_TOKEN with --dart-define to show the map',
+                          style: TextStyle(
+                            color: isDark ? Colors.grey[400] : Colors.grey[700],
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        mapUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(
+                          child: Text(
+                            'Mapbox map failed to load',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey[700],
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (_trackingLocations.isEmpty)
+              Text(
+                'Ask the driver to start tracking from the active trip card.',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                ),
+              )
+            else
+              ..._trackingLocations.map(
+                (location) => _buildTrackingRow(location, isDark),
+              ),
+          ],
+        ),
+        isDark,
+      ),
+    );
+  }
+
+  Widget _buildTrackingRow(Map<String, dynamic> location, bool isDark) {
+    final booking = location['bookings'] as Map<String, dynamic>?;
+    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    final driver = booking?['drivers'] as Map<String, dynamic>?;
+    final driverUser = driver?['users'] as Map<String, dynamic>?;
+    final renter = booking?['renter'] as Map<String, dynamic>?;
+    final vehicleName = [
+      vehicle?['brand'],
+      vehicle?['model'],
+      vehicle?['plate_number'] == null ? null : '(${vehicle?['plate_number']})',
+    ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+    final lat = (location['latitude'] as num?)?.toDouble();
+    final lng = (location['longitude'] as num?)?.toDouble();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBg : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vehicleName.isEmpty ? 'Tracked booking' : vehicleName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Lat/Lng: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'} | Updated: ${location['recorded_at'] ?? 'N/A'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey[500] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _buildMapboxStaticUrl(List<Map<String, dynamic>> locations) {
+    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    if (token.isEmpty || locations.isEmpty) return null;
+
+    final valid = locations
+        .where((location) {
+          return location['latitude'] is num && location['longitude'] is num;
+        })
+        .take(10)
+        .toList();
+    if (valid.isEmpty) return null;
+
+    final overlays = valid
+        .map((location) {
+          final lat = (location['latitude'] as num).toDouble();
+          final lng = (location['longitude'] as num).toDouble();
+          return 'pin-s-car+facc15($lng,$lat)';
+        })
+        .join(',');
+
+    final firstLat = (valid.first['latitude'] as num).toDouble();
+    final firstLng = (valid.first['longitude'] as num).toDouble();
+    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/$overlays/$firstLng,$firstLat,12/1100x360?access_token=$token';
+  }
+
   Widget _buildBookingsTable(bool isDark) {
     if (_recentBookings.isEmpty) {
       return Center(
@@ -1246,7 +1583,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ],
       rows: _recentBookings.take(8).map((booking) {
         final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-        final user = booking['users'] as Map<String, dynamic>?;
+        final user = booking['renter'] as Map<String, dynamic>?;
         final status = booking['status'] as String? ?? 'pending';
 
         return DataRow(
@@ -1278,7 +1615,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildStatusBadge(String status) {
     Color color;
-    switch (status) {
+    switch (status.toLowerCase()) {
+      case 'confirmed':
+      case 'approved':
+        color = AppColors.primary;
+        break;
       case 'active':
         color = Colors.green;
         break;
@@ -1439,15 +1780,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final pendingBookings = _recentBookings
         .where((b) => (b['status'] as String? ?? 'pending') == 'pending')
         .toList();
-    final activeBookings = _recentBookings
-        .where((b) => (b['status'] as String? ?? 'pending') == 'active')
-        .toList();
+    final activeBookings = _recentBookings.where((b) {
+      final status = (b['status'] as String? ?? 'pending').toLowerCase();
+      return status == 'active' ||
+          status == 'approved' ||
+          status == 'confirmed';
+    }).toList();
     final completedBookings = _recentBookings
         .where((b) => (b['status'] as String? ?? 'pending') == 'completed')
         .toList();
-    final cancelledBookings = _recentBookings
-        .where((b) => (b['status'] as String? ?? 'pending') == 'cancelled')
-        .toList();
+    final cancelledBookings = _recentBookings.where((b) {
+      final status = (b['status'] as String? ?? 'pending').toLowerCase();
+      return status == 'cancelled' ||
+          status == 'canceled' ||
+          status == 'rejected';
+    }).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -1570,7 +1917,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 40),
                 child: Text(
-                  'No $title.toLowerCase() at this time',
+                  'No ${title.toLowerCase()} at this time',
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark ? Colors.grey[500] : Colors.grey.shade600,
@@ -1590,25 +1937,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final vehicle = booking['vehicles'] as Map<String, dynamic>?;
                 final renter = booking['renter'] as Map<String, dynamic>?;
                 final driver = booking['driver'] as Map<String, dynamic>?;
-                final withDriver = booking['with_driver'] as bool? ?? false;
+                final driverUser = driver?['user'] as Map<String, dynamic>?;
+                final withDriver = _bookingNeedsDriver(booking['with_driver']);
                 final status = booking['status'] as String? ?? 'pending';
+                final statusLower = status.toLowerCase();
                 final total =
                     (booking['total_price'] as num?)?.toDouble() ??
                     (booking['total_cost'] as num?)?.toDouble() ??
                     0.0;
 
                 // Parse dates
-                final startDateStr = booking['start_date'] as String? ?? '';
-                final endDateStr = booking['end_date'] as String? ?? '';
-                final startDate = DateTime.tryParse(startDateStr);
-                final endDate = DateTime.tryParse(endDateStr);
-                final days = endDate != null && startDate != null
-                    ? endDate.difference(startDate).inDays
-                    : 0;
+                final startAtStr =
+                    (booking['start_at'] ?? booking['start_date']) as String? ??
+                    '';
+                final endAtStr =
+                    (booking['end_at'] ?? booking['end_date']) as String? ?? '';
+                final startDate = DateTime.tryParse(startAtStr);
+                final endDate = DateTime.tryParse(endAtStr);
+                final pickedUpAt = DateTime.tryParse(
+                  booking['picked_up_at']?.toString() ?? '',
+                );
+                final returnedAt = DateTime.tryParse(
+                  booking['returned_at']?.toString() ?? '',
+                );
+                final days = _inclusiveRentalDays(startDate, endDate);
 
-                final dateRange = startDate != null && endDate != null
-                    ? '${startDate.day.toString().padLeft(2, '0')} ${_getMonthName(startDate.month)} - ${endDate.day.toString().padLeft(2, '0')} ${_getMonthName(endDate.month)}'
+                final localStartDate = startDate?.toLocal();
+                final localEndDate = endDate?.toLocal();
+                final dateRange = localStartDate != null && localEndDate != null
+                    ? '${localStartDate.day.toString().padLeft(2, '0')} ${_getMonthName(localStartDate.month)} - ${localEndDate.day.toString().padLeft(2, '0')} ${_getMonthName(localEndDate.month)}'
                     : 'N/A';
+                final startSchedule = _formatBookingDateTime(startDate);
+                final endSchedule = _formatBookingDateTime(endDate);
 
                 return Container(
                   padding: const EdgeInsets.all(16),
@@ -1672,7 +2032,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 // Vehicle name + year
                                 Text(
                                   vehicle != null
-                                      ? '${vehicle['brand']} ${vehicle['model']} (${vehicle['year'] ?? 'N/A'})'
+                                      ? _vehicleTitle(vehicle)
                                       : 'Unknown Vehicle',
                                   style: TextStyle(
                                     fontSize: 15,
@@ -1704,7 +2064,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       borderRadius: BorderRadius.circular(16),
                                     ),
                                     child: Text(
-                                      'Driver: ${driver['full_name'] ?? 'TBA'}',
+                                      'Driver: ${driverUser?['full_name'] ?? 'TBA'}',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: Colors.blue,
@@ -1718,6 +2078,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.black38 : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isDark
+                                ? Colors.grey[700]!
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Schedule',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Start: $startSchedule',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Return: $endSchedule',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       // Details row: dates, days, total, status
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1819,13 +2224,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                         ],
                       ),
+                      if (pickedUpAt != null || returnedAt != null) ...[
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (pickedUpAt != null)
+                              _buildBookingEventChip(
+                                Icons.key,
+                                'Picked up: '
+                                '${pickedUpAt.day.toString().padLeft(2, '0')} '
+                                '${_getMonthName(pickedUpAt.month)}',
+                                isDark,
+                              ),
+                            if (returnedAt != null)
+                              _buildBookingEventChip(
+                                Icons.assignment_turned_in,
+                                'Returned: '
+                                '${returnedAt.day.toString().padLeft(2, '0')} '
+                                '${_getMonthName(returnedAt.month)}',
+                                isDark,
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       // Status and actions
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           _buildStatusBadge(status),
-                          if (status == 'pending')
+                          if (statusLower == 'pending')
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -1860,9 +2290,214 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                               ],
                             ),
+                          if (statusLower == 'confirmed' ||
+                              statusLower == 'approved' ||
+                              statusLower == 'active')
+                            Text(
+                              'Driver updates this trip',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
                         ],
                       ),
                     ],
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingEventChip(IconData icon, String label, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white10 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? Colors.white12 : Colors.grey.shade300,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: isDark ? Colors.grey[300] : Colors.grey.shade700,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey[300] : Colors.grey.shade700,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificationsContent(bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Notifications (${_notifications.length})',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final currentUserId = _supabase.auth.currentUser?.id;
+                  if (currentUserId == null) return;
+                  await NotificationService().markAllAsRead(currentUserId);
+                  await _loadNotifications();
+                  if (mounted) setState(() {});
+                },
+                icon: const Icon(Icons.done_all, size: 16),
+                label: const Text('Mark all read'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          if (_notifications.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(40),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+              child: Text(
+                'No notifications yet',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                ),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _notifications.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final notification = _notifications[index];
+                final isRead = notification['is_read'] == true;
+                final title = notification['title']?.toString() ?? 'Update';
+                final message =
+                    notification['message']?.toString() ??
+                    notification['body']?.toString() ??
+                    '';
+                final createdAt = DateTime.tryParse(
+                  notification['created_at']?.toString() ?? '',
+                );
+
+                return InkWell(
+                  onTap: () async {
+                    final notificationId = notification['id']?.toString();
+                    if (notificationId == null || isRead) return;
+                    await NotificationService().markAsRead(notificationId);
+                    notification['is_read'] = true;
+                    if (mounted) setState(() {});
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isRead
+                          ? (isDark ? AppColors.darkCard : Colors.white)
+                          : AppColors.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isRead
+                            ? (isDark
+                                  ? AppColors.borderColor
+                                  : Colors.grey.shade200)
+                            : AppColors.primary.withOpacity(0.35),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.notifications_active,
+                          color: isRead
+                              ? (isDark ? Colors.grey : Colors.grey.shade600)
+                              : AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              if (message.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  message,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                              if (createdAt != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  '${createdAt.day.toString().padLeft(2, '0')} ${_getMonthName(createdAt.month)} ${createdAt.year}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey[500]
+                                        : Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (!isRead)
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -1942,7 +2577,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading conversations for operator: $currentUserId',
       );
 
-      // Get conversations where operator is either user_id or other_user_id
+      final participations = await _supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .eq('user_id', currentUserId);
+
+      final conversationIds = List<Map<String, dynamic>>.from(participations)
+          .map((row) => row['conversation_id']?.toString())
+          .whereType<String>()
+          .toList();
+
+      if (conversationIds.isEmpty) {
+        _conversations = [];
+        if (mounted) setState(() {});
+        return;
+      }
+
       final response = await _supabase
           .from('conversations')
           .select('''
@@ -1950,10 +2600,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               booking_id,
               user_id,
               other_user_id,
+              status,
               created_at,
               bookings!conversations_booking_id_fkey (
                 id,
                 vehicle_id,
+                start_at,
+                end_at,
                 start_date,
                 end_date,
                 status,
@@ -1963,7 +2616,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               users!conversations_user_id_fkey (id, full_name, email),
               other_users:users!conversations_other_user_id_fkey (id, full_name, email)
             ''')
-          .or('user_id.eq.$currentUserId,other_user_id.eq.$currentUserId')
+          .inFilter('id', conversationIds)
           .order('created_at', ascending: false);
 
       _conversations = List<Map<String, dynamic>>.from(response);
@@ -2194,6 +2847,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     var renterName = 'Conversation';
     var vehicleInfo = 'Vehicle';
     var status = 'pending';
+    var conversationStatus = 'active';
 
     try {
       final conversation = _conversations.firstWhere(
@@ -2202,6 +2856,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
 
       if (conversation.isNotEmpty) {
+        conversationStatus =
+            conversation['status']?.toString().toLowerCase() ?? 'active';
         final bookings = conversation['bookings'];
         if (bookings is Map<String, dynamic>) {
           final renter = bookings['renter'];
@@ -2224,6 +2880,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final conversationMessages = _messages[_selectedConversationId] ?? [];
+    final isConversationClosed =
+        conversationStatus == 'closed' || status.toLowerCase() == 'completed';
 
     return Row(
       children: [
@@ -2484,56 +3142,63 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        maxLines: 1,
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          hintStyle: TextStyle(
-                            color: isDark
-                                ? Colors.grey[600]
-                                : Colors.grey.shade400,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: BorderSide(
-                              color: isDark
-                                  ? AppColors.borderColor
-                                  : Colors.grey.shade300,
+                child: isConversationClosed
+                    ? Text(
+                        'This booking is completed. The group chat is closed.',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey[400] : Colors.grey[700],
+                        ),
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _messageController,
+                              maxLines: 1,
+                              decoration: InputDecoration(
+                                hintText: 'Type a message...',
+                                hintStyle: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey[600]
+                                      : Colors.grey.shade400,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: isDark
+                                        ? AppColors.borderColor
+                                        : Colors.grey.shade300,
+                                  ),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                              ),
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
                             ),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: () => _sendMessage(
+                              _selectedConversationId,
+                              _messageController.text,
+                            ),
+                            icon: const Icon(Icons.send, size: 18),
+                            label: const Text('Send'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                            ),
                           ),
-                        ),
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      onPressed: () => _sendMessage(
-                        _selectedConversationId,
-                        _messageController.text,
-                      ),
-                      icon: const Icon(Icons.send, size: 18),
-                      label: const Text('Send'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),

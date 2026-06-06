@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
+import '../../../services/tracking_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -146,8 +148,10 @@ class _DashboardTab extends StatefulWidget {
 
 class __DashboardTabState extends State<_DashboardTab> {
   late Future<Map<String, dynamic>> driverStatsFuture;
+  late Future<List<Map<String, dynamic>>> pendingOffersFuture;
   String verificationStatus = 'pending';
   String certificationStatus = 'basic'; // 'basic', 'approved', 'certified'
+  bool hasPendingVerification = false;
   bool dismissedVerificationBanner = false;
   int verificationSkipCount = 0; // Track how many times skipped
 
@@ -157,25 +161,86 @@ class __DashboardTabState extends State<_DashboardTab> {
     final authService = AuthService();
     final driverService = DriverService();
     if (authService.currentUser != null) {
-      driverStatsFuture = driverService.getDriverStats(
+      driverStatsFuture = _loadDriverStats(
+        driverService,
+        authService.currentUser!.id,
+      );
+      pendingOffersFuture = driverService.getPendingOffers(
         authService.currentUser!.id,
       );
     } else {
       driverStatsFuture = Future.value({});
+      pendingOffersFuture = Future.value([]);
+    }
+  }
+
+  void _refreshPendingOffers() {
+    final userId = AuthService().currentUser?.id;
+    setState(() {
+      pendingOffersFuture = userId == null
+          ? Future.value([])
+          : DriverService().getPendingOffers(userId);
+    });
+  }
+
+  Future<Map<String, dynamic>> _loadDriverStats(
+    DriverService driverService,
+    String userId,
+  ) async {
+    final stats = await driverService.getDriverStats(userId);
+    final verification = await VerificationService.getUserVerification(userId);
+    final verificationRecordStatus =
+        (verification?['verification_status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+    final nextVerificationStatus = _normalizeStatus(
+      verificationRecordStatus.isNotEmpty
+          ? verificationRecordStatus
+          : (stats['verification_status'] ??
+                stats['verification'] ??
+                'pending'),
+    );
+    final nextCertificationStatus = _normalizeStatus(
+      stats['driver_tier'] ?? stats['tier'] ?? 'basic',
+    );
+
+    if (mounted) {
+      setState(() {
+        verificationStatus = nextVerificationStatus;
+        certificationStatus = nextCertificationStatus;
+        hasPendingVerification = verificationRecordStatus == 'pending';
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showVerificationPopupIfNeeded();
+      });
     }
 
-    // Show verification popup periodically if not verified
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showVerificationPopupIfNeeded();
-    });
+    return stats;
   }
 
   void _showVerificationPopupIfNeeded() {
     // Only show popup if not yet verified and skip count is less than 3
     // (shows popup every 3 times they skip)
-    if (verificationStatus == 'pending' && verificationSkipCount % 3 == 0) {
+    if (!_isVerified &&
+        !hasPendingVerification &&
+        verificationSkipCount % 3 == 0) {
       _showVerificationPopup();
     }
+  }
+
+  String _normalizeStatus(dynamic value) {
+    final status = value?.toString().trim().toLowerCase() ?? '';
+    if (status == 'approved') return 'verified';
+    return status.isEmpty ? 'pending' : status;
+  }
+
+  bool get _isVerified {
+    return verificationStatus == 'verified' ||
+        verificationStatus == 'approved' ||
+        verificationStatus == 'certified' ||
+        certificationStatus == 'certified';
   }
 
   void _showVerificationPopup() {
@@ -265,8 +330,7 @@ class __DashboardTabState extends State<_DashboardTab> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // Navigate to verification screen
-              // Navigator.pushNamed(context, '/verify-driver');
+              Navigator.pushNamed(context, '/driver-identity-verification');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -323,8 +387,7 @@ class __DashboardTabState extends State<_DashboardTab> {
             future: driverStatsFuture,
             builder: (context, snapshot) {
               final stats = snapshot.data ?? {};
-              final rating = stats['rating'] ?? 0.0;
-              final tier = stats['driver_tier'] ?? 'Standard';
+              final rating = (stats['rating'] as num?)?.toDouble() ?? 0.0;
               final totalTrips = stats['total_trips'] ?? 0;
 
               return Container(
@@ -436,24 +499,44 @@ class __DashboardTabState extends State<_DashboardTab> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkCard : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade300,
-              ),
-            ),
-            child: Center(
-              child: Text(
-                'No pending job offers at the moment',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.grey : Colors.grey.shade600,
-                ),
-              ),
-            ),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: pendingOffersFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final offers = snapshot.data ?? [];
+              if (offers.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkCard : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.borderColor
+                          : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      'No pending job offers at the moment',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark ? Colors.grey : Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                children: offers
+                    .map((offer) => _DriverOfferCard(offer: offer))
+                    .toList(),
+              );
+            },
           ),
         ],
       ),
@@ -463,8 +546,10 @@ class __DashboardTabState extends State<_DashboardTab> {
   String _getDriverBadge() {
     if (certificationStatus == 'certified') {
       return 'CERTIFIED PSDC DRIVER';
-    } else if (verificationStatus == 'verified') {
+    } else if (_isVerified) {
       return 'VERIFIED DRIVER';
+    } else if (hasPendingVerification) {
+      return 'VERIFICATION PENDING';
     } else {
       return 'BASIC DRIVER';
     }
@@ -473,8 +558,10 @@ class __DashboardTabState extends State<_DashboardTab> {
   Color _getDriverBadgeColor() {
     if (certificationStatus == 'certified') {
       return const Color(0xFF6366F1); // Indigo for certified
-    } else if (verificationStatus == 'verified') {
+    } else if (_isVerified) {
       return AppColors.success;
+    } else if (hasPendingVerification) {
+      return AppColors.primary;
     } else {
       return AppColors.warning;
     }
@@ -535,12 +622,15 @@ class __JobsTabState extends State<_JobsTab> {
   @override
   void initState() {
     super.initState();
+    _loadJobs();
+  }
+
+  void _loadJobs() {
     final authService = AuthService();
     final driverService = DriverService();
     if (authService.currentUser != null) {
-      jobsFuture = driverService.getCompletedTrips(
+      jobsFuture = driverService.getAssignedBookings(
         authService.currentUser!.id,
-        limit: 10,
       );
     } else {
       jobsFuture = Future.value([]);
@@ -557,7 +647,7 @@ class __JobsTabState extends State<_JobsTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Your Trips',
+            'Assigned Trips',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -588,7 +678,7 @@ class __JobsTabState extends State<_JobsTab> {
                   ),
                   child: Center(
                     child: Text(
-                      'No completed trips yet',
+                      'No assigned trips yet',
                       style: TextStyle(
                         fontSize: 14,
                         color: isDark ? Colors.grey : Colors.grey.shade600,
@@ -604,7 +694,12 @@ class __JobsTabState extends State<_JobsTab> {
                 itemCount: trips.length,
                 itemBuilder: (context, index) {
                   final trip = trips[index];
-                  return _TripCard(trip: trip);
+                  return _TripCard(
+                    trip: trip,
+                    onChanged: () {
+                      setState(() => _loadJobs());
+                    },
+                  );
                 },
               );
             },
@@ -615,14 +710,162 @@ class __JobsTabState extends State<_JobsTab> {
   }
 }
 
-class _TripCard extends StatelessWidget {
+class _TripCard extends StatefulWidget {
   final Map<String, dynamic> trip;
+  final VoidCallback onChanged;
 
-  const _TripCard({required this.trip});
+  const _TripCard({required this.trip, required this.onChanged});
+
+  @override
+  State<_TripCard> createState() => _TripCardState();
+}
+
+class _TripCardState extends State<_TripCard> {
+  bool _isTogglingTracking = false;
+
+  Map<String, dynamic> get trip => widget.trip;
+
+  Future<void> _markPickedUp(BuildContext context) async {
+    try {
+      await DriverService().markAssignedBookingPickedUp(trip['id'].toString());
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Trip marked as picked up'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+      widget.onChanged();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _markReturned(BuildContext context) async {
+    final startDate = DateTime.tryParse(trip['start_date']?.toString() ?? '');
+    final scheduledEnd =
+        DateTime.tryParse(trip['end_date']?.toString() ?? '') ?? DateTime.now();
+
+    final returnedDate = await showDatePicker(
+      context: context,
+      initialDate: scheduledEnd,
+      firstDate: startDate ?? DateTime(2020),
+      lastDate: scheduledEnd.add(const Duration(days: 365)),
+    );
+
+    if (returnedDate == null) return;
+
+    try {
+      final total = await DriverService().completeAssignedBookingReturn(
+        bookingId: trip['id'].toString(),
+        returnedAt: returnedDate,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Trip completed. Final total: PHP ${total.toStringAsFixed(0)}',
+            ),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+      await TrackingService().stopTracking();
+      widget.onChanged();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleTracking(BuildContext context) async {
+    final userId = AuthService().currentUser?.id;
+    final bookingId = trip['id']?.toString() ?? '';
+    final vehicleId = trip['vehicle_id']?.toString() ?? '';
+    if (userId == null || bookingId.isEmpty || vehicleId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Trip tracking details are incomplete'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isTogglingTracking = true);
+    try {
+      final trackingService = TrackingService();
+      if (trackingService.activeBookingId == bookingId) {
+        await trackingService.stopTracking();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location tracking stopped')),
+          );
+        }
+      } else {
+        await trackingService.startBookingTracking(
+          bookingId: bookingId,
+          vehicleId: vehicleId,
+          trackedUserId: userId,
+        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location tracking started for this trip'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Tracking error: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isTogglingTracking = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final status = (trip['status']?.toString() ?? 'assigned').toLowerCase();
+    final isTrackingThisTrip =
+        TrackingService().activeBookingId == (trip['id']?.toString() ?? '');
+    final vehicle = trip['vehicles'] as Map<String, dynamic>?;
+    final renter = trip['renter'] as Map<String, dynamic>?;
+    final renterName = renter?['full_name']?.toString().trim();
+    final renterPhone = renter?['phone']?.toString().trim();
+    final renterId = trip['renter_id']?.toString() ?? '';
+    final startLabel =
+        trip['start_at']?.toString() ?? trip['start_date']?.toString() ?? 'N/A';
+    final endLabel =
+        trip['end_at']?.toString() ?? trip['end_date']?.toString() ?? 'N/A';
+    final total =
+        (trip['total_price'] as num?)?.toDouble() ??
+        (trip['total_cost'] as num?)?.toDouble();
+    final vehicleName = vehicle == null
+        ? 'Assigned vehicle'
+        : [vehicle['vehicle_name'], vehicle['brand'], vehicle['model']]
+              .where(
+                (part) => part != null && part.toString().trim().isNotEmpty,
+              )
+              .map((part) => part.toString().trim())
+              .take(2)
+              .join(' ');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -641,7 +884,7 @@ class _TripCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                trip['pickup_location'] ?? 'Pickup',
+                vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -655,7 +898,7 @@ class _TripCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  trip['status'] ?? 'completed',
+                  trip['status']?.toString() ?? 'assigned',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -667,12 +910,262 @@ class _TripCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'to ${trip['dropoff_location'] ?? 'Destination'}',
+            '${trip['pickup_location'] ?? 'Pickup'} to '
+            '${trip['dropoff_location'] ?? 'Destination'}',
             style: TextStyle(
               fontSize: 13,
               color: isDark ? Colors.grey : Colors.grey.shade600,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Renter: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
+            '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Renter ID: ${renterId.isNotEmpty ? renterId : 'N/A'}',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Schedule: $startLabel -> $endLabel',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          if (total != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Booking total: PHP ${total.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (status == 'confirmed' || status == 'approved')
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _markPickedUp(context),
+                icon: const Icon(Icons.key, size: 16),
+                label: const Text('Mark Picked Up'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          if (status == 'active')
+            Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isTogglingTracking
+                        ? null
+                        : () => _toggleTracking(context),
+                    icon: Icon(
+                      isTrackingThisTrip
+                          ? Icons.location_disabled
+                          : Icons.my_location,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _isTogglingTracking
+                          ? 'Updating Tracking...'
+                          : isTrackingThisTrip
+                          ? 'Stop Location Tracking'
+                          : 'Start Location Tracking',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isTrackingThisTrip
+                          ? AppColors.warning
+                          : AppColors.success,
+                      foregroundColor: isTrackingThisTrip
+                          ? Colors.black
+                          : Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _markReturned(context),
+                    icon: const Icon(Icons.assignment_turned_in, size: 16),
+                    label: const Text('Mark Returned'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverOfferCard extends StatelessWidget {
+  final Map<String, dynamic> offer;
+
+  const _DriverOfferCard({required this.offer});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final booking = offer['bookings'] as Map<String, dynamic>?;
+    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    final renter = booking?['renter'] as Map<String, dynamic>?;
+    final assignmentStatus =
+        offer['status']?.toString().replaceAll('_', ' ') ?? 'assigned';
+    final renterName = renter?['full_name']?.toString().trim();
+    final renterPhone = renter?['phone']?.toString().trim();
+    final renterId =
+        booking?['renter_id']?.toString() ?? renter?['id']?.toString() ?? 'N/A';
+    final vehicleName = vehicle == null
+        ? 'Assigned vehicle'
+        : [vehicle['vehicle_name'], vehicle['brand'], vehicle['model']]
+              .where(
+                (part) => part != null && part.toString().trim().isNotEmpty,
+              )
+              .map((part) => part.toString().trim())
+              .take(2)
+              .join(' ');
+    final scheduleStart =
+        booking?['start_at']?.toString() ??
+        booking?['start_date']?.toString() ??
+        'N/A';
+    final scheduleEnd =
+        booking?['end_at']?.toString() ??
+        booking?['end_date']?.toString() ??
+        'N/A';
+    final total =
+        (booking?['total_price'] as num?)?.toDouble() ??
+        (booking?['total_cost'] as num?)?.toDouble();
+    final tripFee = (offer['trip_fee'] as num?)?.toDouble();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  assignmentStatus.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if ((vehicle?['plate_number']?.toString().trim().isNotEmpty ?? false))
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Plate: ${vehicle!['plate_number']}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Text(
+            '${booking?['pickup_location'] ?? 'Pickup'} to '
+            '${booking?['dropoff_location'] ?? 'Destination'}',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Renter: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
+            '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Renter ID: $renterId',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Schedule: $scheduleStart -> $scheduleEnd',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey : Colors.grey.shade600,
+            ),
+          ),
+          if (total != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Booking total: PHP ${total.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+              ),
+            ),
+          ],
+          if (tripFee != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Driver fee: PHP ${tripFee.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -811,7 +1304,79 @@ class _AvailabilityTab extends StatefulWidget {
 }
 
 class __AvailabilityTabState extends State<_AvailabilityTab> {
-  bool isAvailable = true;
+  final DriverService _driverService = DriverService();
+  bool isAvailable = false;
+  bool isLoading = true;
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailability();
+  }
+
+  Future<void> _loadAvailability() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+      return;
+    }
+
+    try {
+      final stats = await _driverService.getDriverStats(userId);
+      if (!mounted) return;
+      setState(() {
+        isAvailable = stats['is_available'] == true;
+        isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _toggleAvailability(bool value) async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null || isSaving) return;
+
+    final previous = isAvailable;
+    setState(() {
+      isAvailable = value;
+      isSaving = true;
+    });
+
+    try {
+      await _driverService.setAvailability(userId, value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value
+                ? 'You are now available for driver assignments'
+                : 'You are now unavailable for driver assignments',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isAvailable = previous;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update availability: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -883,16 +1448,36 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
                 ),
                 Switch(
                   value: isAvailable,
-                  onChanged: (value) {
-                    setState(() {
-                      isAvailable = value;
-                    });
-                  },
+                  onChanged: isLoading || isSaving
+                      ? null
+                      : (value) => _toggleAvailability(value),
                   activeColor: AppColors.primary,
                 ),
               ],
             ),
           ),
+          if (isLoading || isSaving) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  isLoading
+                      ? 'Loading availability...'
+                      : 'Saving availability...',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 24),
           Text(
             'Work Schedule',
@@ -1032,6 +1617,18 @@ class __ProfileTabState extends State<_ProfileTab> {
                   isFirst: true,
                 ),
                 // Logout
+                _SettingTile(
+                  icon: Icons.verified_user_outlined,
+                  label: 'Verification',
+                  value: '',
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/driver-identity-verification',
+                    );
+                  },
+                  isDark: isDark,
+                ),
                 _SettingTile(
                   icon: Icons.logout,
                   label: 'Logout',

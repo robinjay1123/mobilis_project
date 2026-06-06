@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
@@ -43,6 +44,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _allBookings = [];
   List<Map<String, dynamic>> _allVehicles = [];
   List<Map<String, dynamic>> _verificationRecords = [];
+  List<Map<String, dynamic>> _pendingPartnerVehicleApplications = [];
+  List<Map<String, dynamic>> _trackingLocations = [];
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -67,7 +70,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadAllUsers(),
         _loadAllBookings(),
         _loadAllVehicles(),
+        _loadTrackingLocations(),
         _loadPendingVerifications(),
+        _loadPendingPartnerVehicleApplications(),
       ]);
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
@@ -166,6 +171,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
+  Future<void> _loadTrackingLocations() async {
+    _trackingLocations = await TrackingService().getActiveTrackingLocations();
+  }
+
   Future<void> _loadPendingVerifications() async {
     try {
       final response = await _supabase
@@ -180,6 +189,167 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } catch (e) {
       debugPrint('Error loading applications: $e');
       _verificationRecords = [];
+    }
+  }
+
+  Future<void> _loadPendingPartnerVehicleApplications() async {
+    try {
+      final response = await _supabase
+          .from('partner_vehicle_applications')
+          .select('''
+            *,
+            partner:partner_id (id, full_name, email)
+          ''')
+          .eq('application_status', 'pending')
+          .order('created_at', ascending: false);
+
+      _pendingPartnerVehicleApplications = List<Map<String, dynamic>>.from(
+        response,
+      );
+    } catch (e) {
+      debugPrint('Error loading partner vehicle applications: $e');
+      _pendingPartnerVehicleApplications = [];
+    }
+  }
+
+  Future<void> _approvePartnerVehicleApplication(
+    Map<String, dynamic> application,
+  ) async {
+    try {
+      final appId = application['id']?.toString();
+      final partnerId = application['partner_id']?.toString();
+      if (appId == null ||
+          appId.isEmpty ||
+          partnerId == null ||
+          partnerId.isEmpty) {
+        throw Exception('Invalid application payload');
+      }
+
+      final createdVehicle = await _supabase
+          .from('vehicles')
+          .insert({
+            'owner_id': partnerId,
+            'brand': application['brand'],
+            'model': application['model'],
+            'year': application['year'],
+            'plate_number': application['plate_number'],
+            'seats': application['seats'] ?? 5,
+            'fuel_type': application['fuel_type'] ?? 'Gasoline',
+            'transmission': application['transmission'] ?? 'Manual',
+            'price_per_day': application['price_per_day'] ?? 0,
+            'price_per_hour': application['price_per_hour'] ?? 0,
+            'is_available': false,
+            'is_posted': false,
+            'status': 'active',
+            'image_url': application['vehicle_photo_url'],
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      final createdPartnerVehicle = await _supabase
+          .from('partner_vehicles')
+          .insert({
+            'partner_id': partnerId,
+            'vehicle_id': createdVehicle['id'],
+            'plate_number': application['plate_number'],
+            'seats': application['seats'] ?? 5,
+            'fuel_type': application['fuel_type'] ?? 'Gasoline',
+            'transmission': application['transmission'] ?? 'Manual',
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+
+      final partnerVehicleId = createdPartnerVehicle['id'];
+      final orUrl = application['or_document_url']?.toString();
+      final crUrl = application['cr_document_url']?.toString();
+
+      if (partnerVehicleId != null) {
+        if (orUrl != null && orUrl.isNotEmpty) {
+          await _supabase.from('partner_vehicle_documents').insert({
+            'partner_vehicle_id': partnerVehicleId,
+            'document_type': 'or',
+            'file_url': orUrl,
+            'status': 'approved',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+        if (crUrl != null && crUrl.isNotEmpty) {
+          await _supabase.from('partner_vehicle_documents').insert({
+            'partner_vehicle_id': partnerVehicleId,
+            'document_type': 'cr',
+            'file_url': crUrl,
+            'status': 'approved',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+      }
+
+      await _supabase
+          .from('partner_vehicle_applications')
+          .update({
+            'application_status': 'approved',
+            'status': 'approved',
+            'verified_at': DateTime.now().toIso8601String(),
+            'reviewed_at': DateTime.now().toIso8601String(),
+            'verified_by': _supabase.auth.currentUser?.id,
+            'partner_vehicle_id': partnerVehicleId,
+            'created_vehicle_id': createdVehicle['id'],
+            'rejection_reason': null,
+          })
+          .eq('id', appId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vehicle application approved')),
+      );
+      _loadDashboardData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Approval failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectPartnerVehicleApplication(
+    Map<String, dynamic> application,
+  ) async {
+    try {
+      final appId = application['id']?.toString();
+      if (appId == null || appId.isEmpty) {
+        throw Exception('Invalid application payload');
+      }
+
+      await _supabase
+          .from('partner_vehicle_applications')
+          .update({
+            'application_status': 'rejected',
+            'status': 'rejected',
+            'reviewed_at': DateTime.now().toIso8601String(),
+            'verified_at': DateTime.now().toIso8601String(),
+            'verified_by': _supabase.auth.currentUser?.id,
+            'rejection_reason': 'Rejected by admin',
+          })
+          .eq('id', appId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vehicle application rejected')),
+      );
+      _loadDashboardData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Rejection failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -355,11 +525,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 4:
         return 'Verifications';
       case 5:
-        return 'Message Review';
+        return 'Application Management';
       case 6:
-        return 'Analytics';
+        return 'Message Review';
       case 7:
+        return 'Analytics';
+      case 8:
         return 'Settings';
+      case 9:
+        return 'Live Tracking';
       default:
         return 'Dashboard';
     }
@@ -382,11 +556,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 4:
         return _buildVerificationsContent(isDark);
       case 5:
-        return _buildMessageReviewContent(isDark);
+        return _buildApplicationsContent(isDark);
       case 6:
-        return _buildAnalyticsContent(isDark);
+        return _buildMessageReviewContent(isDark);
       case 7:
+        return _buildAnalyticsContent(isDark);
+      case 8:
         return _buildSettingsContent(isDark);
+      case 9:
+        return _buildTrackingContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -469,7 +647,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             isDark,
             badge: _pendingVerifications > 0 ? _pendingVerifications : null,
           ),
-          _buildNavItem(5, Icons.mail, 'Message Review', isDark),
+          _buildNavItem(
+            5,
+            Icons.assignment_outlined,
+            'Applications',
+            isDark,
+            badge: _pendingPartnerVehicleApplications.isNotEmpty
+                ? _pendingPartnerVehicleApplications.length
+                : null,
+          ),
+          _buildNavItem(6, Icons.mail, 'Message Review', isDark),
           const SizedBox(height: 24),
           if (_sidebarExpanded)
             Padding(
@@ -485,8 +672,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               ),
             ),
           const SizedBox(height: 12),
-          _buildNavItem(6, Icons.analytics, 'Analytics', isDark),
-          _buildNavItem(7, Icons.settings, 'Settings', isDark),
+          _buildNavItem(7, Icons.analytics, 'Analytics', isDark),
+          _buildNavItem(
+            9,
+            Icons.location_on,
+            'Live Tracking',
+            isDark,
+            badge: _trackingLocations.isNotEmpty
+                ? _trackingLocations.length
+                : null,
+          ),
+          _buildNavItem(8, Icons.settings, 'Settings', isDark),
           const Spacer(),
           // Collapse Button
           InkWell(
@@ -1854,6 +2050,188 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildTrackingContent(bool isDark) {
+    final mapUrl = _buildMapboxStaticUrl(_trackingLocations);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCard(
+            'Live Tracking (${_trackingLocations.length})',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        await _loadTrackingLocations();
+                        if (mounted) setState(() {});
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Refresh'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Tracks app users during active bookings. For a real car installation later, use a GPS/OBD tracker or a dedicated in-car phone.',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey[400] : Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 360,
+                    width: double.infinity,
+                    color: isDark ? AppColors.darkBg : Colors.grey.shade100,
+                    child: mapUrl == null
+                        ? Center(
+                            child: Text(
+                              _trackingLocations.isEmpty
+                                  ? 'No active tracking locations yet'
+                                  : 'Add MAPBOX_ACCESS_TOKEN with --dart-define to show the map',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey[700],
+                              ),
+                            ),
+                          )
+                        : Image.network(
+                            mapUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Text(
+                                'Mapbox map failed to load',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey[400]
+                                      : Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_trackingLocations.isEmpty)
+                  Text(
+                    'Tracking starts from the driver app on an active trip.',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    ),
+                  )
+                else
+                  ..._trackingLocations.map(
+                    (location) => _buildTrackingRow(location, isDark),
+                  ),
+              ],
+            ),
+            isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrackingRow(Map<String, dynamic> location, bool isDark) {
+    final booking = location['bookings'] as Map<String, dynamic>?;
+    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    final driver = booking?['drivers'] as Map<String, dynamic>?;
+    final driverUser = driver?['users'] as Map<String, dynamic>?;
+    final renter = booking?['renter'] as Map<String, dynamic>?;
+    final vehicleName = [
+      vehicle?['brand'],
+      vehicle?['model'],
+      vehicle?['plate_number'] == null ? null : '(${vehicle?['plate_number']})',
+    ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+    final lat = (location['latitude'] as num?)?.toDouble();
+    final lng = (location['longitude'] as num?)?.toDouble();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBg : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vehicleName.isEmpty ? 'Tracked booking' : vehicleName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Lat/Lng: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'} | Updated: ${location['recorded_at'] ?? 'N/A'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey[500] : Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _buildMapboxStaticUrl(List<Map<String, dynamic>> locations) {
+    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    if (token.isEmpty || locations.isEmpty) return null;
+
+    final valid = locations
+        .where((location) {
+          return location['latitude'] is num && location['longitude'] is num;
+        })
+        .take(10)
+        .toList();
+    if (valid.isEmpty) return null;
+
+    final overlays = valid
+        .map((location) {
+          final lat = (location['latitude'] as num).toDouble();
+          final lng = (location['longitude'] as num).toDouble();
+          return 'pin-s-car+facc15($lng,$lat)';
+        })
+        .join(',');
+
+    final firstLat = (valid.first['latitude'] as num).toDouble();
+    final firstLng = (valid.first['longitude'] as num).toDouble();
+    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/$overlays/$firstLng,$firstLat,12/1100x360?access_token=$token';
+  }
+
   Widget _buildVerificationsContent(bool isDark) {
     final pendingVerifications = _verificationRecords
         .where(
@@ -1903,6 +2281,192 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildApplicationsContent(bool isDark) {
+    final records = _pendingPartnerVehicleApplications;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: _buildCard(
+        'Partner Vehicle Applications (${records.length})',
+        records.isEmpty
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text(
+                    'No pending vehicle applications.',
+                    style: TextStyle(
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              )
+            : Column(
+                children: records.map((record) {
+                  final partner = record['partner'] as Map<String, dynamic>?;
+                  final title =
+                      '${record['brand'] ?? 'Unknown'} ${record['model'] ?? ''}'
+                          .trim();
+                  final pricePerDay =
+                      (record['price_per_day'] as num?)?.toDouble() ?? 0;
+                  final pricePerHour =
+                      (record['price_per_hour'] as num?)?.toDouble() ?? 0;
+                  final submittedAt = record['created_at']?.toString() ?? '';
+                  final orUrl = record['or_document_url']?.toString() ?? '';
+                  final crUrl = record['cr_document_url']?.toString() ?? '';
+                  final vehiclePhotoUrl =
+                      record['vehicle_photo_url']?.toString() ?? '';
+                  final subtitle = [
+                    if (record['year'] != null) record['year'].toString(),
+                    if ((record['plate_number'] ?? '').toString().isNotEmpty)
+                      'Plate: ${record['plate_number']}',
+                  ].join('  •  ');
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black26 : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade200,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Partner: ${partner?['full_name'] ?? 'Unknown'} (${partner?['email'] ?? ''})',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark
+                                ? Colors.grey.shade300
+                                : Colors.grey.shade800,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isNarrow = constraints.maxWidth < 900;
+                            final cardWidth = isNarrow
+                                ? constraints.maxWidth
+                                : (constraints.maxWidth - 24) / 3;
+
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDetailCard(
+                                    'Price Per Day',
+                                    'PHP ${pricePerDay.toStringAsFixed(0)}',
+                                    isDark,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDetailCard(
+                                    'Price Per Hour',
+                                    'PHP ${pricePerHour.toStringAsFixed(0)}',
+                                    isDark,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDetailCard(
+                                    'Submitted',
+                                    _formatDate(submittedAt),
+                                    isDark,
+                                  ),
+                                ),
+                                if (orUrl.isNotEmpty)
+                                  SizedBox(
+                                    width: cardWidth,
+                                    child: _buildDocumentPreview(
+                                      title: 'OR Document',
+                                      url: orUrl,
+                                      isDark: isDark,
+                                    ),
+                                  ),
+                                if (crUrl.isNotEmpty)
+                                  SizedBox(
+                                    width: cardWidth,
+                                    child: _buildDocumentPreview(
+                                      title: 'CR Document',
+                                      url: crUrl,
+                                      isDark: isDark,
+                                    ),
+                                  ),
+                                if (vehiclePhotoUrl.isNotEmpty)
+                                  SizedBox(
+                                    width: cardWidth,
+                                    child: _buildDocumentPreview(
+                                      title: 'Vehicle Photo',
+                                      url: vehiclePhotoUrl,
+                                      isDark: isDark,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            FilledButton.icon(
+                              onPressed: () =>
+                                  _approvePartnerVehicleApplication(record),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.check, size: 16),
+                              label: const Text('Approve'),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  _rejectPartnerVehicleApplication(record),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.redAccent),
+                              ),
+                              icon: const Icon(Icons.close, size: 16),
+                              label: const Text('Reject'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+        isDark,
+      ),
+    );
+  }
+
   Widget _buildVerificationSection({
     required String title,
     required List<Map<String, dynamic>> records,
@@ -1943,7 +2507,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final idImageUrls = idParts
         .where((part) => part.trim().isNotEmpty)
         .toList();
-    final facePhotoUrl = record['face_photo_url'] as String?;
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -2033,7 +2596,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         await VerificationService.approveVerification(
                           verificationId: record['id'].toString(),
                           adminId: adminId,
-                          faceMatchPercentage: 85.0,
                         );
                     if (!mounted) return;
                     if (result['success'] == true) {
@@ -2118,12 +2680,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   _buildDocumentPreview(
                     title: 'ID Back',
                     url: idImageUrls[1],
-                    isDark: isDark,
-                  ),
-                if ((facePhotoUrl ?? '').isNotEmpty)
-                  _buildDocumentPreview(
-                    title: 'Face Photo',
-                    url: facePhotoUrl!,
                     isDark: isDark,
                   ),
               ];
@@ -2247,46 +2803,58 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     required String url,
     required bool isDark,
   }) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: isDark ? Colors.black12 : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Text(
-              title,
-              style: TextStyle(
-                fontSize: 11,
-                letterSpacing: 0.4,
-                fontWeight: FontWeight.w700,
-                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-              ),
-            ),
+    return InkWell(
+      onTap: () => _openUrl(url),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: isDark ? Colors.black12 : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
           ),
-          AspectRatio(
-            aspectRatio: 4 / 3,
-            child: Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 0.4,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                 ),
               ),
             ),
-          ),
-        ],
+            AspectRatio(
+              aspectRatio: 4 / 3,
+              child: Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _openUrl(String url) {
+    if (!kIsWeb) return;
+    final anchor = html.AnchorElement(href: url)..target = '_blank';
+    html.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   String _formatDate(dynamic value) {

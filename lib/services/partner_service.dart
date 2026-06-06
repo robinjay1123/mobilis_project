@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:io';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -160,6 +161,11 @@ class PartnerService {
     required int seats,
     required double pricePerDay,
     required double pricePerHour,
+    required String orDocumentUrl,
+    required String crDocumentUrl,
+    String fuelType = 'Gasoline',
+    String transmission = 'Manual',
+    String? vehiclePhotoUrl,
   }) async {
     try {
       debugPrint('Submitting vehicle application for partner: $partnerId');
@@ -172,8 +178,15 @@ class PartnerService {
             'model': model,
             'year': year,
             'plate_number': plateNumber,
+            'seats': seats,
+            'fuel_type': fuelType,
+            'transmission': transmission,
             'price_per_day': pricePerDay,
             'price_per_hour': pricePerHour,
+            'or_document_url': orDocumentUrl,
+            'cr_document_url': crDocumentUrl,
+            if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
+              'vehicle_photo_url': vehiclePhotoUrl,
             'application_status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           })
@@ -189,6 +202,30 @@ class PartnerService {
       debugPrint('Unexpected error submitting application: $e');
       rethrow;
     }
+  }
+
+  /// Upload partner document file to `partner_documents` bucket.
+  Future<String> uploadToPartnerDocumentsBucket({
+    required String partnerId,
+    required File file,
+    required String documentType,
+  }) async {
+    final bytes = await file.readAsBytes();
+    final extension = file.path.contains('.')
+        ? file.path.split('.').last.toLowerCase()
+        : 'jpg';
+    final objectPath =
+        '$partnerId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    await supabase.storage
+        .from('partner_documents')
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: const FileOptions(upsert: true),
+        );
+
+    return supabase.storage.from('partner_documents').getPublicUrl(objectPath);
   }
 
   // Check if partner has pending application

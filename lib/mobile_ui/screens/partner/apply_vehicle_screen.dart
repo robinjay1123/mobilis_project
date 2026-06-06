@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/partner_service.dart';
 import '../../../services/connectivity_service.dart';
+import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -22,10 +25,24 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   late TextEditingController pricePerHourController;
 
   int selectedSeats = 5;
+  String selectedFuelType = 'Gasoline';
+  String selectedTransmission = 'Manual';
   bool isLoading = false;
+  bool isCheckingEligibility = true;
   bool hasPendingApplication = false;
+  String verificationStatus = 'pending';
+  File? _orDocumentFile;
+  File? _crDocumentFile;
+  File? _vehiclePhotoFile;
 
   final List<int> seatOptions = [2, 4, 5, 7, 8, 12];
+  final List<String> fuelTypeOptions = [
+    'Gasoline',
+    'Diesel',
+    'Hybrid',
+    'Electric',
+  ];
+  final List<String> transmissionOptions = ['Manual', 'Automatic'];
 
   @override
   void initState() {
@@ -36,7 +53,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     plateNumberController = TextEditingController();
     pricePerDayController = TextEditingController();
     pricePerHourController = TextEditingController();
-    _checkPendingApplication();
+    _loadEligibilityState();
   }
 
   @override
@@ -50,7 +67,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     super.dispose();
   }
 
-  Future<void> _checkPendingApplication() async {
+  Future<void> _loadEligibilityState() async {
     try {
       final authService = AuthService();
       final partnerService = PartnerService();
@@ -58,16 +75,36 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
 
       if (user != null) {
         final hasPending = await partnerService.hasPendingApplication(user.id);
+        final status = _normalizeVerificationStatus(
+          await partnerService.getVerificationStatus(user.id),
+        );
 
-        if (hasPending && mounted) {
-          setState(() {
-            hasPendingApplication = true;
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          hasPendingApplication = hasPending;
+          verificationStatus = status;
+          isCheckingEligibility = false;
+        });
+      } else if (mounted) {
+        setState(() {
+          isCheckingEligibility = false;
+        });
       }
     } catch (e) {
-      debugPrint('Error checking pending application: $e');
+      debugPrint('Error checking partner eligibility: $e');
+      if (mounted) {
+        setState(() {
+          isCheckingEligibility = false;
+        });
+      }
     }
+  }
+
+  bool get _isVerifiedPartner =>
+      verificationStatus == 'verified' || verificationStatus == 'certified';
+
+  void _goToVerification() {
+    Navigator.pushNamed(context, '/identity-verification-form');
   }
 
   void _showErrorSnackBar(String message) {
@@ -153,7 +190,34 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       return false;
     }
 
+    if (_orDocumentFile == null) {
+      _showErrorSnackBar('Please upload OR document');
+      return false;
+    }
+
+    if (_crDocumentFile == null) {
+      _showErrorSnackBar('Please upload CR document');
+      return false;
+    }
+
     return true;
+  }
+
+  Future<void> _pickDocument(String docType) async {
+    final file = await VerificationService.pickImage(
+      source: ImageSource.gallery,
+    );
+    if (file == null) return;
+
+    setState(() {
+      if (docType == 'or') {
+        _orDocumentFile = file;
+      } else if (docType == 'cr') {
+        _crDocumentFile = file;
+      } else {
+        _vehiclePhotoFile = file;
+      }
+    });
   }
 
   Future<void> _handleSubmit() async {
@@ -193,7 +257,40 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         return;
       }
 
+      final latestVerificationStatus = _normalizeVerificationStatus(
+        await partnerService.getVerificationStatus(partnerId),
+      );
+      if (latestVerificationStatus != 'verified') {
+        _showErrorSnackBar(
+          'Complete your identity verification before applying a vehicle.',
+        );
+        setState(() {
+          verificationStatus = latestVerificationStatus;
+          isLoading = false;
+        });
+        return;
+      }
+
       // Submit application
+      final orDocumentUrl = await partnerService.uploadToPartnerDocumentsBucket(
+        partnerId: partnerId,
+        file: _orDocumentFile!,
+        documentType: 'or_document',
+      );
+      final crDocumentUrl = await partnerService.uploadToPartnerDocumentsBucket(
+        partnerId: partnerId,
+        file: _crDocumentFile!,
+        documentType: 'cr_document',
+      );
+      String? vehiclePhotoUrl;
+      if (_vehiclePhotoFile != null) {
+        vehiclePhotoUrl = await partnerService.uploadToPartnerDocumentsBucket(
+          partnerId: partnerId,
+          file: _vehiclePhotoFile!,
+          documentType: 'vehicle_photo',
+        );
+      }
+
       await partnerService.submitVehicleApplication(
         partnerId: partnerId,
         brand: brandController.text.trim(),
@@ -203,6 +300,11 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         seats: selectedSeats,
         pricePerDay: double.parse(pricePerDayController.text.trim()),
         pricePerHour: double.parse(pricePerHourController.text.trim()),
+        orDocumentUrl: orDocumentUrl,
+        crDocumentUrl: crDocumentUrl,
+        fuelType: selectedFuelType,
+        transmission: selectedTransmission,
+        vehiclePhotoUrl: vehiclePhotoUrl,
       );
 
       if (mounted) {
@@ -220,6 +322,57 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         });
       }
     }
+  }
+
+  Widget _buildDropdownField<T>({
+    required String label,
+    required T value,
+    required List<T> items,
+    required String Function(T) itemLabel,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: value,
+              isExpanded: true,
+              dropdownColor: AppColors.darkBgSecondary,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+              ),
+              items: items
+                  .map(
+                    (item) => DropdownMenuItem<T>(
+                      value: item,
+                      child: Text(itemLabel(item)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -244,6 +397,14 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       ),
       body: hasPendingApplication
           ? _buildPendingApplicationWarning()
+          : isCheckingEligibility
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+              ),
+            )
+          : !_isVerifiedPartner
+          ? _buildVerificationRequiredWarning()
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
@@ -412,6 +573,36 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                       color: AppColors.textTertiary,
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDropdownField<String>(
+                          label: 'Transmission',
+                          value: selectedTransmission,
+                          items: transmissionOptions,
+                          itemLabel: (value) => value,
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => selectedTransmission = value);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _buildDropdownField<String>(
+                          label: 'Fuel Type',
+                          value: selectedFuelType,
+                          items: fuelTypeOptions,
+                          itemLabel: (value) => value,
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => selectedFuelType = value);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
 
                   // Pricing Section
@@ -448,6 +639,41 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                       Icons.schedule,
                       color: AppColors.textTertiary,
                     ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Required documents
+                  const Text(
+                    'Application Documents',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildUploadCard(
+                    title: 'OR Document',
+                    subtitle: 'Upload Official Receipt image',
+                    selectedFile: _orDocumentFile,
+                    onTap: () => _pickDocument('or'),
+                    requiredDoc: true,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildUploadCard(
+                    title: 'CR Document',
+                    subtitle: 'Upload Certificate of Registration image',
+                    selectedFile: _crDocumentFile,
+                    onTap: () => _pickDocument('cr'),
+                    requiredDoc: true,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildUploadCard(
+                    title: 'Vehicle Photo',
+                    subtitle: 'Optional but recommended',
+                    selectedFile: _vehiclePhotoFile,
+                    onTap: () => _pickDocument('vehicle_photo'),
+                    requiredDoc: false,
                   ),
                   const SizedBox(height: 32),
 
@@ -491,6 +717,54 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildVerificationRequiredWarning() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.verified_user_outlined,
+                size: 64,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Verification Required',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Finish your identity verification before submitting a vehicle application.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: CustomButton(
+                label: 'Go to Verification',
+                onPressed: _goToVerification,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -541,4 +815,66 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       ),
     );
   }
+
+  Widget _buildUploadCard({
+    required String title,
+    required String subtitle,
+    required File? selectedFile,
+    required VoidCallback onTap,
+    required bool requiredDoc,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.upload_file, color: AppColors.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    requiredDoc ? '$title *' : title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    selectedFile != null
+                        ? selectedFile.path.split('\\').last
+                        : subtitle,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              selectedFile != null ? Icons.check_circle : Icons.chevron_right,
+              color: selectedFile != null
+                  ? AppColors.success
+                  : AppColors.textTertiary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _normalizeVerificationStatus(String? status) {
+  final value = (status ?? 'pending').toLowerCase();
+  if (value == 'approved') return 'verified';
+  return value;
 }

@@ -235,7 +235,6 @@ class AdminVerificationDetailScreen extends StatefulWidget {
 
 class _AdminVerificationDetailScreenState
     extends State<AdminVerificationDetailScreen> {
-  late TextEditingController _faceMatchController;
   late TextEditingController _rejectionReasonController;
   bool _isLoading = false;
   String? _errorMessage;
@@ -243,20 +242,16 @@ class _AdminVerificationDetailScreenState
   @override
   void initState() {
     super.initState();
-    _faceMatchController = TextEditingController(text: '85.0');
     _rejectionReasonController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _faceMatchController.dispose();
     _rejectionReasonController.dispose();
     super.dispose();
   }
 
   Future<void> _approveVerification() async {
-    final faceMatch = double.tryParse(_faceMatchController.text) ?? 85.0;
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -271,7 +266,6 @@ class _AdminVerificationDetailScreenState
       final result = await VerificationService.approveVerification(
         verificationId: widget.verification['id'],
         adminId: adminId,
-        faceMatchPercentage: faceMatch,
       );
 
       if (result['success']) {
@@ -362,8 +356,6 @@ class _AdminVerificationDetailScreenState
     final idParts = idDocs?.split('|') ?? [];
     final idFrontUrl = idParts.isNotEmpty ? idParts[0] : null;
     final idBackUrl = idParts.length > 1 ? idParts[1] : null;
-    final facePhotoUrl = widget.verification['face_photo_url'] as String?;
-
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
@@ -466,15 +458,6 @@ class _AdminVerificationDetailScreenState
               ),
             const SizedBox(height: 12),
 
-            // Face Photo
-            if (facePhotoUrl != null)
-              _buildDocumentPreview(
-                'Face Photo',
-                facePhotoUrl,
-                isDark,
-                cardColor,
-                textColor,
-              ),
             const SizedBox(height: 24),
 
             // Error message
@@ -515,41 +498,6 @@ class _AdminVerificationDetailScreenState
                       fontWeight: FontWeight.w600,
                       color: AppColors.primary,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Face Match
-                  Text(
-                    'Face Match Percentage',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isDark
-                          ? AppColors.textSecondary
-                          : AppColors.lightTextSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _faceMatchController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      hintText: 'Enter percentage (0-100)',
-                      suffixText: '%',
-                      filled: true,
-                      fillColor: isDark
-                          ? AppColors.darkBgSecondary
-                          : Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                          color: isDark
-                              ? AppColors.borderColor
-                              : AppColors.lightBorderColor,
-                        ),
-                      ),
-                    ),
-                    style: TextStyle(color: textColor),
                   ),
                   const SizedBox(height: 16),
 
