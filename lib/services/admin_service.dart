@@ -363,59 +363,64 @@ class AdminService {
         throw Exception('Application is missing partner_id');
       }
 
-      final vehicle = await supabase
-          .from('vehicles')
+      var partnerProfile = await supabase
+          .from('partners')
+          .select('id')
+          .eq('user_id', partnerId)
+          .maybeSingle();
+
+      partnerProfile ??= await supabase
+          .from('partners')
           .insert({
-            'owner_id': partnerId,
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'is_available': false,
-            'is_posted': false,
-            'status': 'active',
+            'user_id': partnerId,
+            'verification_status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           })
           .select('id')
           .single();
 
-      final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
-      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
-        await supabase.from('vehicle_images').insert({
-          'vehicle_id': vehicle['id'],
-          'image_url': vehiclePhotoUrl,
-          'display_order': 0,
-        });
+      final partnerProfileId = partnerProfile['id']?.toString();
+      if (partnerProfileId == null || partnerProfileId.isEmpty) {
+        throw Exception('Partner profile could not be resolved');
       }
 
       final partnerVehicle = await supabase
           .from('partner_vehicles')
           .insert({
-            'partner_id': partnerId,
-            'vehicle_id': vehicle['id'],
+            'partner_id': partnerProfileId,
+            'brand': application['brand'],
+            'model': application['model'],
+            'year': application['year'],
             'plate_number': application['plate_number'],
             'seats': application['seats'] ?? 5,
+            'price_per_day': application['price_per_day'] ?? 0,
+            'price_per_hour': application['price_per_hour'] ?? 0,
             'fuel_type': application['fuel_type'] ?? 'Gasoline',
             'transmission': application['transmission'] ?? 'Manual',
+            'owner_is_driver': application['owner_is_driver'] ?? false,
+            'is_available': application['is_available'] ?? false,
+            'status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           })
           .select('id')
           .single();
 
       final partnerVehicleId = partnerVehicle['id'];
+      final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
+      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
+        await supabase.from('vehicle_images').insert({
+          'partner_vehicle_id': partnerVehicleId,
+          'image_url': vehiclePhotoUrl,
+          'display_order': 0,
+        });
+      }
 
       final orUrl = application['or_document_url']?.toString();
       if (orUrl != null && orUrl.isNotEmpty) {
         await supabase.from('partner_vehicle_documents').insert({
-          'partner_vehicle_id': partnerVehicleId,
+          'partner_vehicle_application_id': applicationId,
           'document_type': 'or',
           'file_url': orUrl,
-          'status': 'approved',
           'created_at': DateTime.now().toIso8601String(),
         });
       }
@@ -423,10 +428,9 @@ class AdminService {
       final crUrl = application['cr_document_url']?.toString();
       if (crUrl != null && crUrl.isNotEmpty) {
         await supabase.from('partner_vehicle_documents').insert({
-          'partner_vehicle_id': partnerVehicleId,
+          'partner_vehicle_application_id': applicationId,
           'document_type': 'cr',
           'file_url': crUrl,
-          'status': 'approved',
           'created_at': DateTime.now().toIso8601String(),
         });
       }
@@ -440,7 +444,7 @@ class AdminService {
             'verified_at': DateTime.now().toIso8601String(),
             'reviewed_at': DateTime.now().toIso8601String(),
             'partner_vehicle_id': partnerVehicleId,
-            'created_vehicle_id': vehicle['id'],
+            'created_vehicle_id': null,
             'rejection_reason': null,
           })
           .eq('id', applicationId);

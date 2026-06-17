@@ -1531,9 +1531,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               Icons.dark_mode,
               isDark,
               trailing: Switch(
-                value: widget.isDarkMode,
+                value: isDark,
                 onChanged: widget.onThemeToggle,
-                activeColor: Colors.red,
+                activeThumbColor: AppColors.primary,
               ),
             ),
           ], isDark),

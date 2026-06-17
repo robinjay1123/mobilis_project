@@ -11,6 +11,10 @@ class BookingCard extends StatelessWidget {
   final int totalCost;
   final double rating;
   final VoidCallback onTap;
+  final VoidCallback? onViewDetails;
+  final VoidCallback? onMessage;
+  final bool showMessageButton;
+  final String detailsButtonLabel;
   final bool isActive;
   final String? carImageUrl;
 
@@ -25,6 +29,10 @@ class BookingCard extends StatelessWidget {
     required this.totalCost,
     required this.rating,
     required this.onTap,
+    this.onViewDetails,
+    this.onMessage,
+    this.showMessageButton = false,
+    this.detailsButtonLabel = 'View Details',
     this.isActive = false,
     this.carImageUrl,
   });
@@ -240,6 +248,44 @@ class BookingCard extends StatelessWidget {
                     ),
                   ],
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onViewDetails ?? onTap,
+                    icon: const Icon(Icons.receipt_long, size: 16),
+                    label: Text(detailsButtonLabel),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+                if (showMessageButton) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: onMessage,
+                      icon: const Icon(Icons.message, size: 16),
+                      label: const Text('Message'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],

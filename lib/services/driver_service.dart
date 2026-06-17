@@ -965,7 +965,7 @@ class DriverService {
       var query = supabase
           .from('driver_job_assignments')
           .select(
-            'id, booking_id, driver_id, trip_fee, status, created_at, bookings(id, start_date, end_date, total_price, pickup_location, dropoff_location, vehicles(brand, model), users(full_name))',
+            'id, booking_id, driver_id, trip_fee, status, created_at, bookings(id, start_date, end_date, total_price, pickup_location, dropoff_location, vehicles(brand, model), users:users!bookings_renter_id_fkey(full_name))',
           )
           .eq('driver_id', driverId);
 

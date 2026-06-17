@@ -59,6 +59,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
   Map<String, List<Map<String, dynamic>>> _messages = {};
+  final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
 
   final _supabase = Supabase.instance.client;
   final _imagePicker = ImagePicker();
@@ -526,9 +527,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         throw Exception('Invalid booking id');
       }
 
-      // Approve booking
+      final operatorId = _supabase.auth.currentUser?.id;
+
+      await _supabase
+          .from('bookings')
+          .update({
+            'status': 'confirmed',
+            if (operatorId != null) 'operator_id': operatorId,
+            'approved_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
       final bookingService = BookingService();
-      await bookingService.updateBookingStatus(bookingId, 'confirmed');
 
       if (driverId != null) {
         await bookingService.assignDriver(bookingId, driverId, 0.0);
@@ -597,6 +608,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         bookingId: bookingId,
         participantIds: participantIds.toList(),
       );
+
+      await _supabase
+          .from('bookings')
+          .update({
+            'conversation_created': true,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
 
       debugPrint('Group chat created for booking: $bookingId');
     } catch (e) {
@@ -851,7 +870,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.isDarkMode;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final screenWidth = MediaQuery.of(context).size.width;
     final isCompact = screenWidth < 1200;
 
@@ -2634,12 +2653,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading messages for conversation: $conversationId',
       );
 
+      await _loadConversationParticipants(conversationId);
+
       final response = await _supabase
           .from('messages')
           .select('''
               id,
               conversation_id,
               sender_id,
+              message,
               content,
               is_auto_generated,
               created_at,
@@ -2659,6 +2681,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
+  Future<void> _loadConversationParticipants(String conversationId) async {
+    try {
+      _conversationParticipants[conversationId] = await ChatService()
+          .getConversationParticipants(conversationId);
+    } catch (e) {
+      debugPrint('[Messages] Error loading participants: $e');
+      _conversationParticipants[conversationId] = [];
+    }
+  }
+
   Future<void> _sendMessage(String conversationId, String content) async {
     if (content.trim().isEmpty) return;
 
@@ -2671,6 +2703,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       await _supabase.from('messages').insert({
         'conversation_id': conversationId,
         'sender_id': currentUserId,
+        'message': content,
         'content': content,
         'is_auto_generated': false,
         'created_at': DateTime.now().toIso8601String(),
@@ -2690,6 +2723,153 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
       }
     }
+  }
+
+  Widget _buildOperatorParticipantReference(
+    List<Map<String, dynamic>> participants,
+    bool isDark,
+  ) {
+    if (participants.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade50,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Conversation profiles',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: isDark ? AppColors.textSecondary : Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 78,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: participants.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final participant = participants[index];
+                final name =
+                    participant['display_name']?.toString().trim().isNotEmpty ==
+                        true
+                    ? participant['display_name'].toString().trim()
+                    : 'Unknown User';
+                final role =
+                    participant['display_role']?.toString().trim().isNotEmpty ==
+                        true
+                    ? participant['display_role'].toString().trim()
+                    : 'Participant';
+                final phone =
+                    participant['display_phone']
+                            ?.toString()
+                            .trim()
+                            .isNotEmpty ==
+                        true
+                    ? participant['display_phone'].toString().trim()
+                    : '';
+                final email = participant['email']?.toString().trim() ?? '';
+                final avatar =
+                    participant['display_avatar']?.toString().trim() ?? '';
+                final detail = phone.isNotEmpty
+                    ? phone
+                    : email.isNotEmpty
+                    ? email
+                    : 'No contact saved';
+
+                return Container(
+                  width: 230,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkCard : Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.borderColor
+                          : Colors.grey.shade200,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: AppColors.primary.withOpacity(0.18),
+                        backgroundImage: avatar.isNotEmpty
+                            ? NetworkImage(avatar)
+                            : null,
+                        child: avatar.isEmpty
+                            ? Text(
+                                _initials(name),
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              role,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              detail,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildMessagesContent(bool isDark) {
@@ -3034,6 +3214,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
               ),
+              _buildOperatorParticipantReference(
+                _conversationParticipants[_selectedConversationId] ?? [],
+                isDark,
+              ),
               // Messages
               Expanded(
                 child: conversationMessages.isEmpty
@@ -3099,7 +3283,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   if (!isOwn) const SizedBox(height: 4),
                                   Text(
-                                    message['content'] as String? ?? '',
+                                    (message['content'] as String?) ??
+                                        (message['message'] as String?) ??
+                                        '',
                                     style: TextStyle(
                                       color: isOwn
                                           ? Colors.white
@@ -3226,6 +3412,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     } catch (e) {
       return '';
     }
+  }
+
+  String _initials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 
   Widget _buildVehiclesContent(bool isDark) {
@@ -5005,9 +5202,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 const Spacer(),
                 Switch(
-                  value: widget.isDarkMode,
+                  value: isDark,
                   onChanged: widget.onThemeToggle,
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                 ),
               ],
             ),

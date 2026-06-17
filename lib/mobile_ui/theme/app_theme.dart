@@ -6,6 +6,13 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      colorScheme: const ColorScheme.dark(
+        primary: AppColors.primary,
+        onPrimary: Colors.black,
+        surface: AppColors.darkBgSecondary,
+        onSurface: AppColors.textPrimary,
+        error: AppColors.error,
+      ),
       scaffoldBackgroundColor: AppColors.darkBg,
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.darkBg,
@@ -14,16 +21,34 @@ class AppTheme {
       textTheme: textTheme,
       inputDecorationTheme: inputDecorationTheme,
       iconTheme: const IconThemeData(color: AppColors.textPrimary),
+      cardTheme: const CardThemeData(
+        color: AppColors.darkCard,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: AppColors.darkCard,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dividerTheme: const DividerThemeData(color: AppColors.borderColor),
+      listTileTheme: const ListTileThemeData(
+        iconColor: AppColors.textSecondary,
+        textColor: AppColors.textPrimary,
+        subtitleTextStyle: TextStyle(color: AppColors.textSecondary),
+      ),
+      popupMenuTheme: const PopupMenuThemeData(
+        color: AppColors.darkCard,
+        textStyle: TextStyle(color: AppColors.textPrimary),
+      ),
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
               ? AppColors.primary
               : AppColors.textTertiary,
         ),
-        trackColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
-              ? AppColors.primary.withOpacity(0.3)
-              : AppColors.borderColor.withOpacity(0.3),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : AppColors.borderColor.withValues(alpha: 0.3),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -59,7 +84,14 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+      colorScheme: const ColorScheme.light(
+        primary: AppColors.primary,
+        onPrimary: Colors.black,
+        surface: AppColors.lightBgSecondary,
+        onSurface: AppColors.lightTextPrimary,
+        error: AppColors.error,
+      ),
+      scaffoldBackgroundColor: AppColors.lightBg,
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFFF5F5F5),
         elevation: 0,
@@ -72,16 +104,34 @@ class AppTheme {
       textTheme: lightTextTheme,
       inputDecorationTheme: lightInputDecorationTheme,
       iconTheme: const IconThemeData(color: AppColors.lightTextPrimary),
+      cardTheme: const CardThemeData(
+        color: AppColors.lightBgSecondary,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: AppColors.lightBgSecondary,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dividerTheme: const DividerThemeData(color: AppColors.lightBorderColor),
+      listTileTheme: const ListTileThemeData(
+        iconColor: AppColors.lightTextSecondary,
+        textColor: AppColors.lightTextPrimary,
+        subtitleTextStyle: TextStyle(color: AppColors.lightTextSecondary),
+      ),
+      popupMenuTheme: const PopupMenuThemeData(
+        color: AppColors.lightBgSecondary,
+        textStyle: TextStyle(color: AppColors.lightTextPrimary),
+      ),
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
               ? AppColors.primary
-              : Color(0xFFBDBDBD),
+              : const Color(0xFFBDBDBD),
         ),
-        trackColor: MaterialStateProperty.resolveWith(
-          (states) => states.contains(MaterialState.selected)
-              ? AppColors.primary.withOpacity(0.3)
-              : Color(0xFFE0E0E0).withOpacity(0.5),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : const Color(0xFFE0E0E0).withValues(alpha: 0.5),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(

@@ -89,12 +89,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               ),
             ),
             const SizedBox(width: 12),
-            const Text(
+            Text(
               'Mobilis Driver',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                color: isDark
+                    ? AppColors.textPrimary
+                    : AppColors.lightTextPrimary,
               ),
             ),
           ],
@@ -1451,7 +1453,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
                   onChanged: isLoading || isSaving
                       ? null
                       : (value) => _toggleAvailability(value),
-                  activeColor: AppColors.primary,
+                  activeThumbColor: AppColors.primary,
                 ),
               ],
             ),
@@ -1535,13 +1537,18 @@ class __ProfileTabState extends State<_ProfileTab> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final authService = AuthService();
     final user = authService.currentUser;
+    final displayName =
+        user?.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
+        ? user!.userMetadata!['full_name'].toString().trim()
+        : user?.email?.split('@').first ?? 'Driver';
+    final phone = user?.userMetadata?['phone']?.toString() ?? 'Not set';
+    final location = user?.userMetadata?['location']?.toString() ?? 'Not set';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Driver Info Card
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -1552,34 +1559,55 @@ class __ProfileTabState extends State<_ProfileTab> {
               ),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                CircleAvatar(
+                  radius: 42,
+                  backgroundColor: AppColors.primary,
+                  child: Text(
+                    displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
                 Text(
-                  'Driver Information',
+                  displayName,
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
                     color: isDark ? Colors.white : Colors.black,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 5),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.verified, color: AppColors.success, size: 16),
+                    SizedBox(width: 5),
+                    Text(
+                      'Verified Driver',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.success,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
                 _InfoRow(
                   label: 'Email',
                   value: user?.email ?? 'N/A',
                   isDark: isDark,
                 ),
                 const SizedBox(height: 12),
-                _InfoRow(
-                  label: 'Phone',
-                  value: user?.userMetadata?['phone'] ?? 'Not set',
-                  isDark: isDark,
-                ),
+                _InfoRow(label: 'Phone', value: phone, isDark: isDark),
                 const SizedBox(height: 12),
-                _InfoRow(
-                  label: 'Location',
-                  value: user?.userMetadata?['location'] ?? 'Not set',
-                  isDark: isDark,
-                ),
+                _InfoRow(label: 'Location', value: location, isDark: isDark),
               ],
             ),
           ),
@@ -1611,7 +1639,7 @@ class __ProfileTabState extends State<_ProfileTab> {
                   label: 'Appearance',
                   value: isDark ? 'Dark Mode' : 'Light Mode',
                   onTap: () {
-                    widget.onThemeToggle?.call(!widget.isDarkMode);
+                    widget.onThemeToggle?.call(!isDark);
                   },
                   isDark: isDark,
                   isFirst: true,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 import '../../../services/vehicle_service.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/favorite_vehicle_service.dart';
 
 class VehicleSearchScreen extends StatefulWidget {
   final String? initialCategory;
@@ -35,20 +37,34 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   DateTime? _availableTo;
 
   final List<Map<String, dynamic>> _results = [];
+  Set<String> _favoriteVehicleIds = {};
   bool _isLoading = false;
   bool _isSearching = false;
   String? _errorMessage;
   bool _showFilters = false;
 
   final List<String> _colors = [
-    'Black', 'White', 'Gray', 'Silver', 'Red',
-    'Blue', 'Green', 'Yellow', 'Orange', 'Brown',
+    'Black',
+    'White',
+    'Gray',
+    'Silver',
+    'Red',
+    'Blue',
+    'Green',
+    'Yellow',
+    'Orange',
+    'Brown',
   ];
 
   final List<String> _fuelTypes = ['Gasoline', 'Diesel', 'Hybrid', 'Electric'];
   final List<int> _seatOptions = [2, 4, 5, 6, 7, 8, 9, 10];
   final List<String> _categories = [
-    'All Cars', 'Sedan', 'SUV', 'Van', 'Hatchback', 'Pickup',
+    'All Cars',
+    'Sedan',
+    'SUV',
+    'Van',
+    'Hatchback',
+    'Pickup',
   ];
 
   String _selectedCategory = 'All Cars';
@@ -62,6 +78,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     }
     _availableFrom = widget.initialAvailableFrom;
     _availableTo = widget.initialAvailableTo ?? widget.initialAvailableFrom;
+    _loadFavoriteVehicleIds();
     _loadRecentVehicles();
   }
 
@@ -77,6 +94,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
   String? get _selectedCategoryForQuery =>
       _selectedCategory == 'All Cars' ? null : _selectedCategory;
+
+  bool get _hasAvailabilityFilter =>
+      _availableFrom != null || _availableTo != null;
 
   Future<void> _loadRecentVehicles() async {
     try {
@@ -107,6 +127,59 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     }
   }
 
+  Future<void> _loadFavoriteVehicleIds() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    final ids = await FavoriteVehicleService().getFavoriteVehicleIds(user.id);
+    if (!mounted) return;
+    setState(() => _favoriteVehicleIds = ids);
+  }
+
+  Future<void> _toggleFavoriteVehicle(Map<String, dynamic> vehicle) async {
+    final user = AuthService().currentUser;
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    if (user == null || vehicleId.isEmpty) return;
+
+    final wasFavorite = _favoriteVehicleIds.contains(vehicleId);
+    setState(() {
+      if (wasFavorite) {
+        _favoriteVehicleIds.remove(vehicleId);
+      } else {
+        _favoriteVehicleIds.add(vehicleId);
+      }
+    });
+
+    try {
+      final nowFavorite = await FavoriteVehicleService().toggleFavorite(
+        userId: user.id,
+        vehicleId: vehicleId,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (nowFavorite) {
+          _favoriteVehicleIds.add(vehicleId);
+        } else {
+          _favoriteVehicleIds.remove(vehicleId);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (wasFavorite) {
+          _favoriteVehicleIds.add(vehicleId);
+        } else {
+          _favoriteVehicleIds.remove(vehicleId);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update favorites: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _performSearch() async {
     try {
       setState(() {
@@ -124,7 +197,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       final vehicles = await vehicleService.searchVehicles(
         brand: _brandController.text.isEmpty ? null : _brandController.text,
         model: _modelController.text.isEmpty ? null : _modelController.text,
-        location: _locationController.text.isEmpty ? null : _locationController.text,
+        location: _locationController.text.isEmpty
+            ? null
+            : _locationController.text,
         color: _selectedColor,
         fuelType: _selectedFuelType,
         category: _selectedCategoryForQuery,
@@ -145,7 +220,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
       if (vehicles.isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No vehicles found matching criteria')),
+          SnackBar(
+            content: Text(
+              _hasAvailabilityFilter
+                  ? 'No available cars for the selected date'
+                  : 'No vehicles found matching criteria',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -209,23 +290,27 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               headerBackgroundColor: AppColors.darkBg,
               headerForegroundColor: AppColors.textPrimary,
               dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) return AppColors.textTertiary;
+                if (states.contains(WidgetState.disabled))
+                  return AppColors.textTertiary;
                 if (states.contains(WidgetState.selected)) return Colors.black;
                 return AppColors.textPrimary;
               }),
               dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) return AppColors.primary;
+                if (states.contains(WidgetState.selected))
+                  return AppColors.primary;
                 return Colors.transparent;
               }),
               todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
               todayBorder: const BorderSide(color: AppColors.primary),
               yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) return AppColors.textTertiary;
+                if (states.contains(WidgetState.disabled))
+                  return AppColors.textTertiary;
                 if (states.contains(WidgetState.selected)) return Colors.black;
                 return AppColors.textPrimary;
               }),
               yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) return AppColors.primary;
+                if (states.contains(WidgetState.selected))
+                  return AppColors.primary;
                 return Colors.transparent;
               }),
             ),
@@ -323,6 +408,8 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     final transmission = vehicle['transmission']?.toString() ?? 'Manual';
     final fuelType = vehicle['fuel_type']?.toString() ?? 'Gasoline';
     final imageUrl = vehicle['image_url'] as String?;
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    final isFavorite = _favoriteVehicleIds.contains(vehicleId);
 
     return GestureDetector(
       onTap: () {
@@ -342,30 +429,65 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: 140,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(10),
-                  topRight: Radius.circular(10),
+            Stack(
+              children: [
+                Container(
+                  height: 140,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(10),
+                      topRight: Radius.circular(10),
+                    ),
+                    color: Colors.grey.shade300,
+                  ),
+                  child: imageUrl != null && imageUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(10),
+                            topRight: Radius.circular(10),
+                          ),
+                          child: Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const Icon(Icons.directions_car, size: 48),
+                          ),
+                        )
+                      : const Center(
+                          child: Icon(Icons.directions_car, size: 48),
+                        ),
                 ),
-                color: Colors.grey.shade300,
-              ),
-              child: imageUrl != null && imageUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(10),
-                        topRight: Radius.circular(10),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: GestureDetector(
+                    onTap: () => _toggleFavoriteVehicle(vehicle),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBgSecondary.withValues(
+                          alpha: 0.92,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isFavorite
+                              ? AppColors.error
+                              : AppColors.borderColor,
+                        ),
                       ),
-                      child: Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Icon(Icons.directions_car, size: 48),
+                      child: Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: isFavorite
+                            ? AppColors.error
+                            : AppColors.textSecondary,
+                        size: 19,
                       ),
-                    )
-                  : const Center(child: Icon(Icons.directions_car, size: 48)),
+                    ),
+                  ),
+                ),
+              ],
             ),
             Expanded(
               child: Padding(
@@ -392,15 +514,26 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        Icon(Icons.person, size: 14, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.person,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 2),
-                        Text('$seats seats', style: const TextStyle(fontSize: 10)),
+                        Text(
+                          '$seats seats',
+                          style: const TextStyle(fontSize: 10),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Icons.settings_outlined, size: 14, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.settings_outlined,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 2),
                         Expanded(
                           child: Text(
@@ -411,7 +544,11 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                           ),
                         ),
                         const SizedBox(width: 6),
-                        Icon(Icons.local_gas_station_outlined, size: 14, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.local_gas_station_outlined,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 2),
                         Expanded(
                           child: Text(
@@ -505,18 +642,25 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                       Expanded(
                         flex: 2,
                         child: OutlinedButton.icon(
-                          icon: Icon(_showFilters ? Icons.expand_less : Icons.tune),
-                          label: Text(_showFilters ? 'Hide Filters' : 'Show Filters'),
+                          icon: Icon(
+                            _showFilters ? Icons.expand_less : Icons.tune,
+                          ),
+                          label: Text(
+                            _showFilters ? 'Hide Filters' : 'Show Filters',
+                          ),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            side: const BorderSide(color: AppColors.borderColor),
+                            side: const BorderSide(
+                              color: AppColors.borderColor,
+                            ),
                             foregroundColor: AppColors.textPrimary,
                             backgroundColor: AppColors.darkBgSecondary,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                          onPressed: () => setState(() => _showFilters = !_showFilters),
+                          onPressed: () =>
+                              setState(() => _showFilters = !_showFilters),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -653,15 +797,29 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               ),
             )
           else if (_results.isEmpty)
-            const SliverFillRemaining(
+            SliverFillRemaining(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.directions_car_outlined, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text('No vehicles found', style: TextStyle(fontSize: 16)),
-                  SizedBox(height: 8),
-                  Text('Try adjusting your filters', style: TextStyle(color: Colors.grey)),
+                  const Icon(
+                    Icons.directions_car_outlined,
+                    size: 64,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _hasAvailabilityFilter
+                        ? 'No available cars'
+                        : 'No vehicles found',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _hasAvailabilityFilter
+                        ? 'All cars are already booked for this date'
+                        : 'Try adjusting your filters',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
                 ],
               ),
             )
@@ -675,7 +833,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 ),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
-                  childAspectRatio: 0.68,
+                  childAspectRatio: 0.58,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
                 ),

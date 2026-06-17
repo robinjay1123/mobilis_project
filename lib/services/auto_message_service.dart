@@ -51,7 +51,8 @@ class AutoMessageService {
 
       await supabase.from('messages').insert({
         'conversation_id': conversationId,
-        'sender_id': 'system', // Special sender ID for auto-messages
+        'sender_id': renterId,
+        'message': autoMessage,
         'content': autoMessage,
         'is_auto_generated': true,
         'created_at': DateTime.now().toIso8601String(),

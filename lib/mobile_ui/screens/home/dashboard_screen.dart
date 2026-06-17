@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../renter/vehicle_search_screen.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/vehicle_service.dart';
+import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
@@ -20,6 +24,7 @@ import '../../widgets/trip_timeline_step.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
+import '../profile/my_drivers_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -60,6 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _filteredVehicles = [];
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _conversations = [];
+  Set<String> _favoriteVehicleIds = {};
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -235,16 +241,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               debugPrint('✅ Real-time update received: ${payload.eventType}');
               final newRecord = payload.newRecord as Map<String, dynamic>?;
               if (newRecord != null) {
-                final isVerified = newRecord['id_verified'] as bool? ?? false;
+                final status = newRecord['verification_status']
+                    ?.toString()
+                    .trim()
+                    .toLowerCase();
+                final isVerified =
+                    (newRecord['id_verified'] as bool? ?? false) ||
+                    VerificationService.isVerifiedStatus(status);
+                final hasPendingApplication =
+                    status == 'pending' || status == 'submitted';
                 if (isVerified != userVerified) {
                   if (mounted) {
                     setState(() {
                       userVerified = isVerified;
-                      _hasShownVerificationPrompt = isVerified;
+                      _hasShownVerificationPrompt =
+                          isVerified || hasPendingApplication;
                     });
                   }
                   // Show verification prompt if newly unverified
-                  if (!isVerified && !_hasShownVerificationPrompt && mounted) {
+                  if (!isVerified &&
+                      !hasPendingApplication &&
+                      !_hasShownVerificationPrompt &&
+                      mounted) {
                     _showVerificationPromptOnce();
                   }
                 }
@@ -264,16 +282,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _showVerificationPromptOnce() async {
     if (_hasShownVerificationPrompt) return;
-    final latestVerified = await AuthService().isUserVerified();
-    if (!mounted || latestVerified) {
-      if (mounted) {
-        setState(() {
-          userVerified = latestVerified;
-          _hasShownVerificationPrompt = latestVerified;
-        });
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    final verificationState =
+        await VerificationService.getUserVerificationState(user.id);
+    final isVerified = verificationState['is_verified'] as bool? ?? false;
+    final status = verificationState['verification_status']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    final hasPendingApplication = status == 'pending' || status == 'submitted';
+
+    if (!mounted) return;
+
+    setState(() {
+      userVerified = isVerified;
+      if (isVerified || hasPendingApplication) {
+        _hasShownVerificationPrompt = true;
       }
+    });
+
+    if (isVerified || hasPendingApplication) {
       return;
     }
+
     _hasShownVerificationPrompt = true;
     _showRentalVerificationModal();
   }
@@ -316,7 +349,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final conversationId = conversation['id']?.toString();
         if (conversationId == null || conversationId.isEmpty) continue;
 
-        final otherUser = await chatService.getOtherUserId(
+        final otherUser = await chatService.getOtherUser(
           conversationId,
           user.id,
         );
@@ -575,6 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     setState(() => _isLoadingVehicles = true);
     try {
+      await _loadFavoriteVehicleIds();
       final vehicles = await VehicleService().getAvailableVehicles(
         category: selectedCategory.isEmpty ? null : selectedCategory,
         availableFrom: _bookingFilterFrom,
@@ -621,6 +655,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _filteredVehicles = filtered);
   }
 
+  Future<void> _loadFavoriteVehicleIds() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    final ids = await FavoriteVehicleService().getFavoriteVehicleIds(user.id);
+    if (!mounted) return;
+    setState(() => _favoriteVehicleIds = ids);
+  }
+
+  Future<void> _toggleFavoriteVehicle(Map<String, dynamic> vehicle) async {
+    final user = AuthService().currentUser;
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    if (user == null || vehicleId.isEmpty) return;
+
+    final isFavorite = _favoriteVehicleIds.contains(vehicleId);
+    setState(() {
+      if (isFavorite) {
+        _favoriteVehicleIds.remove(vehicleId);
+      } else {
+        _favoriteVehicleIds.add(vehicleId);
+      }
+    });
+
+    try {
+      final nowFavorite = await FavoriteVehicleService().toggleFavorite(
+        userId: user.id,
+        vehicleId: vehicleId,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (nowFavorite) {
+          _favoriteVehicleIds.add(vehicleId);
+        } else {
+          _favoriteVehicleIds.remove(vehicleId);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (isFavorite) {
+          _favoriteVehicleIds.add(vehicleId);
+        } else {
+          _favoriteVehicleIds.remove(vehicleId);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update favorites: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _refreshDashboard() async {
     await _loadVehicles();
     await _loadBookings();
@@ -629,84 +716,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadUserData();
   }
 
+  Future<void> _clearBookNowDateFilter() async {
+    if (!mounted) return;
+    if (_bookingFilterFrom == null && _bookingFilterTo == null) return;
+
+    setState(() {
+      _bookingFilterFrom = null;
+      _bookingFilterTo = null;
+    });
+    await _loadVehicles();
+  }
+
   Future<void> _selectBookNowDates() async {
     if (!await _checkRentalVerification()) return;
     if (!mounted) return;
 
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
-    final picked = await showDateRangePicker(
-      context: context,
+    final visibleVehicleIds =
+        (_filteredVehicles.isNotEmpty ? _filteredVehicles : _vehicles)
+            .map((vehicle) => vehicle['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList();
+    final unavailableDays = await VehicleService()
+        .getFullyUnavailableDatesForVehicles(visibleVehicleIds);
+    if (!mounted) return;
+
+    final picked = await _showBookNowCalendarDialog(
       firstDate: firstDate,
       lastDate: firstDate.add(const Duration(days: 365)),
-      initialDateRange: _bookingFilterFrom != null && _bookingFilterTo != null
-          ? DateTimeRange(start: _bookingFilterFrom!, end: _bookingFilterTo!)
-          : DateTimeRange(
-              start: firstDate.add(const Duration(days: 1)),
-              end: firstDate.add(const Duration(days: 1)),
-            ),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primary,
-              onPrimary: Colors.black,
-              surface: AppColors.darkBgSecondary,
-              onSurface: AppColors.textPrimary,
-            ),
-            datePickerTheme: DatePickerThemeData(
-              backgroundColor: AppColors.darkBgSecondary,
-              surfaceTintColor: Colors.transparent,
-              headerBackgroundColor: AppColors.darkBg,
-              headerForegroundColor: AppColors.textPrimary,
-              rangePickerBackgroundColor: AppColors.darkBgSecondary,
-              rangePickerHeaderBackgroundColor: AppColors.darkBg,
-              rangePickerHeaderForegroundColor: AppColors.textPrimary,
-              rangePickerSurfaceTintColor: Colors.transparent,
-              dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) {
-                  return AppColors.textTertiary;
-                }
-                if (states.contains(WidgetState.selected)) {
-                  return Colors.black;
-                }
-                return AppColors.textPrimary;
-              }),
-              dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return AppColors.primary;
-                }
-                return Colors.transparent;
-              }),
-              todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
-              todayBorder: const BorderSide(color: AppColors.primary),
-              yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) {
-                  return AppColors.textTertiary;
-                }
-                if (states.contains(WidgetState.selected)) {
-                  return Colors.black;
-                }
-                return AppColors.textPrimary;
-              }),
-              yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return AppColors.primary;
-                }
-                return Colors.transparent;
-              }),
-            ),
-            scaffoldBackgroundColor: AppColors.darkBg,
-            dialogBackgroundColor: AppColors.darkBgSecondary,
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
-            ),
-          ),
-          child: child!,
-        );
-      },
+      initialStart:
+          _bookingFilterFrom ?? firstDate.add(const Duration(days: 1)),
+      initialEnd:
+          _bookingFilterTo ??
+          _bookingFilterFrom ??
+          firstDate.add(const Duration(days: 1)),
+      unavailableDays: unavailableDays,
     );
-    if (picked == null || !mounted) return;
+    if (picked == null) {
+      await _clearBookNowDateFilter();
+      return;
+    }
+    if (!mounted) return;
 
     setState(() {
       _bookingFilterFrom = picked.start;
@@ -715,12 +766,576 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _loadVehicles();
 
     if (!mounted) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => VehicleSearchScreen(
           initialCategory: selectedCategory.isEmpty ? null : selectedCategory,
           initialAvailableFrom: picked.start,
           initialAvailableTo: picked.end,
+        ),
+      ),
+    );
+    await _clearBookNowDateFilter();
+  }
+
+  Future<DateTimeRange?> _showBookNowCalendarDialog({
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required DateTime initialStart,
+    required DateTime initialEnd,
+    required Set<DateTime> unavailableDays,
+  }) {
+    var focusedDay = initialStart;
+    DateTime? rangeStart = initialStart;
+    DateTime? rangeEnd = initialEnd;
+    final unavailable = unavailableDays.map(_dateOnly).toSet();
+    final myBookedDetails = _bookingDetailsByDay(_bookings);
+    final myBookedDays = myBookedDetails.keys.toSet();
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hasInvalidRange =
+                rangeStart != null &&
+                rangeEnd != null &&
+                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, {
+                  ...unavailable,
+                  ...myBookedDays,
+                });
+
+            return Dialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Select Booking Dates',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(
+                              Icons.close,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: const [
+                          _CalendarLegendDot(
+                            color: AppColors.primary,
+                            label: 'Selected',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.error,
+                            label: 'Unavailable',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.warning,
+                            label: 'Your booking',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.success,
+                            label: 'Available',
+                            textColor: AppColors.textPrimary,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TableCalendar(
+                        firstDay: firstDate,
+                        lastDay: lastDate,
+                        focusedDay: focusedDay,
+                        rangeStartDay: rangeStart,
+                        rangeEndDay: rangeEnd,
+                        rangeSelectionMode: RangeSelectionMode.toggledOn,
+                        availableCalendarFormats: const {
+                          CalendarFormat.month: 'Month',
+                        },
+                        onRangeSelected: (start, end, focused) {
+                          final startDay = start == null
+                              ? null
+                              : _dateOnly(start);
+                          final endDay = end == null ? null : _dateOnly(end);
+                          if ((startDay != null &&
+                                  unavailable.contains(startDay)) ||
+                              (endDay != null &&
+                                  unavailable.contains(endDay))) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('That date is unavailable'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+                          if ((startDay != null &&
+                                  myBookedDays.contains(startDay)) ||
+                              (endDay != null &&
+                                  myBookedDays.contains(endDay))) {
+                            _showBookedDateDetails(
+                              startDay != null &&
+                                      myBookedDays.contains(startDay)
+                                  ? startDay
+                                  : endDay!,
+                              myBookedDetails,
+                            );
+                            return;
+                          }
+                          if (start != null &&
+                              end != null &&
+                              _rangeContainsBlockedDate(start, end, {
+                                ...unavailable,
+                                ...myBookedDays,
+                              })) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Selected range includes unavailable or already-booked dates',
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            rangeStart = start;
+                            rangeEnd = end ?? start;
+                            focusedDay = focused;
+                          });
+                        },
+                        onDaySelected: (selectedDay, focused) {
+                          final selectedDate = _dateOnly(selectedDay);
+                          if (myBookedDays.contains(selectedDate)) {
+                            _showBookedDateDetails(
+                              selectedDate,
+                              myBookedDetails,
+                            );
+                            return;
+                          }
+                          if (unavailable.contains(selectedDate)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('That date is unavailable'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            if (rangeStart == null ||
+                                (rangeStart != null && rangeEnd != null)) {
+                              rangeStart = selectedDay;
+                              rangeEnd = null;
+                            } else if (selectedDay.isBefore(rangeStart!)) {
+                              rangeEnd = rangeStart;
+                              rangeStart = selectedDay;
+                            } else {
+                              if (_rangeContainsBlockedDate(
+                                rangeStart!,
+                                selectedDay,
+                                {...unavailable, ...myBookedDays},
+                              )) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Selected range includes unavailable or already-booked dates',
+                                    ),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+                              rangeEnd = selectedDay;
+                            }
+                            focusedDay = focused;
+                          });
+                        },
+                        onDayLongPressed: (selectedDay, focused) {
+                          final selectedDate = _dateOnly(selectedDay);
+                          if (myBookedDays.contains(selectedDate)) {
+                            _showBookedDateDetails(
+                              selectedDate,
+                              myBookedDetails,
+                            );
+                          }
+                        },
+                        headerStyle: const HeaderStyle(
+                          titleCentered: true,
+                          titleTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          formatButtonVisible: false,
+                          leftChevronIcon: Icon(
+                            Icons.chevron_left,
+                            color: AppColors.primary,
+                          ),
+                          rightChevronIcon: Icon(
+                            Icons.chevron_right,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        daysOfWeekStyle: const DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          weekendStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        calendarStyle: CalendarStyle(
+                          outsideDaysVisible: false,
+                          rangeHighlightColor: AppColors.primary.withAlpha(55),
+                          defaultTextStyle: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          weekendTextStyle: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        calendarBuilders: CalendarBuilders(
+                          defaultBuilder: (context, day, focusedDay) {
+                            return _buildBookNowDayCell(
+                              day,
+                              unavailable,
+                              myBookedDays,
+                            );
+                          },
+                          todayBuilder: (context, day, focusedDay) {
+                            return _buildBookNowDayCell(
+                              day,
+                              unavailable,
+                              myBookedDays,
+                              isToday: true,
+                            );
+                          },
+                          selectedBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          rangeStartBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          rangeEndBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          disabledBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: Colors.transparent,
+                              textColor: AppColors.textTertiary,
+                            );
+                          },
+                        ),
+                      ),
+                      if (hasInvalidRange) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Selected range includes unavailable or already-booked dates.',
+                          style: TextStyle(
+                            color: AppColors.error,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                side: const BorderSide(
+                                  color: AppColors.borderColor,
+                                ),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed:
+                                  rangeStart == null ||
+                                      rangeEnd == null ||
+                                      hasInvalidRange
+                                  ? null
+                                  : () => Navigator.pop(
+                                      dialogContext,
+                                      DateTimeRange(
+                                        start: rangeStart!,
+                                        end: rangeEnd!,
+                                      ),
+                                    ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                              ),
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildBookNowDayCell(
+    DateTime day,
+    Set<DateTime> unavailable,
+    Set<DateTime> myBookedDays, {
+    bool isToday = false,
+  }) {
+    final date = _dateOnly(day);
+    if (myBookedDays.contains(date)) {
+      return _buildCalendarDayCell(
+        day: day,
+        backgroundColor: AppColors.warning,
+        borderColor: isToday ? AppColors.primary : null,
+        textColor: Colors.black,
+      );
+    }
+    if (unavailable.contains(date)) {
+      return _buildCalendarDayCell(
+        day: day,
+        backgroundColor: AppColors.error,
+        borderColor: isToday ? AppColors.primary : null,
+        textColor: Colors.white,
+        strikethrough: true,
+      );
+    }
+    return _buildCalendarDayCell(
+      day: day,
+      backgroundColor: AppColors.success.withAlpha(45),
+      borderColor: isToday ? AppColors.primary : AppColors.success,
+      textColor: isToday ? AppColors.primary : AppColors.textPrimary,
+    );
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  bool _rangeContainsBlockedDate(
+    DateTime start,
+    DateTime end,
+    Set<DateTime> blockedDays,
+  ) {
+    final startDay = _dateOnly(start);
+    final endDay = _dateOnly(end);
+    final orderedStart = startDay.isAfter(endDay) ? endDay : startDay;
+    final orderedEnd = startDay.isAfter(endDay) ? startDay : endDay;
+
+    for (
+      var day = orderedStart;
+      !day.isAfter(orderedEnd);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (blockedDays.contains(day)) return true;
+    }
+    return false;
+  }
+
+  Map<DateTime, List<Map<String, dynamic>>> _bookingDetailsByDay(
+    List<Map<String, dynamic>> bookings,
+  ) {
+    final details = <DateTime, List<Map<String, dynamic>>>{};
+    for (final booking in bookings) {
+      final status = booking['status']?.toString().toLowerCase() ?? '';
+      if (!{'pending', 'approved', 'confirmed', 'active'}.contains(status)) {
+        continue;
+      }
+
+      final start = DateTime.tryParse(
+        booking['start_at']?.toString() ??
+            booking['start_date']?.toString() ??
+            '',
+      )?.toLocal();
+      final end = DateTime.tryParse(
+        booking['end_at']?.toString() ?? booking['end_date']?.toString() ?? '',
+      )?.toLocal();
+      if (start == null || end == null) continue;
+
+      var current = _dateOnly(start);
+      final last = _dateOnly(end);
+      while (!current.isAfter(last)) {
+        details.putIfAbsent(current, () => []).add(booking);
+        current = current.add(const Duration(days: 1));
+      }
+    }
+    return details;
+  }
+
+  String _bookingVehicleTitle(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'];
+    if (vehicle is Map<String, dynamic>) {
+      return _vehicleTitle(vehicle);
+    }
+    return 'Booked vehicle';
+  }
+
+  void _showBookedDateDetails(
+    DateTime date,
+    Map<DateTime, List<Map<String, dynamic>>> detailsByDay,
+  ) {
+    final bookings = detailsByDay[_dateOnly(date)] ?? [];
+    if (bookings.isEmpty) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your booking on ${_shortDate(date)}',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...bookings.map((booking) {
+                  final status = booking['status']?.toString() ?? 'pending';
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgTertiary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.directions_car,
+                          color: AppColors.warning,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _bookingVehicleTitle(booking),
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                status.toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppColors.warning,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCalendarDayCell({
+    required DateTime day,
+    required Color backgroundColor,
+    required Color textColor,
+    Color? borderColor,
+    bool strikethrough = false,
+  }) {
+    return Container(
+      margin: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        shape: BoxShape.circle,
+        border: borderColor == null ? null : Border.all(color: borderColor),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w700,
+          decoration: strikethrough ? TextDecoration.lineThrough : null,
+          decorationColor: textColor,
+          decorationThickness: 2,
         ),
       ),
     );
@@ -858,6 +1473,81 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _showVerificationPendingModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 86,
+                height: 86,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(43),
+                ),
+                child: const Icon(
+                  Icons.hourglass_top,
+                  color: AppColors.primary,
+                  size: 46,
+                ),
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Verification Under Review',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your verification request is already submitted. We will notify you once admin approval is complete.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Got it',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<bool> _checkRentalVerification() async {
     try {
       final authService = AuthService();
@@ -868,6 +1558,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           await VerificationService.getUserVerificationState(user.id);
       final userRole = verificationState['role']?.toString() ?? 'renter';
       final isVerifiedInDb = verificationState['is_verified'] as bool? ?? false;
+      final status = verificationState['verification_status']
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      final hasPendingApplication =
+          status == 'pending' || status == 'submitted';
 
       if (isVerifiedInDb != userVerified) {
         if (mounted) {
@@ -880,7 +1576,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (userRole == 'driver') return true;
 
       if (!isVerifiedInDb) {
-        _showRentalVerificationModal();
+        if (hasPendingApplication) {
+          _showVerificationPendingModal();
+        } else {
+          _showRentalVerificationModal();
+        }
         return false;
       }
       return true;
@@ -942,16 +1642,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           (booking['total_cost'] as num?)?.toDouble() ??
           0.0;
 
+      final startAtRaw = booking['start_at']?.toString();
+      final endAtRaw = booking['end_at']?.toString();
       final startDateRaw = booking['start_date']?.toString();
       final endDateRaw = booking['end_date']?.toString();
-      final startDate = _formatDateShort(startDateRaw);
-      final endDate = _formatDateShort(endDateRaw);
+      final startDateTimeRaw = startAtRaw ?? startDateRaw;
+      final endDateTimeRaw = endAtRaw ?? endDateRaw;
+      final startDate = _formatDateShort(startDateTimeRaw);
+      final endDate = _formatDateShort(endDateTimeRaw);
+      final startTime = _formatTimeShort(startAtRaw);
+      final endTime = _formatTimeShort(endAtRaw);
 
       int days = 1;
       try {
-        if (startDateRaw != null && endDateRaw != null) {
-          final start = DateTime.parse(startDateRaw);
-          final end = DateTime.parse(endDateRaw);
+        if (startDateTimeRaw != null && endDateTimeRaw != null) {
+          final start = DateTime.parse(startDateTimeRaw).toLocal();
+          final end = DateTime.parse(endDateTimeRaw).toLocal();
           days = _inclusiveRentalDays(start, end);
         }
       } catch (_) {
@@ -986,18 +1692,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final rentalPartner = (ownerRole == 'partner' && ownerName.isNotEmpty)
           ? ownerName
           : 'PSDC';
+      final driver = booking['driver'] as Map<String, dynamic>?;
+      final driverUser = driver?['users'] as Map<String, dynamic>?;
+      final withDriver = booking['with_driver'] == true;
+      final driverName = driverUser?['full_name']?.toString().trim();
+      final paymentStatus =
+          booking['payment_status']?.toString().trim().isNotEmpty == true
+          ? booking['payment_status'].toString().trim()
+          : booking['reservation_payment_status']
+                    ?.toString()
+                    .trim()
+                    .isNotEmpty ==
+                true
+          ? booking['reservation_payment_status'].toString().trim()
+          : 'Reservation pending';
 
       return {
         'id': booking['id']?.toString() ?? '',
         'created_at': booking['created_at'],
+        'updated_at': booking['updated_at'],
+        'operator_id': booking['operator_id'],
+        'start_at': booking['start_at'],
+        'end_at': booking['end_at'],
+        'start_date_raw': booking['start_date'],
+        'end_date_raw': booking['end_date'],
+        'vehicles': vehicle,
+        'driver': driver,
+        'withDriver': withDriver,
+        'driverName': driverName == null || driverName.isEmpty
+            ? (withDriver ? 'To be assigned' : 'Not requested')
+            : driverName,
+        'paymentStatus': paymentStatus,
+        'cancellationReason':
+            booking['cancellation_reason']?.toString().trim().isNotEmpty == true
+            ? booking['cancellation_reason'].toString().trim()
+            : booking['rejection_reason']?.toString().trim().isNotEmpty == true
+            ? booking['rejection_reason'].toString().trim()
+            : 'Booking was cancelled.',
+        'cancelledAt': booking['cancelled_at'] ?? booking['updated_at'],
+        'conversationCreated': booking['conversation_created'] == true,
         'carName': _vehicleTitle(vehicle),
         'carImage': Icons.directions_car,
-        'imageUrl': (vehicle?['image_url'] as String?),
+        'imageUrl': vehicle == null ? null : _bookingVehicleImageUrl(vehicle),
         'status': uiStatus,
         'statusGroup': statusGroup,
         'rawStatus': rawStatus,
         'startDate': startDate,
+        'startTime': startTime,
         'endDate': endDate,
+        'endTime': endTime,
         'pickupLocation':
             booking['pickup_location']?.toString() ?? 'Pickup not specified',
         'dropoffLocation':
@@ -1044,18 +1787,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final otherUser = conversation['other_user'] as Map<String, dynamic>?;
       final lastMessage = conversation['last_message'] as Map<String, dynamic>?;
       final unreadCount = conversation['unread_count'] as int? ?? 0;
+      final booking = conversation['bookings'] as Map<String, dynamic>?;
+      final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+      final vehicleName = _vehicleTitle(vehicle).trim();
+      final participantName =
+          otherUser?['full_name']?.toString().trim().isNotEmpty == true
+          ? otherUser!['full_name'].toString().trim()
+          : otherUser?['email']?.toString().trim().isNotEmpty == true
+          ? otherUser!['email'].toString().trim()
+          : '';
+      final recipientName = booking != null && vehicleName != 'Unknown Vehicle'
+          ? '$vehicleName Booking'
+          : participantName.isNotEmpty
+          ? participantName
+          : 'Booking Group Chat';
 
       return {
         'conversationId': conversation['id']?.toString() ?? '',
-        'recipientName':
-            otherUser?['full_name']?.toString().trim().isNotEmpty == true
-            ? otherUser!['full_name'].toString().trim()
-            : otherUser?['email']?.toString().trim().isNotEmpty == true
-            ? otherUser!['email'].toString().trim()
-            : 'Conversation',
+        'recipientName': recipientName,
         'lastMessage':
-            lastMessage?['content']?.toString().trim().isNotEmpty == true
-            ? lastMessage!['content'].toString().trim()
+            (lastMessage?['content'] ?? lastMessage?['message'])
+                    ?.toString()
+                    .trim()
+                    .isNotEmpty ==
+                true
+            ? (lastMessage?['content'] ?? lastMessage?['message'])
+                  .toString()
+                  .trim()
             : 'No messages yet',
         'timestamp': _formatTimeAgo(lastMessage?['created_at']?.toString()),
         'unreadCount': unreadCount,
@@ -1091,6 +1849,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _loadConversations();
           _loadNotifications();
         });
+  }
+
+  bool _canOpenBookingConversation(Map<String, dynamic> booking) {
+    final rawStatus = booking['rawStatus']?.toString().toLowerCase() ?? '';
+    return rawStatus == 'approved' ||
+        rawStatus == 'confirmed' ||
+        rawStatus == 'active';
+  }
+
+  Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      final existingConversation = _conversations.firstWhere(
+        (conversation) => conversation['booking_id']?.toString() == bookingId,
+        orElse: () => {},
+      );
+      var conversationId = existingConversation['id']?.toString();
+
+      if (conversationId == null || conversationId.isEmpty) {
+        final supabase = Supabase.instance.client;
+        final conversation = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .maybeSingle();
+        conversationId = conversation?['id']?.toString();
+      }
+
+      if (conversationId == null || conversationId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Group chat is not ready yet. Please refresh.'),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      Navigator.of(context)
+          .pushNamed(
+            '/chat-detail',
+            arguments: {
+              'conversationId': conversationId,
+              'recipientName': '${booking['carName']} Booking',
+              'recipientAvatar': '',
+              'isAutoGenerated': true,
+            },
+          )
+          .then((_) {
+            _loadConversations();
+            _loadNotifications();
+          });
+    } catch (e) {
+      debugPrint('Error opening booking conversation: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open group chat: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   List<Map<String, dynamic>> _topRentalPartners() {
@@ -1176,6 +2002,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  String _formatTimeShort(String? date) {
+    if (date == null || date.isEmpty) return 'N/A';
+    try {
+      final d = DateTime.parse(date).toLocal();
+      final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+      final minute = d.minute.toString().padLeft(2, '0');
+      final suffix = d.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:$minute $suffix';
+    } catch (_) {
+      return 'N/A';
+    }
+  }
+
   String _formatTimeAgo(String? date) {
     if (date == null || date.isEmpty) return 'just now';
     try {
@@ -1196,15 +2035,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
       body: _buildTabContent(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: selectedNavIndex,
-        backgroundColor: AppColors.darkBgSecondary,
+        backgroundColor: isDark
+            ? AppColors.darkBgSecondary
+            : AppColors.lightBgSecondary,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
+        unselectedItemColor: isDark
+            ? AppColors.textSecondary
+            : AppColors.lightTextSecondary,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(
@@ -1252,6 +2097,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Home Tab
   // ---------------------------------------------------------------------------
   Widget _buildHomeTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark
+        ? AppColors.darkBgSecondary
+        : AppColors.lightBgSecondary;
+    final mutedCardColor = isDark
+        ? AppColors.darkBgTertiary
+        : AppColors.lightBgTertiary;
+    final borderColor = isDark
+        ? AppColors.borderColor
+        : AppColors.lightBorderColor;
+    final textColor = isDark
+        ? AppColors.textPrimary
+        : AppColors.lightTextPrimary;
+    final secondaryTextColor = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
+    final tertiaryTextColor = isDark
+        ? AppColors.textTertiary
+        : AppColors.lightTextTertiary;
     final uiBookings = _uiBookings();
     final homeTrips = uiBookings
         .where(
@@ -1295,11 +2159,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Welcome,',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.textSecondary,
+                                color: secondaryTextColor,
                               ),
                             ),
                             Row(
@@ -1307,10 +2171,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 Expanded(
                                   child: Text(
                                     userName,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w600,
-                                      color: AppColors.textPrimary,
+                                      color: textColor,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -1340,12 +2204,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: [
                       const Icon(Icons.location_on, color: AppColors.primary),
                       const SizedBox(width: 6),
-                      const Text(
+                      Text(
                         'CURRENT LOCATION',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
+                          color: secondaryTextColor,
                         ),
                       ),
                     ],
@@ -1353,37 +2217,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 4),
                   Text(
                     userLocation,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: AppColors.textPrimary,
+                      color: textColor,
                     ),
                   ),
                   const SizedBox(height: 16),
                   // Search bar
                   Container(
                     decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
+                      color: cardColor,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.borderColor),
+                      border: Border.all(color: borderColor),
                     ),
                     child: TextField(
                       controller: _searchController,
                       onChanged: (_) => _applyVehicleFilters(),
-                      style: const TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: textColor),
                       decoration: InputDecoration(
                         hintText: 'Find a car near you...',
-                        hintStyle: const TextStyle(
-                          color: AppColors.textTertiary,
-                        ),
+                        hintStyle: TextStyle(color: tertiaryTextColor),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 12,
                         ),
-                        prefixIcon: const Icon(
+                        prefixIcon: Icon(
                           Icons.search,
-                          color: AppColors.textTertiary,
+                          color: tertiaryTextColor,
                         ),
                         suffixIcon: Container(
                           margin: const EdgeInsets.all(6),
@@ -1431,12 +2293,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Your Trips',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: textColor,
                     ),
                   ),
                   GestureDetector(
@@ -1457,19 +2319,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: SizedBox(
-                height: 160,
+                height: 200,
                 child: homeTrips.isEmpty
                     ? Container(
                         decoration: BoxDecoration(
-                          color: AppColors.darkBgSecondary,
+                          color: cardColor,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.borderColor),
+                          border: Border.all(color: borderColor),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
                             'No trips yet',
                             style: TextStyle(
-                              color: AppColors.textSecondary,
+                              color: secondaryTextColor,
                               fontSize: 14,
                             ),
                           ),
@@ -1480,76 +2342,106 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         itemCount: homeTrips.length,
                         itemBuilder: (context, index) {
                           final booking = homeTrips[index];
+                          final imageUrl = booking['imageUrl']
+                              ?.toString()
+                              .trim();
+                          final hasImage =
+                              imageUrl != null && imageUrl.isNotEmpty;
                           return Padding(
                             padding: const EdgeInsets.only(right: 12),
-                            child: Container(
-                              width: 260,
-                              decoration: BoxDecoration(
-                                color: AppColors.darkBgSecondary,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppColors.borderColor,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                width: 260,
+                                decoration: BoxDecoration(
+                                  color: cardColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: borderColor),
                                 ),
-                              ),
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    booking['carName'],
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.textPrimary,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      height: 100,
+                                      width: double.infinity,
+                                      child: hasImage
+                                          ? Image.network(
+                                              imageUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  _buildTripImageFallback(
+                                                    mutedCardColor,
+                                                    tertiaryTextColor,
+                                                  ),
+                                            )
+                                          : _buildTripImageFallback(
+                                              mutedCardColor,
+                                              tertiaryTextColor,
+                                            ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    booking['rentalPartner'],
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.textSecondary,
+                                    Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            booking['carName'],
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            booking['rentalPartner'],
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: secondaryTextColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 9),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.calendar_today,
+                                                size: 12,
+                                                color: tertiaryTextColor,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                '${booking['days']} days',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: secondaryTextColor,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              const Icon(
+                                                Icons.star,
+                                                size: 12,
+                                                color: AppColors.ratingGold,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${booking['rating']}',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: secondaryTextColor,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.calendar_today,
-                                        size: 12,
-                                        color: AppColors.textTertiary,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '${booking['days']} days',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.star,
-                                        size: 12,
-                                        color: AppColors.ratingGold,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${booking['rating']}',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           );
@@ -1565,12 +2457,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Categories',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: textColor,
                     ),
                   ),
                   GestureDetector(
@@ -1633,19 +2525,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               decoration: BoxDecoration(
                                 color: isSelected
                                     ? AppColors.primary
-                                    : AppColors.darkBgSecondary,
+                                    : cardColor,
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: isSelected
                                       ? AppColors.primary
-                                      : AppColors.borderColor,
+                                      : borderColor,
                                 ),
                               ),
                               child: Icon(
                                 category['icon'] as IconData,
                                 color: isSelected
                                     ? Colors.black
-                                    : AppColors.textSecondary,
+                                    : secondaryTextColor,
                                 size: 28,
                               ),
                             ),
@@ -1657,7 +2549,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 fontWeight: FontWeight.w500,
                                 color: isSelected
                                     ? AppColors.primary
-                                    : AppColors.textSecondary,
+                                    : secondaryTextColor,
                               ),
                             ),
                           ],
@@ -1676,21 +2568,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Available Cars',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      color: textColor,
                     ),
                   ),
                   Row(
                     children: [
                       Text(
                         '${_filteredVehicles.length} cars',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: AppColors.textSecondary,
+                          color: secondaryTextColor,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1756,10 +2648,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          const Text(
+                          Text(
                             'No vehicles available',
                             style: TextStyle(
-                              color: AppColors.textSecondary,
+                              color: secondaryTextColor,
                               fontSize: 14,
                             ),
                           ),
@@ -1797,6 +2689,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                       final imageUrl = car['image_url'] as String?;
                       const providerName = 'PSDC';
+                      final vehicleId = car['id']?.toString() ?? '';
+                      final isFavorite = _favoriteVehicleIds.contains(
+                        vehicleId,
+                      );
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16),
@@ -1816,11 +2712,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               decoration: BoxDecoration(
-                                color: AppColors.darkBgSecondary,
+                                color: cardColor,
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppColors.borderColor,
-                                ),
+                                border: Border.all(color: borderColor),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1829,27 +2723,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     children: [
                                       Container(
                                         height: 200,
-                                        color: AppColors.darkBgTertiary,
+                                        color: mutedCardColor,
                                         child: imageUrl != null
                                             ? Image.network(
                                                 imageUrl,
                                                 fit: BoxFit.cover,
                                                 width: double.infinity,
                                                 errorBuilder: (_, __, ___) =>
-                                                    const Center(
+                                                    Center(
                                                       child: Icon(
                                                         Icons.directions_car,
                                                         size: 60,
-                                                        color: AppColors
-                                                            .textTertiary,
+                                                        color:
+                                                            tertiaryTextColor,
                                                       ),
                                                     ),
                                               )
-                                            : const Center(
+                                            : Center(
                                                 child: Icon(
                                                   Icons.directions_car,
                                                   size: 60,
-                                                  color: AppColors.textTertiary,
+                                                  color: tertiaryTextColor,
                                                 ),
                                               ),
                                       ),
@@ -1862,20 +2756,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             vertical: 6,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppColors.darkBgSecondary,
+                                            color: cardColor,
                                             borderRadius: BorderRadius.circular(
                                               20,
                                             ),
                                             border: Border.all(
-                                              color: AppColors.borderColor,
+                                              color: borderColor,
                                             ),
                                           ),
-                                          child: const Text(
+                                          child: Text(
                                             providerName,
                                             style: TextStyle(
                                               fontSize: 11,
                                               fontWeight: FontWeight.w600,
-                                              color: AppColors.textPrimary,
+                                              color: textColor,
                                             ),
                                           ),
                                         ),
@@ -1889,12 +2783,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             vertical: 4,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppColors.darkBgSecondary,
+                                            color: cardColor,
                                             borderRadius: BorderRadius.circular(
                                               6,
                                             ),
                                             border: Border.all(
-                                              color: AppColors.borderColor,
+                                              color: borderColor,
                                             ),
                                           ),
                                           child: Row(
@@ -1907,10 +2801,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                               const SizedBox(width: 4),
                                               Text(
                                                 rating.toStringAsFixed(1),
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.w600,
-                                                  color: AppColors.textPrimary,
+                                                  color: textColor,
                                                 ),
                                               ),
                                             ],
@@ -1920,22 +2814,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       Positioned(
                                         bottom: 12,
                                         right: 12,
-                                        child: Container(
-                                          width: 48,
-                                          height: 48,
-                                          decoration: BoxDecoration(
-                                            color: AppColors.darkBgSecondary,
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                        child: GestureDetector(
+                                          onTap: () =>
+                                              _toggleFavoriteVehicle(car),
+                                          child: Container(
+                                            width: 48,
+                                            height: 48,
+                                            decoration: BoxDecoration(
+                                              color: cardColor,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: isFavorite
+                                                    ? AppColors.error
+                                                    : borderColor,
+                                              ),
                                             ),
-                                            border: Border.all(
-                                              color: AppColors.borderColor,
+                                            child: Icon(
+                                              isFavorite
+                                                  ? Icons.favorite
+                                                  : Icons.favorite_border,
+                                              color: isFavorite
+                                                  ? AppColors.error
+                                                  : secondaryTextColor,
+                                              size: 20,
                                             ),
-                                          ),
-                                          child: const Icon(
-                                            Icons.favorite_border,
-                                            color: AppColors.textSecondary,
-                                            size: 20,
                                           ),
                                         ),
                                       ),
@@ -1949,19 +2852,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       children: [
                                         Text(
                                           carName,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
-                                            color: AppColors.textPrimary,
+                                            color: textColor,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
                                           category,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.w500,
-                                            color: AppColors.textTertiary,
+                                            color: tertiaryTextColor,
                                           ),
                                         ),
                                         const SizedBox(height: 8),
@@ -1983,10 +2886,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                     overflow:
                                                         TextOverflow.ellipsis,
                                                     maxLines: 1,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 11,
-                                                      color: AppColors
-                                                          .textSecondary,
+                                                      color: secondaryTextColor,
                                                     ),
                                                   ),
                                                 ],
@@ -2004,10 +2906,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                     overflow:
                                                         TextOverflow.ellipsis,
                                                     maxLines: 1,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 11,
-                                                      color: AppColors
-                                                          .textSecondary,
+                                                      color: secondaryTextColor,
                                                     ),
                                                   ),
                                                 ],
@@ -2025,10 +2926,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                     overflow:
                                                         TextOverflow.ellipsis,
                                                     maxLines: 1,
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 11,
-                                                      color: AppColors
-                                                          .textSecondary,
+                                                      color: secondaryTextColor,
                                                     ),
                                                   ),
                                                 ],
@@ -2049,10 +2949,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 transmission.toString(),
                                                 overflow: TextOverflow.ellipsis,
                                                 maxLines: 1,
-                                                style: const TextStyle(
+                                                style: TextStyle(
                                                   fontSize: 11,
-                                                  color:
-                                                      AppColors.textSecondary,
+                                                  color: secondaryTextColor,
                                                 ),
                                               ),
                                             ),
@@ -2085,12 +2984,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                                     .primary,
                                                               ),
                                                         ),
-                                                        const TextSpan(
+                                                        TextSpan(
                                                           text: '/hr',
                                                           style: TextStyle(
                                                             fontSize: 12,
-                                                            color: AppColors
-                                                                .textSecondary,
+                                                            color:
+                                                                secondaryTextColor,
                                                           ),
                                                         ),
                                                       ],
@@ -2103,20 +3002,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                         TextSpan(
                                                           text:
                                                               '₱${pricePerDay.toStringAsFixed(0)}',
-                                                          style: const TextStyle(
+                                                          style: TextStyle(
                                                             fontSize: 13,
                                                             fontWeight:
                                                                 FontWeight.w600,
-                                                            color: AppColors
-                                                                .textSecondary,
+                                                            color:
+                                                                secondaryTextColor,
                                                           ),
                                                         ),
-                                                        const TextSpan(
+                                                        TextSpan(
                                                           text: '/day',
                                                           style: TextStyle(
                                                             fontSize: 11,
-                                                            color: AppColors
-                                                                .textSecondary,
+                                                            color:
+                                                                secondaryTextColor,
                                                           ),
                                                         ),
                                                       ],
@@ -2446,22 +3345,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: GestureDetector(
                 onTap: () {
                   setState(() => selectedBookingIndex = index);
-                  _showBookingDetails(bookings[index]);
+                  final booking = bookings[index];
+                  _isCancelledBooking(booking)
+                      ? _showCancellationDetails(booking)
+                      : _showBookingDetails(booking);
                 },
-                child: BookingCard(
-                  carName: bookings[index]['carName'],
-                  rentalPartner: bookings[index]['rentalPartner'],
-                  status: bookings[index]['status'],
-                  days: (bookings[index]['days'] as num?)?.toInt() ?? 0,
-                  pickupLocation: bookings[index]['pickupLocation'],
-                  dropoffLocation: bookings[index]['dropoffLocation'],
-                  totalCost:
-                      (bookings[index]['totalCost'] as num?)?.toInt() ?? 0,
-                  rating:
-                      (bookings[index]['rating'] as num?)?.toDouble() ?? 0.0,
-                  isActive: bookings[index]['statusGroup'] == 'Approved',
-                  carImageUrl: bookings[index]['imageUrl'] as String?,
-                  onTap: () => _showBookingDetails(bookings[index]),
+                child: Builder(
+                  builder: (context) {
+                    final booking = bookings[index];
+                    final isCompleted = booking['statusGroup'] == 'Completed';
+                    final isCancelled = _isCancelledBooking(booking);
+
+                    return BookingCard(
+                      carName: booking['carName'],
+                      rentalPartner: booking['rentalPartner'],
+                      status: booking['status'],
+                      days: (booking['days'] as num?)?.toInt() ?? 0,
+                      pickupLocation: booking['pickupLocation'],
+                      dropoffLocation: booking['dropoffLocation'],
+                      totalCost: (booking['totalCost'] as num?)?.toInt() ?? 0,
+                      rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
+                      isActive: booking['statusGroup'] == 'Approved',
+                      carImageUrl: booking['imageUrl'] as String?,
+                      detailsButtonLabel: isCompleted
+                          ? 'View Receipt'
+                          : isCancelled
+                          ? 'Details'
+                          : 'View Details',
+                      onTap: () => isCancelled
+                          ? _showCancellationDetails(booking)
+                          : _showBookingDetails(booking),
+                      onViewDetails: () => isCompleted
+                          ? _showTripReceipt(booking)
+                          : isCancelled
+                          ? _showCancellationDetails(booking)
+                          : _showBookingDetails(booking),
+                      showMessageButton: _canOpenBookingConversation(booking),
+                      onMessage: () => _openBookingConversation(booking),
+                    );
+                  },
                 ),
               ),
             ),
@@ -2876,12 +3798,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         isDarkMode: widget.isDarkMode,
         onBack: () => setState(() => selectedProfilePage = null),
       );
+    } else if (selectedProfilePage == 'favorites') {
+      return _buildFavoriteVehiclesPage();
+    } else if (selectedProfilePage == 'drivers') {
+      return MyDriversScreen(
+        isDarkMode: widget.isDarkMode,
+        onBack: () => setState(() => selectedProfilePage = null),
+      );
     }
 
     return Column(
       children: [
         Container(
-          color: AppColors.primary,
+          color: AppColors.darkBg,
           padding: EdgeInsets.fromLTRB(
             16,
             MediaQuery.of(context).padding.top + 12,
@@ -2894,7 +3823,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onTap: () => setState(() => selectedNavIndex = 0),
                 child: const Icon(
                   Icons.arrow_back,
-                  color: Colors.black,
+                  color: AppColors.textPrimary,
                   size: 24,
                 ),
               ),
@@ -2902,18 +3831,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Expanded(
                 child: Text(
                   'Profile',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
               GestureDetector(
-                onTap: () {},
+                onTap: () => setState(() => selectedProfilePage = 'favorites'),
                 child: const Icon(
-                  Icons.notifications_none,
-                  color: Colors.black,
+                  Icons.favorite_border,
+                  color: AppColors.textPrimary,
                   size: 24,
                 ),
               ),
@@ -2961,7 +3892,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                               ),
                               child: const Icon(
-                                Icons.check,
+                                Icons.verified,
                                 color: Colors.white,
                                 size: 16,
                               ),
@@ -3009,41 +3940,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: AppColors.textTertiary,
                         ),
                       ),
+                      const SizedBox(height: 18),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBgSecondary,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '$_totalTrips',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'TOTAL TRIPS',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Stats
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          '$_totalTrips',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Total Trips',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -3054,32 +3982,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Messages & Notifications',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildProfileMenuOption(
-                        Icons.chat_bubble_outline,
-                        'Messages',
-                        badgeCount: 3,
-                        onTap: () => setState(() => selectedNavIndex = 2),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.notifications_none,
-                        'Notifications',
-                        badgeCount: _notifications.length,
-                        onTap: () => setState(() => selectedNavIndex = 3),
-                      ),
-                      const SizedBox(height: 8),
                       _buildProfileMenuOption(
                         Icons.calendar_today,
                         'My Bookings',
                         onTap: () => setState(() => selectedNavIndex = 1),
+                      ),
+                      _buildProfileMenuOption(
+                        Icons.favorite_border,
+                        'Liked Cars',
+                        badgeCount: _favoriteVehicleIds.length,
+                        onTap: () =>
+                            setState(() => selectedProfilePage = 'favorites'),
+                      ),
+                      _buildProfileMenuOption(
+                        Icons.people_outline,
+                        'My Drivers',
+                        onTap: () =>
+                            setState(() => selectedProfilePage = 'drivers'),
+                      ),
+                      _buildProfileMenuOption(
+                        Icons.chat_bubble_outline,
+                        'Messages',
+                        badgeCount: _totalUnreadMessages(),
+                        onTap: () => setState(() => selectedNavIndex = 2),
                       ),
                       _buildProfileMenuOption(
                         Icons.payment,
@@ -3234,10 +4159,220 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildFavoriteVehiclesPage() {
+    final user = AuthService().currentUser;
+
+    return Column(
+      children: [
+        Container(
+          color: AppColors.darkBg,
+          padding: EdgeInsets.fromLTRB(
+            16,
+            MediaQuery.of(context).padding.top + 12,
+            16,
+            12,
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: () => setState(() => selectedProfilePage = null),
+                icon: const Icon(
+                  Icons.arrow_back,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Expanded(
+                child: Text(
+                  'Liked Cars',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 48),
+            ],
+          ),
+        ),
+        Expanded(
+          child: user == null
+              ? const Center(
+                  child: Text(
+                    'Sign in to see liked cars',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                )
+              : FutureBuilder<List<Map<String, dynamic>>>(
+                  future: FavoriteVehicleService().getFavoriteVehicles(user.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final vehicles = snapshot.data ?? [];
+                    if (vehicles.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(
+                                Icons.favorite_border,
+                                size: 54,
+                                color: AppColors.textTertiary,
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'No liked cars yet',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Tap the heart on a car to save it here.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    return RefreshIndicator(
+                      onRefresh: _loadFavoriteVehicleIds,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: vehicles.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final vehicle = vehicles[index];
+                          return _buildLikedVehicleTile(vehicle);
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLikedVehicleTile(Map<String, dynamic> vehicle) {
+    final imageUrl = vehicle['image_url']?.toString() ?? '';
+    final name =
+        '${vehicle['brand'] ?? 'Unknown'} ${vehicle['model'] ?? 'Vehicle'}';
+    final category =
+        (vehicle['vehicle_type'] ?? vehicle['category'] ?? 'Standard')
+            .toString();
+    final price = (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
+
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).pushNamed(
+          '/vehicle-detail',
+          arguments: {
+            'vehicleId': vehicle['id']?.toString() ?? '',
+            'vehicleData': vehicle,
+          },
+        );
+      },
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 88,
+                height: 64,
+                child: imageUrl.isNotEmpty
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _buildTripImageFallback(
+                          AppColors.darkBgTertiary,
+                          AppColors.textTertiary,
+                        ),
+                      )
+                    : _buildTripImageFallback(
+                        AppColors.darkBgTertiary,
+                        AppColors.textTertiary,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    category.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '₱${price.toStringAsFixed(0)} / day',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: () => _toggleFavoriteVehicle(vehicle),
+              icon: const Icon(Icons.favorite, color: AppColors.error),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Booking detail modal
   // ---------------------------------------------------------------------------
   void _showBookingDetails(Map<String, dynamic> booking) {
+    final isApprovedTrip = booking['statusGroup'] == 'Approved';
+    final isPendingTrip = booking['statusGroup'] == 'Pending';
+
+    if (isPendingTrip) {
+      _showPendingBookingDetails(booking);
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.darkBgSecondary,
@@ -3271,6 +4406,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (isApprovedTrip) ...[
+              _buildActiveTripHero(booking),
+              const SizedBox(height: 16),
+            ],
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -3335,6 +4474,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
+              'Booking Details',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                children: [
+                  _buildBookingDetailRow(
+                    icon: Icons.directions_car,
+                    label: 'Car',
+                    value: booking['carName']?.toString() ?? 'Vehicle',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.person_pin_circle_outlined,
+                    label: 'Driver',
+                    value: booking['driverName']?.toString() ?? 'Not requested',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.flag_circle_outlined,
+                    label: 'Status',
+                    value: booking['status']?.toString() ?? 'Pending',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.payment,
+                    label: 'Reservation Payment',
+                    value:
+                        booking['paymentStatus']?.toString() ??
+                        'Reservation pending',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.payments_outlined,
+                    label: 'Booking Cost',
+                    value: '₱${booking['totalCost']}',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
               'Trip Timeline',
               style: TextStyle(
                 fontSize: 14,
@@ -3346,7 +4539,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             TripTimelineStep(
               label: 'Pickup',
               date: booking['startDate'],
-              time: '2:00 PM',
+              time: booking['startTime'] ?? 'N/A',
               icon: Icons.location_on,
               isActive: true,
             ),
@@ -3354,7 +4547,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             TripTimelineStep(
               label: 'Dropoff',
               date: booking['endDate'],
-              time: '2:00 PM',
+              time: booking['endTime'] ?? 'N/A',
               icon: Icons.location_on,
               isCompleted: booking['statusGroup'] == 'Completed',
             ),
@@ -3388,101 +4581,116 @@ class _DashboardScreenState extends State<DashboardScreen> {
               amountColor: AppColors.primary,
             ),
             const SizedBox(height: 20),
-            if (booking['statusGroup'] == 'Approved')
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Extend Trip'),
-                    ),
-                  ),
-                ],
-              ),
-            if ((booking['statusGroup'] == 'Pending') &&
-                _canCancelBooking(booking))
+            if (isApprovedTrip)
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _handleBookingCancellation(booking);
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    side: const BorderSide(color: AppColors.error),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                child: ElevatedButton.icon(
+                  onPressed: () => _checkForExtendTrip(booking),
+                  icon: const Icon(Icons.more_time, size: 18),
+                  label: const Text('Check for Extend Trip'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: const Text('Cancel Booking'),
                 ),
               ),
-            if ((booking['statusGroup'] == 'Pending'))
-              Builder(
-                builder: (context) {
+            if (_isCancellableStatusForUi(booking))
+              StreamBuilder<int>(
+                stream: Stream.periodic(
+                  const Duration(seconds: 1),
+                  (tick) => tick,
+                ),
+                initialData: 0,
+                builder: (context, snapshot) {
                   final timeInfo = _getRemainingCancelTime(booking);
                   final canCancel = timeInfo['canCancel'] as bool;
                   final hours = timeInfo['hours'] as int;
                   final minutes = timeInfo['minutes'] as int;
+                  final seconds = timeInfo['seconds'] as int;
+                  final progress =
+                      (timeInfo['totalSecondsRemaining'] as int) /
+                      (24 * 60 * 60);
 
                   if (canCancel) {
-                    return Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF3CD).withAlpha(230),
-                        border: Border.all(
-                          color: const Color(0xFFFFC107),
-                          width: 1.5,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text(
-                                '⏱️ Cancel within: ',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF8B6914),
-                                ),
+                    return Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _handleBookingCancellation(booking);
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              side: const BorderSide(color: AppColors.error),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              Text(
-                                '${hours}h ${minutes}m',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF8B6914),
+                            ),
+                            child: Text(
+                              booking['statusGroup'] == 'Pending'
+                                  ? 'Cancel Request'
+                                  : 'Cancel Booking',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3CD).withAlpha(230),
+                            border: Border.all(
+                              color: const Color(0xFFFFC107),
+                              width: 1.5,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Text(
+                                    '⏱️ Cancel within: ',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF8B6914),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${hours}h ${minutes}m ${seconds}s',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF8B6914),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: progress.clamp(0.0, 1.0),
+                                  minHeight: 6,
+                                  backgroundColor: Colors.grey[300],
+                                  valueColor:
+                                      const AlwaysStoppedAnimation<Color>(
+                                        Color(0xFFFFC107),
+                                      ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: (hours * 60 + minutes) / (24 * 60),
-                              minHeight: 6,
-                              backgroundColor: Colors.grey[300],
-                              valueColor: const AlwaysStoppedAnimation<Color>(
-                                Color(0xFFFFC107),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     );
                   } else {
                     return Container(
@@ -3505,7 +4713,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Bookings can only be cancelled within 24 hours of creation.',
+                            'Bookings can only be cancelled within 24 hours after request.',
                             style: TextStyle(
                               fontSize: 11,
                               color: AppColors.textSecondary,
@@ -3523,6 +4731,565 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _showPendingBookingDetails(Map<String, dynamic> booking) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Pending Approval',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.close,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildPendingApprovalCard(booking),
+              const SizedBox(height: 14),
+              _buildPendingVehicleCard(booking),
+              const SizedBox(height: 18),
+              const Text(
+                'Trip Summary',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildPendingSummaryTile(
+                icon: Icons.calendar_today_outlined,
+                title: '${booking['startDate']} - ${booking['endDate']}',
+                subtitle:
+                    'RENTAL DATES • ${booking['days']} DAY${booking['days'] == 1 ? '' : 'S'}',
+              ),
+              const SizedBox(height: 10),
+              _buildPendingSummaryTile(
+                icon: booking['withDriver'] == true
+                    ? Icons.support_agent
+                    : Icons.drive_eta_outlined,
+                title: booking['withDriver'] == true
+                    ? booking['driverName']?.toString() ?? 'With Driver'
+                    : 'Self Drive',
+                subtitle: 'SERVICE TYPE',
+              ),
+              const SizedBox(height: 10),
+              _buildPendingSummaryTile(
+                icon: Icons.location_on_outlined,
+                title: booking['pickupLocation']?.toString() ?? 'N/A',
+                subtitle: 'PICKUP & DROP-OFF',
+              ),
+              const SizedBox(height: 14),
+              _buildPendingAgreementNotes(),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.hourglass_empty, size: 18),
+                  label: const Text("Waiting for Owner's Approval"),
+                  style: ElevatedButton.styleFrom(
+                    disabledBackgroundColor: AppColors.darkBgTertiary,
+                    disabledForegroundColor: AppColors.textTertiary,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              StreamBuilder<int>(
+                stream: Stream.periodic(
+                  const Duration(seconds: 1),
+                  (tick) => tick,
+                ),
+                initialData: 0,
+                builder: (context, snapshot) {
+                  final timeInfo = _getRemainingCancelTime(booking);
+                  final canCancel = timeInfo['canCancel'] as bool;
+                  final remaining = timeInfo['remainingTime']?.toString() ?? '';
+
+                  return Column(
+                    children: [
+                      TextButton(
+                        onPressed: canCancel
+                            ? () {
+                                Navigator.pop(context);
+                                _handleBookingCancellation(booking);
+                              }
+                            : null,
+                        child: Text(
+                          canCancel ? 'Cancel Request' : 'Cancel Window Closed',
+                          style: TextStyle(
+                            color: canCancel
+                                ? AppColors.textSecondary
+                                : AppColors.textTertiary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        canCancel
+                            ? 'Cancellation available for $remaining'
+                            : 'Bookings can only be cancelled within 24 hours after request.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTripReceipt(Map<String, dynamic> booking) {
+    final days = (booking['days'] as num?)?.toInt() ?? 1;
+    final safeDays = days < 1 ? 1 : days;
+    final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final dailyRate = totalCost / safeDays;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Trip Receipt',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBgTertiary,
+                          borderRadius: BorderRadius.circular(12),
+                          image:
+                              booking['imageUrl']?.toString().isNotEmpty == true
+                              ? DecorationImage(
+                                  image: NetworkImage(
+                                    booking['imageUrl'].toString(),
+                                  ),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child:
+                            booking['imageUrl']?.toString().isNotEmpty == true
+                            ? null
+                            : const Icon(
+                                Icons.directions_car,
+                                color: AppColors.textSecondary,
+                              ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              booking['carName']?.toString() ?? 'Vehicle',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${booking['startDate']} - ${booking['endDate']}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      StatusBadge(status: booking['status']),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _buildBookingDetailRow(
+                    icon: Icons.person_pin_circle_outlined,
+                    label: 'Driver',
+                    value: booking['driverName']?.toString() ?? 'Not requested',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.payment,
+                    label: 'Reservation Payment',
+                    value:
+                        booking['paymentStatus']?.toString() ??
+                        'Reservation pending',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.schedule,
+                    label: 'Pickup / Return',
+                    value:
+                        '${booking['startTime'] ?? 'N/A'} - ${booking['endTime'] ?? 'N/A'}',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Cost Receipt',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                children: [
+                  CostBreakdownRow(
+                    label:
+                        '$safeDays day${safeDays == 1 ? '' : 's'} x ₱${dailyRate.toStringAsFixed(0)}/day',
+                    amount: '₱${totalCost.toStringAsFixed(0)}',
+                  ),
+                  const CostBreakdownRow(label: 'Insurance', amount: '₱50'),
+                  CostBreakdownRow(
+                    label: 'Tax (10%)',
+                    amount: '₱${((totalCost + 50) * 0.1).toStringAsFixed(0)}',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  CostBreakdownRow(
+                    label: 'Total Paid',
+                    amount:
+                        '₱${(totalCost + 50 + ((totalCost + 50) * 0.1)).toStringAsFixed(0)}',
+                    isBold: true,
+                    amountColor: AppColors.primary,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCancellationDetails(Map<String, dynamic> booking) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Cancellation Details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'ORIGINAL BOOKING',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textTertiary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          booking['carName']?.toString() ?? 'Vehicle',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${booking['startDate']} - ${booking['endDate']}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 82,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgTertiary,
+                      borderRadius: BorderRadius.circular(10),
+                      image: booking['imageUrl']?.toString().isNotEmpty == true
+                          ? DecorationImage(
+                              image: NetworkImage(
+                                booking['imageUrl'].toString(),
+                              ),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    child: booking['imageUrl']?.toString().isNotEmpty == true
+                        ? null
+                        : const Icon(
+                            Icons.directions_car,
+                            color: AppColors.textSecondary,
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.error.withAlpha(30),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.error.withAlpha(120)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Booking Status: Cancelled',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.error,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'This reservation is no longer active and has been removed from upcoming trips.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Reason for Cancellation',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _buildCancellationInfoCard(
+              icon: Icons.info_outline,
+              title:
+                  booking['cancellationReason']?.toString() ??
+                  'Booking was cancelled.',
+              subtitle:
+                  'Cancelled ${_formatTimeAgo(booking['cancelledAt']?.toString())}',
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Refund Information',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.success.withAlpha(70)),
+              ),
+              child: Column(
+                children: [
+                  _buildBookingDetailRow(
+                    icon: Icons.receipt_long,
+                    label: 'Reservation Fee',
+                    value: '₱${booking['totalCost']}',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.payments_outlined,
+                    label: 'Refund Status',
+                    value:
+                        booking['paymentStatus']?.toString() ??
+                        'Contact support for refund status',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Original Trip Route',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Column(
+                children: [
+                  _buildBookingDetailRow(
+                    icon: Icons.radio_button_checked,
+                    label: 'Pickup',
+                    value: booking['pickupLocation']?.toString() ?? 'N/A',
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.location_on,
+                    label: 'Destination',
+                    value: booking['dropoffLocation']?.toString() ?? 'N/A',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _contactCancellationSupport(booking),
+                icon: const Icon(Icons.support_agent, size: 18),
+                label: const Text('Contact Support'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.borderColor),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Map<String, dynamic> _getRemainingCancelTime(Map<String, dynamic> booking) {
     try {
       final createdAtStr = booking['created_at']?.toString();
@@ -3531,6 +5298,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'canCancel': false,
           'hours': 0,
           'minutes': 0,
+          'seconds': 0,
+          'totalSecondsRemaining': 0,
           'remainingTime': 'Unknown',
           'isExpired': true,
         };
@@ -3538,24 +5307,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final createdAt = DateTime.parse(createdAtStr);
       final now = DateTime.now();
-      final difference = now.difference(createdAt);
+      final cancelUntil = createdAt.add(const Duration(hours: 24));
+      final remaining = cancelUntil.difference(now);
+      final totalSecondsRemaining = remaining.inSeconds.clamp(0, 24 * 60 * 60);
+      final hoursRemaining = totalSecondsRemaining ~/ 3600;
+      final minRemaining = (totalSecondsRemaining % 3600) ~/ 60;
+      final secondsRemaining = totalSecondsRemaining % 60;
 
-      final totalMinutesAllowed = 24 * 60;
-      final minutesElapsed = difference.inMinutes;
-      final minutesRemaining = totalMinutesAllowed - minutesElapsed;
-
-      final hoursRemaining = minutesRemaining ~/ 60;
-      final minRemaining = minutesRemaining % 60;
-
-      final canCancel = minutesRemaining > 0;
+      final canCancel = totalSecondsRemaining > 0;
       final remainingTimeStr = canCancel
-          ? '${hoursRemaining}h ${minRemaining}m remaining'
+          ? '${hoursRemaining}h ${minRemaining}m ${secondsRemaining}s remaining'
           : 'Expired';
 
       return {
         'canCancel': canCancel,
         'hours': hoursRemaining,
         'minutes': minRemaining,
+        'seconds': secondsRemaining,
+        'totalSecondsRemaining': totalSecondsRemaining,
         'remainingTime': remainingTimeStr,
         'isExpired': !canCancel,
       };
@@ -3565,13 +5334,704 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'canCancel': false,
         'hours': 0,
         'minutes': 0,
+        'seconds': 0,
+        'totalSecondsRemaining': 0,
         'remainingTime': 'Error',
         'isExpired': true,
       };
     }
   }
 
+  Widget _buildActiveTripHero(Map<String, dynamic> booking) {
+    final imageUrl = booking['imageUrl']?.toString().trim();
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              height: 150,
+              width: double.infinity,
+              child: hasImage
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _buildTripImageFallback(
+                        AppColors.darkBgTertiary,
+                        AppColors.textTertiary,
+                      ),
+                    )
+                  : _buildTripImageFallback(
+                      AppColors.darkBgTertiary,
+                      AppColors.textTertiary,
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            booking['carName']?.toString() ?? 'Active Trip',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${booking['startDate']} - ${booking['endDate']}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withAlpha(30),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.primary.withAlpha(120)),
+            ),
+            child: Text(
+              booking['status']?.toString() ?? 'Approved',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _buildTripMetric(
+                  label: 'Start',
+                  value: booking['startTime']?.toString() ?? 'N/A',
+                ),
+              ),
+              Expanded(
+                child: _buildTripMetric(
+                  label: 'Duration',
+                  value:
+                      '${booking['days']} day${booking['days'] == 1 ? '' : 's'}',
+                  highlight: true,
+                ),
+              ),
+              Expanded(
+                child: _buildTripMetric(
+                  label: 'Return',
+                  value: booking['endTime']?.toString() ?? 'N/A',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildRentalAgreementCard(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingApprovalCard(Map<String, dynamic> booking) {
+    final createdAt = DateTime.tryParse(
+      booking['created_at']?.toString() ?? '',
+    )?.toLocal();
+    final elapsed = createdAt == null
+        ? const Duration(hours: 1)
+        : DateTime.now().difference(createdAt);
+    final approvalProgress = (elapsed.inMinutes / 120).clamp(0.05, 0.95);
+    final percent = (approvalProgress * 100).round();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.schedule, color: AppColors.primary, size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'PENDING APPROVAL',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '$percent%',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: approvalProgress.toDouble(),
+              minHeight: 6,
+              backgroundColor: AppColors.darkBgTertiary,
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Waiting for owner to confirm your request.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Usually takes less than 2 hours.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingVehicleCard(Map<String, dynamic> booking) {
+    final imageUrl = booking['imageUrl']?.toString().trim() ?? '';
+    final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
+    final days = ((booking['days'] as num?)?.toInt() ?? 1).clamp(1, 365);
+    final dailyRate = totalCost / days;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'REQUESTED VEHICLE',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  booking['carName']?.toString() ?? 'Vehicle',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '₱${dailyRate.toStringAsFixed(0)} / day',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 112,
+              height: 70,
+              child: imageUrl.isNotEmpty
+                  ? Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _buildTripImageFallback(
+                        AppColors.darkBgTertiary,
+                        AppColors.textTertiary,
+                      ),
+                    )
+                  : _buildTripImageFallback(
+                      AppColors.darkBgTertiary,
+                      AppColors.textTertiary,
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingSummaryTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: AppColors.primary),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingAgreementNotes() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(14),
+        border: const Border(
+          left: BorderSide(color: AppColors.primary, width: 3),
+        ),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.gavel_outlined,
+                size: 15,
+                color: AppColors.textPrimary,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Rental Agreement Notes',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10),
+          _AgreementNote('Late penalty: ₱300/hr after scheduled return.'),
+          SizedBox(height: 7),
+          _AgreementNote(
+            'Fuel Policy: Same-to-same. Return with the same fuel level.',
+          ),
+          SizedBox(height: 7),
+          _AgreementNote(
+            'Cleanliness: Please return the car in the same clean state.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTripMetric({
+    required String label,
+    required String value,
+    bool highlight = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      decoration: BoxDecoration(
+        color: highlight ? AppColors.primary.withAlpha(18) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(fontSize: 9, color: AppColors.textTertiary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: highlight ? AppColors.primary : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRentalAgreementCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.description_outlined,
+                color: AppColors.primary,
+                size: 16,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Rental Agreement',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+          Text(
+            '• Keep vehicle clean and return it on schedule.',
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+          SizedBox(height: 4),
+          Text(
+            '• Extension is allowed only when the next booking slot is available.',
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+          SizedBox(height: 4),
+          Text(
+            '• Late returns may include penalties after the grace period.',
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _checkForExtendTrip(Map<String, dynamic> booking) async {
+    final vehicleId = booking['vehicle_id']?.toString();
+    final endRaw =
+        booking['end_at']?.toString() ?? booking['end_date_raw']?.toString();
+
+    if (vehicleId == null || vehicleId.isEmpty || endRaw == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not check extension availability.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    final endAt = DateTime.tryParse(endRaw)?.toLocal();
+    if (endAt == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not read the booking return date.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    final nextDay = DateTime(
+      endAt.year,
+      endAt.month,
+      endAt.day,
+    ).add(const Duration(days: 1));
+    final unavailableDates = await VehicleService().getUnavailableDates(
+      vehicleId,
+    );
+    final isUnavailable = unavailableDates.any(
+      (date) =>
+          date.year == nextDay.year &&
+          date.month == nextDay.month &&
+          date.day == nextDay.day,
+    );
+
+    if (!mounted) return;
+
+    final formattedNextDay = _formatDateShort(nextDay.toIso8601String());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isUnavailable
+              ? 'Extension unavailable for $formattedNextDay due to another booking.'
+              : 'Extension slot available for $formattedNextDay. Contact operator to proceed.',
+        ),
+        backgroundColor: isUnavailable ? AppColors.error : AppColors.success,
+      ),
+    );
+  }
+
+  Widget _buildBookingDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textTertiary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCancellationInfoCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppColors.primary, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _contactCancellationSupport(Map<String, dynamic> booking) async {
+    final authService = AuthService();
+    final currentUser = authService.currentUser;
+    final bookingId = booking['id']?.toString() ?? '';
+    if (currentUser == null || bookingId.isEmpty) return;
+
+    try {
+      final operatorId = await _resolveBookingOperatorId(booking);
+      if (operatorId == null || operatorId.isEmpty) {
+        throw Exception('No operator is assigned to this booking yet');
+      }
+
+      final conversation = await ChatService().createGroupConversation(
+        bookingId: bookingId,
+        participantIds: [currentUser.id, operatorId],
+      );
+      final conversationId = conversation['id']?.toString();
+      if (conversationId == null || conversationId.isEmpty) {
+        throw Exception('Could not create support conversation');
+      }
+
+      await Supabase.instance.client
+          .from('conversations')
+          .update({
+            'status': 'active',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', conversationId);
+
+      final supportMessage =
+          'Cancellation support request\n'
+          'Booking: ${booking['carName'] ?? 'Vehicle'} ($bookingId)\n'
+          'Status: ${booking['status'] ?? 'Cancelled'}\n'
+          'Reason: ${booking['cancellationReason'] ?? 'N/A'}\n'
+          'Refund status: ${booking['paymentStatus'] ?? 'N/A'}';
+
+      await ChatService().sendMessage(
+        conversationId: conversationId,
+        senderId: currentUser.id,
+        content: supportMessage,
+      );
+
+      await Supabase.instance.client.from('notifications').insert({
+        'user_id': operatorId,
+        'title': 'Cancellation Support Request',
+        'message':
+            'A renter needs help with cancelled booking ${booking['carName'] ?? bookingId}.',
+        'type': 'booking_support',
+        'data': {
+          'booking_id': bookingId,
+          'conversation_id': conversationId,
+          'status': 'cancelled',
+        },
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      Navigator.of(context)
+          .pushNamed(
+            '/chat-detail',
+            arguments: {
+              'conversationId': conversationId,
+              'recipientName': 'Cancellation Support',
+              'recipientAvatar': '',
+              'isAutoGenerated': true,
+            },
+          )
+          .then((_) {
+            _loadConversations();
+            _loadNotifications();
+          });
+    } catch (e) {
+      debugPrint('Error contacting cancellation support: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not contact support: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<String?> _resolveBookingOperatorId(
+    Map<String, dynamic> booking,
+  ) async {
+    final directOperatorId = booking['operator_id']?.toString();
+    if (directOperatorId != null && directOperatorId.isNotEmpty) {
+      return directOperatorId;
+    }
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleOperatorId = vehicle?['operator_id']?.toString();
+    if (vehicleOperatorId != null && vehicleOperatorId.isNotEmpty) {
+      return vehicleOperatorId;
+    }
+
+    final operator = await Supabase.instance.client
+        .from('users')
+        .select('id')
+        .eq('role', 'operator')
+        .limit(1)
+        .maybeSingle();
+    return operator?['id']?.toString();
+  }
+
+  bool _isCancelledBooking(Map<String, dynamic> booking) {
+    final rawStatus = booking['rawStatus']?.toString().toLowerCase() ?? '';
+    return rawStatus == 'cancelled' || rawStatus == 'canceled';
+  }
+
+  bool _isCancellableStatusForUi(Map<String, dynamic> booking) {
+    final rawStatus = booking['rawStatus']?.toString().toLowerCase();
+    return {'pending', 'approved', 'confirmed'}.contains(rawStatus);
+  }
+
   bool _canCancelBooking(Map<String, dynamic> booking) {
+    final rawStatus = booking['rawStatus']?.toString().toLowerCase();
+    const cancellableStatuses = {'pending', 'approved', 'confirmed'};
+    if (!cancellableStatuses.contains(rawStatus)) return false;
+
     final timeInfo = _getRemainingCancelTime(booking);
     return timeInfo['canCancel'] as bool;
   }
@@ -3583,14 +6043,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!canCancel) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('❌ Cancellation window has passed (24 hours limit)'),
+          content: Text('Cancellation window has passed (24 hours limit)'),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
 
-    showDialog(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel Booking?'),
@@ -3599,50 +6059,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Keep Booking'),
           ),
           TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) =>
-                    const Center(child: CircularProgressIndicator()),
-              );
-
-              try {
-                await bookingService.updateBookingStatus(
-                  booking['id'],
-                  'cancelled',
-                );
-
-                Navigator.pop(context);
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ Booking cancelled successfully'),
-                      backgroundColor: AppColors.success,
-                    ),
-                  );
-                  _loadBookings();
-                }
-              } catch (e) {
-                Navigator.pop(context);
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Error cancelling booking: $e'),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
-                }
-              }
-            },
+            onPressed: () => Navigator.pop(context, true),
             child: const Text(
               'Cancel Booking',
               style: TextStyle(color: AppColors.error),
@@ -3651,9 +6072,112 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
     );
+
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Cancelling booking...'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+
+    try {
+      await bookingService.updateBookingStatus(booking['id'], 'cancelled');
+
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Booking cancelled successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      await _loadBookings();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Error cancelling booking: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Widget _buildTripImageFallback(Color backgroundColor, Color iconColor) {
+    return Container(
+      color: backgroundColor,
+      alignment: Alignment.center,
+      child: Icon(Icons.directions_car, size: 38, color: iconColor),
+    );
   }
 
   Widget _buildFeatureIcon(IconData icon) {
-    return Icon(icon, size: 14, color: AppColors.textTertiary);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Icon(
+      icon,
+      size: 14,
+      color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
+    );
+  }
+}
+
+class _AgreementNote extends StatelessWidget {
+  final String text;
+
+  const _AgreementNote(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.check_circle_outline,
+          size: 13,
+          color: AppColors.primary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CalendarLegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  final Color textColor;
+
+  const _CalendarLegendDot({
+    required this.color,
+    required this.label,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(fontSize: 12, color: textColor)),
+      ],
+    );
   }
 }

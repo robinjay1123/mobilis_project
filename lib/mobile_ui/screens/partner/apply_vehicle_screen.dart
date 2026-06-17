@@ -27,10 +27,12 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   int selectedSeats = 5;
   String selectedFuelType = 'Gasoline';
   String selectedTransmission = 'Manual';
+  bool ownerIsDriver = false;
   bool isLoading = false;
   bool isCheckingEligibility = true;
   bool hasPendingApplication = false;
   String verificationStatus = 'pending';
+  int _currentStep = 0;
   File? _orDocumentFile;
   File? _crDocumentFile;
   File? _vehiclePhotoFile;
@@ -200,7 +202,61 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       return false;
     }
 
+    if (_vehiclePhotoFile == null) {
+      _showErrorSnackBar('Please upload at least one vehicle photo');
+      return false;
+    }
+
     return true;
+  }
+
+  bool _validateVehicleStep() {
+    if (brandController.text.trim().isEmpty ||
+        modelController.text.trim().isEmpty) {
+      _showErrorSnackBar('Please enter the vehicle model/name');
+      return false;
+    }
+
+    final year = int.tryParse(yearController.text.trim());
+    if (year == null || year < 1990 || year > DateTime.now().year + 1) {
+      _showErrorSnackBar(
+        'Please enter a valid year (1990-${DateTime.now().year + 1})',
+      );
+      return false;
+    }
+
+    if (plateNumberController.text.trim().isEmpty) {
+      _showErrorSnackBar('Please enter the plate number');
+      return false;
+    }
+
+    final pricePerDay = double.tryParse(pricePerDayController.text.trim());
+    if (pricePerDay == null || pricePerDay <= 0) {
+      _showErrorSnackBar('Please enter a valid target daily rental price');
+      return false;
+    }
+
+    if (_vehiclePhotoFile == null) {
+      _showErrorSnackBar('Please upload a vehicle photo');
+      return false;
+    }
+
+    return true;
+  }
+
+  void _continueApplication() {
+    if (_currentStep == 0) {
+      setState(() => _currentStep = 1);
+      return;
+    }
+
+    if (_currentStep == 1) {
+      if (!_validateVehicleStep()) return;
+      setState(() => _currentStep = 2);
+      return;
+    }
+
+    _handleSubmit();
   }
 
   Future<void> _pickDocument(String docType) async {
@@ -305,11 +361,14 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         fuelType: selectedFuelType,
         transmission: selectedTransmission,
         vehiclePhotoUrl: vehiclePhotoUrl,
+        ownerIsDriver: ownerIsDriver,
       );
 
       if (mounted) {
-        _showSuccessSnackBar('Application submitted successfully!');
-        Navigator.pop(context, true); // Return true to indicate success
+        setState(() {
+          hasPendingApplication = true;
+          _currentStep = 3;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -387,16 +446,25 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Apply Vehicle Unit',
+          'Mobilis Partners',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 18,
             fontWeight: FontWeight.w600,
           ),
         ),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: Icon(
+              Icons.account_circle_outlined,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
       body: hasPendingApplication
-          ? _buildPendingApplicationWarning()
+          ? _buildStatusTracker()
           : isCheckingEligibility
           ? const Center(
               child: CircularProgressIndicator(
@@ -405,318 +473,704 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             )
           : !_isVerifiedPartner
           ? _buildVerificationRequiredWarning()
-          : SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Info banner
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.primary.withOpacity(0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: AppColors.primary,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'List Your Vehicle',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Fill in the details below to apply your vehicle for rental.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
+          : _currentStep == 0
+          ? _buildIntroStep()
+          : _buildApplicationFlow(),
+    );
+  }
 
-                  // Vehicle Details Section
-                  const Text(
-                    'Vehicle Details',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+  Widget _buildIntroStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeroPanel(
+            title: 'Partner',
+            subtitle:
+                'Join our trusted network of car owners and start earning with our premium rental platform.',
+          ),
+          const SizedBox(height: 30),
+          _buildStepHeader(step: 'STEP 1 OF 3', label: 'Profile Verification'),
+          const SizedBox(height: 34),
+          const Text(
+            'Application Requirements',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Please prepare the following documents to complete your partnership request.',
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 22),
+          _buildRequirementTile(
+            icon: Icons.description_outlined,
+            title: 'Business Permit',
+            subtitle: "Current year Mayor's Permit",
+          ),
+          _buildRequirementTile(
+            icon: Icons.business_outlined,
+            title: 'DTI / SEC Registration',
+            subtitle: 'Certificate of Registration',
+          ),
+          _buildRequirementTile(
+            icon: Icons.badge_outlined,
+            title: 'Valid ID',
+            subtitle: 'Government issued Identification',
+          ),
+          _buildRequirementTile(
+            icon: Icons.directions_car_outlined,
+            title: 'Proof of Ownership',
+            subtitle: 'OR/CR for all listed vehicles',
+          ),
+          const SizedBox(height: 34),
+          CustomButton(
+            label: 'Apply for Partnership ->',
+            onPressed: _continueApplication,
+          ),
+          const SizedBox(height: 14),
+          _buildTermsText(),
+        ],
+      ),
+    );
+  }
 
-                  // Brand
-                  CustomTextField(
-                    label: 'Brand',
-                    hintText: 'e.g., Toyota, Honda, Ford',
-                    controller: brandController,
-                    prefixIcon: const Icon(
-                      Icons.directions_car,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+  Widget _buildApplicationFlow() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeroPanel(
+            title: _currentStep == 1
+                ? 'List Your Vehicle'
+                : 'Business Documents',
+            subtitle: _currentStep == 1
+                ? 'Provide your vehicle details and high-quality photos to start earning today.'
+                : 'Upload your registration documents so our team can verify ownership.',
+          ),
+          const SizedBox(height: 30),
+          _buildStepHeader(
+            step: _currentStep == 1 ? 'STEP 1 OF 4' : 'STEP 2 OF 4',
+            label: _currentStep == 1 ? 'Vehicle Details' : 'Documents',
+          ),
+          const SizedBox(height: 34),
+          if (_currentStep == 1) _buildVehicleDetailsStep(),
+          if (_currentStep == 2) _buildDocumentStep(),
+          const SizedBox(height: 34),
+          CustomButton(
+            label: _currentStep == 1
+                ? 'Apply for Partnership ->'
+                : 'Submit for Review ->',
+            onPressed: _continueApplication,
+            isLoading: isLoading,
+          ),
+          const SizedBox(height: 14),
+          _buildTermsText(),
+          const SizedBox(height: 28),
+          _buildNextStepNote(),
+        ],
+      ),
+    );
+  }
 
-                  // Model
-                  CustomTextField(
-                    label: 'Model',
-                    hintText: 'e.g., Camry, Civic, Mustang',
-                    controller: modelController,
-                    prefixIcon: const Icon(
-                      Icons.drive_eta,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Year and Seats row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: CustomTextField(
-                          label: 'Year',
-                          hintText: 'e.g., 2022',
-                          controller: yearController,
-                          keyboardType: TextInputType.number,
-                          prefixIcon: const Icon(
-                            Icons.calendar_today,
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Seats',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.darkBgSecondary,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: AppColors.borderColor,
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<int>(
-                                  value: selectedSeats,
-                                  isExpanded: true,
-                                  dropdownColor: AppColors.darkBgSecondary,
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 14,
-                                  ),
-                                  items: seatOptions.map((seats) {
-                                    return DropdownMenuItem(
-                                      value: seats,
-                                      child: Text('$seats seats'),
-                                    );
-                                  }).toList(),
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      setState(() {
-                                        selectedSeats = value;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Plate Number
-                  CustomTextField(
-                    label: 'Plate Number',
-                    hintText: 'e.g., ABC 1234',
-                    controller: plateNumberController,
-                    prefixIcon: const Icon(
-                      Icons.confirmation_number,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildDropdownField<String>(
-                          label: 'Transmission',
-                          value: selectedTransmission,
-                          items: transmissionOptions,
-                          itemLabel: (value) => value,
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() => selectedTransmission = value);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildDropdownField<String>(
-                          label: 'Fuel Type',
-                          value: selectedFuelType,
-                          items: fuelTypeOptions,
-                          itemLabel: (value) => value,
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() => selectedFuelType = value);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Pricing Section
-                  const Text(
-                    'Pricing',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Price per day
-                  CustomTextField(
-                    label: 'Price per Day',
-                    hintText: 'e.g., 2500',
-                    controller: pricePerDayController,
-                    keyboardType: TextInputType.number,
-                    prefixIcon: const Icon(
-                      Icons.attach_money,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Price per hour
-                  CustomTextField(
-                    label: 'Price per Hour',
-                    hintText: 'e.g., 150',
-                    controller: pricePerHourController,
-                    keyboardType: TextInputType.number,
-                    prefixIcon: const Icon(
-                      Icons.schedule,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Required documents
-                  const Text(
-                    'Application Documents',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildUploadCard(
-                    title: 'OR Document',
-                    subtitle: 'Upload Official Receipt image',
-                    selectedFile: _orDocumentFile,
-                    onTap: () => _pickDocument('or'),
-                    requiredDoc: true,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildUploadCard(
-                    title: 'CR Document',
-                    subtitle: 'Upload Certificate of Registration image',
-                    selectedFile: _crDocumentFile,
-                    onTap: () => _pickDocument('cr'),
-                    requiredDoc: true,
-                  ),
-                  const SizedBox(height: 12),
-                  _buildUploadCard(
-                    title: 'Vehicle Photo',
-                    subtitle: 'Optional but recommended',
-                    selectedFile: _vehiclePhotoFile,
-                    onTap: () => _pickDocument('vehicle_photo'),
-                    requiredDoc: false,
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Submit button
-                  CustomButton(
-                    label: 'Submit Application',
-                    onPressed: _handleSubmit,
-                    isLoading: isLoading,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Note
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Icon(
-                          Icons.lightbulb_outline,
-                          size: 18,
-                          color: AppColors.textTertiary,
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Your application will be reviewed by our team. You will be notified once it is approved or if we need additional information.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+  Widget _buildVehicleDetailsStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Vehicle Photos',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _buildPhotoPreviewGrid(),
+        const SizedBox(height: 28),
+        const Text(
+          'Vehicle Information',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Provide the essential details about your vehicle.',
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 22),
+        CustomTextField(
+          label: 'Car Model / Name',
+          hintText: 'e.g. Toyota Fortuner 2023',
+          controller: modelController,
+          prefixIcon: const Icon(
+            Icons.directions_car,
+            color: AppColors.textTertiary,
+          ),
+        ),
+        const SizedBox(height: 14),
+        CustomTextField(
+          label: 'Brand',
+          hintText: 'e.g. Toyota',
+          controller: brandController,
+          prefixIcon: const Icon(Icons.sell, color: AppColors.textTertiary),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _buildDropdownField<String>(
+                label: 'Engine / Fuel Type',
+                value: selectedFuelType,
+                items: fuelTypeOptions,
+                itemLabel: (value) => value,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => selectedFuelType = value);
+                },
               ),
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildDropdownField<int>(
+                label: 'Seats',
+                value: selectedSeats,
+                items: seatOptions,
+                itemLabel: (value) => '$value',
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => selectedSeats = value);
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: CustomTextField(
+                label: 'Year',
+                hintText: '2023',
+                controller: yearController,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: CustomTextField(
+                label: 'Plate Number',
+                hintText: 'ABC 1234',
+                controller: plateNumberController,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _buildDropdownField<String>(
+          label: 'Transmission',
+          value: selectedTransmission,
+          items: transmissionOptions,
+          itemLabel: (value) => value,
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => selectedTransmission = value);
+          },
+        ),
+        const SizedBox(height: 14),
+        CustomTextField(
+          label: 'Target Daily Rental Price',
+          hintText: '2,500',
+          controller: pricePerDayController,
+          keyboardType: TextInputType.number,
+          prefixIcon: const Icon(Icons.currency_yen, color: AppColors.primary),
+        ),
+        const SizedBox(height: 14),
+        CustomTextField(
+          label: 'Target Hourly Rental Price',
+          hintText: '400',
+          controller: pricePerHourController,
+          keyboardType: TextInputType.number,
+          prefixIcon: const Icon(Icons.schedule, color: AppColors.textTertiary),
+        ),
+        const SizedBox(height: 16),
+        _buildOwnerDriverToggle(),
+      ],
+    );
+  }
+
+  Widget _buildOwnerDriverToggle() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.person_pin_circle_outlined,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'With me',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Turn this on if you, the owner, will also drive this vehicle.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: ownerIsDriver,
+            activeThumbColor: AppColors.primary,
+            onChanged: (value) => setState(() => ownerIsDriver = value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocumentStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Registered Documents',
+          style: TextStyle(
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Upload clear photos of the documents for this vehicle.',
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 20),
+        _buildUploadCard(
+          title: 'OR Document',
+          subtitle: 'Upload Official Receipt image',
+          selectedFile: _orDocumentFile,
+          onTap: () => _pickDocument('or'),
+          requiredDoc: true,
+        ),
+        const SizedBox(height: 12),
+        _buildUploadCard(
+          title: 'CR Document',
+          subtitle: 'Upload Certificate of Registration image',
+          selectedFile: _crDocumentFile,
+          onTap: () => _pickDocument('cr'),
+          requiredDoc: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusTracker() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 30, 24, 28),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.primary),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  blurRadius: 18,
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.schedule, size: 14, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text(
+                  'UNDER REVIEW',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          const Text(
+            'Almost There!',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Your application is currently being processed by our team.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.45,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 36),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: AppColors.borderColor),
+            ),
+            child: const Column(
+              children: [
+                _StatusStep(
+                  icon: Icons.check,
+                  title: 'Application Submitted',
+                  subtitle: 'Completed just now',
+                  active: true,
+                  complete: true,
+                ),
+                _StatusStep(
+                  icon: Icons.hourglass_bottom,
+                  title: 'Admin Review',
+                  subtitle: 'In Progress',
+                  active: true,
+                ),
+                _StatusStep(
+                  icon: Icons.lock_outline,
+                  title: 'Final Approval',
+                  subtitle: 'Pending review completion',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          _buildInfoBox(
+            'Our team is currently verifying your documents. This usually takes 24-48 hours. You will receive a notification once approved.',
+          ),
+          const SizedBox(height: 28),
+          CustomButton(
+            label: 'Refresh Status',
+            onPressed: _loadEligibilityState,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () {},
+            icon: const Icon(Icons.support_agent),
+            label: const Text('Contact Support'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 56),
+              foregroundColor: AppColors.textPrimary,
+              side: const BorderSide(color: AppColors.borderColor),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeroPanel({required String title, required String subtitle}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF06223A),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF123755)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.45,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepHeader({required String step, required String label}) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                step,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: _currentStep == 0
+                ? 0.33
+                : _currentStep == 1
+                ? 0.25
+                : 0.5,
+            minHeight: 7,
+            backgroundColor: AppColors.darkBgTertiary,
+            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRequirementTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary, size: 24),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.info_outline, color: AppColors.textTertiary),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoPreviewGrid() {
+    final hasPhoto = _vehiclePhotoFile != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: 4,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+            childAspectRatio: 1.62,
+          ),
+          itemBuilder: (context, index) {
+            final isPrimary = index == 0 && hasPhoto;
+            return GestureDetector(
+              onTap: () => _pickDocument('vehicle_photo'),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: AppColors.darkBgSecondary,
+                      child: isPrimary
+                          ? Image.file(_vehiclePhotoFile!, fit: BoxFit.cover)
+                          : const Center(
+                              child: Icon(
+                                Icons.add_a_photo_outlined,
+                                color: AppColors.textTertiary,
+                              ),
+                            ),
+                    ),
+                    if (isPrimary)
+                      const Positioned(
+                        top: 8,
+                        right: 8,
+                        child: CircleAvatar(
+                          radius: 11,
+                          backgroundColor: AppColors.primary,
+                          child: Icon(
+                            Icons.check,
+                            size: 14,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                hasPhoto
+                    ? '1 of 4 photos uploaded successfully.'
+                    : 'Upload at least 1 vehicle photo.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _pickDocument('vehicle_photo'),
+              icon: const Icon(Icons.add_a_photo, size: 16),
+              label: const Text('Add More'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTermsText() {
+    return const Center(
+      child: Text.rich(
+        TextSpan(
+          text: 'By proceeding, you agree to the ',
+          children: [
+            TextSpan(
+              text: 'Partner Terms of Service.',
+              style: TextStyle(color: AppColors.primary),
+            ),
+          ],
+        ),
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+      ),
+    );
+  }
+
+  Widget _buildNextStepNote() {
+    return _buildInfoBox(
+      'Next Step: Business Documents\nYou will be asked to upload your Business Permit and DTI/SEC registration in the next section.',
+    );
+  }
+
+  Widget _buildInfoBox(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF123755)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -868,6 +1322,75 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StatusStep extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool active;
+  final bool complete;
+
+  const _StatusStep({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.active = false,
+    this.complete = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = complete
+        ? AppColors.success
+        : active
+        ? AppColors.primary
+        : AppColors.textTertiary;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: color.withValues(alpha: active ? 1 : 0.16),
+            child: Icon(
+              icon,
+              size: 18,
+              color: active ? Colors.black : AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: active
+                        ? AppColors.textPrimary
+                        : AppColors.textTertiary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: active ? color : AppColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

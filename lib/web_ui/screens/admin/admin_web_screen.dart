@@ -8,6 +8,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/reservation_payment_service.dart';
+import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
@@ -52,6 +54,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   final int _usersPerPage = 10;
   String _userSearchQuery = '';
   String _userRoleFilter = 'all';
+  bool _isLoadingTerms = false;
+  bool _isSavingTerms = false;
+  bool _isLoadingReservationPayment = false;
+  bool _isSavingReservationPayment = false;
+  final TextEditingController _rentalTermsController = TextEditingController();
+  final TextEditingController _reservationAmountController =
+      TextEditingController();
+  final TextEditingController _reservationQrUrlController =
+      TextEditingController();
+  final TextEditingController _reservationAccountNameController =
+      TextEditingController();
+  final TextEditingController _reservationInstructionsController =
+      TextEditingController();
 
   final _supabase = Supabase.instance.client;
 
@@ -59,6 +74,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void initState() {
     super.initState();
     _loadDashboardData();
+    _loadRentalTerms();
+    _loadReservationPaymentSettings();
+  }
+
+  @override
+  void dispose() {
+    _rentalTermsController.dispose();
+    _reservationAmountController.dispose();
+    _reservationQrUrlController.dispose();
+    _reservationAccountNameController.dispose();
+    _reservationInstructionsController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDashboardData() async {
@@ -79,6 +106,102 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
 
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadRentalTerms() async {
+    setState(() => _isLoadingTerms = true);
+
+    try {
+      final terms = await TermsService().getRentalTerms();
+      if (!mounted) return;
+      _rentalTermsController.text = terms;
+    } catch (e) {
+      debugPrint('Error loading rental terms: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingTerms = false);
+      }
+    }
+  }
+
+  Future<void> _saveRentalTerms() async {
+    setState(() => _isSavingTerms = true);
+
+    try {
+      await TermsService().updateRentalTerms(_rentalTermsController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental terms updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update rental terms: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingTerms = false);
+      }
+    }
+  }
+
+  Future<void> _loadReservationPaymentSettings() async {
+    setState(() => _isLoadingReservationPayment = true);
+
+    try {
+      final settings = await ReservationPaymentService().getSettings();
+      if (!mounted) return;
+      _reservationAmountController.text = settings.amount.toStringAsFixed(0);
+      _reservationQrUrlController.text = settings.qrUrl;
+      _reservationAccountNameController.text = settings.accountName;
+      _reservationInstructionsController.text = settings.instructions;
+    } catch (e) {
+      debugPrint('Error loading reservation payment settings: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingReservationPayment = false);
+      }
+    }
+  }
+
+  Future<void> _saveReservationPaymentSettings() async {
+    final amount =
+        double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    setState(() => _isSavingReservationPayment = true);
+
+    try {
+      await ReservationPaymentService().updateSettings(
+        amount: amount,
+        qrUrl: _reservationQrUrlController.text,
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation payment settings updated'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update reservation payment settings: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingReservationPayment = false);
+      }
+    }
   }
 
   Future<void> _loadStats() async {
@@ -225,62 +348,75 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         throw Exception('Invalid application payload');
       }
 
-      final createdVehicle = await _supabase
-          .from('vehicles')
+      var partnerProfile = await _supabase
+          .from('partners')
+          .select('id')
+          .eq('user_id', partnerId)
+          .maybeSingle();
+
+      partnerProfile ??= await _supabase
+          .from('partners')
           .insert({
-            'owner_id': partnerId,
-            'brand': application['brand'],
-            'model': application['model'],
-            'year': application['year'],
-            'plate_number': application['plate_number'],
-            'seats': application['seats'] ?? 5,
-            'fuel_type': application['fuel_type'] ?? 'Gasoline',
-            'transmission': application['transmission'] ?? 'Manual',
-            'price_per_day': application['price_per_day'] ?? 0,
-            'price_per_hour': application['price_per_hour'] ?? 0,
-            'is_available': false,
-            'is_posted': false,
-            'status': 'active',
-            'image_url': application['vehicle_photo_url'],
+            'user_id': partnerId,
+            'verification_status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           })
           .select('id')
           .single();
 
+      final partnerProfileId = partnerProfile['id']?.toString();
+      if (partnerProfileId == null || partnerProfileId.isEmpty) {
+        throw Exception('Partner profile could not be resolved');
+      }
+
       final createdPartnerVehicle = await _supabase
           .from('partner_vehicles')
           .insert({
-            'partner_id': partnerId,
-            'vehicle_id': createdVehicle['id'],
+            'partner_id': partnerProfileId,
+            'brand': application['brand'],
+            'model': application['model'],
+            'year': application['year'],
             'plate_number': application['plate_number'],
             'seats': application['seats'] ?? 5,
+            'price_per_day': application['price_per_day'] ?? 0,
+            'price_per_hour': application['price_per_hour'] ?? 0,
             'fuel_type': application['fuel_type'] ?? 'Gasoline',
             'transmission': application['transmission'] ?? 'Manual',
+            'owner_is_driver': application['owner_is_driver'] ?? false,
+            'is_available': application['is_available'] ?? false,
+            'status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           })
           .select('id')
           .single();
 
       final partnerVehicleId = createdPartnerVehicle['id'];
+      final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
+      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
+        await _supabase.from('vehicle_images').insert({
+          'partner_vehicle_id': partnerVehicleId,
+          'image_url': vehiclePhotoUrl,
+          'display_order': 0,
+        });
+      }
+
       final orUrl = application['or_document_url']?.toString();
       final crUrl = application['cr_document_url']?.toString();
 
       if (partnerVehicleId != null) {
         if (orUrl != null && orUrl.isNotEmpty) {
           await _supabase.from('partner_vehicle_documents').insert({
-            'partner_vehicle_id': partnerVehicleId,
+            'partner_vehicle_application_id': appId,
             'document_type': 'or',
             'file_url': orUrl,
-            'status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           });
         }
         if (crUrl != null && crUrl.isNotEmpty) {
           await _supabase.from('partner_vehicle_documents').insert({
-            'partner_vehicle_id': partnerVehicleId,
+            'partner_vehicle_application_id': appId,
             'document_type': 'cr',
             'file_url': crUrl,
-            'status': 'approved',
             'created_at': DateTime.now().toIso8601String(),
           });
         }
@@ -295,7 +431,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'reviewed_at': DateTime.now().toIso8601String(),
             'verified_by': _supabase.auth.currentUser?.id,
             'partner_vehicle_id': partnerVehicleId,
-            'created_vehicle_id': createdVehicle['id'],
+            'created_vehicle_id': null,
             'rejection_reason': null,
           })
           .eq('id', appId);
@@ -492,7 +628,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.isDarkMode;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBg : const Color(0xFFF5F5F5),
@@ -584,38 +720,40 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20),
         ],
       ),
-      child: Column(
+      child: ListView(
+        padding: EdgeInsets.zero,
         children: [
-          // Logo area
-          Container(
+          SizedBox(
             height: 70,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: Image.asset(
-                    'assets/icon/logo-black.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
-                if (_sidebarExpanded) ...[
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Mobilis Admin',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 30,
+                    height: 30,
+                    child: Image.asset(
+                      'assets/icon/logo-black.png',
+                      fit: BoxFit.contain,
                     ),
                   ),
+                  if (_sidebarExpanded) ...[
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Mobilis Admin',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           const Divider(color: Colors.white12),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           if (_sidebarExpanded)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -629,7 +767,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
           _buildNavItem(
             1,
@@ -657,7 +795,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 : null,
           ),
           _buildNavItem(6, Icons.mail, 'Message Review', isDark),
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
           if (_sidebarExpanded)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -671,7 +809,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           _buildNavItem(7, Icons.analytics, 'Analytics', isDark),
           _buildNavItem(
             9,
@@ -683,23 +821,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 : null,
           ),
           _buildNavItem(8, Icons.settings, 'Settings', isDark),
-          const Spacer(),
-          // Collapse Button
+          const Divider(color: Colors.white12, height: 1),
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
-            child: Container(
-              height: 50,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: _sidebarExpanded
-                    ? MainAxisAlignment.end
-                    : MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    _sidebarExpanded ? Icons.chevron_left : Icons.chevron_right,
-                    color: Colors.white60,
-                  ),
-                ],
+            child: SizedBox(
+              height: 46,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: _sidebarExpanded
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _sidebarExpanded
+                          ? Icons.chevron_left
+                          : Icons.chevron_right,
+                      color: Colors.white60,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -718,12 +859,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final isSelected = _selectedIndex == index;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: InkWell(
         onTap: () => setState(() => _selectedIndex = index),
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          height: 50,
+          height: 46,
           padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
           decoration: BoxDecoration(
             gradient: isSelected
@@ -811,9 +952,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           }),
           const SizedBox(width: 20),
           IconButton(
-            onPressed: () => widget.onThemeToggle?.call(!widget.isDarkMode),
+            onPressed: () => widget.onThemeToggle?.call(!isDark),
             icon: Icon(
-              widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+              isDark ? Icons.light_mode : Icons.dark_mode,
               color: isDark ? Colors.white : Colors.black,
             ),
           ),
@@ -3278,6 +3419,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  InputDecoration _settingsInputDecoration(
+    bool isDark, {
+    required String label,
+    required String hint,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      labelStyle: TextStyle(color: isDark ? Colors.grey : Colors.grey.shade600),
+      hintStyle: TextStyle(color: isDark ? Colors.grey : Colors.grey.shade500),
+      filled: true,
+      fillColor: isDark ? AppColors.darkBgSecondary : Colors.grey.shade50,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.primary),
+      ),
+    );
+  }
+
   Widget _buildSettingsContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -3293,9 +3465,270 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
                 const Spacer(),
                 Switch(
-                  value: widget.isDarkMode,
+                  value: isDark,
                   onChanged: widget.onThemeToggle,
-                  activeColor: Colors.red,
+                  activeThumbColor: AppColors.primary,
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildCard(
+            'Rental Terms & Agreement',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This text is shown to renters before they finalize a booking. Renters must check the agreement box before continuing.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _rentalTermsController,
+                  minLines: 8,
+                  maxLines: 14,
+                  enabled: !_isLoadingTerms && !_isSavingTerms,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    height: 1.4,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Enter rental terms and policies...',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade500,
+                    ),
+                    filled: true,
+                    fillColor: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_isLoadingTerms)
+                      Text(
+                        'Loading current terms...',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: _isLoadingTerms || _isSavingTerms
+                          ? null
+                          : _loadRentalTerms,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: _isLoadingTerms || _isSavingTerms
+                          ? null
+                          : _saveRentalTerms,
+                      icon: _isSavingTerms
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildCard(
+            'Reservation Payment',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Configure the refundable reservation payment shown to renters before booking requests are created.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _reservationAmountController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Reservation Amount',
+                          hint: '1000',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _reservationAccountNameController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Account Name',
+                          hint: 'PSDC',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _reservationQrUrlController,
+                  onChanged: (_) => setState(() {}),
+                  enabled:
+                      !_isLoadingReservationPayment &&
+                      !_isSavingReservationPayment,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: _settingsInputDecoration(
+                    isDark,
+                    label: 'Payment QR Image URL',
+                    hint: 'https://...',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _reservationInstructionsController,
+                  minLines: 3,
+                  maxLines: 5,
+                  enabled:
+                      !_isLoadingReservationPayment &&
+                      !_isSavingReservationPayment,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    height: 1.4,
+                  ),
+                  decoration: _settingsInputDecoration(
+                    isDark,
+                    label: 'Payment Instructions',
+                    hint: 'Tell renters how to pay and upload proof...',
+                  ),
+                ),
+                if (_reservationQrUrlController.text.trim().isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      _reservationQrUrlController.text.trim(),
+                      width: 180,
+                      height: 180,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 180,
+                        height: 120,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.darkBgSecondary
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.error),
+                        ),
+                        child: const Text(
+                          'QR preview unavailable',
+                          style: TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_isLoadingReservationPayment)
+                      Text(
+                        'Loading payment settings...',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed:
+                          _isLoadingReservationPayment ||
+                              _isSavingReservationPayment
+                          ? null
+                          : _loadReservationPaymentSettings,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed:
+                          _isLoadingReservationPayment ||
+                              _isSavingReservationPayment
+                          ? null
+                          : _saveReservationPaymentSettings,
+                      icon: _isSavingReservationPayment
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(
+                        _isSavingReservationPayment
+                            ? 'Saving...'
+                            : 'Save Payment Settings',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

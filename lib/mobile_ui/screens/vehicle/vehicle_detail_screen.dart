@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/favorite_vehicle_service.dart';
+import '../../../services/reservation_payment_service.dart';
+import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../utils/locations.dart';
 
@@ -29,12 +34,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Map<String, dynamic>? _vehicle;
   bool _isLoading = true;
   bool _isBooking = false;
+  bool _isFavorite = false;
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   List<DateTime> _unavailableDates = [];
+  List<Map<String, dynamic>> _myBookings = [];
   bool _withDriver = false;
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _returnTime = const TimeOfDay(hour: 6, minute: 0);
+  String? _acceptedTermsSnapshot;
 
   // Location selection state
   String? _pickupProvince;
@@ -45,6 +53,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   String? _dropoffCity;
   String? _dropoffBarangay;
   String? _dropoffFreetext;
+  final TextEditingController _pickupFreetextController =
+      TextEditingController();
+  final TextEditingController _dropoffFreetextController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -66,6 +78,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     _loadVehicle();
   }
 
+  @override
+  void dispose() {
+    _pickupFreetextController.dispose();
+    _dropoffFreetextController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadVehicle() async {
     setState(() {
       _isLoading = true;
@@ -85,6 +104,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       _unavailableDates = await vehicleService.getUnavailableDates(
         widget.vehicleId,
       );
+      await _loadMyBookings();
+      await _loadFavoriteState();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -103,137 +124,80 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  Future<void> _loadMyBookings() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    try {
+      _myBookings = await BookingService().getRenterBookings(user.id);
+    } catch (e) {
+      debugPrint('Could not load renter bookings for calendar: $e');
+      _myBookings = [];
+    }
+  }
+
+  Future<void> _loadFavoriteState() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    final isFavorite = await FavoriteVehicleService().isFavorite(
+      userId: user.id,
+      vehicleId: widget.vehicleId,
+    );
+    if (!mounted) return;
+    setState(() => _isFavorite = isFavorite);
+  }
+
+  Future<void> _toggleFavorite() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    setState(() => _isFavorite = !_isFavorite);
+    try {
+      final nowFavorite = await FavoriteVehicleService().toggleFavorite(
+        userId: user.id,
+        vehicleId: widget.vehicleId,
+      );
+      if (!mounted) return;
+      setState(() => _isFavorite = nowFavorite);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isFavorite = !_isFavorite);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update favorites: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _selectDates() async {
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
-    final initialDate = _firstAvailableDate(
-      _selectedStartDate ?? now.add(const Duration(days: 1)),
+    final initialDate = _clampToBookableDate(
+      _selectedStartDate ?? firstDate.add(const Duration(days: 1)),
     );
-    final initialEnd = _firstAvailableDate(
-      _selectedEndDate ?? initialDate.add(const Duration(days: 2)),
-      from: initialDate,
-    );
+    var initialEnd = _clampToBookableDate(_selectedEndDate ?? initialDate);
+    if (initialEnd.isBefore(initialDate)) initialEnd = initialDate;
 
-    final DateTimeRange? picked = await showDateRangePicker(
-      context: context,
+    final DateTimeRange? picked = await _showBookingCalendarDialog(
       firstDate: firstDate,
       lastDate: firstDate.add(const Duration(days: 365)),
-      initialDateRange: _selectedStartDate != null && _selectedEndDate != null
-          ? DateTimeRange(start: _selectedStartDate!, end: _selectedEndDate!)
-          : DateTimeRange(start: initialDate, end: initialEnd),
-      selectableDayPredicate: (date, selectedStart, selectedEnd) =>
-          !_isUnavailableDate(date),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primary,
-              onPrimary: Colors.black,
-              surface: AppColors.darkBgSecondary,
-              onSurface: AppColors.textPrimary,
-            ),
-            datePickerTheme: DatePickerThemeData(
-              backgroundColor: AppColors.darkBgSecondary,
-              surfaceTintColor: Colors.transparent,
-              headerBackgroundColor: AppColors.darkBg,
-              headerForegroundColor: AppColors.textPrimary,
-              rangePickerBackgroundColor: AppColors.darkBgSecondary,
-              rangePickerHeaderBackgroundColor: AppColors.darkBg,
-              rangePickerHeaderForegroundColor: AppColors.textPrimary,
-              rangePickerSurfaceTintColor: Colors.transparent,
-              dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) {
-                  return AppColors.textTertiary;
-                }
-                if (states.contains(WidgetState.selected)) {
-                  return Colors.black;
-                }
-                return AppColors.textPrimary;
-              }),
-              dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return AppColors.primary;
-                }
-                return Colors.transparent;
-              }),
-              todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
-              todayBorder: const BorderSide(color: AppColors.primary),
-              yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) {
-                  return AppColors.textTertiary;
-                }
-                if (states.contains(WidgetState.selected)) {
-                  return Colors.black;
-                }
-                return AppColors.textPrimary;
-              }),
-              yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected)) {
-                  return AppColors.primary;
-                }
-                return Colors.transparent;
-              }),
-            ),
-            dialogBackgroundColor: AppColors.darkBgSecondary,
-            scaffoldBackgroundColor: AppColors.darkBg,
-            textTheme: Theme.of(context).textTheme.apply(
-              bodyColor: AppColors.textPrimary,
-              displayColor: AppColors.textPrimary,
-            ),
-            inputDecorationTheme: const InputDecorationTheme(
-              filled: true,
-              fillColor: AppColors.darkBgTertiary,
-              labelStyle: TextStyle(color: AppColors.textSecondary),
-              hintStyle: TextStyle(color: AppColors.textTertiary),
-              helperStyle: TextStyle(color: AppColors.textSecondary),
-              errorStyle: TextStyle(color: AppColors.error),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.borderColor),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.primary),
-              ),
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
-            ),
-          ),
-          child: child!,
-        );
-      },
+      initialStart: _selectedStartDate ?? initialDate,
+      initialEnd: _selectedEndDate ?? initialEnd,
     );
 
-    if (picked != null) {
-      // Check if any selected date is unavailable
-      bool hasUnavailable = false;
-      var currentDate = picked.start;
-      while (!currentDate.isAfter(picked.end)) {
-        if (_unavailableDates.any(
-          (d) =>
-              d.year == currentDate.year &&
-              d.month == currentDate.month &&
-              d.day == currentDate.day,
-        )) {
-          hasUnavailable = true;
-          break;
-        }
-        currentDate = currentDate.add(const Duration(days: 1));
+    if (picked == null) {
+      if (!mounted) return;
+      if (_selectedStartDate != null || _selectedEndDate != null) {
+        setState(() {
+          _selectedStartDate = null;
+          _selectedEndDate = null;
+        });
       }
+      return;
+    }
 
-      if (hasUnavailable) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Some selected dates are not available. Please choose different dates.',
-              ),
-              backgroundColor: AppColors.error,
-            ),
-          );
-        }
-        return;
-      }
-
+    if (mounted) {
       setState(() {
         _selectedStartDate = picked.start;
         _selectedEndDate = picked.end;
@@ -241,26 +205,631 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
-  DateTime _firstAvailableDate(DateTime preferred, {DateTime? from}) {
-    final lowerBound = from == null
-        ? DateTime(
-            DateTime.now().year,
-            DateTime.now().month,
-            DateTime.now().day,
-          )
-        : DateTime(from.year, from.month, from.day);
-    var candidate = DateTime(preferred.year, preferred.month, preferred.day);
-    if (candidate.isBefore(lowerBound)) candidate = lowerBound;
-    for (var i = 0; i < 365; i++) {
-      if (!_isUnavailableDate(candidate)) return candidate;
-      candidate = candidate.add(const Duration(days: 1));
-    }
-    return lowerBound;
+  Future<DateTimeRange?> _showBookingCalendarDialog({
+    required DateTime firstDate,
+    required DateTime lastDate,
+    required DateTime initialStart,
+    required DateTime initialEnd,
+  }) {
+    var focusedDay = initialStart;
+    DateTime? rangeStart = initialStart;
+    DateTime? rangeEnd = initialEnd;
+    final bookedDays = _unavailableDates.map(_dateOnly).toSet();
+    final myBookedDetails = _bookingDetailsByDay(_myBookings);
+    final myBookedDays = myBookedDetails.keys.toSet();
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hasInvalidRange =
+                rangeStart != null &&
+                rangeEnd != null &&
+                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, {
+                  ...bookedDays,
+                  ...myBookedDays,
+                });
+
+            return Dialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Select Booking Dates',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(
+                              Icons.close,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: const [
+                          _CalendarLegendDot(
+                            color: AppColors.primary,
+                            label: 'Selected',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.error,
+                            label: 'Unavailable',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.warning,
+                            label: 'Your booking',
+                            textColor: AppColors.textPrimary,
+                          ),
+                          _CalendarLegendDot(
+                            color: AppColors.success,
+                            label: 'Available',
+                            textColor: AppColors.textPrimary,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TableCalendar(
+                        firstDay: firstDate,
+                        lastDay: lastDate,
+                        focusedDay: focusedDay,
+                        rangeStartDay: rangeStart,
+                        rangeEndDay: rangeEnd,
+                        rangeSelectionMode: RangeSelectionMode.toggledOn,
+                        availableCalendarFormats: const {
+                          CalendarFormat.month: 'Month',
+                        },
+                        onRangeSelected: (start, end, focused) {
+                          final startDay = start == null
+                              ? null
+                              : _dateOnly(start);
+                          final endDay = end == null ? null : _dateOnly(end);
+                          if ((startDay != null &&
+                                  bookedDays.contains(startDay)) ||
+                              (endDay != null && bookedDays.contains(endDay))) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('That date is unavailable'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+                          if ((startDay != null &&
+                                  myBookedDays.contains(startDay)) ||
+                              (endDay != null &&
+                                  myBookedDays.contains(endDay))) {
+                            _showBookedDateDetails(
+                              startDay != null &&
+                                      myBookedDays.contains(startDay)
+                                  ? startDay
+                                  : endDay!,
+                              myBookedDetails,
+                            );
+                            return;
+                          }
+                          if (start != null &&
+                              end != null &&
+                              _rangeContainsBlockedDate(start, end, {
+                                ...bookedDays,
+                                ...myBookedDays,
+                              })) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Selected range includes unavailable or already-booked dates',
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            rangeStart = start;
+                            rangeEnd = end ?? start;
+                            focusedDay = focused;
+                          });
+                        },
+                        onDaySelected: (selectedDay, focused) {
+                          final selectedDate = _dateOnly(selectedDay);
+                          if (myBookedDays.contains(selectedDate)) {
+                            _showBookedDateDetails(
+                              selectedDate,
+                              myBookedDetails,
+                            );
+                            return;
+                          }
+                          if (bookedDays.contains(selectedDate)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('That date is unavailable'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            if (rangeStart == null ||
+                                (rangeStart != null && rangeEnd != null)) {
+                              rangeStart = selectedDay;
+                              rangeEnd = null;
+                            } else if (selectedDay.isBefore(rangeStart!)) {
+                              rangeEnd = rangeStart;
+                              rangeStart = selectedDay;
+                            } else {
+                              if (_rangeContainsBlockedDate(
+                                rangeStart!,
+                                selectedDay,
+                                {...bookedDays, ...myBookedDays},
+                              )) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Selected range includes unavailable or already-booked dates',
+                                    ),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+                              rangeEnd = selectedDay;
+                            }
+                            focusedDay = focused;
+                          });
+                        },
+                        onDayLongPressed: (selectedDay, focused) {
+                          final selectedDate = _dateOnly(selectedDay);
+                          if (myBookedDays.contains(selectedDate)) {
+                            _showBookedDateDetails(
+                              selectedDate,
+                              myBookedDetails,
+                            );
+                          }
+                        },
+                        headerStyle: const HeaderStyle(
+                          titleCentered: true,
+                          titleTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          formatButtonVisible: false,
+                          leftChevronIcon: Icon(
+                            Icons.chevron_left,
+                            color: AppColors.primary,
+                          ),
+                          rightChevronIcon: Icon(
+                            Icons.chevron_right,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        daysOfWeekStyle: const DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          weekendStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        calendarStyle: CalendarStyle(
+                          outsideDaysVisible: false,
+                          defaultTextStyle: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          weekendTextStyle: const TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          disabledTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          todayDecoration: BoxDecoration(
+                            border: Border.all(color: AppColors.primary),
+                            shape: BoxShape.circle,
+                          ),
+                          todayTextStyle: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          rangeHighlightColor: AppColors.primary.withAlpha(55),
+                          selectedDecoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          selectedTextStyle: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          rangeStartDecoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          rangeEndDecoration: const BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          withinRangeTextStyle: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        calendarBuilders: CalendarBuilders(
+                          defaultBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                textColor: Colors.black,
+                              );
+                            }
+                            if (bookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.error,
+                                textColor: Colors.white,
+                                strikethrough: true,
+                              );
+                            }
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.success.withAlpha(45),
+                              borderColor: AppColors.success,
+                              textColor: AppColors.textPrimary,
+                            );
+                          },
+                          selectedBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          rangeStartBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          rangeEndBuilder: (context, day, focusedDay) {
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.primary,
+                              textColor: Colors.black,
+                            );
+                          },
+                          markerBuilder: (context, day, events) {
+                            return null;
+                          },
+                          disabledBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                textColor: Colors.black,
+                              );
+                            }
+                            if (bookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.error,
+                                textColor: Colors.white,
+                                strikethrough: true,
+                              );
+                            }
+                            return null;
+                          },
+                          todayBuilder: (context, day, focusedDay) {
+                            final date = _dateOnly(day);
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                borderColor: AppColors.primary,
+                                textColor: Colors.black,
+                              );
+                            }
+                            if (bookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.error,
+                                textColor: Colors.white,
+                                strikethrough: true,
+                              );
+                            }
+                            return _buildCalendarDayCell(
+                              day: day,
+                              backgroundColor: AppColors.success.withAlpha(45),
+                              borderColor: AppColors.primary,
+                              textColor: AppColors.primary,
+                            );
+                          },
+                        ),
+                      ),
+                      if (hasInvalidRange) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Selected range includes unavailable or already-booked dates.',
+                          style: TextStyle(
+                            color: AppColors.error,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                side: const BorderSide(
+                                  color: AppColors.borderColor,
+                                ),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed:
+                                  rangeStart == null ||
+                                      rangeEnd == null ||
+                                      hasInvalidRange
+                                  ? null
+                                  : () => Navigator.pop(
+                                      dialogContext,
+                                      DateTimeRange(
+                                        start: rangeStart!,
+                                        end: rangeEnd!,
+                                      ),
+                                    ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                              ),
+                              child: const Text('Apply'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
-  bool _isUnavailableDate(DateTime date) {
-    return _unavailableDates.any(
-      (d) => d.year == date.year && d.month == date.month && d.day == date.day,
+  DateTime _clampToBookableDate(DateTime preferred) {
+    final lowerBound = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
+    var candidate = DateTime(preferred.year, preferred.month, preferred.day);
+    if (candidate.isBefore(lowerBound)) candidate = lowerBound;
+    final upperBound = lowerBound.add(const Duration(days: 365));
+    return candidate.isAfter(upperBound) ? upperBound : candidate;
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  bool _rangeContainsBlockedDate(
+    DateTime start,
+    DateTime end,
+    Set<DateTime> blockedDays,
+  ) {
+    final startDay = _dateOnly(start);
+    final endDay = _dateOnly(end);
+    final orderedStart = startDay.isAfter(endDay) ? endDay : startDay;
+    final orderedEnd = startDay.isAfter(endDay) ? startDay : endDay;
+
+    for (
+      var day = orderedStart;
+      !day.isAfter(orderedEnd);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (blockedDays.contains(day)) return true;
+    }
+
+    return false;
+  }
+
+  Map<DateTime, List<Map<String, dynamic>>> _bookingDetailsByDay(
+    List<Map<String, dynamic>> bookings,
+  ) {
+    final details = <DateTime, List<Map<String, dynamic>>>{};
+    for (final booking in bookings) {
+      final status = booking['status']?.toString().toLowerCase() ?? '';
+      if (!{'pending', 'approved', 'confirmed', 'active'}.contains(status)) {
+        continue;
+      }
+
+      final start = DateTime.tryParse(
+        booking['start_at']?.toString() ??
+            booking['start_date']?.toString() ??
+            '',
+      )?.toLocal();
+      final end = DateTime.tryParse(
+        booking['end_at']?.toString() ?? booking['end_date']?.toString() ?? '',
+      )?.toLocal();
+      if (start == null || end == null) continue;
+
+      var current = _dateOnly(start);
+      final last = _dateOnly(end);
+      while (!current.isAfter(last)) {
+        details.putIfAbsent(current, () => []).add(booking);
+        current = current.add(const Duration(days: 1));
+      }
+    }
+    return details;
+  }
+
+  String _bookingVehicleTitle(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'];
+    if (vehicle is Map<String, dynamic>) {
+      final vehicleName = vehicle['vehicle_name']?.toString().trim() ?? '';
+      if (vehicleName.isNotEmpty) return vehicleName;
+      final brand = vehicle['brand']?.toString().trim() ?? '';
+      final model = vehicle['model']?.toString().trim() ?? '';
+      final title = [brand, model].where((part) => part.isNotEmpty).join(' ');
+      if (title.isNotEmpty) return title;
+    }
+    return 'Booked vehicle';
+  }
+
+  void _showBookedDateDetails(
+    DateTime date,
+    Map<DateTime, List<Map<String, dynamic>>> detailsByDay,
+  ) {
+    final bookings = detailsByDay[_dateOnly(date)] ?? [];
+    if (bookings.isEmpty) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your booking on ${_formatDate(date)}',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...bookings.map((booking) {
+                  final status = booking['status']?.toString() ?? 'pending';
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgTertiary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.directions_car,
+                          color: AppColors.warning,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _bookingVehicleTitle(booking),
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                status.toUpperCase(),
+                                style: const TextStyle(
+                                  color: AppColors.warning,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCalendarDayCell({
+    required DateTime day,
+    required Color backgroundColor,
+    required Color textColor,
+    Color? borderColor,
+    bool strikethrough = false,
+  }) {
+    return Container(
+      margin: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        shape: BoxShape.circle,
+        border: borderColor == null ? null : Border.all(color: borderColor),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w700,
+          decoration: strikethrough ? TextDecoration.lineThrough : null,
+          decorationColor: textColor,
+          decorationThickness: 2,
+        ),
+      ),
     );
   }
 
@@ -341,7 +910,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       if (userRole == 'driver') {
         debugPrint('✅ Driver detected - skipping verification requirement');
         // Proceed with booking for drivers
-        _proceedWithBooking();
+        await _proceedWithBooking(requireTermsAgreement: false);
         return;
       }
 
@@ -387,7 +956,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
 
       // Renter is verified, proceed with booking
-      _proceedWithBooking();
+      await _proceedWithBooking(requireTermsAgreement: true);
     } catch (e) {
       debugPrint('Error checking verification: $e');
       _showErrorDialog(
@@ -397,8 +966,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
-  Future<void> _proceedWithBooking() async {
+  Future<void> _proceedWithBooking({bool requireTermsAgreement = true}) async {
     final authService = AuthService();
+    ReservationPaymentProof? reservationPaymentProof;
 
     if (_selectedStartDate == null || _selectedEndDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -432,6 +1002,41 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    if (requireTermsAgreement) {
+      setState(() {
+        _isBooking = true;
+      });
+
+      final acceptedTermsSnapshot = await _showTermsAgreementDialog();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isBooking = false;
+      });
+
+      if (acceptedTermsSnapshot == null) {
+        return;
+      }
+
+      _acceptedTermsSnapshot = acceptedTermsSnapshot;
+
+      final currentUser = authService.currentUser;
+      if (currentUser == null) {
+        _showErrorDialog('Error', 'You need to log in before booking.');
+        return;
+      }
+
+      reservationPaymentProof = await _showReservationPaymentDialog(
+        userId: currentUser.id,
+      );
+
+      if (!mounted) return;
+      if (reservationPaymentProof == null) {
+        return;
+      }
+    }
+
     setState(() {
       _isBooking = true;
     });
@@ -451,6 +1056,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         withDriver: _withDriver,
         pickupLocation: _getPickupLocation(),
         dropoffLocation: _getDropoffLocation(),
+        rentalTermsAcceptedAt: requireTermsAgreement ? DateTime.now() : null,
+        rentalTermsSnapshot: requireTermsAgreement
+            ? _acceptedTermsSnapshot
+            : null,
+        reservationFeeAmount: reservationPaymentProof?.amount,
+        reservationPaymentReference: reservationPaymentProof?.referenceNumber,
+        reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
+        reservationPaymentMethod: reservationPaymentProof?.method,
+        reservationPaymentType: reservationPaymentProof?.paymentType,
       );
 
       if (mounted) {
@@ -489,7 +1103,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Your booking request has been sent to the owner. You will be notified once they respond.',
+                  'Your booking request and reservation payment proof have been submitted. You will be notified once the operator and owner respond.',
                   style: TextStyle(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 16),
@@ -552,6 +1166,438 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           _isBooking = false;
         });
       }
+    }
+  }
+
+  Future<String?> _showTermsAgreementDialog() async {
+    final terms = await TermsService().getRentalTerms();
+    if (!mounted) return null;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    var accepted = false;
+
+    final acceptedTerms =
+        await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+              title: Text(
+                'Rental Terms & Agreement',
+                style: TextStyle(
+                  color: isDark
+                      ? AppColors.textPrimary
+                      : AppColors.lightTextPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 320),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.darkBgSecondary
+                            : AppColors.lightBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor,
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          terms,
+                          style: TextStyle(
+                            height: 1.45,
+                            color: isDark
+                                ? AppColors.textSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Checkbox(
+                          value: accepted,
+                          activeColor: AppColors.primary,
+                          checkColor: Colors.black,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              accepted = value ?? false;
+                            });
+                          },
+                        ),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              'I have read and agree to the rental terms, payment rules, and car rental policies.',
+                              style: TextStyle(
+                                color: isDark
+                                    ? AppColors.textPrimary
+                                    : AppColors.lightTextPrimary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isDark
+                          ? AppColors.textSecondary
+                          : AppColors.lightTextSecondary,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: accepted
+                      ? () => Navigator.pop(dialogContext, true)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Agree & Continue'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+
+    return acceptedTerms ? terms : null;
+  }
+
+  Future<ReservationPaymentProof?> _showReservationPaymentDialog({
+    required String userId,
+  }) async {
+    final service = ReservationPaymentService();
+    final settings = await service.getSettings();
+    if (!mounted) return null;
+
+    final referenceController = TextEditingController();
+    XFile? receiptFile;
+    bool isUploading = false;
+    bool payFullAmount = false;
+    String? errorText;
+
+    try {
+      return await showDialog<ReservationPaymentProof>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final payableAmount = payFullAmount
+                  ? _totalPrice
+                  : settings.amount;
+              Future<void> pickReceipt() async {
+                final picked = await ImagePicker().pickImage(
+                  source: ImageSource.gallery,
+                  imageQuality: 85,
+                );
+                if (picked == null) return;
+                setDialogState(() {
+                  receiptFile = picked;
+                  errorText = null;
+                });
+              }
+
+              Future<void> confirmPayment() async {
+                final reference = referenceController.text.trim();
+                final payableAmount = payFullAmount
+                    ? _totalPrice
+                    : settings.amount;
+                if (settings.qrUrl.trim().isEmpty) {
+                  setDialogState(() {
+                    errorText =
+                        'Payment QR is not configured yet. Please contact support.';
+                  });
+                  return;
+                }
+                if (!RegExp(r'^\d{13}$').hasMatch(reference)) {
+                  setDialogState(() {
+                    errorText =
+                        'Enter the 13-digit transaction reference number.';
+                  });
+                  return;
+                }
+                if (receiptFile == null) {
+                  setDialogState(() {
+                    errorText = 'Upload the payment screenshot first.';
+                  });
+                  return;
+                }
+
+                setDialogState(() {
+                  isUploading = true;
+                  errorText = null;
+                });
+
+                try {
+                  final proofUrl = await service.uploadReceiptProof(
+                    userId: userId,
+                    file: receiptFile!,
+                  );
+                  if (!dialogContext.mounted) return;
+                  Navigator.pop(
+                    dialogContext,
+                    ReservationPaymentProof(
+                      amount: payableAmount,
+                      method: 'psdc_qr_payment',
+                      paymentType: payFullAmount
+                          ? 'full_payment'
+                          : 'reservation_only',
+                      referenceNumber: reference,
+                      proofUrl: proofUrl,
+                    ),
+                  );
+                } catch (e) {
+                  setDialogState(() {
+                    isUploading = false;
+                    errorText = 'Could not upload receipt: $e';
+                  });
+                }
+              }
+
+              return AlertDialog(
+                backgroundColor: AppColors.darkBgSecondary,
+                title: const Text(
+                  'Reservation Payment',
+                  style: TextStyle(color: AppColors.textPrimary),
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        payFullAmount
+                            ? 'Pay full rental amount now'
+                            : 'Pay refundable reservation fee',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'PHP ${payableAmount.toStringAsFixed(0)} to ${settings.accountName}',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.payments_outlined,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Pay full rental amount',
+                                    style: TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  SizedBox(height: 3),
+                                  Text(
+                                    'Optional. Leave off to pay reservation only.',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Switch(
+                              value: payFullAmount,
+                              activeColor: AppColors.primary,
+                              onChanged: isUploading
+                                  ? null
+                                  : (value) {
+                                      setDialogState(() {
+                                        payFullAmount = value;
+                                        errorText = null;
+                                      });
+                                    },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        payFullAmount
+                            ? '${settings.instructions}\n\nYou selected full payment, so your proof should match the full rental total shown above.'
+                            : settings.instructions,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: settings.qrUrl.isEmpty
+                            ? const Column(
+                                children: [
+                                  Icon(
+                                    Icons.qr_code_2,
+                                    color: AppColors.textTertiary,
+                                    size: 72,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Payment QR is not configured yet. Please contact support.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Column(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.network(
+                                      settings.qrUrl,
+                                      height: 220,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.broken_image_outlined,
+                                        color: AppColors.error,
+                                        size: 72,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Screenshot or scan this QR, then upload your payment proof below.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: referenceController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 13,
+                        enabled: !isUploading,
+                        style: const TextStyle(color: AppColors.textPrimary),
+                        decoration: InputDecoration(
+                          labelText: '13-digit reference number',
+                          counterText: '',
+                          labelStyle: const TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
+                          filled: true,
+                          fillColor: AppColors.darkBg,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: isUploading ? null : pickReceipt,
+                        icon: const Icon(Icons.upload_file),
+                        label: Text(
+                          receiptFile == null
+                              ? 'Upload payment screenshot'
+                              : 'Receipt selected',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          errorText!,
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isUploading
+                        ? null
+                        : () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: isUploading ? null : confirmPayment,
+                    icon: isUploading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check_circle_outline),
+                    label: Text(isUploading ? 'Uploading...' : 'Confirm'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      referenceController.dispose();
     }
   }
 
@@ -686,6 +1732,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ),
               ),
             ),
+            actions: [
+              GestureDetector(
+                onTap: _toggleFavorite,
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  margin: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _isFavorite ? Icons.favorite : Icons.favorite_border,
+                    color: _isFavorite
+                        ? AppColors.error
+                        : AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: imageUrl != null
                   ? Image.network(
@@ -998,10 +2064,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 _pickupCity = null;
                                 _pickupBarangay = null;
                                 _pickupFreetext = null;
+                                _pickupFreetextController.clear();
                                 _dropoffProvince = null;
                                 _dropoffCity = null;
                                 _dropoffBarangay = null;
                                 _dropoffFreetext = null;
+                                _dropoffFreetextController.clear();
                               }
                             });
                           },
@@ -1028,6 +2096,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       city: _pickupCity,
                       barangay: _pickupBarangay,
                       freetext: _pickupFreetext,
+                      freetextController: _pickupFreetextController,
                       onProvinceChanged: (value) {
                         setState(() {
                           _pickupProvince = value;
@@ -1047,9 +2116,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         });
                       },
                       onFreetextChanged: (value) {
-                        setState(() {
-                          _pickupFreetext = value;
-                        });
+                        final cleanValue = value?.trim();
+                        _pickupFreetext =
+                            cleanValue == null || cleanValue.isEmpty
+                            ? null
+                            : value;
                       },
                     ),
                     const SizedBox(height: 24),
@@ -1068,6 +2139,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       city: _dropoffCity,
                       barangay: _dropoffBarangay,
                       freetext: _dropoffFreetext,
+                      freetextController: _dropoffFreetextController,
                       onProvinceChanged: (value) {
                         setState(() {
                           _dropoffProvince = value;
@@ -1087,9 +2159,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         });
                       },
                       onFreetextChanged: (value) {
-                        setState(() {
-                          _dropoffFreetext = value;
-                        });
+                        final cleanValue = value?.trim();
+                        _dropoffFreetext =
+                            cleanValue == null || cleanValue.isEmpty
+                            ? null
+                            : value;
                       },
                     ),
                   ],
@@ -1371,11 +2445,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (_pickupBarangay != null &&
         _pickupCity != null &&
         _pickupProvince != null) {
-      return PhilippineLocations.formatLocation(
+      final selectedLocation = PhilippineLocations.formatLocation(
         _pickupBarangay!,
         _pickupCity!,
         _pickupProvince!,
       );
+      return _appendLandmark(_pickupFreetext, selectedLocation);
     }
     return _pickupFreetext ?? PhilippineLocations.psdc_garage;
   }
@@ -1387,13 +2462,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (_dropoffBarangay != null &&
         _dropoffCity != null &&
         _dropoffProvince != null) {
-      return PhilippineLocations.formatLocation(
+      final selectedLocation = PhilippineLocations.formatLocation(
         _dropoffBarangay!,
         _dropoffCity!,
         _dropoffProvince!,
       );
+      return _appendLandmark(_dropoffFreetext, selectedLocation);
     }
     return _dropoffFreetext ?? PhilippineLocations.psdc_garage;
+  }
+
+  String _appendLandmark(String? landmark, String selectedLocation) {
+    final cleanLandmark = landmark?.trim();
+    if (cleanLandmark == null || cleanLandmark.isEmpty) {
+      return selectedLocation;
+    }
+    return '$cleanLandmark, $selectedLocation';
   }
 
   Widget _buildLocationDropdowns({
@@ -1402,6 +2486,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required String? city,
     required String? barangay,
     required String? freetext,
+    required TextEditingController freetextController,
     required Function(String?) onProvinceChanged,
     required Function(String?) onCityChanged,
     required Function(String?) onBarangayChanged,
@@ -1414,7 +2499,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final barangays = city != null
         ? PhilippineLocations.getBarangaysForCity(city)
         : [];
-    final freetextController = TextEditingController(text: freetext ?? '');
+    if (freetextController.text != (freetext ?? '')) {
+      freetextController.value = TextEditingValue(
+        text: freetext ?? '',
+        selection: TextSelection.collapsed(offset: (freetext ?? '').length),
+      );
+    }
 
     return Column(
       children: [
@@ -1522,6 +2612,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         // Free text input (landmark or specific address)
         TextField(
           controller: freetextController,
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.start,
           decoration: InputDecoration(
             hintText: 'Enter landmark or specific address (optional)',
             hintStyle: const TextStyle(color: AppColors.textTertiary),
@@ -1546,6 +2638,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             onFreetextChanged(value);
           },
         ),
+      ],
+    );
+  }
+}
+
+class _CalendarLegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  final Color textColor;
+
+  const _CalendarLegendDot({
+    required this.color,
+    required this.label,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(fontSize: 12, color: textColor)),
       ],
     );
   }

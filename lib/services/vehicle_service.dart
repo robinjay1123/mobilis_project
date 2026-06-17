@@ -445,6 +445,82 @@ class VehicleService {
     }
   }
 
+  Future<Set<DateTime>> getFullyUnavailableDatesForVehicles(
+    List<String> vehicleIds, {
+    int daysAhead = 365,
+  }) async {
+    final ids = vehicleIds.where((id) => id.trim().isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return {};
+
+    final today = DateTime.now();
+    final firstDay = DateTime(today.year, today.month, today.day);
+    final lastDay = firstDay.add(Duration(days: daysAhead));
+    final unavailableByDay = <String, Set<String>>{};
+
+    void markUnavailable(String vehicleId, DateTime date) {
+      unavailableByDay
+          .putIfAbsent(_dateKey(date), () => <String>{})
+          .add(vehicleId);
+    }
+
+    try {
+      final availabilityRows = await supabase
+          .from('vehicle_availability')
+          .select('vehicle_id,date')
+          .inFilter('vehicle_id', ids)
+          .eq('is_available', false)
+          .gte('date', firstDay.toIso8601String().split('T')[0])
+          .lte('date', lastDay.toIso8601String().split('T')[0]);
+
+      for (final row in List<Map<String, dynamic>>.from(availabilityRows)) {
+        final vehicleId = row['vehicle_id']?.toString();
+        final date = DateTime.tryParse(row['date']?.toString() ?? '');
+        if (vehicleId != null && date != null) {
+          markUnavailable(vehicleId, DateTime(date.year, date.month, date.day));
+        }
+      }
+
+      final bookingRows = await supabase
+          .from('bookings')
+          .select('vehicle_id,start_at,end_at,start_date,end_date')
+          .inFilter('vehicle_id', ids)
+          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          .lt(
+            'start_at',
+            lastDay.add(const Duration(days: 1)).toUtc().toIso8601String(),
+          )
+          .gt('end_at', firstDay.toUtc().toIso8601String());
+
+      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final vehicleId = row['vehicle_id']?.toString();
+        final start = DateTime.tryParse(
+          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
+        )?.toLocal();
+        final end = DateTime.tryParse(
+          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
+        )?.toLocal();
+        if (vehicleId == null || start == null || end == null) continue;
+
+        var current = DateTime(start.year, start.month, start.day);
+        final last = DateTime(end.year, end.month, end.day);
+        while (!current.isAfter(last) && !current.isAfter(lastDay)) {
+          if (!current.isBefore(firstDay)) {
+            markUnavailable(vehicleId, current);
+          }
+          current = current.add(const Duration(days: 1));
+        }
+      }
+
+      return unavailableByDay.entries
+          .where((entry) => entry.value.length >= ids.length)
+          .map((entry) => DateTime.parse(entry.key))
+          .toSet();
+    } catch (e) {
+      debugPrint('getFullyUnavailableDatesForVehicles error: $e');
+      return {};
+    }
+  }
+
   Future<void> setAvailability({
     required String vehicleId,
     required DateTime date,

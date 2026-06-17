@@ -30,6 +30,7 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late TextEditingController _messageController;
   late Future<List<Map<String, dynamic>>> _messagesFuture;
+  late Future<List<Map<String, dynamic>>> _participantsFuture;
   late StreamSubscription _messagesStream;
   String? _warningMessage;
   bool _isLoading = false;
@@ -40,11 +41,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     super.initState();
     _messageController = TextEditingController();
     _loadMessages();
+    _loadParticipants();
     _subscribeToMessages();
   }
 
   void _loadMessages() {
     _messagesFuture = ChatService().getMessages(widget.conversationId);
+  }
+
+  void _loadParticipants() {
+    _participantsFuture = ChatService().getConversationParticipants(
+      widget.conversationId,
+    );
   }
 
   void _subscribeToMessages() {
@@ -117,6 +125,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
       _messageController.clear();
       _loadMessages();
+      _loadParticipants();
 
       if (mounted) {
         setState(() => _isLoading = false);
@@ -210,6 +219,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       ),
       body: Column(
         children: [
+          _buildParticipantReference(isDark, cardColor, textColor),
+
           // Messages list
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -354,7 +365,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              message['content'] ?? '',
+                              (message['content'] ?? message['message'] ?? '')
+                                  .toString(),
                               style: TextStyle(
                                 fontSize: 14,
                                 color: isCurrentUser
@@ -510,5 +522,202 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (e) {
       return '';
     }
+  }
+
+  Widget _buildParticipantReference(
+    bool isDark,
+    Color cardColor,
+    Color textColor,
+  ) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _participantsFuture,
+      builder: (context, snapshot) {
+        final participants = snapshot.data ?? [];
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: cardColor,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? AppColors.borderColor
+                      : AppColors.lightBorderColor,
+                ),
+              ),
+            ),
+            child: const SizedBox(
+              height: 42,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (participants.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          decoration: BoxDecoration(
+            color: cardColor,
+            border: Border(
+              bottom: BorderSide(
+                color: isDark
+                    ? AppColors.borderColor
+                    : AppColors.lightBorderColor,
+              ),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Booking participants',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? AppColors.textSecondary
+                      : AppColors.lightTextSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 92,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: participants.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (context, index) {
+                    return _buildParticipantCard(
+                      participants[index],
+                      isDark,
+                      textColor,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildParticipantCard(
+    Map<String, dynamic> participant,
+    bool isDark,
+    Color textColor,
+  ) {
+    final name =
+        participant['display_name']?.toString().trim().isNotEmpty == true
+        ? participant['display_name'].toString().trim()
+        : 'Unknown User';
+    final role =
+        participant['display_role']?.toString().trim().isNotEmpty == true
+        ? participant['display_role'].toString().trim()
+        : 'Participant';
+    final email = participant['email']?.toString().trim() ?? '';
+    final phone = participant['display_phone']?.toString().trim() ?? '';
+    final avatar = participant['display_avatar']?.toString().trim() ?? '';
+    final subtitle = phone.isNotEmpty
+        ? phone
+        : email.isNotEmpty
+        ? email
+        : 'No contact saved';
+
+    return Container(
+      width: 230,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: AppColors.primary.withValues(alpha: 0.18),
+            backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+            child: avatar.isEmpty
+                ? Text(
+                    _initials(name),
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  role,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark
+                        ? AppColors.textTertiary
+                        : AppColors.lightTextTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _initials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
 }

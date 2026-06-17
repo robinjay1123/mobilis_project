@@ -284,7 +284,7 @@ class RenterService {
       var query = supabase
           .from('bookings')
           .select(
-            'id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, price_per_day), users(full_name, email)',
+            'id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, price_per_day), users:users!bookings_renter_id_fkey(full_name, email)',
           )
           .eq('renter_id', userId);
 
@@ -313,7 +313,7 @@ class RenterService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(*), users(id, full_name, email, phone)',
+            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(*), users:users!bookings_renter_id_fkey(id, full_name, email, phone)',
           )
           .eq('id', bookingId)
           .maybeSingle();

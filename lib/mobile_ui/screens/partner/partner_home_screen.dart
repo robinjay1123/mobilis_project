@@ -10,6 +10,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
+import 'partner_revenue_screen.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -439,6 +440,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     label: 'Reviews & Ratings',
                     onTap: () {
                       Navigator.pop(context);
+                      _showRatesReviewsDialog();
                     },
                   ),
                   _buildDrawerItem(
@@ -679,13 +681,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     _buildQuickAction(
                       icon: Icons.bar_chart,
                       label: 'View Revenue',
-                      onTap: () {},
+                      onTap: _openRevenuePayoutScreen,
                     ),
                     const SizedBox(width: 12),
                     _buildQuickAction(
-                      icon: Icons.workspace_premium,
-                      label: 'Plan Details',
-                      onTap: () {},
+                      icon: Icons.star_rate,
+                      label: 'Rates & Reviews',
+                      onTap: _showRatesReviewsDialog,
                     ),
                   ],
                 ),
@@ -694,81 +696,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Pro Fleet Plan Banner
+          // Start Application Banner
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.primary.withAlpha(40),
-                    AppColors.primary.withAlpha(20),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.primary.withAlpha(50)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withAlpha(40),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.workspace_premium,
-                      color: AppColors.primary,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Pro Fleet Plan',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          'Unlimited vehicles & premium support',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text(
-                      'Upgrade',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: _buildStartApplicationAd(),
           ),
           const SizedBox(height: 24),
 
@@ -1127,28 +1058,207 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: AppColors.darkBgSecondary,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.borderColor),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: AppColors.primary, size: 24),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textSecondary,
+        child: SizedBox(
+          height: 86,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.borderColor),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: AppColors.primary, size: 24),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 14,
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                 ),
-                textAlign: TextAlign.center,
-              ),
-            ],
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStartApplicationAd() {
+    final hasPendingApplication = applications.any((application) {
+      final status =
+          (application['application_status'] ?? application['status'] ?? '')
+              .toString()
+              .toLowerCase();
+      return status == 'pending' || status == 'under_review';
+    });
+
+    return GestureDetector(
+      onTap: hasPendingApplication
+          ? () => setState(() => selectedNavIndex = 0)
+          : _handleApplyVehicleNavigation,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF06233A), Color(0xFF0B3146)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.primary.withAlpha(55)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(40),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                hasPendingApplication
+                    ? Icons.hourglass_bottom
+                    : Icons.handshake,
+                color: AppColors.primary,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasPendingApplication
+                        ? 'Application Under Review'
+                        : 'Start Vehicle Application',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    hasPendingApplication
+                        ? 'You can apply again after this request is reviewed.'
+                        : 'List your next vehicle and send it for approval.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                hasPendingApplication ? 'Status' : 'Start',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRatesReviewsDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Rates & Reviews',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgSecondary,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.star, color: AppColors.primary, size: 32),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          rating > 0
+                              ? rating.toStringAsFixed(1)
+                              : 'No rating yet',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Text(
+                          'Customer reviews will appear after completed bookings.',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openRevenuePayoutScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PartnerRevenueScreen(
+          partnerName: partnerName,
+          bookings: bookings,
+          completedTrips: bookingCounts['completed'] ?? 0,
+          recordedTotalEarnings: totalEarnings,
         ),
       ),
     );

@@ -130,6 +130,10 @@ class AuthService {
         await _ensureDriverProfileExists(user.id);
       }
 
+      if (newRole == 'operator') {
+        await _ensureOperatorProfileExists(user.id);
+      }
+
       if (newRole == 'renter') {
         await _ensureRenterProfileExists(user.id);
       }
@@ -182,6 +186,51 @@ class AuthService {
       debugPrint('Renter profile provisioning skipped: ${e.message}');
     } catch (e) {
       debugPrint('Unexpected renter profile provisioning error: $e');
+    }
+  }
+
+  Future<void> _ensureOperatorProfileExists(String userId) async {
+    try {
+      await supabase
+          .from('users')
+          .update({'role': 'operator'})
+          .eq('id', userId);
+    } on PostgrestException catch (e) {
+      debugPrint('Operator profile provisioning skipped: ${e.message}');
+    } catch (e) {
+      debugPrint('Unexpected operator profile provisioning error: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> getCurrentUserProfile() async {
+    try {
+      final user = currentUser;
+      if (user == null) return null;
+
+      final response = await supabase
+          .from('users')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (response == null) {
+        return {
+          'id': user.id,
+          'email': user.email,
+          'full_name':
+              user.userMetadata?['full_name'] ??
+              user.userMetadata?['name'] ??
+              user.email,
+          'role': user.userMetadata?['role'] ?? 'renter',
+          'avatar_url':
+              user.userMetadata?['avatar_url'] ?? user.userMetadata?['picture'],
+        };
+      }
+
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching current user profile: $e');
+      return null;
     }
   }
 

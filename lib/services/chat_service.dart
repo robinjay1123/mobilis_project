@@ -37,7 +37,19 @@ class ChatService {
       // Get conversations with latest message
       final response = await supabase
           .from('conversations')
-          .select('*, messages(*)')
+          .select('''
+            *,
+            messages(*),
+            bookings!conversations_booking_id_fkey (
+              id,
+              status,
+              vehicles!bookings_vehicle_id_fkey (
+                brand,
+                model,
+                vehicle_name
+              )
+            )
+          ''')
           .inFilter('id', conversationIds)
           .order('updated_at', ascending: false);
 
@@ -134,7 +146,7 @@ class ChatService {
 
       final response = await supabase
           .from('messages')
-          .select('*, users(*)')
+          .select('*, sender:users!messages_sender_id_fkey(*)')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);
 
@@ -174,6 +186,7 @@ class ChatService {
           .insert({
             'conversation_id': conversationId,
             'sender_id': senderId,
+            'message': content,
             'content': content,
             'created_at': DateTime.now().toIso8601String(),
             'is_read': false,
@@ -298,6 +311,217 @@ class ChatService {
     }
   }
 
+  Future<Map<String, dynamic>?> getOtherUser(
+    String conversationId,
+    String currentUserId,
+  ) async {
+    try {
+      final participants = await supabase
+          .from('conversation_participants')
+          .select(
+            'user_id, users:users!conversation_participants_new_user_id_fkey(*)',
+          )
+          .eq('conversation_id', conversationId)
+          .neq('user_id', currentUserId)
+          .limit(1);
+
+      if (participants.isEmpty) return null;
+
+      final participant = Map<String, dynamic>.from(participants.first);
+      final user = participant['users'];
+      if (user is Map<String, dynamic>) {
+        return Map<String, dynamic>.from(user);
+      }
+
+      final userId = participant['user_id']?.toString();
+      if (userId == null || userId.isEmpty) return null;
+
+      return await supabase
+          .from('users')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+    } catch (e) {
+      debugPrint('Error getting other user profile: $e');
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getConversationParticipants(
+    String conversationId,
+  ) async {
+    try {
+      final participants = await supabase
+          .from('conversation_participants')
+          .select(
+            'user_id, joined_at, users:users!conversation_participants_new_user_id_fkey(*)',
+          )
+          .eq('conversation_id', conversationId);
+
+      final rows = List<Map<String, dynamic>>.from(participants);
+      final hydrated = <Map<String, dynamic>>[];
+      final missingUserIds = <String>[];
+
+      for (final row in rows) {
+        final user = row['users'];
+        if (user is Map<String, dynamic>) {
+          hydrated.add(_participantProfile(row, user));
+        } else {
+          final userId = row['user_id']?.toString();
+          if (userId != null && userId.isNotEmpty) {
+            missingUserIds.add(userId);
+          }
+        }
+      }
+
+      if (missingUserIds.isNotEmpty) {
+        final users = await supabase
+            .from('users')
+            .select()
+            .inFilter('id', missingUserIds);
+        final userById = {
+          for (final user in List<Map<String, dynamic>>.from(users))
+            user['id']?.toString(): user,
+        };
+
+        for (final row in rows) {
+          final userId = row['user_id']?.toString();
+          final user = userById[userId];
+          if (user != null) {
+            hydrated.add(_participantProfile(row, user));
+          }
+        }
+      }
+
+      hydrated.sort((a, b) {
+        final aRole = _roleSortValue(a['role']?.toString());
+        final bRole = _roleSortValue(b['role']?.toString());
+        if (aRole != bRole) return aRole.compareTo(bRole);
+        return _displayName(a).compareTo(_displayName(b));
+      });
+
+      return hydrated;
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'Participant embed failed, retrying without relationship: ${e.message}',
+      );
+      return _getConversationParticipantsFallback(conversationId);
+    } catch (e) {
+      debugPrint('Error getting conversation participants: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getConversationParticipantsFallback(
+    String conversationId,
+  ) async {
+    final participantRows = await supabase
+        .from('conversation_participants')
+        .select('user_id, joined_at')
+        .eq('conversation_id', conversationId);
+
+    final rows = List<Map<String, dynamic>>.from(participantRows);
+    final userIds = rows
+        .map((row) => row['user_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (userIds.isEmpty) return [];
+
+    final users = await supabase.from('users').select().inFilter('id', userIds);
+    final userById = {
+      for (final user in List<Map<String, dynamic>>.from(users))
+        user['id']?.toString(): user,
+    };
+
+    final hydrated = rows
+        .map((row) {
+          final user = userById[row['user_id']?.toString()];
+          if (user == null) return null;
+          return _participantProfile(row, user);
+        })
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    hydrated.sort((a, b) {
+      final aRole = _roleSortValue(a['role']?.toString());
+      final bRole = _roleSortValue(b['role']?.toString());
+      if (aRole != bRole) return aRole.compareTo(bRole);
+      return _displayName(a).compareTo(_displayName(b));
+    });
+
+    return hydrated;
+  }
+
+  Map<String, dynamic> _participantProfile(
+    Map<String, dynamic> participant,
+    Map<String, dynamic> user,
+  ) {
+    final profile = Map<String, dynamic>.from(user);
+    profile['user_id'] = participant['user_id'];
+    profile['joined_at'] = participant['joined_at'];
+    profile['display_name'] = _displayName(profile);
+    profile['display_role'] = _displayRole(profile['role']?.toString());
+    profile['display_phone'] =
+        profile['phone']?.toString() ??
+        profile['phone_number']?.toString() ??
+        '';
+    profile['display_avatar'] =
+        profile['avatar_url']?.toString() ??
+        profile['profile_picture_url']?.toString() ??
+        profile['photo_url']?.toString() ??
+        '';
+    return profile;
+  }
+
+  String _displayName(Map<String, dynamic> user) {
+    final name = user['full_name']?.toString().trim().isNotEmpty == true
+        ? user['full_name'].toString().trim()
+        : user['name']?.toString().trim().isNotEmpty == true
+        ? user['name'].toString().trim()
+        : user['email']?.toString().trim();
+    return name == null || name.isEmpty ? 'Unknown User' : name;
+  }
+
+  String _displayRole(String? role) {
+    final normalized = role?.trim().toLowerCase() ?? '';
+    switch (normalized) {
+      case 'operator':
+        return 'Operator / Agent';
+      case 'partner':
+      case 'owner':
+        return 'Partner';
+      case 'driver':
+        return 'Driver';
+      case 'renter':
+      case 'user':
+        return 'Renter';
+      case 'admin':
+        return 'Admin';
+      default:
+        return normalized.isEmpty ? 'Participant' : normalized;
+    }
+  }
+
+  int _roleSortValue(String? role) {
+    switch (role?.trim().toLowerCase()) {
+      case 'operator':
+        return 0;
+      case 'partner':
+      case 'owner':
+        return 1;
+      case 'driver':
+        return 2;
+      case 'renter':
+      case 'user':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
@@ -328,7 +552,8 @@ class ChatService {
           .eq('booking_id', bookingId)
           .maybeSingle();
 
-      final conversation = existing ??
+      final conversation =
+          existing ??
           await supabase
               .from('conversations')
               .insert({
@@ -389,18 +614,19 @@ class ChatService {
       final participantRecords = uniqueParticipantIds
           .where((userId) => !existingUserIds.contains(userId))
           .map((userId) {
-        return {
-          'conversation_id': conversationId,
-          'user_id': userId,
-          'joined_at': DateTime.now().toIso8601String(),
-        };
-      }).toList();
+            return {
+              'conversation_id': conversationId,
+              'user_id': userId,
+              'joined_at': DateTime.now().toIso8601String(),
+            };
+          })
+          .toList();
 
       if (participantRecords.isEmpty) return;
 
-      await supabase.from('conversation_participants').insert(
-            participantRecords,
-          );
+      await supabase
+          .from('conversation_participants')
+          .insert(participantRecords);
 
       await supabase
           .from('conversations')

@@ -166,6 +166,7 @@ class PartnerService {
     String fuelType = 'Gasoline',
     String transmission = 'Manual',
     String? vehiclePhotoUrl,
+    bool ownerIsDriver = false,
   }) async {
     try {
       debugPrint('Submitting vehicle application for partner: $partnerId');
@@ -187,6 +188,8 @@ class PartnerService {
             'cr_document_url': crDocumentUrl,
             if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
               'vehicle_photo_url': vehiclePhotoUrl,
+            'owner_is_driver': ownerIsDriver,
+            'is_available': false,
             'application_status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           })
@@ -200,6 +203,53 @@ class PartnerService {
       rethrow;
     } catch (e) {
       debugPrint('Unexpected error submitting application: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateApprovedVehicleSettings({
+    required String applicationId,
+    required String partnerVehicleId,
+    String? vehicleId,
+    required bool ownerIsDriver,
+    required bool isAvailable,
+  }) async {
+    try {
+      final updates = {
+        'owner_is_driver': ownerIsDriver,
+        'is_available': isAvailable,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      await supabase
+          .from('partner_vehicle_applications')
+          .update(updates)
+          .eq('id', applicationId);
+
+      await supabase
+          .from('partner_vehicles')
+          .update({
+            'owner_is_driver': ownerIsDriver,
+            'is_available': isAvailable,
+            'status': isAvailable ? 'available' : 'pending',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', partnerVehicleId);
+
+      if (vehicleId != null && vehicleId.isNotEmpty) {
+        await supabase
+            .from('vehicles')
+            .update({
+              'owner_is_driver': ownerIsDriver,
+              'is_available': isAvailable,
+            })
+            .eq('id', vehicleId);
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('Database error updating vehicle settings: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error updating vehicle settings: $e');
       rethrow;
     }
   }
@@ -501,7 +551,7 @@ class PartnerService {
       var query = supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model), users(full_name, email)',
+            'id, renter_id, vehicle_id, start_date, end_date, status, total_price, created_at, vehicles(brand, model), users:users!bookings_renter_id_fkey(full_name, email)',
           )
           .inFilter('vehicle_id', vehicleIds);
 

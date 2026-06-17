@@ -16,6 +16,7 @@ class VehicleAvailabilityScreen extends StatefulWidget {
 
 class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
   String? selectedVehicleId;
+  int selectedApplicationStatusTab = 0;
   List<Map<String, dynamic>> vehicles = [];
   List<Map<String, dynamic>> applications = [];
   Map<String, int> applicationCounts = {
@@ -549,24 +550,25 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
         Container(
           width: 12,
           height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 6),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: AppColors.textSecondary,
-          ),
+          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
         ),
       ],
     );
   }
 
   Widget _buildApplicationOverview() {
+    final filteredApplications = _filteredApplicationsForSelectedStatus();
+    final selectedStatusTitle = switch (selectedApplicationStatusTab) {
+      0 => 'Pending Applications',
+      1 => 'Approved Applications',
+      _ => 'Declined Applications',
+    };
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -581,7 +583,7 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Vehicle Applications',
+                'Manage Fleet Applications',
                 style: TextStyle(
                   color: AppColors.textPrimary,
                   fontSize: 16,
@@ -589,32 +591,72 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.darkBg,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.borderColor),
+                ),
+                child: Row(
+                  children: [
+                    _buildApplicationStatusTab(
+                      label: 'Pending',
+                      count: _countApplicationsByStatus({'pending'}),
+                      index: 0,
+                      color: AppColors.warning,
+                    ),
+                    _buildApplicationStatusTab(
+                      label: 'Approved',
+                      count: _countApplicationsByStatus({'approved'}),
+                      index: 1,
+                      color: AppColors.success,
+                    ),
+                    _buildApplicationStatusTab(
+                      label: 'Declined',
+                      count: _countApplicationsByStatus({
+                        'rejected',
+                        'declined',
+                        'cancelled',
+                        'canceled',
+                      }),
+                      index: 2,
+                      color: AppColors.error,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
                 children: [
-                  _buildStatusChip(
-                    'Pending ${applicationCounts['pending'] ?? 0}',
-                    AppColors.warning,
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: _selectedApplicationStatusColor(),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
-                  _buildStatusChip(
-                    'Approved ${applicationCounts['approved'] ?? 0}',
-                    AppColors.success,
-                  ),
-                  _buildStatusChip(
-                    'Rejected ${applicationCounts['rejected'] ?? 0}',
-                    AppColors.error,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      selectedStatusTitle,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              if (applications.isEmpty)
-                const Text(
-                  'No vehicle applications yet.',
+              const SizedBox(height: 12),
+              if (filteredApplications.isEmpty)
+                Text(
+                  'No ${selectedStatusTitle.toLowerCase()} yet.',
                   style: TextStyle(color: AppColors.textSecondary),
                 )
               else
-                ...applications.take(3).map(_buildApplicationCard),
+                ...filteredApplications.map(_buildApplicationCard),
             ],
           ),
         ),
@@ -622,11 +664,59 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     );
   }
 
+  Widget _buildApplicationStatusTab({
+    required String label,
+    required int count,
+    required int index,
+    required Color color,
+  }) {
+    final isSelected = selectedApplicationStatusTab == index;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => selectedApplicationStatusTab = index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? color.withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Column(
+            children: [
+              Text(
+                '$count',
+                style: TextStyle(
+                  color: isSelected ? color : AppColors.textSecondary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected ? color : AppColors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatusChip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -642,13 +732,17 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
   Widget _buildApplicationCard(Map<String, dynamic> application) {
     final status =
-        (application['application_status'] ?? application['status'] ?? 'pending')
+        (application['application_status'] ??
+                application['status'] ??
+                'pending')
             .toString()
             .toLowerCase();
     final brand = application['brand']?.toString() ?? 'Vehicle';
     final model = application['model']?.toString() ?? '';
     final plateNumber = application['plate_number']?.toString() ?? '';
     final createdAt = application['created_at']?.toString();
+    final ownerIsDriver = _truthy(application['owner_is_driver']);
+    final isAvailable = _truthy(application['is_available']);
 
     Color statusColor = AppColors.warning;
     if (status == 'approved') {
@@ -709,15 +803,172 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
             const SizedBox(height: 6),
             Text(
               'Reason: ${application['rejection_reason']}',
-              style: const TextStyle(
-                color: AppColors.error,
-                fontSize: 12,
+              style: const TextStyle(color: AppColors.error, fontSize: 12),
+            ),
+          ],
+          if (status == 'approved') ...[
+            const SizedBox(height: 12),
+            const Divider(color: AppColors.borderColor, height: 1),
+            const SizedBox(height: 10),
+            _buildApprovedApplicationToggle(
+              icon: Icons.person_pin_circle_outlined,
+              title: 'With me',
+              subtitle: 'Owner will also drive this vehicle',
+              value: ownerIsDriver,
+              onChanged: (value) => _updateApprovedApplicationSettings(
+                application,
+                ownerIsDriver: value,
+                isAvailable: isAvailable,
+              ),
+            ),
+            _buildApprovedApplicationToggle(
+              icon: Icons.event_available_outlined,
+              title: 'Available',
+              subtitle: 'Vehicle can be shown as available for booking',
+              value: isAvailable,
+              onChanged: (value) => _updateApprovedApplicationSettings(
+                application,
+                ownerIsDriver: ownerIsDriver,
+                isAvailable: value,
               ),
             ),
           ],
         ],
       ),
     );
+  }
+
+  Widget _buildApprovedApplicationToggle({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: AppColors.primary,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateApprovedApplicationSettings(
+    Map<String, dynamic> application, {
+    required bool ownerIsDriver,
+    required bool isAvailable,
+  }) async {
+    final applicationId = application['id']?.toString();
+    final partnerVehicleId = application['partner_vehicle_id']?.toString();
+    final vehicleId = application['created_vehicle_id']?.toString();
+
+    if (applicationId == null ||
+        applicationId.isEmpty ||
+        partnerVehicleId == null ||
+        partnerVehicleId.isEmpty) {
+      _showErrorSnackBar('Approved vehicle link is missing');
+      return;
+    }
+
+    try {
+      final partnerService = PartnerService();
+      await partnerService.updateApprovedVehicleSettings(
+        applicationId: applicationId,
+        partnerVehicleId: partnerVehicleId,
+        vehicleId: vehicleId,
+        ownerIsDriver: ownerIsDriver,
+        isAvailable: isAvailable,
+      );
+
+      setState(() {
+        application['owner_is_driver'] = ownerIsDriver;
+        application['is_available'] = isAvailable;
+      });
+      _showSuccessSnackBar('Vehicle settings updated');
+    } catch (e) {
+      _showErrorSnackBar('Failed to update vehicle settings');
+    }
+  }
+
+  List<Map<String, dynamic>> _filteredApplicationsForSelectedStatus() {
+    final statuses = switch (selectedApplicationStatusTab) {
+      0 => {'pending'},
+      1 => {'approved'},
+      _ => {'rejected', 'declined', 'cancelled', 'canceled'},
+    };
+
+    return applications
+        .where(
+          (application) => statuses.contains(_applicationStatus(application)),
+        )
+        .toList();
+  }
+
+  int _countApplicationsByStatus(Set<String> statuses) {
+    return applications
+        .where(
+          (application) => statuses.contains(_applicationStatus(application)),
+        )
+        .length;
+  }
+
+  String _applicationStatus(Map<String, dynamic> application) {
+    return (application['application_status'] ??
+            application['status'] ??
+            'pending')
+        .toString()
+        .toLowerCase();
+  }
+
+  Color _selectedApplicationStatusColor() {
+    return switch (selectedApplicationStatusTab) {
+      0 => AppColors.warning,
+      1 => AppColors.success,
+      _ => AppColors.error,
+    };
+  }
+
+  bool _truthy(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final normalized = value.trim().toLowerCase();
+      return normalized == 'true' ||
+          normalized == 'yes' ||
+          normalized == '1' ||
+          normalized == 'available';
+    }
+    return false;
   }
 
   String _formatDate(String value) {

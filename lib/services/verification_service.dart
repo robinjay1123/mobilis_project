@@ -71,7 +71,7 @@ class VerificationService {
       'is_verified': isVerified,
       'verification_status': isVerified
           ? 'verified'
-          : (requestStatus ?? userStatus ?? 'pending').toString(),
+          : (requestStatus ?? userStatus ?? 'unverified').toString(),
     };
   }
 

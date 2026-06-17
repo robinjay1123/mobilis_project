@@ -415,29 +415,72 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
 
       if (approve) {
-        final createdVehicle = await _supabase
-            .from('vehicles')
+        final partnerUserId = application['partner_id']?.toString();
+        if (partnerUserId == null || partnerUserId.isEmpty) {
+          throw Exception('Application is missing partner_id');
+        }
+
+        var partnerProfile = await _supabase
+            .from('partners')
+            .select('id')
+            .eq('user_id', partnerUserId)
+            .maybeSingle();
+
+        partnerProfile ??= await _supabase
+            .from('partners')
             .insert({
-              'owner_id': application['partner_id'],
+              'user_id': partnerUserId,
+              'verification_status': 'approved',
+              'created_at': DateTime.now().toIso8601String(),
+            })
+            .select('id')
+            .single();
+
+        final partnerProfileId = partnerProfile['id']?.toString();
+        if (partnerProfileId == null || partnerProfileId.isEmpty) {
+          throw Exception('Partner profile could not be resolved');
+        }
+
+        final partnerVehicle = await _supabase
+            .from('partner_vehicles')
+            .insert({
+              'partner_id': partnerProfileId,
               'brand': application['brand'],
               'model': application['model'],
               'year': application['year'],
               'plate_number': application['plate_number'],
+              'seats': application['seats'] ?? 5,
               'price_per_day': application['price_per_day'] ?? 0,
-              'status': 'active',
-              'is_available': false,
-              'image_url': application['vehicle_photo_url'],
+              'price_per_hour': application['price_per_hour'] ?? 0,
+              'fuel_type': application['fuel_type'] ?? 'Gasoline',
+              'transmission': application['transmission'] ?? 'Manual',
+              'owner_is_driver': application['owner_is_driver'] ?? false,
+              'is_available': application['is_available'] ?? false,
+              'status': 'pending',
+              'created_at': DateTime.now().toIso8601String(),
             })
             .select('id')
             .single();
+
+        final partnerVehicleId = partnerVehicle['id'];
+        final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
+        if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
+          await _supabase.from('vehicle_images').insert({
+            'partner_vehicle_id': partnerVehicleId,
+            'image_url': vehiclePhotoUrl,
+            'display_order': 0,
+          });
+        }
 
         await _supabase
             .from('partner_vehicle_applications')
             .update({
               'application_status': 'approved',
+              'status': 'approved',
               'reviewed_at': DateTime.now().toIso8601String(),
               'rejection_reason': null,
-              'created_vehicle_id': createdVehicle['id'],
+              'partner_vehicle_id': partnerVehicleId,
+              'created_vehicle_id': null,
             })
             .eq('id', appId);
       } else {
@@ -929,9 +972,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             'Switch between light and dark mode',
             Icons.palette_outlined,
             trailing: Switch(
-              value: widget.isDarkMode,
+              value: isDark,
               onChanged: (value) => widget.onThemeToggle?.call(value),
-              activeColor: AppColors.primary,
+              activeThumbColor: AppColors.primary,
             ),
             isDark: isDark,
           ),

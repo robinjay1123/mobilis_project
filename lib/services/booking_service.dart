@@ -36,7 +36,7 @@ class BookingService {
       // Then get bookings for those vehicles
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users(*)')
+          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
           .inFilter('vehicle_id', vehicleIds)
           .order('created_at', ascending: false);
 
@@ -74,7 +74,7 @@ class BookingService {
       // Then get bookings with status filter
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users(*)')
+          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
           .inFilter('vehicle_id', vehicleIds)
           .eq('status', status)
           .order('created_at', ascending: false);
@@ -99,31 +99,28 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select('''
-            id,
-            renter_id,
-            vehicle_id,
-            driver_id,
-            status,
-            start_at,
-            end_at,
-            start_date,
-            end_date,
-            total_price,
-            total_cost,
-            with_driver,
-            pickup_location,
-            dropoff_location,
-            created_at,
+            *,
             vehicles:vehicle_id (
               id,
               brand,
               model,
               year,
               owner_id,
+              operator_id,
               vehicle_name,
               rating,
               price_per_day,
               vehicle_images(image_url, display_order)
+            ),
+            driver:drivers!bookings_driver_id_fkey (
+              id,
+              user_id,
+              users!drivers_user_id_fkey (
+                id,
+                full_name,
+                email,
+                phone
+              )
             )
           ''')
           .eq('renter_id', userId)
@@ -147,12 +144,20 @@ class BookingService {
 
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users(*)')
+          .select('*, vehicles(*)')
           .eq('id', bookingId)
           .maybeSingle();
 
       debugPrint('Booking fetched: ${response != null}');
-      return response;
+      if (response == null) return null;
+
+      final booking = Map<String, dynamic>.from(response);
+      final renterId = booking['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        booking['users'] = await _getUserById(renterId);
+      }
+
+      return booking;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching booking: ${e.message}');
       rethrow;
@@ -172,6 +177,13 @@ class BookingService {
     bool withDriver = false,
     String? pickupLocation,
     String? dropoffLocation,
+    DateTime? rentalTermsAcceptedAt,
+    String? rentalTermsSnapshot,
+    double? reservationFeeAmount,
+    String? reservationPaymentReference,
+    String? reservationPaymentProofUrl,
+    String? reservationPaymentMethod,
+    String? reservationPaymentType,
   }) async {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
@@ -191,31 +203,74 @@ class BookingService {
         throw Exception('Selected dates are unavailable for bookings');
       }
 
+      final bookingPayload = <String, dynamic>{
+        'renter_id': renterId,
+        'vehicle_id': vehicleId,
+        'start_at': startAt.toIso8601String(),
+        'end_at': endAt.toIso8601String(),
+        // Keep legacy fields for existing screens/queries (date-only intent).
+        'start_date': DateTime(
+          startAt.toLocal().year,
+          startAt.toLocal().month,
+          startAt.toLocal().day,
+        ).toIso8601String(),
+        'end_date': DateTime(
+          endAt.toLocal().year,
+          endAt.toLocal().month,
+          endAt.toLocal().day,
+        ).toIso8601String(),
+        'total_price': totalPrice,
+        'with_driver': withDriver,
+        'pickup_location': pickupLocation,
+        'dropoff_location': dropoffLocation,
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      if (reservationFeeAmount != null) {
+        bookingPayload['reservation_fee_amount'] = reservationFeeAmount;
+      }
+
+      final cleanPaymentType = reservationPaymentType?.trim().toLowerCase();
+      if (cleanPaymentType != null && cleanPaymentType.isNotEmpty) {
+        bookingPayload['reservation_payment_type'] = cleanPaymentType;
+        bookingPayload['reservation_payment_covers_total'] =
+            cleanPaymentType == 'full_payment';
+      }
+
+      if (reservationPaymentReference != null &&
+          reservationPaymentReference.trim().isNotEmpty) {
+        bookingPayload['reservation_payment_reference'] =
+            reservationPaymentReference.trim();
+        bookingPayload['reservation_payment_status'] = 'pending_review';
+        bookingPayload['reservation_payment_submitted_at'] = DateTime.now()
+            .toIso8601String();
+      }
+
+      if (reservationPaymentProofUrl != null &&
+          reservationPaymentProofUrl.trim().isNotEmpty) {
+        bookingPayload['reservation_payment_proof_url'] =
+            reservationPaymentProofUrl.trim();
+      }
+
+      if (reservationPaymentMethod != null &&
+          reservationPaymentMethod.trim().isNotEmpty) {
+        bookingPayload['reservation_payment_method'] = reservationPaymentMethod
+            .trim();
+      }
+
+      if (rentalTermsAcceptedAt != null) {
+        bookingPayload['rental_terms_accepted_at'] = rentalTermsAcceptedAt
+            .toIso8601String();
+      }
+
+      if (rentalTermsSnapshot != null) {
+        bookingPayload['rental_terms_snapshot'] = rentalTermsSnapshot;
+      }
+
       final response = await supabase
           .from('bookings')
-          .insert({
-            'renter_id': renterId,
-            'vehicle_id': vehicleId,
-            'start_at': startAt.toIso8601String(),
-            'end_at': endAt.toIso8601String(),
-            // Keep legacy fields for existing screens/queries (date-only intent).
-            'start_date': DateTime(
-              startAt.toLocal().year,
-              startAt.toLocal().month,
-              startAt.toLocal().day,
-            ).toIso8601String(),
-            'end_date': DateTime(
-              endAt.toLocal().year,
-              endAt.toLocal().month,
-              endAt.toLocal().day,
-            ).toIso8601String(),
-            'total_price': totalPrice,
-            'with_driver': withDriver,
-            'pickup_location': pickupLocation,
-            'dropoff_location': dropoffLocation,
-            'status': 'pending',
-            'created_at': DateTime.now().toIso8601String(),
-          })
+          .insert(bookingPayload)
           .select()
           .single();
 
@@ -263,8 +318,11 @@ class BookingService {
       if (status == 'cancelled') {
         final currentStatus =
             booking['status']?.toString().trim().toLowerCase() ?? '';
-        if (currentStatus != 'pending') {
-          throw Exception('Only pending bookings can be cancelled');
+        const cancellableStatuses = {'pending', 'approved', 'confirmed'};
+        if (!cancellableStatuses.contains(currentStatus)) {
+          throw Exception(
+            'Only pending, approved, or confirmed bookings can be cancelled before the trip starts',
+          );
         }
 
         final createdAtStr = booking['created_at']?.toString();
@@ -277,7 +335,7 @@ class BookingService {
 
         if (DateTime.now().isAfter(createdAt.add(const Duration(hours: 24)))) {
           throw Exception(
-            'Cancellation window has passed. Pending bookings can only be cancelled within 24 hours.',
+            'Cancellation window has passed. Bookings can only be cancelled within 24 hours after request.',
           );
         }
       }
@@ -286,6 +344,7 @@ class BookingService {
           .from('bookings')
           .update({
             'status': status,
+            if (status == 'cancelled') 'refund_status': 'refund_needed',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -334,6 +393,45 @@ class BookingService {
           }
         }
       } else if (status == 'cancelled') {
+        final reservationReference = booking['reservation_payment_reference']
+            ?.toString()
+            .trim();
+        final hasReservationPayment =
+            reservationReference != null && reservationReference.isNotEmpty;
+
+        if (hasReservationPayment) {
+          try {
+            final operators = await supabase
+                .from('users')
+                .select('id')
+                .eq('role', 'operator');
+
+            final notifications = List<Map<String, dynamic>>.from(operators)
+                .map(
+                  (operator) => {
+                    'user_id': operator['id'],
+                    'title': 'Refund Needed for Cancelled Booking',
+                    'message':
+                        '$vehicleTitle was cancelled after reservation payment. Reference: $reservationReference. Please review refund processing.',
+                    'type': 'booking_refund',
+                    'data': {
+                      'booking_id': bookingId,
+                      'status': status,
+                      'reservation_payment_reference': reservationReference,
+                      'refund_status': 'refund_needed',
+                    },
+                    'created_at': DateTime.now().toIso8601String(),
+                  },
+                )
+                .toList();
+
+            if (notifications.isNotEmpty) {
+              await supabase.from('notifications').insert(notifications);
+            }
+          } catch (e) {
+            debugPrint('Error notifying operators for refund: $e');
+          }
+        }
         // 🔴 Notify operator/owner when renter cancels (within 24 hours)
         if (vehicle?['owner_id'] != null) {
           try {
@@ -449,7 +547,7 @@ class BookingService {
 
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users(*)')
+          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
           .inFilter('vehicle_id', vehicleIds)
           .order('created_at', ascending: false)
           .limit(limit);
@@ -474,7 +572,7 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users(full_name, email, phone)',
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users:users!bookings_renter_id_fkey(full_name, email, phone)',
           )
           .eq('status', 'pending')
           .order('created_at', ascending: false);
@@ -1257,12 +1355,16 @@ class BookingService {
     try {
       final existingMessages = await supabase
           .from('messages')
-          .select('content')
+          .select('content, message')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true)
           .limit(20);
       return List<Map<String, dynamic>>.from(existingMessages).any((message) {
-        final content = message['content']?.toString().toLowerCase() ?? '';
+        final content =
+            (message['content'] ?? message['message'])
+                ?.toString()
+                .toLowerCase() ??
+            '';
         return content.startsWith('booking request created') ||
             content.startsWith('booking details') ||
             content.startsWith('booking confirmed') ||
@@ -1380,7 +1482,7 @@ class BookingService {
       var query = supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(brand, model, year, plate_number), users(full_name, email)',
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, pickup_location, dropoff_location, created_at, vehicles(brand, model, year, plate_number), users:users!bookings_renter_id_fkey(full_name, email)',
           );
 
       if (status != null && status.isNotEmpty) {
