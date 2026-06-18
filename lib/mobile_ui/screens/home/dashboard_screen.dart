@@ -56,9 +56,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String selectedCategory = '';
 
   bool _isLoadingVehicles = false;
+  bool _isLocatingNearbyVehicles = false;
   bool _hasShownVerificationPrompt = false;
   DateTime? _bookingFilterFrom;
   DateTime? _bookingFilterTo;
+  double? _nearbyLatitude;
+  double? _nearbyLongitude;
+  String? _nearbyLocationLabel;
+  List<String> _nearbyLocationTokens = [];
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _vehicles = [];
@@ -651,8 +656,174 @@ class _DashboardScreenState extends State<DashboardScreen> {
           source.contains(search);
     }).toList();
 
+    if (_nearbyLatitude != null && _nearbyLongitude != null) {
+      final nearby = <Map<String, dynamic>>[];
+      final fallbackNearby = <Map<String, dynamic>>[];
+
+      for (final vehicle in filtered) {
+        final copy = Map<String, dynamic>.from(vehicle);
+        final distance = _vehicleDistanceKm(copy);
+        if (distance != null) {
+          copy['distance_km'] = distance;
+          if (distance <= 75) {
+            nearby.add(copy);
+          }
+          continue;
+        }
+
+        if (_vehicleMatchesNearbyText(copy)) {
+          fallbackNearby.add(copy);
+        }
+      }
+
+      nearby.sort((a, b) {
+        final aDistance = (a['distance_km'] as num?)?.toDouble() ?? 999999;
+        final bDistance = (b['distance_km'] as num?)?.toDouble() ?? 999999;
+        return aDistance.compareTo(bDistance);
+      });
+
+      filtered
+        ..clear()
+        ..addAll(nearby)
+        ..addAll(fallbackNearby);
+    }
+
     if (!mounted) return;
     setState(() => _filteredVehicles = filtered);
+  }
+
+  double? _vehicleDistanceKm(Map<String, dynamic> vehicle) {
+    final userLat = _nearbyLatitude;
+    final userLng = _nearbyLongitude;
+    final vehicleLat = _toDouble(vehicle['latitude']);
+    final vehicleLng = _toDouble(vehicle['longitude']);
+    if (userLat == null ||
+        userLng == null ||
+        vehicleLat == null ||
+        vehicleLng == null) {
+      return null;
+    }
+    return Geolocator.distanceBetween(
+          userLat,
+          userLng,
+          vehicleLat,
+          vehicleLng,
+        ) /
+        1000;
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  bool _vehicleMatchesNearbyText(Map<String, dynamic> vehicle) {
+    if (_nearbyLocationTokens.isEmpty) return false;
+    final location = [
+      vehicle['location'],
+      vehicle['city'],
+      vehicle['province'],
+      vehicle['address'],
+    ].where((part) => part != null).join(' ').toLowerCase();
+    if (location.trim().isEmpty) return false;
+    return _nearbyLocationTokens.any(location.contains);
+  }
+
+  Future<void> _filterVehiclesNearMe() async {
+    if (_isLocatingNearbyVehicles) return;
+
+    setState(() => _isLocatingNearbyVehicles = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Please turn on location services first.');
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission is required to find nearby cars.');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission is permanently denied. Enable it in settings.',
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      var label = 'your location';
+      final tokens = <String>{};
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final labelParts = [
+            p.subLocality,
+            p.locality,
+            p.subAdministrativeArea,
+            p.administrativeArea,
+          ].where((part) => part != null && part.trim().isNotEmpty).toList();
+          if (labelParts.isNotEmpty) {
+            label = labelParts.take(2).join(', ');
+          }
+          for (final part in labelParts) {
+            final token = part!.trim().toLowerCase();
+            if (token.length >= 3) tokens.add(token);
+          }
+        }
+      } catch (e) {
+        debugPrint('Nearby reverse geocoding failed: $e');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _nearbyLatitude = position.latitude;
+        _nearbyLongitude = position.longitude;
+        _nearbyLocationLabel = label;
+        _nearbyLocationTokens = tokens.toList();
+        userLocation = label;
+      });
+      _applyVehicleFilters();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Showing available cars near $label'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLocatingNearbyVehicles = false);
+      }
+    }
+  }
+
+  void _clearNearbyVehicleFilter() {
+    if (_nearbyLatitude == null && _nearbyLongitude == null) return;
+    setState(() {
+      _nearbyLatitude = null;
+      _nearbyLongitude = null;
+      _nearbyLocationLabel = null;
+      _nearbyLocationTokens = [];
+    });
+    _applyVehicleFilters();
   }
 
   Future<void> _loadFavoriteVehicleIds() async {
@@ -800,10 +971,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             final hasInvalidRange =
                 rangeStart != null &&
                 rangeEnd != null &&
-                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, {
-                  ...unavailable,
-                  ...myBookedDays,
-                });
+                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, unavailable);
 
             return Dialog(
               backgroundColor: AppColors.darkBgSecondary,
@@ -899,29 +1067,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             );
                             return;
                           }
-                          if ((startDay != null &&
-                                  myBookedDays.contains(startDay)) ||
-                              (endDay != null &&
-                                  myBookedDays.contains(endDay))) {
-                            _showBookedDateDetails(
-                              startDay != null &&
-                                      myBookedDays.contains(startDay)
-                                  ? startDay
-                                  : endDay!,
-                              myBookedDetails,
-                            );
-                            return;
-                          }
                           if (start != null &&
                               end != null &&
-                              _rangeContainsBlockedDate(start, end, {
-                                ...unavailable,
-                                ...myBookedDays,
-                              })) {
+                              _rangeContainsBlockedDate(
+                                start,
+                                end,
+                                unavailable,
+                              )) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'Selected range includes unavailable or already-booked dates',
+                                  'Selected range includes unavailable dates',
                                 ),
                                 backgroundColor: AppColors.error,
                               ),
@@ -937,13 +1093,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         },
                         onDaySelected: (selectedDay, focused) {
                           final selectedDate = _dateOnly(selectedDay);
-                          if (myBookedDays.contains(selectedDate)) {
-                            _showBookedDateDetails(
-                              selectedDate,
-                              myBookedDetails,
-                            );
-                            return;
-                          }
                           if (unavailable.contains(selectedDate)) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -966,12 +1115,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               if (_rangeContainsBlockedDate(
                                 rangeStart!,
                                 selectedDay,
-                                {...unavailable, ...myBookedDays},
+                                unavailable,
                               )) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'Selected range includes unavailable or already-booked dates',
+                                      'Selected range includes unavailable dates',
                                     ),
                                     backgroundColor: AppColors.error,
                                   ),
@@ -1078,7 +1227,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       if (hasInvalidRange) ...[
                         const SizedBox(height: 8),
                         const Text(
-                          'Selected range includes unavailable or already-booked dates.',
+                          'Selected range includes unavailable dates.',
                           style: TextStyle(
                             color: AppColors.error,
                             fontSize: 12,
@@ -1143,14 +1292,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     bool isToday = false,
   }) {
     final date = _dateOnly(day);
-    if (myBookedDays.contains(date)) {
-      return _buildCalendarDayCell(
-        day: day,
-        backgroundColor: AppColors.warning,
-        borderColor: isToday ? AppColors.primary : null,
-        textColor: Colors.black,
-      );
-    }
     if (unavailable.contains(date)) {
       return _buildCalendarDayCell(
         day: day,
@@ -1158,6 +1299,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderColor: isToday ? AppColors.primary : null,
         textColor: Colors.white,
         strikethrough: true,
+      );
+    }
+    if (myBookedDays.contains(date)) {
+      return _buildCalendarDayCell(
+        day: day,
+        backgroundColor: AppColors.warning,
+        borderColor: isToday ? AppColors.primary : null,
+        textColor: Colors.black,
       );
     }
     return _buildCalendarDayCell(
@@ -1197,19 +1346,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
   ) {
     final details = <DateTime, List<Map<String, dynamic>>>{};
     for (final booking in bookings) {
-      final status = booking['status']?.toString().toLowerCase() ?? '';
+      final status =
+          (booking['rawStatus'] ?? booking['status'])
+              ?.toString()
+              .toLowerCase() ??
+          '';
       if (!{'pending', 'approved', 'confirmed', 'active'}.contains(status)) {
         continue;
       }
 
-      final start = DateTime.tryParse(
-        booking['start_at']?.toString() ??
-            booking['start_date']?.toString() ??
-            '',
-      )?.toLocal();
-      final end = DateTime.tryParse(
-        booking['end_at']?.toString() ?? booking['end_date']?.toString() ?? '',
-      )?.toLocal();
+      final start = _parseBookingCalendarDate(
+        booking['start_at'] ??
+            booking['start_date_raw'] ??
+            booking['start_date'] ??
+            booking['startDate'],
+      );
+      final end = _parseBookingCalendarDate(
+        booking['end_at'] ??
+            booking['end_date_raw'] ??
+            booking['end_date'] ??
+            booking['endDate'],
+      );
       if (start == null || end == null) continue;
 
       var current = _dateOnly(start);
@@ -1220,6 +1377,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
     return details;
+  }
+
+  DateTime? _parseBookingCalendarDate(Object? value) {
+    if (value == null) return null;
+    final raw = value.toString().trim();
+    if (raw.isEmpty || raw == 'N/A') return null;
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) return parsed.toLocal();
+
+    final parts = raw.split(RegExp(r'\s+'));
+    if (parts.length < 2) return null;
+
+    final day = int.tryParse(parts[0].replaceAll(RegExp(r'[^0-9]'), ''));
+    if (day == null) return null;
+
+    final monthLookup = {
+      'jan': 1,
+      'feb': 2,
+      'mar': 3,
+      'apr': 4,
+      'may': 5,
+      'jun': 6,
+      'jul': 7,
+      'aug': 8,
+      'sep': 9,
+      'oct': 10,
+      'nov': 11,
+      'dec': 12,
+    };
+    final monthText = parts[1].toLowerCase();
+    if (monthText.length < 3) return null;
+    final monthKey = monthText.substring(0, 3);
+    final month = monthLookup[monthKey];
+    if (month == null) return null;
+
+    final year = parts.length >= 3
+        ? int.tryParse(parts[2])
+        : DateTime.now().year;
+    if (year == null) return null;
+
+    return DateTime(year, month, day);
   }
 
   String _bookingVehicleTitle(Map<String, dynamic> booking) {
@@ -2247,21 +2446,90 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Icons.search,
                           color: tertiaryTextColor,
                         ),
-                        suffixIcon: Container(
-                          margin: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary,
+                        suffixIcon: Tooltip(
+                          message: 'Find cars near me',
+                          child: InkWell(
                             borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.tune,
-                            color: Colors.black,
-                            size: 18,
+                            onTap: _isLocatingNearbyVehicles
+                                ? null
+                                : _filterVehiclesNearMe,
+                            child: Container(
+                              width: 42,
+                              height: 42,
+                              margin: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: _nearbyLatitude != null
+                                    ? AppColors.success
+                                    : AppColors.primary,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: _isLocatingNearbyVehicles
+                                  ? const Padding(
+                                      padding: EdgeInsets.all(11),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.black,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.my_location,
+                                      color: Colors.black,
+                                      size: 18,
+                                    ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
+                  if (_nearbyLatitude != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withAlpha(28),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.success.withAlpha(120),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            color: AppColors.success,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Showing cars near ${_nearbyLocationLabel ?? 'you'}',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _clearNearbyVehicleFilter,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
@@ -2627,7 +2895,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                   )
-                : _vehicles.isEmpty
+                : _vehicles.isEmpty || _filteredVehicles.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.all(24),
                     child: Center(
@@ -2649,12 +2917,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'No vehicles available',
+                            _vehicles.isEmpty
+                                ? 'No vehicles available'
+                                : _nearbyLatitude != null
+                                ? 'No cars found near ${_nearbyLocationLabel ?? 'you'}'
+                                : 'No cars match your search',
                             style: TextStyle(
                               color: secondaryTextColor,
                               fontSize: 14,
                             ),
+                            textAlign: TextAlign.center,
                           ),
+                          if (_filteredVehicles.isEmpty &&
+                              _vehicles.isNotEmpty &&
+                              _nearbyLatitude != null) ...[
+                            const SizedBox(height: 10),
+                            OutlinedButton.icon(
+                              onPressed: _clearNearbyVehicleFilter,
+                              icon: const Icon(Icons.location_off_outlined),
+                              label: const Text('Show all cars'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -2693,6 +2982,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final isFavorite = _favoriteVehicleIds.contains(
                         vehicleId,
                       );
+                      final distanceKm = (car['distance_km'] as num?)
+                          ?.toDouble();
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16),
@@ -2957,6 +3248,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ],
                                         ),
+                                        if (distanceKm != null) ...[
+                                          const SizedBox(height: 6),
+                                          Row(
+                                            children: [
+                                              _buildFeatureIcon(
+                                                Icons.location_on_outlined,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${distanceKm.toStringAsFixed(distanceKm < 10 ? 1 : 0)} km away',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: secondaryTextColor,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                         const SizedBox(height: 12),
                                         Row(
                                           mainAxisAlignment:

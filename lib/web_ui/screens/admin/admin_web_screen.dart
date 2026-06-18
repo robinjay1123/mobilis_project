@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
@@ -58,6 +59,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isSavingTerms = false;
   bool _isLoadingReservationPayment = false;
   bool _isSavingReservationPayment = false;
+  bool _isUploadingReservationQr = false;
   final TextEditingController _rentalTermsController = TextEditingController();
   final TextEditingController _reservationAmountController =
       TextEditingController();
@@ -200,6 +202,45 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } finally {
       if (mounted) {
         setState(() => _isSavingReservationPayment = false);
+      }
+    }
+  }
+
+  Future<void> _uploadReservationPaymentQr() async {
+    setState(() => _isUploadingReservationQr = true);
+
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+      if (picked == null) return;
+
+      final qrUrl = await ReservationPaymentService().uploadQrCode(
+        file: picked,
+      );
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.text = qrUrl);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reservation QR uploaded. Save settings to publish it.',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to upload reservation QR: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingReservationQr = false);
       }
     }
   }
@@ -3625,17 +3666,100 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  controller: _reservationQrUrlController,
-                  onChanged: (_) => setState(() {}),
-                  enabled:
-                      !_isLoadingReservationPayment &&
-                      !_isSavingReservationPayment,
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                  decoration: _settingsInputDecoration(
-                    isDark,
-                    label: 'Payment QR Image URL',
-                    hint: 'https://...',
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.borderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 96,
+                        height: 96,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.darkBg
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child:
+                            _reservationQrUrlController.text.trim().isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  _reservationQrUrlController.text.trim(),
+                                  width: 96,
+                                  height: 96,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.broken_image_outlined,
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              )
+                            : const Icon(
+                                Icons.qr_code_2,
+                                color: AppColors.textTertiary,
+                                size: 42,
+                              ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Payment QR Code',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _reservationQrUrlController.text.trim().isEmpty
+                                  ? 'No QR uploaded yet.'
+                                  : 'QR uploaded and ready to publish.',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.grey
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  _isLoadingReservationPayment ||
+                                      _isSavingReservationPayment ||
+                                      _isUploadingReservationQr
+                                  ? null
+                                  : _uploadReservationPaymentQr,
+                              icon: _isUploadingReservationQr
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.upload_file),
+                              label: Text(
+                                _isUploadingReservationQr
+                                    ? 'Uploading...'
+                                    : 'Upload QR Image',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -3656,34 +3780,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     hint: 'Tell renters how to pay and upload proof...',
                   ),
                 ),
-                if (_reservationQrUrlController.text.trim().isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      _reservationQrUrlController.text.trim(),
-                      width: 180,
-                      height: 180,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 180,
-                        height: 120,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? AppColors.darkBgSecondary
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.error),
-                        ),
-                        child: const Text(
-                          'QR preview unavailable',
-                          style: TextStyle(color: AppColors.error),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -3698,7 +3794,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     OutlinedButton.icon(
                       onPressed:
                           _isLoadingReservationPayment ||
-                              _isSavingReservationPayment
+                              _isSavingReservationPayment ||
+                              _isUploadingReservationQr
                           ? null
                           : _loadReservationPaymentSettings,
                       icon: const Icon(Icons.refresh),
@@ -3708,7 +3805,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ElevatedButton.icon(
                       onPressed:
                           _isLoadingReservationPayment ||
-                              _isSavingReservationPayment
+                              _isSavingReservationPayment ||
+                              _isUploadingReservationQr
                           ? null
                           : _saveReservationPaymentSettings,
                       icon: _isSavingReservationPayment

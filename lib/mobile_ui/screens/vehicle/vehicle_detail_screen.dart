@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
@@ -11,6 +15,7 @@ import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../utils/locations.dart';
+import '../../../utils/web_html.dart' as html;
 
 class VehicleDetailScreen extends StatefulWidget {
   final String vehicleId;
@@ -35,6 +40,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   bool _isLoading = true;
   bool _isBooking = false;
   bool _isFavorite = false;
+  bool _isLocatingPickup = false;
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
   List<DateTime> _unavailableDates = [];
@@ -226,10 +232,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             final hasInvalidRange =
                 rangeStart != null &&
                 rangeEnd != null &&
-                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, {
-                  ...bookedDays,
-                  ...myBookedDays,
-                });
+                _rangeContainsBlockedDate(rangeStart!, rangeEnd!, bookedDays);
 
             return Dialog(
               backgroundColor: AppColors.darkBgSecondary,
@@ -324,29 +327,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             );
                             return;
                           }
-                          if ((startDay != null &&
-                                  myBookedDays.contains(startDay)) ||
-                              (endDay != null &&
-                                  myBookedDays.contains(endDay))) {
-                            _showBookedDateDetails(
-                              startDay != null &&
-                                      myBookedDays.contains(startDay)
-                                  ? startDay
-                                  : endDay!,
-                              myBookedDetails,
-                            );
-                            return;
-                          }
                           if (start != null &&
                               end != null &&
-                              _rangeContainsBlockedDate(start, end, {
-                                ...bookedDays,
-                                ...myBookedDays,
-                              })) {
+                              _rangeContainsBlockedDate(
+                                start,
+                                end,
+                                bookedDays,
+                              )) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'Selected range includes unavailable or already-booked dates',
+                                  'Selected range includes unavailable dates',
                                 ),
                                 backgroundColor: AppColors.error,
                               ),
@@ -362,13 +353,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         },
                         onDaySelected: (selectedDay, focused) {
                           final selectedDate = _dateOnly(selectedDay);
-                          if (myBookedDays.contains(selectedDate)) {
-                            _showBookedDateDetails(
-                              selectedDate,
-                              myBookedDetails,
-                            );
-                            return;
-                          }
                           if (bookedDays.contains(selectedDate)) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -391,12 +375,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               if (_rangeContainsBlockedDate(
                                 rangeStart!,
                                 selectedDay,
-                                {...bookedDays, ...myBookedDays},
+                                bookedDays,
                               )) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'Selected range includes unavailable or already-booked dates',
+                                      'Selected range includes unavailable dates',
                                     ),
                                     backgroundColor: AppColors.error,
                                   ),
@@ -489,19 +473,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         calendarBuilders: CalendarBuilders(
                           defaultBuilder: (context, day, focusedDay) {
                             final date = _dateOnly(day);
-                            if (myBookedDays.contains(date)) {
-                              return _buildCalendarDayCell(
-                                day: day,
-                                backgroundColor: AppColors.warning,
-                                textColor: Colors.black,
-                              );
-                            }
                             if (bookedDays.contains(date)) {
                               return _buildCalendarDayCell(
                                 day: day,
                                 backgroundColor: AppColors.error,
                                 textColor: Colors.white,
                                 strikethrough: true,
+                              );
+                            }
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                textColor: Colors.black,
                               );
                             }
                             return _buildCalendarDayCell(
@@ -537,39 +521,39 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           },
                           disabledBuilder: (context, day, focusedDay) {
                             final date = _dateOnly(day);
-                            if (myBookedDays.contains(date)) {
-                              return _buildCalendarDayCell(
-                                day: day,
-                                backgroundColor: AppColors.warning,
-                                textColor: Colors.black,
-                              );
-                            }
                             if (bookedDays.contains(date)) {
                               return _buildCalendarDayCell(
                                 day: day,
                                 backgroundColor: AppColors.error,
                                 textColor: Colors.white,
                                 strikethrough: true,
+                              );
+                            }
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                textColor: Colors.black,
                               );
                             }
                             return null;
                           },
                           todayBuilder: (context, day, focusedDay) {
                             final date = _dateOnly(day);
-                            if (myBookedDays.contains(date)) {
-                              return _buildCalendarDayCell(
-                                day: day,
-                                backgroundColor: AppColors.warning,
-                                borderColor: AppColors.primary,
-                                textColor: Colors.black,
-                              );
-                            }
                             if (bookedDays.contains(date)) {
                               return _buildCalendarDayCell(
                                 day: day,
                                 backgroundColor: AppColors.error,
                                 textColor: Colors.white,
                                 strikethrough: true,
+                              );
+                            }
+                            if (myBookedDays.contains(date)) {
+                              return _buildCalendarDayCell(
+                                day: day,
+                                backgroundColor: AppColors.warning,
+                                borderColor: AppColors.primary,
+                                textColor: Colors.black,
                               );
                             }
                             return _buildCalendarDayCell(
@@ -584,7 +568,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       if (hasInvalidRange) ...[
                         const SizedBox(height: 8),
                         const Text(
-                          'Selected range includes unavailable or already-booked dates.',
+                          'Selected range includes unavailable dates.',
                           style: TextStyle(
                             color: AppColors.error,
                             fontSize: 12,
@@ -684,19 +668,27 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   ) {
     final details = <DateTime, List<Map<String, dynamic>>>{};
     for (final booking in bookings) {
-      final status = booking['status']?.toString().toLowerCase() ?? '';
+      final status =
+          (booking['rawStatus'] ?? booking['status'])
+              ?.toString()
+              .toLowerCase() ??
+          '';
       if (!{'pending', 'approved', 'confirmed', 'active'}.contains(status)) {
         continue;
       }
 
-      final start = DateTime.tryParse(
-        booking['start_at']?.toString() ??
-            booking['start_date']?.toString() ??
-            '',
-      )?.toLocal();
-      final end = DateTime.tryParse(
-        booking['end_at']?.toString() ?? booking['end_date']?.toString() ?? '',
-      )?.toLocal();
+      final start = _parseBookingCalendarDate(
+        booking['start_at'] ??
+            booking['start_date_raw'] ??
+            booking['start_date'] ??
+            booking['startDate'],
+      );
+      final end = _parseBookingCalendarDate(
+        booking['end_at'] ??
+            booking['end_date_raw'] ??
+            booking['end_date'] ??
+            booking['endDate'],
+      );
       if (start == null || end == null) continue;
 
       var current = _dateOnly(start);
@@ -707,6 +699,48 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
     }
     return details;
+  }
+
+  DateTime? _parseBookingCalendarDate(Object? value) {
+    if (value == null) return null;
+    final raw = value.toString().trim();
+    if (raw.isEmpty || raw == 'N/A') return null;
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) return parsed.toLocal();
+
+    final parts = raw.split(RegExp(r'\s+'));
+    if (parts.length < 2) return null;
+
+    final day = int.tryParse(parts[0].replaceAll(RegExp(r'[^0-9]'), ''));
+    if (day == null) return null;
+
+    final monthLookup = {
+      'jan': 1,
+      'feb': 2,
+      'mar': 3,
+      'apr': 4,
+      'may': 5,
+      'jun': 6,
+      'jul': 7,
+      'aug': 8,
+      'sep': 9,
+      'oct': 10,
+      'nov': 11,
+      'dec': 12,
+    };
+    final monthText = parts[1].toLowerCase();
+    if (monthText.length < 3) return null;
+    final monthKey = monthText.substring(0, 3);
+    final month = monthLookup[monthKey];
+    if (month == null) return null;
+
+    final year = parts.length >= 3
+        ? int.tryParse(parts[2])
+        : DateTime.now().year;
+    if (year == null) return null;
+
+    return DateTime(year, month, day);
   }
 
   String _bookingVehicleTitle(Map<String, dynamic> booking) {
@@ -1047,7 +1081,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         throw Exception('You need to log in before booking.');
       }
 
-      await BookingService().createBooking(
+      final createdBooking = await BookingService().createBooking(
         renterId: currentUser.id,
         vehicleId: widget.vehicleId,
         startAt: startAtLocal.toUtc(),
@@ -1066,6 +1100,29 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         reservationPaymentMethod: reservationPaymentProof?.method,
         reservationPaymentType: reservationPaymentProof?.paymentType,
       );
+
+      if (reservationPaymentProof != null) {
+        final bookingId = createdBooking['id']?.toString();
+        if (bookingId != null && bookingId.isNotEmpty) {
+          try {
+            await ReservationPaymentService().createReceiptRecord(
+              bookingId: bookingId,
+              renterId: currentUser.id,
+              proof: reservationPaymentProof,
+            );
+          } catch (e) {
+            debugPrint('Booking created but receipt audit insert failed: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Booking saved, but receipt audit failed: $e'),
+                  backgroundColor: AppColors.warning,
+                ),
+              );
+            }
+          }
+        }
+      }
 
       if (mounted) {
         showDialog(
@@ -1354,7 +1411,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 });
 
                 try {
-                  final proofUrl = await service.uploadReceiptProof(
+                  final receiptUpload = await service.uploadReceiptProof(
                     userId: userId,
                     file: receiptFile!,
                   );
@@ -1368,7 +1425,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ? 'full_payment'
                           : 'reservation_only',
                       referenceNumber: reference,
-                      proofUrl: proofUrl,
+                      proofUrl: receiptUpload.publicUrl,
+                      proofStoragePath: receiptUpload.storagePath,
                     ),
                   );
                 } catch (e) {
@@ -1513,6 +1571,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: isUploading
+                                        ? null
+                                        : () => _downloadReservationQr(
+                                            settings.qrUrl,
+                                          ),
+                                    icon: const Icon(Icons.download),
+                                    label: const Text('Download QR'),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
                                   const Text(
                                     'Screenshot or scan this QR, then upload your payment proof below.',
                                     textAlign: TextAlign.center,
@@ -1598,6 +1669,32 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
     } finally {
       referenceController.dispose();
+    }
+  }
+
+  Future<void> _downloadReservationQr(String qrUrl) async {
+    final cleanUrl = qrUrl.trim();
+    if (cleanUrl.isEmpty) return;
+
+    if (kIsWeb) {
+      final anchor = html.AnchorElement(href: cleanUrl)
+        ..target = '_blank'
+        ..download = 'psdc-reservation-payment-qr';
+      html.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+      return;
+    }
+
+    final uri = Uri.tryParse(cleanUrl);
+    if (uri == null || !await launchUrl(uri)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open QR download link'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -2090,6 +2187,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    _buildUseCurrentLocationButton(),
+                    const SizedBox(height: 12),
                     _buildLocationDropdowns(
                       isPickup: true,
                       province: _pickupProvince,
@@ -2480,6 +2579,185 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return '$cleanLandmark, $selectedLocation';
   }
 
+  Future<void> _useCurrentPickupLocation() async {
+    if (_isLocatingPickup) return;
+
+    setState(() => _isLocatingPickup = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Please turn on location services first.');
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission is required to use this.');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission is permanently denied. Enable it in settings.',
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      if (placemarks.isEmpty) {
+        throw Exception('Could not read your current address.');
+      }
+
+      final match = _matchPlacemarkToServiceArea(placemarks.first);
+      if (match == null) {
+        throw Exception(
+          'Current location is outside the supported Luzon pickup list.',
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _pickupProvince = match.province;
+        _pickupCity = match.city;
+        _pickupBarangay = match.barangay;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Pickup set to ${PhilippineLocations.formatLocation(match.barangay, match.city, match.province)}',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLocatingPickup = false);
+      }
+    }
+  }
+
+  _ResolvedPickupLocation? _matchPlacemarkToServiceArea(Placemark placemark) {
+    final province = _findProvinceMatch([
+      placemark.administrativeArea,
+      placemark.subAdministrativeArea,
+    ]);
+    if (province == null) return null;
+
+    final city = _findCityMatch(province, [
+      placemark.locality,
+      placemark.subLocality,
+      placemark.subAdministrativeArea,
+    ]);
+    if (city == null) return null;
+
+    final barangay = _findBarangayMatch(city, [
+      placemark.subLocality,
+      placemark.thoroughfare,
+      placemark.street,
+      placemark.name,
+    ]);
+    if (barangay == null) return null;
+
+    return _ResolvedPickupLocation(
+      province: province,
+      city: city,
+      barangay: barangay,
+    );
+  }
+
+  String? _findProvinceMatch(List<String?> candidates) {
+    return _findBestLocationMatch(
+      candidates,
+      PhilippineLocations.getAllProvinces(),
+    );
+  }
+
+  String? _findCityMatch(String province, List<String?> candidates) {
+    return _findBestLocationMatch(
+      candidates,
+      PhilippineLocations.getCitiesForProvince(province),
+    );
+  }
+
+  String? _findBarangayMatch(String city, List<String?> candidates) {
+    return _findBestLocationMatch(
+      candidates,
+      PhilippineLocations.getBarangaysForCity(city),
+    );
+  }
+
+  String? _findBestLocationMatch(
+    List<String?> candidates,
+    List<String> options,
+  ) {
+    for (final candidate in candidates) {
+      final normalizedCandidate = _normalizeLocationText(candidate);
+      if (normalizedCandidate.isEmpty) continue;
+
+      for (final option in options) {
+        final normalizedOption = _normalizeLocationText(option);
+        if (normalizedCandidate == normalizedOption ||
+            normalizedCandidate.contains(normalizedOption) ||
+            normalizedOption.contains(normalizedCandidate)) {
+          return option;
+        }
+      }
+    }
+    return null;
+  }
+
+  String _normalizeLocationText(String? value) {
+    return (value ?? '')
+        .toLowerCase()
+        .replaceAll(
+          RegExp(r'\b(province|city|municipality|barangay|brgy)\b'),
+          '',
+        )
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
+  }
+
+  Widget _buildUseCurrentLocationButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _isLocatingPickup ? null : _useCurrentPickupLocation,
+        icon: _isLocatingPickup
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              )
+            : const Icon(Icons.my_location, size: 18),
+        label: Text(
+          _isLocatingPickup ? 'Locating...' : 'Use my current location',
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLocationDropdowns({
     required bool isPickup,
     required String? province,
@@ -2641,6 +2919,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       ],
     );
   }
+}
+
+class _ResolvedPickupLocation {
+  final String province;
+  final String city;
+  final String barangay;
+
+  const _ResolvedPickupLocation({
+    required this.province,
+    required this.city,
+    required this.barangay,
+  });
 }
 
 class _CalendarLegendDot extends StatelessWidget {

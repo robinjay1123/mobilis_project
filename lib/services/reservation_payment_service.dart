@@ -22,6 +22,7 @@ class ReservationPaymentProof {
   final String paymentType;
   final String referenceNumber;
   final String proofUrl;
+  final String? proofStoragePath;
 
   const ReservationPaymentProof({
     required this.amount,
@@ -29,6 +30,7 @@ class ReservationPaymentProof {
     required this.paymentType,
     required this.referenceNumber,
     required this.proofUrl,
+    this.proofStoragePath,
   });
 }
 
@@ -37,7 +39,8 @@ class ReservationPaymentService {
   static const qrUrlKey = 'reservation_payment_qr_url';
   static const accountNameKey = 'reservation_payment_account_name';
   static const instructionsKey = 'reservation_payment_instructions';
-  static const _bucket = 'reservation_receipts';
+  static const _receiptBucket = 'reservation_receipts';
+  static const _qrBucket = 'reservation_qr_codes';
 
   static const defaultInstructions =
       'Pay the refundable reservation fee, upload the payment screenshot, and enter the 13-digit transaction reference number.';
@@ -128,26 +131,81 @@ class ReservationPaymentService {
     await _supabase.from('app_settings').upsert(rows, onConflict: 'key');
   }
 
-  Future<String> uploadReceiptProof({
-    required String userId,
-    required XFile file,
-  }) async {
+  Future<String> uploadQrCode({required XFile file}) async {
     final bytes = await file.readAsBytes();
-    final rawName = file.name.trim();
-    final extension = rawName.contains('.')
-        ? rawName.split('.').last.toLowerCase()
-        : 'jpg';
+    final extension = _fileExtension(file.name, fallback: 'png');
     final objectPath =
-        '$userId/reservation_${DateTime.now().millisecondsSinceEpoch}.$extension';
+        'psdc/payment_qr_${DateTime.now().millisecondsSinceEpoch}.$extension';
 
     await _supabase.storage
-        .from(_bucket)
+        .from(_qrBucket)
         .uploadBinary(
           objectPath,
           bytes,
           fileOptions: const FileOptions(upsert: true),
         );
 
-    return _supabase.storage.from(_bucket).getPublicUrl(objectPath);
+    return _supabase.storage.from(_qrBucket).getPublicUrl(objectPath);
   }
+
+  Future<ReservationReceiptUpload> uploadReceiptProof({
+    required String userId,
+    required XFile file,
+  }) async {
+    final bytes = await file.readAsBytes();
+    final extension = _fileExtension(file.name, fallback: 'jpg');
+    final objectPath =
+        '$userId/reservation_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    await _supabase.storage
+        .from(_receiptBucket)
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: const FileOptions(upsert: true),
+        );
+
+    return ReservationReceiptUpload(
+      publicUrl: _supabase.storage
+          .from(_receiptBucket)
+          .getPublicUrl(objectPath),
+      storagePath: objectPath,
+    );
+  }
+
+  Future<void> createReceiptRecord({
+    required String bookingId,
+    required String renterId,
+    required ReservationPaymentProof proof,
+  }) async {
+    await _supabase.from('reservation_payment_receipts').insert({
+      'booking_id': bookingId,
+      'renter_id': renterId,
+      'amount': proof.amount,
+      'payment_method': proof.method,
+      'payment_type': proof.paymentType,
+      'reference_number': proof.referenceNumber,
+      'proof_url': proof.proofUrl,
+      'proof_storage_path': proof.proofStoragePath,
+      'status': 'pending_review',
+      'submitted_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  String _fileExtension(String rawName, {required String fallback}) {
+    final cleanName = rawName.trim();
+    if (!cleanName.contains('.')) return fallback;
+    final extension = cleanName.split('.').last.toLowerCase();
+    return extension.isEmpty ? fallback : extension;
+  }
+}
+
+class ReservationReceiptUpload {
+  final String publicUrl;
+  final String storagePath;
+
+  const ReservationReceiptUpload({
+    required this.publicUrl,
+    required this.storagePath,
+  });
 }
