@@ -60,6 +60,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isLoadingReservationPayment = false;
   bool _isSavingReservationPayment = false;
   bool _isUploadingReservationQr = false;
+  bool _isDeletingReservationQr = false;
   final TextEditingController _rentalTermsController = TextEditingController();
   final TextEditingController _reservationAmountController =
       TextEditingController();
@@ -241,6 +242,75 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } finally {
       if (mounted) {
         setState(() => _isUploadingReservationQr = false);
+      }
+    }
+  }
+
+  Future<void> _deleteReservationPaymentQr() async {
+    final currentQrUrl = _reservationQrUrlController.text.trim();
+    if (currentQrUrl.isEmpty || _isDeletingReservationQr) return;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Delete Payment QR?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'This will remove the current QR from payment settings. Renters cannot submit reservation payment until a new QR is uploaded.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true || !mounted) return;
+
+    setState(() => _isDeletingReservationQr = true);
+    try {
+      final service = ReservationPaymentService();
+      await service.deleteQrCode(currentQrUrl);
+      await service.updateSettings(
+        amount: double.tryParse(_reservationAmountController.text.trim()) ?? 0,
+        qrUrl: '',
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.clear());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation QR deleted'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to delete reservation QR: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDeletingReservationQr = false);
       }
     }
   }
@@ -3726,7 +3796,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             Text(
                               _reservationQrUrlController.text.trim().isEmpty
                                   ? 'No QR uploaded yet.'
-                                  : 'QR uploaded and ready to publish.',
+                                  : 'QR uploaded. Renters will see this after settings are saved.',
                               style: TextStyle(
                                 color: isDark
                                     ? Colors.grey
@@ -3734,27 +3804,70 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed:
-                                  _isLoadingReservationPayment ||
-                                      _isSavingReservationPayment ||
-                                      _isUploadingReservationQr
-                                  ? null
-                                  : _uploadReservationPaymentQr,
-                              icon: _isUploadingReservationQr
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed:
+                                      _isLoadingReservationPayment ||
+                                          _isSavingReservationPayment ||
+                                          _isUploadingReservationQr ||
+                                          _isDeletingReservationQr
+                                      ? null
+                                      : _uploadReservationPaymentQr,
+                                  icon: _isUploadingReservationQr
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.upload_file),
+                                  label: Text(
+                                    _isUploadingReservationQr
+                                        ? 'Uploading...'
+                                        : _reservationQrUrlController.text
+                                              .trim()
+                                              .isEmpty
+                                        ? 'Upload QR Image'
+                                        : 'Replace QR Image',
+                                  ),
+                                ),
+                                if (_reservationQrUrlController.text
+                                    .trim()
+                                    .isNotEmpty)
+                                  OutlinedButton.icon(
+                                    onPressed:
+                                        _isLoadingReservationPayment ||
+                                            _isSavingReservationPayment ||
+                                            _isUploadingReservationQr ||
+                                            _isDeletingReservationQr
+                                        ? null
+                                        : _deleteReservationPaymentQr,
+                                    icon: _isDeletingReservationQr
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.delete_outline),
+                                    label: Text(
+                                      _isDeletingReservationQr
+                                          ? 'Deleting...'
+                                          : 'Delete QR',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.error,
+                                      side: const BorderSide(
+                                        color: AppColors.error,
                                       ),
-                                    )
-                                  : const Icon(Icons.upload_file),
-                              label: Text(
-                                _isUploadingReservationQr
-                                    ? 'Uploading...'
-                                    : 'Upload QR Image',
-                              ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
@@ -3795,7 +3908,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       onPressed:
                           _isLoadingReservationPayment ||
                               _isSavingReservationPayment ||
-                              _isUploadingReservationQr
+                              _isUploadingReservationQr ||
+                              _isDeletingReservationQr
                           ? null
                           : _loadReservationPaymentSettings,
                       icon: const Icon(Icons.refresh),
@@ -3806,7 +3920,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       onPressed:
                           _isLoadingReservationPayment ||
                               _isSavingReservationPayment ||
-                              _isUploadingReservationQr
+                              _isUploadingReservationQr ||
+                              _isDeletingReservationQr
                           ? null
                           : _saveReservationPaymentSettings,
                       icon: _isSavingReservationPayment

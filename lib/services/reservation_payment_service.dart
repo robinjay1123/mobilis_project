@@ -148,6 +148,12 @@ class ReservationPaymentService {
     return _supabase.storage.from(_qrBucket).getPublicUrl(objectPath);
   }
 
+  Future<void> deleteQrCode(String qrUrl) async {
+    final objectPath = _storagePathFromPublicUrl(qrUrl, bucket: _qrBucket);
+    if (objectPath == null || objectPath.isEmpty) return;
+    await _supabase.storage.from(_qrBucket).remove([objectPath]);
+  }
+
   Future<ReservationReceiptUpload> uploadReceiptProof({
     required String userId,
     required XFile file,
@@ -197,6 +203,18 @@ class ReservationPaymentService {
     if (!cleanName.contains('.')) return fallback;
     final extension = cleanName.split('.').last.toLowerCase();
     return extension.isEmpty ? fallback : extension;
+  }
+
+  String? _storagePathFromPublicUrl(
+    String publicUrl, {
+    required String bucket,
+  }) {
+    final uri = Uri.tryParse(publicUrl.trim());
+    if (uri == null) return null;
+    final marker = '/object/public/$bucket/';
+    final index = uri.path.indexOf(marker);
+    if (index < 0) return null;
+    return Uri.decodeComponent(uri.path.substring(index + marker.length));
   }
 }
 

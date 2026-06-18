@@ -141,6 +141,22 @@ with check (
   )
 );
 
+drop policy if exists "reservation_qr_codes_delete_admin"
+on storage.objects;
+create policy "reservation_qr_codes_delete_admin"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'reservation_qr_codes'
+  and exists (
+    select 1
+    from public.users
+    where users.id = auth.uid()
+      and users.role = 'admin'
+  )
+);
+
 drop policy if exists "reservation_receipts_insert_own_folder" on storage.objects;
 create policy "reservation_receipts_insert_own_folder"
 on storage.objects
