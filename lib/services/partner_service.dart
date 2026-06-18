@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
+import 'notification_service.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -254,6 +255,42 @@ class PartnerService {
     }
   }
 
+  Future<void> notifyPaymentReleased({
+    required String partnerId,
+    required double amount,
+    String? bookingId,
+    String? payoutId,
+    String? reference,
+  }) async {
+    await NotificationService().notifyPartnerPaymentReleased(
+      partnerId: partnerId,
+      amount: amount,
+      bookingId: bookingId,
+      payoutId: payoutId,
+      reference: reference,
+    );
+  }
+
+  Future<void> addVehicleApplicationPhotos({
+    required String applicationId,
+    required List<String> photoUrls,
+  }) async {
+    final records = photoUrls
+        .where((url) => url.trim().isNotEmpty)
+        .map(
+          (url) => {
+            'partner_vehicle_application_id': applicationId,
+            'document_type': 'vehicle_photo',
+            'file_url': url.trim(),
+            'created_at': DateTime.now().toIso8601String(),
+          },
+        )
+        .toList();
+
+    if (records.isEmpty) return;
+    await supabase.from('partner_vehicle_documents').insert(records);
+  }
+
   /// Upload partner document file to `partner_documents` bucket.
   Future<String> uploadToPartnerDocumentsBucket({
     required String partnerId,
@@ -355,6 +392,23 @@ class PartnerService {
           .from('partner_vehicle_applications')
           .update({'application_status': 'approved'})
           .eq('id', applicationId);
+
+      final application = await supabase
+          .from('partner_vehicle_applications')
+          .select('partner_id, brand, model, year')
+          .eq('id', applicationId)
+          .maybeSingle();
+      final partnerId = application?['partner_id']?.toString();
+      if (partnerId != null && partnerId.isNotEmpty) {
+        final vehicleTitle =
+            '${application?['brand'] ?? ''} ${application?['model'] ?? ''}'
+                .trim();
+        await NotificationService().notifyPartnerApplicationApproved(
+          partnerId: partnerId,
+          applicationId: applicationId,
+          vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
+        );
+      }
 
       debugPrint('Vehicle application approved');
     } on PostgrestException catch (e) {

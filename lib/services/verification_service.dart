@@ -250,13 +250,15 @@ class VerificationService {
 
       try {
         if (userId != null && userId.isNotEmpty) {
-          await NotificationService().createNotification(
+          final userRecord = await supabase
+              .from('users')
+              .select('role')
+              .eq('id', userId)
+              .maybeSingle();
+          await NotificationService().notifyVerificationApproved(
             userId: userId,
-            title: 'Verification Approved',
-            message:
-                'Your verification has been approved. You can now use verified features in the app.',
-            type: 'verification',
-            data: {'verification_id': response['id'], 'status': 'verified'},
+            role: userRecord?['role']?.toString() ?? 'account',
+            verificationId: response['id']?.toString(),
           );
         }
       } catch (notificationError) {

@@ -2447,11 +2447,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: tertiaryTextColor,
                         ),
                         suffixIcon: Tooltip(
-                          message: 'Find cars near me',
+                          message: _nearbyLatitude != null
+                              ? 'Show all cars'
+                              : 'Find cars near me',
                           child: InkWell(
                             borderRadius: BorderRadius.circular(8),
                             onTap: _isLocatingNearbyVehicles
                                 ? null
+                                : _nearbyLatitude != null
+                                ? _clearNearbyVehicleFilter
                                 : _filterVehiclesNearMe,
                             child: Container(
                               width: 42,
@@ -2471,8 +2475,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         color: Colors.black,
                                       ),
                                     )
-                                  : const Icon(
-                                      Icons.my_location,
+                                  : Icon(
+                                      _nearbyLatitude != null
+                                          ? Icons.location_off
+                                          : Icons.my_location,
                                       color: Colors.black,
                                       size: 18,
                                     ),
@@ -2977,7 +2983,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final transmission = car['transmission'] ?? 'Manual';
 
                       final imageUrl = car['image_url'] as String?;
-                      const providerName = 'PSDC';
+                      final isPartnerVehicle =
+                          car['source']?.toString().toLowerCase() ==
+                              'partner' ||
+                          car['is_partner_vehicle'] == true;
+                      final partnerName =
+                          car['partner_name']?.toString().trim().isNotEmpty ==
+                              true
+                          ? car['partner_name'].toString()
+                          : 'Mobilis Partner';
+                      final providerName = isPartnerVehicle
+                          ? 'Partner'
+                          : 'PSDC';
                       final vehicleId = car['id']?.toString() ?? '';
                       final isFavorite = _favoriteVehicleIds.contains(
                         vehicleId,
@@ -3149,6 +3166,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             color: textColor,
                                           ),
                                         ),
+                                        if (isPartnerVehicle) ...[
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.primary
+                                                      .withOpacity(0.14),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        999,
+                                                      ),
+                                                ),
+                                                child: const Text(
+                                                  'FROM PARTNERS',
+                                                  style: TextStyle(
+                                                    color: AppColors.primary,
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Flexible(
+                                                child: Text(
+                                                  partnerName,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    color: secondaryTextColor,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                         const SizedBox(height: 4),
                                         Text(
                                           category,
@@ -4371,12 +4432,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         );
 
                         if (confirmed == true) {
-                          final authService = AuthService();
-                          await authService.signOut();
                           if (mounted) {
-                            Navigator.of(
-                              context,
-                            ).pushReplacementNamed('/login');
+                            Navigator.of(context).pushNamedAndRemoveUntil(
+                              '/auth-processing',
+                              (route) => false,
+                              arguments: {'mode': 'logout'},
+                            );
                           }
                         }
                       },

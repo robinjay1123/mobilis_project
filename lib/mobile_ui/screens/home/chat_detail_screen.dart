@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../../services/chat_service.dart';
 import '../../../services/message_filter_service.dart';
-import '../../../services/auto_message_service.dart';
 import '../../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/custom_button.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String conversationId;
@@ -181,7 +179,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.success.withOpacity(0.2),
+                      color: AppColors.success.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
@@ -253,7 +251,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               vertical: 16,
                             ),
                             decoration: BoxDecoration(
-                              color: AppColors.success.withOpacity(0.1),
+                              color: AppColors.success.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: AppColors.success,
@@ -336,7 +334,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.1),
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: const Text(
@@ -405,7 +405,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               margin: const EdgeInsets.all(12),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.warning.withOpacity(0.1),
+                color: AppColors.warning.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.warning),
               ),
@@ -598,7 +598,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: participants.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
                     return _buildParticipantCard(
                       participants[index],
@@ -637,69 +637,348 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ? email
         : 'No contact saved';
 
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _showParticipantDetails(participant, isDark, textColor),
+        child: Ink(
+          width: 230,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isDark
+                ? AppColors.darkBgSecondary
+                : AppColors.lightBgSecondary,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isDark
+                  ? AppColors.borderColor
+                  : AppColors.lightBorderColor,
+            ),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.18),
+                backgroundImage: avatar.isNotEmpty
+                    ? NetworkImage(avatar)
+                    : null,
+                child: avatar.isEmpty
+                    ? Text(
+                        _initials(name),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      role,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark
+                            ? AppColors.textTertiary
+                            : AppColors.lightTextTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.info_outline,
+                size: 18,
+                color: isDark
+                    ? AppColors.textTertiary
+                    : AppColors.lightTextTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showParticipantDetails(
+    Map<String, dynamic> participant,
+    bool isDark,
+    Color textColor,
+  ) {
+    final name =
+        participant['display_name']?.toString().trim().isNotEmpty == true
+        ? participant['display_name'].toString().trim()
+        : 'Unknown User';
+    final role =
+        participant['display_role']?.toString().trim().isNotEmpty == true
+        ? participant['display_role'].toString().trim()
+        : 'Participant';
+    final avatar = participant['display_avatar']?.toString().trim() ?? '';
+    final email = participant['email']?.toString().trim() ?? '';
+    final phone = participant['display_phone']?.toString().trim() ?? '';
+    final location = _firstValue(participant, [
+      'location',
+      'address',
+      'city',
+      'province',
+    ]);
+    final status = _firstValue(participant, [
+      'status',
+      'verification_status',
+      'account_status',
+    ]);
+    final userId =
+        participant['user_id']?.toString() ?? participant['id']?.toString();
+    final joinedAt = _formatDateTime(participant['joined_at']?.toString());
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final sheetColor = isDark ? AppColors.darkCard : Colors.white;
+        final mutedColor = isDark
+            ? AppColors.textTertiary
+            : AppColors.lightTextTertiary;
+
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            decoration: BoxDecoration(
+              color: sheetColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isDark
+                    ? AppColors.borderColor
+                    : AppColors.lightBorderColor,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: mutedColor.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    CircleAvatar(
+                      radius: 34,
+                      backgroundColor: AppColors.primary.withValues(
+                        alpha: 0.18,
+                      ),
+                      backgroundImage: avatar.isNotEmpty
+                          ? NetworkImage(avatar)
+                          : null,
+                      child: avatar.isEmpty
+                          ? Text(
+                              _initials(name),
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 20,
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              role,
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (status.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _titleCase(status),
+                              style: TextStyle(
+                                color: mutedColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                _buildParticipantDetailRow(
+                  icon: Icons.phone_outlined,
+                  label: 'Phone',
+                  value: phone,
+                  isDark: isDark,
+                ),
+                _buildParticipantDetailRow(
+                  icon: Icons.email_outlined,
+                  label: 'Email',
+                  value: email,
+                  isDark: isDark,
+                ),
+                _buildParticipantDetailRow(
+                  icon: Icons.location_on_outlined,
+                  label: 'Location',
+                  value: location,
+                  isDark: isDark,
+                ),
+                _buildParticipantDetailRow(
+                  icon: Icons.badge_outlined,
+                  label: 'User ID',
+                  value: userId ?? '',
+                  isDark: isDark,
+                ),
+                _buildParticipantDetailRow(
+                  icon: Icons.group_add_outlined,
+                  label: 'Joined Conversation',
+                  value: joinedAt,
+                  isDark: isDark,
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textColor,
+                      side: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : AppColors.lightBorderColor,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildParticipantDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required bool isDark,
+  }) {
+    final textColor = isDark
+        ? AppColors.textPrimary
+        : AppColors.lightTextPrimary;
+    final mutedColor = isDark
+        ? AppColors.textTertiary
+        : AppColors.lightTextTertiary;
+    final cleanValue = value.trim().isEmpty ? 'Not provided' : value.trim();
+
     return Container(
-      width: 230,
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
         ),
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.18),
-            backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
-            child: avatar.isEmpty
-                ? Text(
-                    _initials(name),
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 10),
+          Icon(icon, color: AppColors.primary, size: 20),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  role,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+                  label,
+                  style: TextStyle(
+                    color: mutedColor,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  name,
-                  maxLines: 1,
+                  cleanValue,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
+                    color: textColor,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark
-                        ? AppColors.textTertiary
-                        : AppColors.lightTextTertiary,
                   ),
                 ),
               ],
@@ -708,6 +987,41 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
     );
+  }
+
+  String _firstValue(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final value = source[key]?.toString().trim();
+      if (value != null && value.isNotEmpty && value.toLowerCase() != 'null') {
+        return value;
+      }
+    }
+    return '';
+  }
+
+  String _formatDateTime(String? value) {
+    if (value == null || value.trim().isEmpty) return '';
+    try {
+      final date = DateTime.parse(value).toLocal();
+      final minute = date.minute.toString().padLeft(2, '0');
+      final hour12 = date.hour % 12 == 0 ? 12 : date.hour % 12;
+      final period = date.hour >= 12 ? 'PM' : 'AM';
+      return '${date.month}/${date.day}/${date.year}, $hour12:$minute $period';
+    } catch (_) {
+      return value;
+    }
+  }
+
+  String _titleCase(String value) {
+    return value
+        .replaceAll('_', ' ')
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) {
+          final lower = part.toLowerCase();
+          return '${lower[0].toUpperCase()}${lower.substring(1)}';
+        })
+        .join(' ');
   }
 
   String _initials(String name) {

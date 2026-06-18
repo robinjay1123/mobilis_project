@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
-import '../../../services/auth_service.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -303,15 +302,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await AuthService().signOut();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/login');
-        }
-      } catch (e) {
-        debugPrint('Logout error: $e');
-      }
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
     }
   }
 

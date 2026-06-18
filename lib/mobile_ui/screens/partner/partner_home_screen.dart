@@ -2558,10 +2558,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              final authService = AuthService();
-              await authService.signOut();
               if (mounted) {
-                Navigator.of(context).pushReplacementNamed('/login');
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/auth-processing',
+                  (route) => false,
+                  arguments: {'mode': 'logout'},
+                );
               }
             },
             child: const Text(

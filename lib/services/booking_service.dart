@@ -359,21 +359,13 @@ class BookingService {
       // ✅ Send notifications based on status change
       if (status == 'approved') {
         // Notify renter of approval
-        if (booking['renter_id'] != null) {
-          try {
-            await supabase.from('notifications').insert({
-              'user_id': booking['renter_id'],
-              'title': '✅ Booking Approved!',
-              'message':
-                  'Your booking for $vehicleTitle has been approved by the owner.',
-              'type': 'booking',
-              'data': {'booking_id': bookingId, 'status': status},
-              'created_at': DateTime.now().toIso8601String(),
-            });
-            debugPrint('✅ Approval notification sent to renter');
-          } catch (e) {
-            debugPrint('⚠️ Error sending approval notification: $e');
-          }
+        final renterId = booking['renter_id']?.toString();
+        if (renterId != null && renterId.isNotEmpty) {
+          await NotificationService().notifyBookingApproved(
+            renterId: renterId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+          );
         }
       } else if (status == 'rejected') {
         // Notify renter of rejection
@@ -572,7 +564,12 @@ class BookingService {
       final response = await supabase
           .from('bookings')
           .select(
-            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, vehicles(brand, model, year, plate_number, owner_id), users:users!bookings_renter_id_fkey(full_name, email, phone)',
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, status, total_price, created_at, '
+            'reservation_fee_amount, reservation_payment_type, reservation_payment_covers_total, '
+            'reservation_payment_reference, reservation_payment_status, reservation_payment_submitted_at, '
+            'reservation_payment_proof_url, reservation_payment_method, rental_terms_accepted_at, '
+            'vehicles(brand, model, year, plate_number, owner_id), '
+            'users:users!bookings_renter_id_fkey(full_name, email, phone)',
           )
           .eq('status', 'pending')
           .order('created_at', ascending: false);
@@ -775,18 +772,20 @@ class BookingService {
       // ✅ Send notification to renter about driver assignment
       try {
         final driverName = driver['full_name'] ?? 'Driver';
-        await supabase.from('notifications').insert({
-          'user_id': booking['renter_id'],
-          'title': '🚗 Driver Assigned',
-          'message': '$driverName has been assigned as your driver.',
-          'type': 'booking',
-          'data': {
-            'booking_id': bookingId,
-            'driver_id': driverUserId,
-            'action': 'driver_assigned',
-          },
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        final renterId = booking['renter_id']?.toString();
+        if (renterId != null && renterId.isNotEmpty) {
+          await NotificationService().createNotification(
+            userId: renterId,
+            title: 'Driver Assigned',
+            message: '$driverName has been assigned as your driver.',
+            type: 'booking',
+            data: {
+              'booking_id': bookingId,
+              'driver_id': driverUserId,
+              'event': 'driver_assigned_to_booking',
+            },
+          );
+        }
 
         debugPrint('✅ Driver assignment notification sent to renter');
       } catch (e) {
@@ -799,27 +798,20 @@ class BookingService {
         final renter = bookingDetails?['users'] as Map<String, dynamic>?;
         final renterName = renter?['full_name']?.toString() ?? 'Renter';
         final renterPhone = renter?['phone']?.toString() ?? '';
-        await supabase.from('notifications').insert({
-          'user_id': driverUserId,
-          'title': '🧾 New Driver Job Assigned',
-          'message':
-              'You have a new assigned booking. Renter: $renterName${renterPhone.isNotEmpty ? " • $renterPhone" : ""}',
-          'type': 'driver_assignment',
-          'data': {
-            'booking_id': bookingId,
-            'renter_id': booking['renter_id'],
-            'renter_name': renterName,
-            'renter_phone': renterPhone,
-            'pickup_location': bookingDetails?['pickup_location'],
-            'dropoff_location': bookingDetails?['dropoff_location'],
-            'start_date': bookingDetails?['start_date'],
-            'end_date': bookingDetails?['end_date'],
-            'start_at': bookingDetails?['start_at'],
-            'end_at': bookingDetails?['end_at'],
-            'trip_fee': tripFee,
-          },
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        await NotificationService().notifyDriverJobAssigned(
+          driverId: driverUserId,
+          bookingId: bookingId,
+          renterId: booking['renter_id']?.toString(),
+          renterName: renterName,
+          renterPhone: renterPhone,
+          pickupLocation: bookingDetails?['pickup_location']?.toString(),
+          dropoffLocation: bookingDetails?['dropoff_location']?.toString(),
+          startDate: bookingDetails?['start_date']?.toString(),
+          endDate: bookingDetails?['end_date']?.toString(),
+          startAt: bookingDetails?['start_at']?.toString(),
+          endAt: bookingDetails?['end_at']?.toString(),
+          tripFee: tripFee,
+        );
         debugPrint('✅ Driver assignment notification sent to driver');
       } catch (e) {
         debugPrint('⚠️ Error sending driver notification: $e');

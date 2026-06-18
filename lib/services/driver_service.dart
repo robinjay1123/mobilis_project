@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'booking_service.dart';
+import 'notification_service.dart';
 
 class DriverService {
   static final DriverService _instance = DriverService._internal();
@@ -725,6 +726,27 @@ class DriverService {
           })
           .eq('id', earningsId);
 
+      final earning = await supabase
+          .from('driver_earnings')
+          .select('driver_id, net_earnings')
+          .eq('id', earningsId)
+          .maybeSingle();
+      final driverId = earning?['driver_id']?.toString();
+      if (driverId != null && driverId.isNotEmpty) {
+        await NotificationService().createNotification(
+          userId: driverId,
+          title: 'Driver Payout Released',
+          message:
+              'Your driver payout of PHP ${((earning?['net_earnings'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)} has been released.',
+          type: 'payment_release',
+          data: {
+            'earnings_id': earningsId,
+            'amount': (earning?['net_earnings'] as num?)?.toDouble() ?? 0,
+            'event': 'driver_payment_released',
+          },
+        );
+      }
+
       debugPrint('Earnings marked as paid');
     } on PostgrestException catch (e) {
       debugPrint('Database error marking as paid: ${e.message}');
@@ -826,6 +848,10 @@ class DriverService {
           .from('users')
           .update({'application_status': 'approved'})
           .eq('id', driverId);
+
+      await NotificationService().notifyDriverApplicationApproved(
+        driverId: driverId,
+      );
 
       debugPrint('Driver application approved');
     } on PostgrestException catch (e) {
@@ -1427,6 +1453,11 @@ class DriverService {
               'is_available': true,
             })
             .eq('id', driverUserId);
+
+        await NotificationService().notifyVerificationApproved(
+          userId: driverUserId,
+          role: 'driver',
+        );
       }
 
       debugPrint('Driver verification completed successfully');

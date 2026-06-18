@@ -8,11 +8,11 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
-import '../../../services/auth_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 
@@ -503,12 +503,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       final partnerVehicleId = createdPartnerVehicle['id'];
       final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
-      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
-        await _supabase.from('vehicle_images').insert({
-          'partner_vehicle_id': partnerVehicleId,
-          'image_url': vehiclePhotoUrl,
-          'display_order': 0,
-        });
+      final photoUrls = <String>[
+        if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
+          vehiclePhotoUrl,
+      ];
+      final photoDocs = await _supabase
+          .from('partner_vehicle_documents')
+          .select('file_url')
+          .eq('partner_vehicle_application_id', appId)
+          .eq('document_type', 'vehicle_photo');
+      for (final doc in List<Map<String, dynamic>>.from(photoDocs)) {
+        final url = doc['file_url']?.toString();
+        if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
+          photoUrls.add(url);
+        }
+      }
+      if (photoUrls.isNotEmpty) {
+        await _supabase
+            .from('vehicle_images')
+            .insert(
+              List.generate(photoUrls.length, (index) {
+                return {
+                  'partner_vehicle_id': partnerVehicleId,
+                  'image_url': photoUrls[index],
+                  'display_order': index,
+                };
+              }),
+            );
       }
 
       final orUrl = application['or_document_url']?.toString();
@@ -546,6 +567,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'rejection_reason': null,
           })
           .eq('id', appId);
+
+      final vehicleTitle =
+          '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
+      await NotificationService().notifyPartnerApplicationApproved(
+        partnerId: partnerId,
+        applicationId: appId,
+        vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -725,15 +754,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await AuthService().signOut();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/login');
-        }
-      } catch (e) {
-        debugPrint('Logout error: $e');
-      }
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
     }
   }
 

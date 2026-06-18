@@ -7,7 +7,6 @@ import 'dart:async';
 import 'mobile_ui/theme/app_theme.dart';
 import 'mobile_ui/theme/app_colors.dart';
 import 'mobile_ui/widgets/animated_loading.dart';
-import 'mobile_ui/screens/auth/signup_screen.dart';
 import 'mobile_ui/screens/auth/email_confirmation_screen.dart';
 import 'mobile_ui/screens/auth/face_scan_screen.dart';
 import 'mobile_ui/screens/auth/license_upload_screen.dart';
@@ -18,6 +17,7 @@ import 'mobile_ui/screens/auth/identity_verification_form_screen.dart';
 import 'mobile_ui/screens/auth/verification_options_screen.dart';
 import 'mobile_ui/screens/auth/forgot_password_screen.dart';
 import 'mobile_ui/screens/auth/reset_password_screen.dart';
+import 'mobile_ui/screens/auth/auth_processing_screen.dart';
 import 'mobile_ui/screens/home/dashboard_screen.dart';
 import 'mobile_ui/screens/offline/no_internet_screen.dart';
 import 'mobile_ui/screens/partner/partner_home_screen.dart';
@@ -31,7 +31,6 @@ import 'mobile_ui/screens/driver/driver_nbi_upload_screen.dart';
 import 'mobile_ui/screens/driver/driver_availability_screen.dart';
 import 'mobile_ui/screens/driver/driver_home_screen.dart';
 import 'mobile_ui/screens/home/chat_detail_screen.dart';
-import 'mobile_ui/screens/auth/web_only_access_screen.dart';
 import 'responsive/responsive_screens.dart';
 import 'web_ui/screens/admin/admin_web_screen.dart';
 import 'web_ui/screens/operator/operator_web_screen.dart';
@@ -137,6 +136,12 @@ class _MyAppState extends State<MyApp> {
       routes: {
         '/welcome': (context) => const ResponsiveWelcomeScreen(),
         '/login': (context) => const ResponsiveLoginScreen(),
+        '/auth-processing': (context) {
+          final mode = AuthProcessingScreen.modeFromArguments(
+            ModalRoute.of(context)?.settings.arguments,
+          );
+          return AuthProcessingScreen(mode: mode);
+        },
         '/forgot-password': (context) => const ForgotPasswordScreen(),
         '/reset-password': (context) => const ResetPasswordScreen(),
         '/signup': (context) => const ResponsiveSignupScreen(),
@@ -658,6 +663,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
       }
 
       if (role == 'partner') {
+        if (!applicationApproved) {
+          return const IdentityVerificationFormScreen(userRole: 'partner');
+        }
         return PartnerHomeScreen(
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
@@ -665,6 +673,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
       }
 
       if (role == 'driver') {
+        if (!applicationApproved) {
+          return const IdentityVerificationFormScreen(userRole: 'driver');
+        }
         return DriverHomeScreen(
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
@@ -764,9 +775,12 @@ class WebOnlyAccessScreen extends StatelessWidget {
                 const SizedBox(height: 40),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    await AuthService().signOut();
                     if (context.mounted) {
-                      Navigator.of(context).pushReplacementNamed('/login');
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        '/auth-processing',
+                        (route) => false,
+                        arguments: {'mode': 'logout'},
+                      );
                     }
                   },
                   icon: const Icon(Icons.logout),

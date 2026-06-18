@@ -159,6 +159,185 @@ class NotificationService {
     }
   }
 
+  Future<bool> notifyBookingApproved({
+    required String renterId,
+    required String bookingId,
+    required String vehicleTitle,
+  }) {
+    return _safeCreate(
+      userId: renterId,
+      title: 'Booking Approved',
+      message: 'Your booking for $vehicleTitle has been approved.',
+      type: 'booking',
+      data: {
+        'booking_id': bookingId,
+        'status': 'approved',
+        'event': 'booking_approved',
+      },
+    );
+  }
+
+  Future<bool> notifyVerificationApproved({
+    required String userId,
+    required String role,
+    String? verificationId,
+  }) {
+    final cleanRole = role.trim().toLowerCase();
+    final label = _roleLabel(cleanRole);
+    return _safeCreate(
+      userId: userId,
+      title: '$label Verification Approved',
+      message:
+          'Your $label verification has been approved. You can now use verified features in the app.',
+      type: 'verification',
+      data: {
+        if (verificationId != null) 'verification_id': verificationId,
+        'status': 'verified',
+        'role': cleanRole,
+        'event': '${cleanRole}_verification_approved',
+      },
+    );
+  }
+
+  Future<bool> notifyDriverJobAssigned({
+    required String driverId,
+    required String bookingId,
+    required String renterName,
+    String? renterId,
+    String? renterPhone,
+    String? pickupLocation,
+    String? dropoffLocation,
+    String? startDate,
+    String? endDate,
+    String? startAt,
+    String? endAt,
+    double? tripFee,
+  }) {
+    return _safeCreate(
+      userId: driverId,
+      title: 'New Driver Job Assigned',
+      message:
+          'You have a new assigned booking. Renter: $renterName${renterPhone != null && renterPhone.trim().isNotEmpty ? " - ${renterPhone.trim()}" : ""}',
+      type: 'driver_assignment',
+      data: {
+        'booking_id': bookingId,
+        if (renterId != null) 'renter_id': renterId,
+        'renter_name': renterName,
+        if (renterPhone != null) 'renter_phone': renterPhone,
+        if (pickupLocation != null) 'pickup_location': pickupLocation,
+        if (dropoffLocation != null) 'dropoff_location': dropoffLocation,
+        if (startDate != null) 'start_date': startDate,
+        if (endDate != null) 'end_date': endDate,
+        if (startAt != null) 'start_at': startAt,
+        if (endAt != null) 'end_at': endAt,
+        if (tripFee != null) 'trip_fee': tripFee,
+        'event': 'driver_job_assigned',
+      },
+    );
+  }
+
+  Future<bool> notifyDriverApplicationApproved({required String driverId}) {
+    return _safeCreate(
+      userId: driverId,
+      title: 'Driver Application Approved',
+      message:
+          'Your driver application has been approved. You can now receive driver job assignments.',
+      type: 'application',
+      data: {
+        'status': 'approved',
+        'role': 'driver',
+        'event': 'driver_application_approved',
+      },
+    );
+  }
+
+  Future<bool> notifyPartnerApplicationApproved({
+    required String partnerId,
+    String? applicationId,
+    String? vehicleTitle,
+  }) {
+    final vehicleText = vehicleTitle == null || vehicleTitle.trim().isEmpty
+        ? 'Your partner application has been approved.'
+        : 'Your application for ${vehicleTitle.trim()} has been approved.';
+    return _safeCreate(
+      userId: partnerId,
+      title: 'Partner Application Approved',
+      message: '$vehicleText You can manage it from your partner dashboard.',
+      type: 'application',
+      data: {
+        if (applicationId != null) 'application_id': applicationId,
+        if (vehicleTitle != null) 'vehicle_title': vehicleTitle,
+        'status': 'approved',
+        'role': 'partner',
+        'event': 'partner_application_approved',
+      },
+    );
+  }
+
+  Future<bool> notifyPartnerPaymentReleased({
+    required String partnerId,
+    required double amount,
+    String? bookingId,
+    String? payoutId,
+    String? reference,
+  }) {
+    return _safeCreate(
+      userId: partnerId,
+      title: 'Payment Released',
+      message:
+          'Your partner payout of PHP ${amount.toStringAsFixed(2)} has been released.',
+      type: 'payment_release',
+      data: {
+        'amount': amount,
+        if (bookingId != null) 'booking_id': bookingId,
+        if (payoutId != null) 'payout_id': payoutId,
+        if (reference != null) 'reference': reference,
+        'event': 'partner_payment_released',
+      },
+    );
+  }
+
+  Future<bool> _safeCreate({
+    required String userId,
+    required String title,
+    required String message,
+    required String type,
+    Map<String, dynamic>? data,
+  }) async {
+    if (userId.trim().isEmpty) return false;
+    try {
+      await createNotification(
+        userId: userId,
+        title: title,
+        message: message,
+        type: type,
+        data: data,
+      );
+      return true;
+    } catch (e) {
+      debugPrint('Notification skipped: $e');
+      return false;
+    }
+  }
+
+  String _roleLabel(String role) {
+    switch (role) {
+      case 'driver':
+        return 'Driver';
+      case 'partner':
+        return 'Partner';
+      case 'renter':
+      case 'user':
+        return 'Renter';
+      case 'operator':
+        return 'Operator';
+      default:
+        return role.isEmpty
+            ? 'Account'
+            : role[0].toUpperCase() + role.substring(1);
+    }
+  }
+
   // Delete a notification
   Future<void> deleteNotification(String notificationId) async {
     try {

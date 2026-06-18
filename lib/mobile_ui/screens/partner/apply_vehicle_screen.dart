@@ -35,7 +35,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   int _currentStep = 0;
   File? _orDocumentFile;
   File? _crDocumentFile;
-  File? _vehiclePhotoFile;
+  final List<File> _vehiclePhotoFiles = [];
 
   final List<int> seatOptions = [2, 4, 5, 7, 8, 12];
   final List<String> fuelTypeOptions = [
@@ -202,7 +202,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       return false;
     }
 
-    if (_vehiclePhotoFile == null) {
+    if (_vehiclePhotoFiles.isEmpty) {
       _showErrorSnackBar('Please upload at least one vehicle photo');
       return false;
     }
@@ -236,7 +236,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       return false;
     }
 
-    if (_vehiclePhotoFile == null) {
+    if (_vehiclePhotoFiles.isEmpty) {
       _showErrorSnackBar('Please upload a vehicle photo');
       return false;
     }
@@ -260,6 +260,11 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   }
 
   Future<void> _pickDocument(String docType) async {
+    if (docType == 'vehicle_photo') {
+      await _pickVehiclePhotos();
+      return;
+    }
+
     final file = await VerificationService.pickImage(
       source: ImageSource.gallery,
     );
@@ -270,9 +275,25 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         _orDocumentFile = file;
       } else if (docType == 'cr') {
         _crDocumentFile = file;
-      } else {
-        _vehiclePhotoFile = file;
       }
+    });
+  }
+
+  Future<void> _pickVehiclePhotos() async {
+    final picker = ImagePicker();
+    final pickedFiles = await picker.pickMultiImage(imageQuality: 85);
+    if (pickedFiles.isEmpty) return;
+
+    final existingPaths = _vehiclePhotoFiles.map((file) => file.path).toSet();
+    final newFiles = pickedFiles
+        .where((file) => !existingPaths.contains(file.path))
+        .map((file) => File(file.path))
+        .toList();
+
+    if (newFiles.isEmpty) return;
+
+    setState(() {
+      _vehiclePhotoFiles.addAll(newFiles);
     });
   }
 
@@ -338,16 +359,20 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         file: _crDocumentFile!,
         documentType: 'cr_document',
       );
-      String? vehiclePhotoUrl;
-      if (_vehiclePhotoFile != null) {
-        vehiclePhotoUrl = await partnerService.uploadToPartnerDocumentsBucket(
+      final vehiclePhotoUrls = <String>[];
+      for (var i = 0; i < _vehiclePhotoFiles.length; i++) {
+        final url = await partnerService.uploadToPartnerDocumentsBucket(
           partnerId: partnerId,
-          file: _vehiclePhotoFile!,
-          documentType: 'vehicle_photo',
+          file: _vehiclePhotoFiles[i],
+          documentType: 'vehicle_photo_${i + 1}',
         );
+        vehiclePhotoUrls.add(url);
       }
+      final vehiclePhotoUrl = vehiclePhotoUrls.isEmpty
+          ? null
+          : vehiclePhotoUrls.first;
 
-      await partnerService.submitVehicleApplication(
+      final application = await partnerService.submitVehicleApplication(
         partnerId: partnerId,
         brand: brandController.text.trim(),
         model: modelController.text.trim(),
@@ -363,6 +388,13 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         vehiclePhotoUrl: vehiclePhotoUrl,
         ownerIsDriver: ownerIsDriver,
       );
+      final applicationId = application['id']?.toString();
+      if (applicationId != null && applicationId.isNotEmpty) {
+        await partnerService.addVehicleApplicationPhotos(
+          applicationId: applicationId,
+          photoUrls: vehiclePhotoUrls,
+        );
+      }
 
       if (mounted) {
         setState(() {
@@ -1040,7 +1072,8 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   }
 
   Widget _buildPhotoPreviewGrid() {
-    final hasPhoto = _vehiclePhotoFile != null;
+    final photoCount = _vehiclePhotoFiles.length;
+    final itemCount = photoCount < 4 ? 4 : photoCount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1048,7 +1081,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: 4,
+          itemCount: itemCount,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: 14,
@@ -1056,7 +1089,8 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             childAspectRatio: 1.62,
           ),
           itemBuilder: (context, index) {
-            final isPrimary = index == 0 && hasPhoto;
+            final hasPhoto = index < photoCount;
+            final photo = hasPhoto ? _vehiclePhotoFiles[index] : null;
             return GestureDetector(
               onTap: () => _pickDocument('vehicle_photo'),
               child: ClipRRect(
@@ -1066,8 +1100,8 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                   children: [
                     Container(
                       color: AppColors.darkBgSecondary,
-                      child: isPrimary
-                          ? Image.file(_vehiclePhotoFile!, fit: BoxFit.cover)
+                      child: hasPhoto
+                          ? Image.file(photo!, fit: BoxFit.cover)
                           : const Center(
                               child: Icon(
                                 Icons.add_a_photo_outlined,
@@ -1075,7 +1109,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                               ),
                             ),
                     ),
-                    if (isPrimary)
+                    if (hasPhoto)
                       const Positioned(
                         top: 8,
                         right: 8,
@@ -1086,6 +1120,31 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                             Icons.check,
                             size: 14,
                             color: Colors.black,
+                          ),
+                        ),
+                      ),
+                    if (hasPhoto)
+                      Positioned(
+                        top: 6,
+                        left: 6,
+                        child: Material(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(999),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(999),
+                            onTap: () {
+                              setState(() {
+                                _vehiclePhotoFiles.removeAt(index);
+                              });
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(5),
+                              child: Icon(
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -1100,9 +1159,9 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
           children: [
             Expanded(
               child: Text(
-                hasPhoto
-                    ? '1 of 4 photos uploaded successfully.'
-                    : 'Upload at least 1 vehicle photo.',
+                photoCount > 0
+                    ? '$photoCount photo${photoCount == 1 ? '' : 's'} selected. You can upload 4 or more at once.'
+                    : 'Upload at least 1 vehicle photo. You can select 4 or more at once.',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textSecondary,

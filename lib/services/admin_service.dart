@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'notification_service.dart';
 
 class AdminService {
   static final AdminService _instance = AdminService._internal();
@@ -221,6 +222,10 @@ class AdminService {
       // Log approval action
       await _logApplicationAction(driverId, 'driver', 'approved', notes);
 
+      await NotificationService().notifyDriverApplicationApproved(
+        driverId: driverId,
+      );
+
       debugPrint('Driver application approved');
     } on PostgrestException catch (e) {
       debugPrint('Database error approving driver: ${e.message}');
@@ -311,6 +316,10 @@ class AdminService {
 
       // Log approval action
       await _logApplicationAction(partnerId, 'partner', 'approved', notes);
+
+      await NotificationService().notifyPartnerApplicationApproved(
+        partnerId: partnerId,
+      );
 
       debugPrint('Partner application approved');
     } on PostgrestException catch (e) {
@@ -407,12 +416,33 @@ class AdminService {
 
       final partnerVehicleId = partnerVehicle['id'];
       final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
-      if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
-        await supabase.from('vehicle_images').insert({
-          'partner_vehicle_id': partnerVehicleId,
-          'image_url': vehiclePhotoUrl,
-          'display_order': 0,
-        });
+      final photoUrls = <String>[
+        if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
+          vehiclePhotoUrl,
+      ];
+      final photoDocs = await supabase
+          .from('partner_vehicle_documents')
+          .select('file_url')
+          .eq('partner_vehicle_application_id', applicationId)
+          .eq('document_type', 'vehicle_photo');
+      for (final doc in List<Map<String, dynamic>>.from(photoDocs)) {
+        final url = doc['file_url']?.toString();
+        if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
+          photoUrls.add(url);
+        }
+      }
+      if (photoUrls.isNotEmpty) {
+        await supabase
+            .from('vehicle_images')
+            .insert(
+              List.generate(photoUrls.length, (index) {
+                return {
+                  'partner_vehicle_id': partnerVehicleId,
+                  'image_url': photoUrls[index],
+                  'display_order': index,
+                };
+              }),
+            );
       }
 
       final orUrl = application['or_document_url']?.toString();
@@ -451,6 +481,14 @@ class AdminService {
 
       // Log approval
       await _logApplicationAction(applicationId, 'vehicle', 'approved', notes);
+
+      final vehicleTitle =
+          '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
+      await NotificationService().notifyPartnerApplicationApproved(
+        partnerId: partnerId,
+        applicationId: applicationId,
+        vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
+      );
 
       debugPrint('Vehicle application approved');
     } on PostgrestException catch (e) {
@@ -1754,6 +1792,19 @@ class AdminService {
           .from('users')
           .update({'application_status': 'approved'})
           .eq('id', driverId);
+
+      final driverProfile = await supabase
+          .from('drivers')
+          .select('user_id')
+          .eq('id', driverId)
+          .maybeSingle();
+      final driverUserId = driverProfile?['user_id']?.toString();
+      await NotificationService().notifyVerificationApproved(
+        userId: driverUserId != null && driverUserId.isNotEmpty
+            ? driverUserId
+            : driverId,
+        role: 'driver',
+      );
 
       debugPrint('Driver verification completed successfully');
       return {

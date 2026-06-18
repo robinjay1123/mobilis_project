@@ -54,12 +54,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       ),
     );
 
-    if (confirmed == true) {
-      final authService = AuthService();
-      await authService.signOut();
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
-      }
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
     }
   }
 

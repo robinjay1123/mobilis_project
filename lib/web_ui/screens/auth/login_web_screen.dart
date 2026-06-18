@@ -34,6 +34,8 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
   }
 
   void _handleLogin() async {
+    if (isLoading) return;
+
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
       _showErrorSnackBar(
@@ -71,6 +73,11 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
       if (mounted) {
         emailController.clear();
         passwordController.clear();
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/auth-processing',
+          (route) => false,
+          arguments: {'mode': 'login'},
+        );
 
         // Fallback: If AuthWrapper doesn't navigate within 3 seconds, manually navigate
         Future.delayed(const Duration(seconds: 3), () async {
@@ -88,14 +95,15 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                 );
                 if (mounted) {
                   String fallbackRoute = '/dashboard';
-                  if (role == 'admin')
+                  if (role == 'admin') {
                     fallbackRoute = '/admin-home';
-                  else if (role == 'operator')
+                  } else if (role == 'operator') {
                     fallbackRoute = '/operator-home';
-                  else if (role == 'partner')
+                  } else if (role == 'partner') {
                     fallbackRoute = '/partner-home';
-                  else if (role == 'driver')
+                  } else if (role == 'driver') {
                     fallbackRoute = '/driver-home';
+                  }
 
                   Navigator.of(context).pushReplacementNamed(fallbackRoute);
                   debugPrint(
@@ -140,6 +148,8 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
   }
 
   void _handleGoogleLogin() async {
+    if (isLoading) return;
+
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
       _showErrorSnackBar(
@@ -320,6 +330,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                           hintText: 'name@gmail.com',
                           prefixIcon: Icons.email_outlined,
                           keyboardType: TextInputType.emailAddress,
+                          onSubmitted: (_) => _handleLogin(),
                         ),
                         const SizedBox(height: 24),
 
@@ -331,6 +342,7 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
                           hintText: '••••••••',
                           prefixIcon: Icons.lock_outline,
                           obscureText: obscurePassword,
+                          onSubmitted: (_) => _handleLogin(),
                           suffixIcon: IconButton(
                             icon: Icon(
                               obscurePassword
@@ -557,11 +569,13 @@ class _LoginWebScreenState extends State<LoginWebScreen> {
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
     Widget? suffixIcon,
+    ValueChanged<String>? onSubmitted,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
+      onSubmitted: onSubmitted,
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         hintText: hintText,

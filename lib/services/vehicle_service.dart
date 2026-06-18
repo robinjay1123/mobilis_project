@@ -165,6 +165,147 @@ class VehicleService {
     }
   }
 
+  Future<Map<String, List<Map<String, dynamic>>>> _fetchAndGroupPartnerImages(
+    List<String> partnerVehicleIds,
+  ) async {
+    if (partnerVehicleIds.isEmpty) return {};
+
+    try {
+      final imagesResponse = await supabase
+          .from('vehicle_images')
+          .select('partner_vehicle_id,image_url,display_order')
+          .inFilter('partner_vehicle_id', partnerVehicleIds);
+
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      for (final image in imagesResponse) {
+        final partnerVehicleId = image['partner_vehicle_id']?.toString();
+        if (partnerVehicleId == null || partnerVehicleId.isEmpty) continue;
+        grouped.putIfAbsent(partnerVehicleId, () => []).add({
+          'image_url': image['image_url'],
+          'display_order': image['display_order'],
+        });
+      }
+
+      for (final list in grouped.values) {
+        list.sort((a, b) {
+          final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
+          final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
+          return aOrder.compareTo(bOrder);
+        });
+      }
+
+      return grouped;
+    } catch (e) {
+      debugPrint('Error fetching partner vehicle images: $e');
+      return {};
+    }
+  }
+
+  Map<String, dynamic> _normalizePartnerVehicleRecord(
+    Map<String, dynamic> partnerVehicle,
+  ) {
+    final partner = partnerVehicle['partners'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(partnerVehicle['partners'])
+        : <String, dynamic>{};
+    final user = partner['users'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(partner['users'])
+        : <String, dynamic>{};
+
+    final partnerName =
+        _cleanText(partner['business_name']) ??
+        _cleanText(user['full_name']) ??
+        _cleanText(user['email']) ??
+        'Mobilis Partner';
+
+    final normalized = _normalizeVehicleRecord({
+      ...partnerVehicle,
+      'id': partnerVehicle['id'],
+      'partner_vehicle_id': partnerVehicle['id'],
+      'source': 'partner',
+      'is_partner_vehicle': true,
+      'partner_name': partnerName,
+      'owner_name': partnerName,
+      'owner': {
+        'role': 'partner',
+        'full_name': partnerName,
+        if (user['email'] != null) 'email': user['email'],
+      },
+      'vehicle_name':
+          _cleanText(partnerVehicle['vehicle_name']) ??
+          '${_cleanText(partnerVehicle['brand']) ?? ''} ${_cleanText(partnerVehicle['model']) ?? ''}'
+              .trim(),
+      'category':
+          _cleanText(partnerVehicle['category']) ??
+          _cleanText(partnerVehicle['vehicle_type']) ??
+          'Partner Vehicle',
+      'vehicle_type':
+          _cleanText(partnerVehicle['vehicle_type']) ??
+          _cleanText(partnerVehicle['category']) ??
+          'Partner Vehicle',
+      'is_posted': partnerVehicle['is_posted'] ?? true,
+      'is_available': partnerVehicle['is_available'] ?? true,
+      'status': partnerVehicle['status'] ?? 'available',
+    });
+
+    return normalized;
+  }
+
+  Future<List<Map<String, dynamic>>> _getAvailablePartnerVehicles() async {
+    try {
+      List response;
+      try {
+        response =
+            await supabase
+                    .from('partner_vehicles')
+                    .select(
+                      '*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))',
+                    )
+                    .order('created_at', ascending: false)
+                as List;
+      } catch (e) {
+        debugPrint('Partner relation select failed, using fallback: $e');
+        response =
+            await supabase
+                    .from('partner_vehicles')
+                    .select('*')
+                    .order('created_at', ascending: false)
+                as List;
+      }
+
+      final partnerVehicles = response
+          .whereType<Map<String, dynamic>>()
+          .map(Map<String, dynamic>.from)
+          .where((vehicle) {
+            final status = (vehicle['status'] ?? '').toString().toLowerCase();
+            return status != 'rejected' &&
+                status != 'declined' &&
+                status != 'archived' &&
+                status != 'deleted';
+          })
+          .toList();
+
+      final partnerVehicleIds = partnerVehicles
+          .map((v) => v['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      final imagesByPartnerVehicleId = await _fetchAndGroupPartnerImages(
+        partnerVehicleIds,
+      );
+
+      for (final vehicle in partnerVehicles) {
+        final id = vehicle['id']?.toString();
+        vehicle['vehicle_images'] = id == null
+            ? <Map<String, dynamic>>[]
+            : imagesByPartnerVehicleId[id] ?? <Map<String, dynamic>>[];
+      }
+
+      return partnerVehicles.map(_normalizePartnerVehicleRecord).toList();
+    } catch (e) {
+      debugPrint('getAvailablePartnerVehicles error: $e');
+      return [];
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // GET PARTNER VEHICLES
   // ---------------------------------------------------------------------------
@@ -274,10 +415,12 @@ class VehicleService {
       final normalized = _normalizeList(
         vehicles,
       ).where(_isVisibleForRent).toList();
+      final partnerVehicles = await _getAvailablePartnerVehicles();
+      final allVehicles = [...normalized, ...partnerVehicles];
 
       final categoryFiltered = category == null || category.isEmpty
-          ? normalized
-          : normalized
+          ? allVehicles
+          : allVehicles
                 .where((v) => _matchesCategory(_categoryOf(v), category))
                 .toList();
       return _filterVehiclesAvailableForRange(

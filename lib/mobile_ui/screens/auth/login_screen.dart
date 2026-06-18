@@ -61,6 +61,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() async {
+    if (isLoading) return;
+
     // Check internet connection first
     final connectivityService = ConnectivityService();
     final isOnline = await connectivityService.checkConnectivity();
@@ -110,6 +112,11 @@ class _LoginScreenState extends State<LoginScreen> {
         // Clear controllers only on successful login
         emailController.clear();
         passwordController.clear();
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/auth-processing',
+          (route) => false,
+          arguments: {'mode': 'login'},
+        );
 
         // Fallback: If AuthWrapper doesn't navigate within 3 seconds, manually navigate
         Future.delayed(const Duration(seconds: 3), () async {
@@ -127,14 +134,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 );
                 if (mounted) {
                   String fallbackRoute = '/dashboard';
-                  if (role == 'admin')
+                  if (role == 'admin') {
                     fallbackRoute = '/admin-home';
-                  else if (role == 'operator')
+                  } else if (role == 'operator') {
                     fallbackRoute = '/operator-home';
-                  else if (role == 'partner')
+                  } else if (role == 'partner') {
                     fallbackRoute = '/partner-home';
-                  else if (role == 'driver')
+                  } else if (role == 'driver') {
                     fallbackRoute = '/driver-home';
+                  }
 
                   Navigator.of(
                     context,
@@ -184,6 +192,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleGoogleLogin() async {
+    if (isLoading) return;
+
     // Check internet connection first
     final connectivityService = ConnectivityService();
     final isOnline = await connectivityService.checkConnectivity();

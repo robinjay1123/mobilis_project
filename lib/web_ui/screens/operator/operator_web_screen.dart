@@ -4,10 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'dart:io';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
-import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
@@ -409,23 +407,92 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             await _supabase
                     .from('partner_vehicles')
                     .select(
-                      '*, vehicle:vehicle_id ( *, vehicle_images(id, image_url, display_order) )',
+                      '*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))',
                     )
                     .order('created_at', ascending: false)
                 as List;
       } catch (e) {
-        debugPrint('Error loading partner_vehicles: $e');
-        partnerVehiclesResp = [];
+        debugPrint('Partner relation select failed, using fallback: $e');
+        try {
+          partnerVehiclesResp =
+              await _supabase
+                      .from('partner_vehicles')
+                      .select('*')
+                      .order('created_at', ascending: false)
+                  as List;
+        } catch (fallbackError) {
+          debugPrint('Error loading partner_vehicles: $fallbackError');
+          partnerVehiclesResp = [];
+        }
       }
 
-      final normalizedPartnerVehicles = partnerVehiclesResp.map((pv) {
-        final vehicle = pv['vehicle'] as Map<String, dynamic>?;
-        final merged = <String, dynamic>{};
-        if (vehicle != null) merged.addAll(Map<String, dynamic>.from(vehicle));
-        merged['_source'] = 'partner';
-        merged['_partner_vehicle_id'] = pv['id'];
-        return merged;
-      }).toList();
+      final partnerVehicleIds = partnerVehiclesResp
+          .whereType<Map<String, dynamic>>()
+          .map((pv) => pv['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      final partnerImagesByVehicleId = <String, List<Map<String, dynamic>>>{};
+      if (partnerVehicleIds.isNotEmpty) {
+        try {
+          final partnerImages = await _supabase
+              .from('vehicle_images')
+              .select('partner_vehicle_id,image_url,display_order')
+              .inFilter('partner_vehicle_id', partnerVehicleIds);
+          for (final image in List<Map<String, dynamic>>.from(partnerImages)) {
+            final partnerVehicleId = image['partner_vehicle_id']?.toString();
+            if (partnerVehicleId == null || partnerVehicleId.isEmpty) continue;
+            partnerImagesByVehicleId
+                .putIfAbsent(partnerVehicleId, () => [])
+                .add({
+                  'image_url': image['image_url'],
+                  'display_order': image['display_order'],
+                });
+          }
+        } catch (e) {
+          debugPrint('Error loading partner vehicle images: $e');
+        }
+      }
+
+      final normalizedPartnerVehicles = partnerVehiclesResp
+          .whereType<Map<String, dynamic>>()
+          .map((pv) {
+            final partner = pv['partners'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(pv['partners'])
+                : <String, dynamic>{};
+            final partnerUser = partner['users'] is Map<String, dynamic>
+                ? Map<String, dynamic>.from(partner['users'])
+                : <String, dynamic>{};
+            final partnerName =
+                partner['business_name']?.toString().trim().isNotEmpty == true
+                ? partner['business_name'].toString()
+                : partnerUser['full_name']?.toString().trim().isNotEmpty == true
+                ? partnerUser['full_name'].toString()
+                : 'Mobilis Partner';
+            final partnerVehicleId = pv['id']?.toString() ?? '';
+            final images = partnerImagesByVehicleId[partnerVehicleId] ?? [];
+            final merged = Map<String, dynamic>.from(pv)
+              ..['_source'] = 'partner'
+              ..['source'] = 'partner'
+              ..['_partner_vehicle_id'] = partnerVehicleId
+              ..['partner_vehicle_id'] = partnerVehicleId
+              ..['is_partner_vehicle'] = true
+              ..['partner_name'] = partnerName
+              ..['owner_name'] = partnerName
+              ..['vehicle_images'] = images
+              ..['image_url'] = images.isNotEmpty
+                  ? images.first['image_url']
+                  : pv['image_url']
+              ..['vehicle_name'] =
+                  pv['vehicle_name'] ??
+                  '${pv['brand'] ?? ''} ${pv['model'] ?? ''}'.trim()
+              ..['category'] =
+                  pv['category'] ?? pv['vehicle_type'] ?? 'Partner Vehicle'
+              ..['vehicle_type'] =
+                  pv['vehicle_type'] ?? pv['category'] ?? 'Partner Vehicle'
+              ..['is_posted'] = pv['is_posted'] ?? pv['is_available'] ?? false;
+            return merged;
+          })
+          .toList();
 
       setState(() {
         _vehicles = List<Map<String, dynamic>>.from(normalizedOwnVehicles);
@@ -504,15 +571,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await AuthService().signOut();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/login');
-        }
-      } catch (e) {
-        debugPrint('Logout error: $e');
-      }
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
     }
   }
 
@@ -2268,6 +2332,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ],
                         ),
                       ],
+                      if (statusLower == 'pending') ...[
+                        const SizedBox(height: 12),
+                        _buildBookingPaymentDetails(booking, isDark),
+                      ],
                       const SizedBox(height: 16),
                       // Status and actions
                       Row(
@@ -2329,6 +2397,241 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               },
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBookingPaymentDetails(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final amount = (booking['reservation_fee_amount'] as num?)?.toDouble();
+    final type = booking['reservation_payment_type']?.toString() ?? '';
+    final coversTotal = booking['reservation_payment_covers_total'] == true;
+    final status =
+        booking['reservation_payment_status']?.toString().trim().isNotEmpty ==
+            true
+        ? booking['reservation_payment_status'].toString()
+        : 'Not submitted';
+    final method =
+        booking['reservation_payment_method']?.toString().trim().isNotEmpty ==
+            true
+        ? booking['reservation_payment_method'].toString()
+        : 'PSDC QR payment';
+    final reference =
+        booking['reservation_payment_reference']?.toString().trim() ?? '';
+    final proofUrl =
+        booking['reservation_payment_proof_url']?.toString().trim() ?? '';
+    final submittedAt = DateTime.tryParse(
+      booking['reservation_payment_submitted_at']?.toString() ?? '',
+    )?.toLocal();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black38 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isDark ? Colors.grey[700]! : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.receipt_long_outlined,
+                color: AppColors.primary,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Payment Details',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  coversTotal ? 'FULL PAYMENT' : 'RESERVATION',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 18,
+            runSpacing: 10,
+            children: [
+              _buildPaymentInfoTile(
+                'Amount paid',
+                amount == null ? 'N/A' : 'PHP ${amount.toStringAsFixed(0)}',
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Payment type',
+                type.isEmpty ? 'Reservation only' : type.replaceAll('_', ' '),
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Status',
+                status.replaceAll('_', ' '),
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Method',
+                method.replaceAll('_', ' '),
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Reference',
+                reference.isEmpty ? 'Missing' : reference,
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Submitted',
+                _formatBookingDateTime(submittedAt),
+                isDark,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (proofUrl.isEmpty)
+            Text(
+              'No receipt proof uploaded.',
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                fontSize: 12,
+              ),
+            )
+          else
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    proofUrl,
+                    width: 72,
+                    height: 72,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 72,
+                      height: 72,
+                      color: isDark ? Colors.black26 : Colors.grey.shade200,
+                      child: const Icon(Icons.broken_image_outlined),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: () => _showReceiptProofDialog(proofUrl, isDark),
+                  icon: const Icon(Icons.open_in_full, size: 16),
+                  label: const Text('View receipt'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaymentInfoTile(String label, String value, bool isDark) {
+    return SizedBox(
+      width: 170,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptProofDialog(String proofUrl, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Payment Receipt',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.network(
+                      proofUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Icon(Icons.broken_image_outlined, size: 72),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -5140,7 +5443,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     if (confirm == true) {
       try {
-        await _supabase.from('vehicles').delete().eq('id', vehicleId);
+        final partnerVehicle = _partnerVehicles.any(
+          (vehicle) =>
+              vehicle['id']?.toString() == vehicleId?.toString() ||
+              vehicle['partner_vehicle_id']?.toString() ==
+                  vehicleId?.toString(),
+        );
+        await _supabase
+            .from(partnerVehicle ? 'partner_vehicles' : 'vehicles')
+            .delete()
+            .eq('id', vehicleId);
         _loadVehicles();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -5161,12 +5473,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isPosted,
   ) async {
     try {
-      await _supabase
-          .from('vehicles')
-          .update({'is_posted': isPosted})
-          .eq('id', vehicle['id']);
+      final isPartnerVehicle =
+          vehicle['_source'] == 'partner' ||
+          vehicle['source'] == 'partner' ||
+          vehicle['is_partner_vehicle'] == true;
+      if (isPartnerVehicle) {
+        final partnerVehicleId =
+            vehicle['partner_vehicle_id'] ??
+            vehicle['_partner_vehicle_id'] ??
+            vehicle['id'];
+        await _supabase
+            .from('partner_vehicles')
+            .update({
+              'is_available': isPosted,
+              'status': isPosted ? 'available' : 'pending',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', partnerVehicleId);
+      } else {
+        await _supabase
+            .from('vehicles')
+            .update({'is_posted': isPosted})
+            .eq('id', vehicle['id']);
+      }
 
       vehicle['is_posted'] = isPosted;
+      vehicle['is_available'] = isPosted;
       _loadVehicles();
 
       ScaffoldMessenger.of(context).showSnackBar(

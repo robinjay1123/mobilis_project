@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
-import '../../../services/auth_service.dart';
 
 /// Desktop-only access screen shown when admin/operator tries to access
 /// web dashboards on mobile/tablet platforms.
@@ -10,22 +9,11 @@ class WebOnlyAccessScreen extends StatelessWidget {
   const WebOnlyAccessScreen({super.key, this.role = 'Admin'});
 
   Future<void> _handleSignOut(BuildContext context) async {
-    try {
-      await AuthService().signOut();
-      if (context.mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
-      }
-    } catch (e) {
-      debugPrint('Logout error: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error signing out: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/auth-processing',
+      (route) => false,
+      arguments: {'mode': 'logout'},
+    );
   }
 
   @override

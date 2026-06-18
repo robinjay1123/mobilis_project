@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/admin/admin_drawer.dart';
-import '../../../services/auth_service.dart';
 import '../../../services/notification_service.dart';
 import 'tabs/dashboard_overview_tab.dart';
 import 'tabs/user_directory_tab.dart';
@@ -314,13 +313,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       // Add notification for rejection (approval already has one in VerificationService)
       try {
         if (status == 'verified') {
-          await NotificationService().createNotification(
+          await NotificationService().notifyVerificationApproved(
             userId: userId,
-            title: 'Verification Approved',
-            message:
-                'Your verification has been approved. You can now use all features in the app.',
-            type: 'verification',
-            data: {'status': 'verified'},
+            role: role ?? 'account',
           );
         } else if (status == 'rejected') {
           await NotificationService().createNotification(
@@ -464,12 +459,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
         final partnerVehicleId = partnerVehicle['id'];
         final vehiclePhotoUrl = application['vehicle_photo_url']?.toString();
-        if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty) {
-          await _supabase.from('vehicle_images').insert({
-            'partner_vehicle_id': partnerVehicleId,
-            'image_url': vehiclePhotoUrl,
-            'display_order': 0,
-          });
+        final photoUrls = <String>[
+          if (vehiclePhotoUrl != null && vehiclePhotoUrl.isNotEmpty)
+            vehiclePhotoUrl,
+        ];
+        final photoDocs = await _supabase
+            .from('partner_vehicle_documents')
+            .select('file_url')
+            .eq('partner_vehicle_application_id', appId)
+            .eq('document_type', 'vehicle_photo');
+        for (final doc in List<Map<String, dynamic>>.from(photoDocs)) {
+          final url = doc['file_url']?.toString();
+          if (url != null && url.isNotEmpty && !photoUrls.contains(url)) {
+            photoUrls.add(url);
+          }
+        }
+        if (photoUrls.isNotEmpty) {
+          await _supabase
+              .from('vehicle_images')
+              .insert(
+                List.generate(photoUrls.length, (index) {
+                  return {
+                    'partner_vehicle_id': partnerVehicleId,
+                    'image_url': photoUrls[index],
+                    'display_order': index,
+                  };
+                }),
+              );
         }
 
         await _supabase
@@ -483,6 +499,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               'created_vehicle_id': null,
             })
             .eq('id', appId);
+
+        final vehicleTitle =
+            '${application['brand'] ?? ''} ${application['model'] ?? ''}'
+                .trim();
+        await NotificationService().notifyPartnerApplicationApproved(
+          partnerId: partnerUserId,
+          applicationId: appId,
+          vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
+        );
       } else {
         await _supabase
             .from('partner_vehicle_applications')
@@ -1209,15 +1234,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await AuthService().signOut();
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/login');
-        }
-      } catch (e) {
-        debugPrint('Logout error: $e');
-      }
+    if (confirmed == true && mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/auth-processing',
+        (route) => false,
+        arguments: {'mode': 'logout'},
+      );
     }
   }
 

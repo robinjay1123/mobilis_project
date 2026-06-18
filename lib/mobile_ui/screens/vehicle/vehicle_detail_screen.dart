@@ -1364,8 +1364,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         builder: (dialogContext) {
           return StatefulBuilder(
             builder: (context, setDialogState) {
+              final vehicle = _vehicle ?? widget.vehicleData ?? {};
+              final isPartnerVehicle =
+                  vehicle['source']?.toString().toLowerCase() == 'partner' ||
+                  vehicle['is_partner_vehicle'] == true ||
+                  vehicle['partner_vehicle_id'] != null ||
+                  vehicle['partner_name'] != null;
+              final rentalTotal = _totalPrice;
+              final partnerCommission = isPartnerVehicle
+                  ? rentalTotal * 0.10
+                  : 0.0;
               final payableAmount = payFullAmount
-                  ? _totalPrice
+                  ? rentalTotal + partnerCommission
                   : settings.amount;
               Future<void> pickReceipt() async {
                 final picked = await ImagePicker().pickImage(
@@ -1382,7 +1392,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               Future<void> confirmPayment() async {
                 final reference = referenceController.text.trim();
                 final payableAmount = payFullAmount
-                    ? _totalPrice
+                    ? rentalTotal + partnerCommission
                     : settings.amount;
                 if (settings.qrUrl.trim().isEmpty) {
                   setDialogState(() {
@@ -1466,6 +1476,60 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
+                      if (payFullAmount) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderColor),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Payment Breakdown',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _buildPaymentBreakdownRow(
+                                'Rental total',
+                                rentalTotal,
+                              ),
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                isPartnerVehicle
+                                    ? 'Partner commission (10%)'
+                                    : 'Company commission',
+                                partnerCommission,
+                              ),
+                              const Divider(
+                                height: 18,
+                                color: AppColors.borderColor,
+                              ),
+                              _buildPaymentBreakdownRow(
+                                'Total to pay',
+                                payableAmount,
+                                isTotal: true,
+                              ),
+                              if (!isPartnerVehicle) ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Company-owned vehicle: no commission is added.',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -1521,7 +1585,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       const SizedBox(height: 10),
                       Text(
                         payFullAmount
-                            ? '${settings.instructions}\n\nYou selected full payment, so your proof should match the full rental total shown above.'
+                            ? '${settings.instructions}\n\nYou selected full payment, so your proof should match the total payable shown above.'
                             : settings.instructions,
                         style: const TextStyle(
                           color: AppColors.textSecondary,
@@ -1696,6 +1760,35 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
       );
     }
+  }
+
+  Widget _buildPaymentBreakdownRow(
+    String label,
+    double amount, {
+    bool isTotal = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isTotal ? AppColors.textPrimary : AppColors.textSecondary,
+              fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          'PHP ${amount.toStringAsFixed(0)}',
+          style: TextStyle(
+            color: isTotal ? AppColors.primary : AppColors.textPrimary,
+            fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildSummaryRow(String label, String value, {bool isTotal = false}) {
