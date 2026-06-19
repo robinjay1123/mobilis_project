@@ -1332,8 +1332,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    minimumSize: const Size(0, 44),
                   ),
-                  child: const Text('Agree & Continue'),
+                  child: const Text(
+                    'Agree & Continue',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ],
             ),

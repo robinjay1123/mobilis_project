@@ -29,6 +29,7 @@ class CustomButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: isLoading || isDisabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           backgroundColor: isDisabled
               ? (backgroundColor ?? AppColors.primary).withOpacity(0.5)
               : (backgroundColor ?? AppColors.primary),
@@ -52,8 +53,11 @@ class CustomButton extends StatelessWidget {
               )
             : Text(
                 label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),

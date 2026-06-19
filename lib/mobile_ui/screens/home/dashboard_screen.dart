@@ -622,6 +622,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() => _vehicles = vehicles);
       _applyVehicleFilters();
+      _precacheVehicleImages(vehicles);
     } catch (e) {
       debugPrint('Error loading vehicles: $e');
       if (!mounted) return;
@@ -632,6 +633,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } finally {
       if (mounted) setState(() => _isLoadingVehicles = false);
     }
+  }
+
+  void _precacheVehicleImages(List<Map<String, dynamic>> vehicles) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final urls = vehicles
+          .map((vehicle) => vehicle['image_url']?.toString().trim() ?? '')
+          .where((url) => url.isNotEmpty)
+          .take(10);
+      for (final url in urls) {
+        precacheImage(NetworkImage(url), context).catchError((_) {});
+      }
+    });
   }
 
   void _applyVehicleFilters() {
@@ -2638,20 +2652,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     SizedBox(
                                       height: 100,
                                       width: double.infinity,
-                                      child: hasImage
-                                          ? Image.network(
-                                              imageUrl,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) =>
-                                                  _buildTripImageFallback(
-                                                    mutedCardColor,
-                                                    tertiaryTextColor,
-                                                  ),
-                                            )
-                                          : _buildTripImageFallback(
-                                              mutedCardColor,
-                                              tertiaryTextColor,
-                                            ),
+                                      child: _buildFastVehicleImage(
+                                        imageUrl: hasImage ? imageUrl : null,
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        backgroundColor: mutedCardColor,
+                                        iconColor: tertiaryTextColor,
+                                      ),
                                     ),
                                     Padding(
                                       padding: const EdgeInsets.all(12),
@@ -3032,28 +3039,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       Container(
                                         height: 200,
                                         color: mutedCardColor,
-                                        child: imageUrl != null
-                                            ? Image.network(
-                                                imageUrl,
-                                                fit: BoxFit.cover,
-                                                width: double.infinity,
-                                                errorBuilder: (_, __, ___) =>
-                                                    Center(
-                                                      child: Icon(
-                                                        Icons.directions_car,
-                                                        size: 60,
-                                                        color:
-                                                            tertiaryTextColor,
-                                                      ),
-                                                    ),
-                                              )
-                                            : Center(
-                                                child: Icon(
-                                                  Icons.directions_car,
-                                                  size: 60,
-                                                  color: tertiaryTextColor,
-                                                ),
-                                              ),
+                                        child: _buildFastVehicleImage(
+                                          imageUrl: imageUrl,
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                          backgroundColor: mutedCardColor,
+                                          iconColor: tertiaryTextColor,
+                                        ),
                                       ),
                                       Positioned(
                                         top: 12,
@@ -4672,19 +4664,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: SizedBox(
                 width: 88,
                 height: 64,
-                child: imageUrl.isNotEmpty
-                    ? Image.network(
-                        imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _buildTripImageFallback(
-                          AppColors.darkBgTertiary,
-                          AppColors.textTertiary,
-                        ),
-                      )
-                    : _buildTripImageFallback(
-                        AppColors.darkBgTertiary,
-                        AppColors.textTertiary,
-                      ),
+                child: _buildFastVehicleImage(
+                  imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
+                  fit: BoxFit.cover,
+                  backgroundColor: AppColors.darkBgTertiary,
+                  iconColor: AppColors.textTertiary,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -5732,19 +5717,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: SizedBox(
               height: 150,
               width: double.infinity,
-              child: hasImage
-                  ? Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildTripImageFallback(
-                        AppColors.darkBgTertiary,
-                        AppColors.textTertiary,
-                      ),
-                    )
-                  : _buildTripImageFallback(
-                      AppColors.darkBgTertiary,
-                      AppColors.textTertiary,
-                    ),
+              child: _buildFastVehicleImage(
+                imageUrl: hasImage ? imageUrl : null,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                backgroundColor: AppColors.darkBgTertiary,
+                iconColor: AppColors.textTertiary,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -5944,19 +5923,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: SizedBox(
               width: 112,
               height: 70,
-              child: imageUrl.isNotEmpty
-                  ? Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildTripImageFallback(
-                        AppColors.darkBgTertiary,
-                        AppColors.textTertiary,
-                      ),
-                    )
-                  : _buildTripImageFallback(
-                      AppColors.darkBgTertiary,
-                      AppColors.textTertiary,
-                    ),
+              child: _buildFastVehicleImage(
+                imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
+                fit: BoxFit.cover,
+                backgroundColor: AppColors.darkBgTertiary,
+                iconColor: AppColors.textTertiary,
+              ),
             ),
           ),
         ],
@@ -6481,6 +6453,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
       color: backgroundColor,
       alignment: Alignment.center,
       child: Icon(Icons.directions_car, size: 38, color: iconColor),
+    );
+  }
+
+  Widget _buildFastVehicleImage({
+    required String? imageUrl,
+    required BoxFit fit,
+    required Color backgroundColor,
+    required Color iconColor,
+    double? width,
+    double? height,
+  }) {
+    final cleanUrl = imageUrl?.trim();
+    if (cleanUrl == null || cleanUrl.isEmpty) {
+      return _buildTripImageFallback(backgroundColor, iconColor);
+    }
+
+    return Image.network(
+      cleanUrl,
+      fit: fit,
+      width: width,
+      height: height,
+      filterQuality: FilterQuality.medium,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) return child;
+        return _buildTripImageFallback(backgroundColor, iconColor);
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        final expected = loadingProgress.expectedTotalBytes;
+        final loaded = loadingProgress.cumulativeBytesLoaded;
+        final value = expected == null ? null : loaded / expected;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildTripImageFallback(backgroundColor, iconColor),
+            Center(
+              child: SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: value,
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    AppColors.primary,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      errorBuilder: (_, __, ___) =>
+          _buildTripImageFallback(backgroundColor, iconColor),
     );
   }
 

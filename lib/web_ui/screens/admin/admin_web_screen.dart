@@ -328,7 +328,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .length;
 
       final vehiclesResponse = await _supabase.from('vehicles').select('id');
-      _totalVehicles = (vehiclesResponse as List).length;
+      final partnerVehiclesResponse = await _supabase
+          .from('partner_vehicles')
+          .select('id');
+      _totalVehicles =
+          (vehiclesResponse as List).length +
+          (partnerVehiclesResponse as List).length;
 
       final pendingResponse = await _supabase
           .from('user_verifications')
@@ -390,7 +395,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAllVehicles() async {
     try {
-      final response = await _supabase
+      final companyResponse = await _supabase
           .from('vehicles')
           .select('''
             *,
@@ -398,11 +403,142 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ''')
           .order('created_at', ascending: false);
 
-      _allVehicles = List<Map<String, dynamic>>.from(response);
+      final companyVehicles = List<Map<String, dynamic>>.from(companyResponse)
+          .map((vehicle) {
+            final merged = Map<String, dynamic>.from(vehicle);
+            merged['source'] = 'company';
+            merged['source_label'] = 'Company';
+            return merged;
+          })
+          .toList();
+
+      List<Map<String, dynamic>> partnerVehicles = [];
+      try {
+        final partnerResponse = await _supabase
+            .from('partner_vehicles')
+            .select('''
+              *,
+              partners:partner_id (
+                id,
+                business_name,
+                user_id,
+                users:user_id (full_name, email, role)
+              )
+            ''')
+            .order('created_at', ascending: false);
+        partnerVehicles = List<Map<String, dynamic>>.from(
+          partnerResponse,
+        ).map(_normalizeAdminPartnerVehicle).toList();
+      } catch (e) {
+        debugPrint('Partner vehicle relation load failed: $e');
+        final fallback = await _supabase
+            .from('partner_vehicles')
+            .select('*')
+            .order('created_at', ascending: false);
+        partnerVehicles = List<Map<String, dynamic>>.from(
+          fallback,
+        ).map(_normalizeAdminPartnerVehicle).toList();
+      }
+
+      await _attachAdminVehicleImages(companyVehicles, partnerVehicles);
+      _allVehicles = [...companyVehicles, ...partnerVehicles];
     } catch (e) {
       debugPrint('Error loading vehicles: $e');
       _allVehicles = [];
     }
+  }
+
+  Map<String, dynamic> _normalizeAdminPartnerVehicle(
+    Map<String, dynamic> vehicle,
+  ) {
+    final partner = vehicle['partners'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(vehicle['partners'])
+        : <String, dynamic>{};
+    final partnerUser = partner['users'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(partner['users'])
+        : <String, dynamic>{};
+    final partnerName =
+        partner['business_name']?.toString().trim().isNotEmpty == true
+        ? partner['business_name'].toString()
+        : partnerUser['full_name']?.toString().trim().isNotEmpty == true
+        ? partnerUser['full_name'].toString()
+        : 'Mobilis Partner';
+
+    final merged = Map<String, dynamic>.from(vehicle);
+    merged['source'] = 'partner';
+    merged['source_label'] = 'Partner';
+    merged['partner_name'] = partnerName;
+    merged['owner'] = {
+      'full_name': partnerName,
+      'email': partnerUser['email'],
+      'role': 'partner',
+    };
+    merged['is_partner_vehicle'] = true;
+    merged['partner_vehicle_id'] = vehicle['id'];
+    merged['is_posted'] = vehicle['is_available'] ?? false;
+    return merged;
+  }
+
+  Future<void> _attachAdminVehicleImages(
+    List<Map<String, dynamic>> companyVehicles,
+    List<Map<String, dynamic>> partnerVehicles,
+  ) async {
+    final vehicleIds = companyVehicles
+        .map((vehicle) => vehicle['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    final partnerVehicleIds = partnerVehicles
+        .map((vehicle) => vehicle['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (vehicleIds.isNotEmpty) {
+      final images = await _supabase
+          .from('vehicle_images')
+          .select('vehicle_id,image_url,display_order')
+          .inFilter('vehicle_id', vehicleIds);
+      final grouped = _groupImagesByKey(
+        List<Map<String, dynamic>>.from(images),
+        'vehicle_id',
+      );
+      for (final vehicle in companyVehicles) {
+        vehicle['vehicle_images'] = grouped[vehicle['id']?.toString()] ?? [];
+      }
+    }
+
+    if (partnerVehicleIds.isNotEmpty) {
+      final images = await _supabase
+          .from('vehicle_images')
+          .select('partner_vehicle_id,image_url,display_order')
+          .inFilter('partner_vehicle_id', partnerVehicleIds);
+      final grouped = _groupImagesByKey(
+        List<Map<String, dynamic>>.from(images),
+        'partner_vehicle_id',
+      );
+      for (final vehicle in partnerVehicles) {
+        vehicle['vehicle_images'] = grouped[vehicle['id']?.toString()] ?? [];
+      }
+    }
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupImagesByKey(
+    List<Map<String, dynamic>> images,
+    String key,
+  ) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final image in images) {
+      final id = image[key]?.toString();
+      if (id == null || id.isEmpty) continue;
+      grouped.putIfAbsent(id, () => []).add(image);
+    }
+    for (final list in grouped.values) {
+      list.sort((a, b) {
+        final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
+        final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
+        return aOrder.compareTo(bOrder);
+      });
+    }
+    return grouped;
   }
 
   Future<void> _loadTrackingLocations() async {
@@ -2164,80 +2300,348 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         'All Vehicles (${_allVehicles.length})',
         _allVehicles.isEmpty
             ? const Center(child: Text('No vehicles found'))
-            : DataTable(
-                columns: [
-                  DataColumn(
-                    label: Text(
-                      'Vehicle',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Owner',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Price/Day',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Status',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                  ),
-                ],
-                rows: _allVehicles.map((vehicle) {
-                  final owner = vehicle['owner'] as Map<String, dynamic>?;
-                  final status = vehicle['status'] as String? ?? 'pending';
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 16.0;
+                  final crossAxisCount = constraints.maxWidth >= 1200
+                      ? 3
+                      : constraints.maxWidth >= 760
+                      ? 2
+                      : 1;
+                  final cardWidth =
+                      (constraints.maxWidth -
+                          (spacing * (crossAxisCount - 1))) /
+                      crossAxisCount;
 
-                  return DataRow(
-                    cells: [
-                      DataCell(
-                        Text(
-                          '${vehicle['brand']} ${vehicle['model']} (${vehicle['year']})',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: _allVehicles
+                        .map(
+                          (vehicle) => SizedBox(
+                            width: cardWidth,
+                            child: _buildAdminVehicleCard(vehicle, isDark),
                           ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          owner?['full_name'] ?? 'Unknown',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        Text(
-                          'PHP ${vehicle['price_per_day'] ?? 0}',
-                          style: const TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      DataCell(_buildStatusBadge(status)),
-                    ],
+                        )
+                        .toList(),
                   );
-                }).toList(),
+                },
               ),
         isDark,
       ),
     );
+  }
+
+  Widget _buildAdminVehicleCard(Map<String, dynamic> vehicle, bool isDark) {
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final source = vehicle['source']?.toString().toLowerCase() ?? 'company';
+    final isPartner = source == 'partner';
+    final ownerFullName = owner?['full_name']?.toString().trim() ?? '';
+    final ownerName = ownerFullName.isNotEmpty
+        ? ownerFullName
+        : isPartner
+        ? 'Mobilis Partner'
+        : 'Unknown Operator';
+    final ownerEmail = owner?['email']?.toString().trim() ?? '';
+    final status = vehicle['status']?.toString() ?? 'pending';
+    final imageUrl = _adminPrimaryVehicleImageUrl(vehicle);
+    final pricePerDay = (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
+    final pricePerHour = (vehicle['price_per_hour'] as num?)?.toDouble() ?? 0;
+    final brand = vehicle['brand']?.toString().trim().isNotEmpty == true
+        ? vehicle['brand'].toString()
+        : 'Unknown';
+    final model = vehicle['model']?.toString().trim().isNotEmpty == true
+        ? vehicle['model'].toString()
+        : 'Model';
+    final year = vehicle['year']?.toString() ?? '';
+    final plate = vehicle['plate_number']?.toString().trim() ?? '';
+    final vehicleType =
+        vehicle['vehicle_type']?.toString().trim().isNotEmpty == true
+        ? vehicle['vehicle_type'].toString()
+        : vehicle['category']?.toString() ?? 'Standard';
+    final transmission = vehicle['transmission']?.toString() ?? 'Manual';
+    final fuelType = vehicle['fuel_type']?.toString() ?? 'Gasoline';
+    final seats = vehicle['seats']?.toString() ?? '5';
+    final posted = isPartner
+        ? vehicle['is_available'] == true
+        : vehicle['is_posted'] == true;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            child: Container(
+              height: 150,
+              width: double.infinity,
+              color: isDark ? AppColors.darkBgTertiary : Colors.grey.shade200,
+              child: imageUrl.isEmpty
+                  ? Icon(
+                      Icons.directions_car,
+                      size: 52,
+                      color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                    )
+                  : Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      gaplessPlayback: true,
+                      errorBuilder: (_, __, ___) => Icon(
+                        Icons.directions_car,
+                        size: 52,
+                        color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                      ),
+                    ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _buildSourceBadge(isPartner ? 'PARTNER' : 'COMPANY'),
+                    const SizedBox(width: 8),
+                    _buildPostedBadge(posted, isDark),
+                    const Spacer(),
+                    _buildStatusBadge(status),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '$brand $model${year.isNotEmpty ? ' ($year)' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (plate.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    'Plate: $plate',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _buildAdminVehicleInfoRow(
+                  Icons.person_outline,
+                  isPartner ? 'Applied by partner' : 'Added by operator',
+                  ownerName,
+                  isDark,
+                ),
+                if (ownerEmail.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 28, top: 2),
+                    child: Text(
+                      ownerEmail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildMiniVehicleChip(vehicleType, isDark),
+                    _buildMiniVehicleChip('$seats seats', isDark),
+                    _buildMiniVehicleChip(transmission, isDark),
+                    _buildMiniVehicleChip(fuelType, isDark),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildRateBox(
+                        'Price/Day',
+                        'PHP ${pricePerDay.toStringAsFixed(0)}',
+                        isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildRateBox(
+                        'Price/Hour',
+                        'PHP ${pricePerHour.toStringAsFixed(0)}',
+                        isDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSourceBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppColors.primary,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostedBadge(bool posted, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: posted
+            ? Colors.green.withOpacity(0.15)
+            : Colors.grey.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        posted ? 'POSTED' : 'NOT POSTED',
+        style: TextStyle(
+          color: posted
+              ? Colors.green
+              : (isDark ? Colors.grey[400] : Colors.grey),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdminVehicleInfoRow(
+    IconData icon,
+    String label,
+    String value,
+    bool isDark,
+  ) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMiniVehicleChip(String label, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isDark ? Colors.grey[300] : Colors.grey.shade800,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRateBox(String label, String value, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.green,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _adminPrimaryVehicleImageUrl(Map<String, dynamic> vehicle) {
+    final direct = vehicle['image_url']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+    final images = vehicle['vehicle_images'];
+    if (images is! List) return '';
+    for (final image in images) {
+      if (image is! Map) continue;
+      final url = image['image_url']?.toString().trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+    return '';
   }
 
   Widget _buildBookingsContent(bool isDark) {
