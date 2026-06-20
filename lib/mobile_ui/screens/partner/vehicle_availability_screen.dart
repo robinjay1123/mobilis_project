@@ -15,6 +15,15 @@ class VehicleAvailabilityScreen extends StatefulWidget {
 }
 
 class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
+  static const List<int> _seatOptions = [2, 4, 5, 7, 8, 12];
+  static const List<String> _fuelTypeOptions = [
+    'Gasoline',
+    'Diesel',
+    'Hybrid',
+    'Electric',
+  ];
+  static const List<String> _transmissionOptions = ['Manual', 'Automatic'];
+
   String? selectedVehicleId;
   int selectedApplicationStatusTab = 0;
   List<Map<String, dynamic>> vehicles = [];
@@ -810,6 +819,20 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
             const SizedBox(height: 12),
             const Divider(color: AppColors.borderColor, height: 1),
             const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _showEditApprovedVehicleDialog(application),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Edit vehicle details'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
             _buildApprovedApplicationToggle(
               icon: Icons.person_pin_circle_outlined,
               title: 'With me',
@@ -918,6 +941,269 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     } catch (e) {
       _showErrorSnackBar('Failed to update vehicle settings');
     }
+  }
+
+  Future<void> _showEditApprovedVehicleDialog(
+    Map<String, dynamic> application,
+  ) async {
+    final brandController = TextEditingController(
+      text: application['brand']?.toString() ?? '',
+    );
+    final modelController = TextEditingController(
+      text: application['model']?.toString() ?? '',
+    );
+    final yearController = TextEditingController(
+      text: application['year']?.toString() ?? '',
+    );
+    final plateController = TextEditingController(
+      text: application['plate_number']?.toString() ?? '',
+    );
+
+    int selectedSeats =
+        int.tryParse(application['seats']?.toString() ?? '') ?? 5;
+    if (!_seatOptions.contains(selectedSeats)) {
+      selectedSeats = _seatOptions.first;
+    }
+
+    String selectedFuelType =
+        application['fuel_type']?.toString().trim().isNotEmpty == true
+        ? application['fuel_type'].toString().trim()
+        : _fuelTypeOptions.first;
+    if (!_fuelTypeOptions.contains(selectedFuelType)) {
+      selectedFuelType = _fuelTypeOptions.first;
+    }
+
+    String selectedTransmission =
+        application['transmission']?.toString().trim().isNotEmpty == true
+        ? application['transmission'].toString().trim()
+        : _transmissionOptions.first;
+    if (!_transmissionOptions.contains(selectedTransmission)) {
+      selectedTransmission = _transmissionOptions.first;
+    }
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              title: const Text(
+                'Edit Vehicle Details',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildEditField(brandController, 'Brand'),
+                    const SizedBox(height: 10),
+                    _buildEditField(modelController, 'Model'),
+                    const SizedBox(height: 10),
+                    _buildEditField(
+                      yearController,
+                      'Year',
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 10),
+                    _buildEditField(plateController, 'Plate Number'),
+                    const SizedBox(height: 10),
+                    _buildEditDropdown<int>(
+                      label: 'Seats',
+                      value: selectedSeats,
+                      items: _seatOptions,
+                      labelBuilder: (value) => '$value seats',
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => selectedSeats = value);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _buildEditDropdown<String>(
+                      label: 'Fuel Type',
+                      value: selectedFuelType,
+                      items: _fuelTypeOptions,
+                      labelBuilder: (value) => value,
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => selectedFuelType = value);
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _buildEditDropdown<String>(
+                      label: 'Transmission',
+                      value: selectedTransmission,
+                      items: _transmissionOptions,
+                      labelBuilder: (value) => value,
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => selectedTransmission = value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Pricing stays locked here. Contact admin if the rental price needs to change.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (shouldSave != true) {
+      brandController.dispose();
+      modelController.dispose();
+      yearController.dispose();
+      plateController.dispose();
+      return;
+    }
+
+    final brand = brandController.text.trim();
+    final model = modelController.text.trim();
+    final year = int.tryParse(yearController.text.trim());
+    final plateNumber = plateController.text.trim();
+
+    brandController.dispose();
+    modelController.dispose();
+    yearController.dispose();
+    plateController.dispose();
+
+    if (brand.isEmpty || model.isEmpty || plateNumber.isEmpty || year == null) {
+      _showErrorSnackBar('Please complete all vehicle details correctly');
+      return;
+    }
+
+    final applicationId = application['id']?.toString();
+    final partnerVehicleId = application['partner_vehicle_id']?.toString();
+    final vehicleId = application['created_vehicle_id']?.toString();
+
+    if (applicationId == null ||
+        applicationId.isEmpty ||
+        partnerVehicleId == null ||
+        partnerVehicleId.isEmpty) {
+      _showErrorSnackBar('Approved vehicle link is missing');
+      return;
+    }
+
+    try {
+      await PartnerService().updateApprovedVehicleDetails(
+        applicationId: applicationId,
+        partnerVehicleId: partnerVehicleId,
+        vehicleId: vehicleId,
+        brand: brand,
+        model: model,
+        year: year,
+        plateNumber: plateNumber,
+        seats: selectedSeats,
+        fuelType: selectedFuelType,
+        transmission: selectedTransmission,
+      );
+
+      setState(() {
+        application['brand'] = brand;
+        application['model'] = model;
+        application['year'] = year;
+        application['plate_number'] = plateNumber;
+        application['seats'] = selectedSeats;
+        application['fuel_type'] = selectedFuelType;
+        application['transmission'] = selectedTransmission;
+      });
+
+      _showSuccessSnackBar('Vehicle details updated');
+      _loadVehicles();
+    } catch (e) {
+      _showErrorSnackBar('Failed to update vehicle details');
+    }
+  }
+
+  Widget _buildEditField(
+    TextEditingController controller,
+    String label, {
+    TextInputType? keyboardType,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: AppColors.textSecondary),
+        filled: true,
+        fillColor: AppColors.darkBg,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditDropdown<T>({
+    required String label,
+    required T value,
+    required List<T> items,
+    required String Function(T value) labelBuilder,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: AppColors.textSecondary),
+        filled: true,
+        fillColor: AppColors.darkBg,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary),
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          dropdownColor: AppColors.darkBgSecondary,
+          isExpanded: true,
+          style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
+          items: items
+              .map(
+                (item) => DropdownMenuItem<T>(
+                  value: item,
+                  child: Text(labelBuilder(item)),
+                ),
+              )
+              .toList(),
+          onChanged: onChanged,
+        ),
+      ),
+    );
   }
 
   List<Map<String, dynamic>> _filteredApplicationsForSelectedStatus() {

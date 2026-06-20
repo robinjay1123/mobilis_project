@@ -3,7 +3,9 @@ import 'dart:async';
 import '../../../services/chat_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/user_restriction_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/restriction_ui.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String conversationId;
@@ -33,6 +35,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   String? _warningMessage;
   bool _isLoading = false;
   final AuthService _authService = AuthService();
+  final UserRestrictionService _restrictionService = UserRestrictionService();
+  UserRestrictionState _restrictionState = UserRestrictionState.empty;
+  Timer? _restrictionTicker;
 
   @override
   void initState() {
@@ -41,6 +46,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _loadMessages();
     _loadParticipants();
     _subscribeToMessages();
+    _loadRestrictionState();
   }
 
   void _loadMessages() {
@@ -63,8 +69,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         });
   }
 
+  Future<void> _loadRestrictionState() async {
+    final state = await _restrictionService.getCurrentUserRestriction();
+    if (!mounted) return;
+    setState(() {
+      _restrictionState = state;
+    });
+    _restartRestrictionTicker();
+  }
+
+  void _restartRestrictionTicker() {
+    _restrictionTicker?.cancel();
+    if (!_restrictionState.isMessagingRestricted) return;
+
+    _restrictionTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+      if (!_restrictionState.isMessagingRestricted) {
+        _restrictionTicker?.cancel();
+      }
+    });
+  }
+
   Future<void> _sendMessage() async {
     if (_messageController.text.trim().isEmpty) return;
+    if (_restrictionState.isMessagingRestricted) {
+      setState(() {
+        _warningMessage =
+            'Messaging is temporarily restricted. Please wait for the timer to expire before sending another message.';
+      });
+      return;
+    }
 
     final messageContent = _messageController.text.trim();
     final currentUser = _authService.currentUser;
@@ -89,7 +124,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
 
       // Send message
-      await ChatService().sendMessage(
+      final sentMessage = await ChatService().sendMessage(
         conversationId: widget.conversationId,
         senderId: currentUser.id,
         content: messageContent,
@@ -97,7 +132,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
       // Flag if necessary
       if (analysis['should_flag']) {
-        final messageId = DateTime.now().millisecondsSinceEpoch.toString();
+        final messageId =
+            sentMessage['id']?.toString() ??
+            DateTime.now().millisecondsSinceEpoch.toString();
         await MessageFilterService.flagMessageForReview(
           messageId: messageId,
           conversationId: widget.conversationId,
@@ -105,6 +142,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           flagReason:
               'Potential off-platform transaction attempt: ${analysis['found_keywords'].join(', ')}',
           messageContent: messageContent,
+        );
+        await _restrictionService.applyPolicyViolation(
+          userId: currentUser.id,
+          conversationId: widget.conversationId,
         );
 
         // Show flag notification
@@ -124,6 +165,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _messageController.clear();
       _loadMessages();
       _loadParticipants();
+      await _loadRestrictionState();
 
       if (mounted) {
         setState(() => _isLoading = false);
@@ -145,6 +187,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void dispose() {
     _messageController.dispose();
     _messagesStream.cancel();
+    _restrictionTicker?.cancel();
     super.dispose();
   }
 
@@ -214,10 +257,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
           ],
         ),
+        actions: [
+          IconButton(
+            onPressed: () => showPolicyDetailsSheet(context),
+            icon: const Icon(Icons.info_outline, color: AppColors.textPrimary),
+          ),
+        ],
       ),
       body: Column(
         children: [
           _buildParticipantReference(isDark, cardColor, textColor),
+          if (_restrictionState.isMessagingRestricted)
+            _buildRestrictionBanner(),
 
           // Messages list
           Expanded(
@@ -316,6 +367,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         message['is_auto_generated'] == true;
                     final currentUserId = _authService.currentUser?.id;
                     final isCurrentUser = message['sender_id'] == currentUserId;
+                    final content =
+                        (message['content'] ?? message['message'] ?? '')
+                            .toString();
+                    final violatesPolicy =
+                        isCurrentUser &&
+                        MessageFilterService.analyzeMessage(
+                              content,
+                            )['should_flag'] ==
+                            true;
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -365,8 +425,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              (message['content'] ?? message['message'] ?? '')
-                                  .toString(),
+                              content,
                               style: TextStyle(
                                 fontSize: 14,
                                 color: isCurrentUser
@@ -380,14 +439,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           // Timestamp
                           Padding(
                             padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              _formatTime(message['created_at']),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark
-                                    ? AppColors.textTertiary
-                                    : AppColors.lightTextTertiary,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _formatTime(message['created_at']),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? AppColors.textTertiary
+                                        : AppColors.lightTextTertiary,
+                                  ),
+                                ),
+                                if (violatesPolicy) ...[
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Violates policy',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFFFF5B5B),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ],
@@ -452,9 +527,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     controller: _messageController,
                     maxLines: 3,
                     minLines: 1,
-                    enabled: !_isLoading,
+                    enabled:
+                        !_isLoading && !_restrictionState.isMessagingRestricted,
                     decoration: InputDecoration(
-                      hintText: 'Type your message...',
+                      hintText: _restrictionState.isMessagingRestricted
+                          ? 'Messaging restricted'
+                          : 'Type your message...',
                       hintStyle: TextStyle(
                         color: isDark
                             ? AppColors.textTertiary
@@ -479,7 +557,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 const SizedBox(width: 8),
                 Container(
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: _restrictionState.isMessagingRestricted
+                        ? AppColors.darkBgTertiary
+                        : AppColors.primary,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: IconButton(
@@ -494,13 +574,111 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               ),
                             ),
                           )
-                        : const Icon(Icons.send, color: Colors.black),
-                    onPressed: _isLoading ? null : _sendMessage,
+                        : Icon(
+                            _restrictionState.isMessagingRestricted
+                                ? Icons.lock_outline
+                                : Icons.send,
+                            color: _restrictionState.isMessagingRestricted
+                                ? AppColors.textSecondary
+                                : Colors.black,
+                          ),
+                    onPressed:
+                        _isLoading || _restrictionState.isMessagingRestricted
+                        ? null
+                        : _sendMessage,
                   ),
                 ),
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRestrictionBanner() {
+    final isAccountLevel =
+        _restrictionState.isAccountRestricted || _restrictionState.isBlocked;
+    final description = _restrictionState.isBlocked
+        ? 'You cannot send messages because this account has been permanently blocked after repeated policy violations.'
+        : _restrictionState.level == 'second_attempt'
+        ? 'You cannot send messages because this account is under a 1-month policy restriction after a repeated off-platform violation.'
+        : 'You cannot send messages because this account is under a 1-week policy restriction after an off-platform violation.';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A1B24),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFB53845)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isAccountLevel
+                ? 'System Alert: Account Restricted'
+                : 'System Alert: Restricted Access',
+            style: const TextStyle(
+              color: Color(0xFFFF5B5B),
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            description,
+            style: const TextStyle(color: AppColors.textPrimary, height: 1.5),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Our safety team monitors all conversations to protect our community.',
+            style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+          ),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () => showPolicyDetailsSheet(context),
+            child: const Text(
+              'View Policy Details',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (!_restrictionState.isBlocked) ...[
+            const SizedBox(height: 18),
+            const Center(
+              child: Text(
+                'RESTRICTION EXPIRES IN',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            RestrictionCountdownRow(
+              until: _restrictionState.activeUntil,
+              includeSeconds: true,
+            ),
+          ] else ...[
+            const SizedBox(height: 18),
+            const Center(
+              child: Text(
+                'PERMANENT ACCOUNT BLOCK',
+                style: TextStyle(
+                  color: Color(0xFFFF5B5B),
+                  fontSize: 12,
+                  letterSpacing: 1.1,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

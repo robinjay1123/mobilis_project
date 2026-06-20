@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'chat_service.dart';
 import 'notification_service.dart';
+import 'user_restriction_service.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -106,7 +107,13 @@ class BookingService {
               model,
               year,
               owner_id,
+              owner_role,
               operator_id,
+              owner:owner_id (
+                id,
+                full_name,
+                role
+              ),
               vehicle_name,
               rating,
               price_per_day,
@@ -144,7 +151,7 @@ class BookingService {
 
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*)')
+          .select('*, vehicles(*, owner:owner_id(id, full_name, role))')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -187,6 +194,15 @@ class BookingService {
   }) async {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
+
+      final restriction = await UserRestrictionService().getUserRestriction(
+        renterId,
+      );
+      if (restriction.isBlocked || restriction.isAccountRestricted) {
+        throw Exception(
+          'This renter account is restricted and cannot book vehicles right now',
+        );
+      }
 
       final overlappingBookings = await supabase
           .from('bookings')
@@ -474,6 +490,137 @@ class BookingService {
       debugPrint('Unexpected error updating booking status: $e');
       rethrow;
     }
+  }
+
+  Map<String, dynamic> getTripCompletionState(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final rawStatus =
+        (booking['rawStatus']?.toString() ?? booking['status']?.toString() ?? '')
+            .toLowerCase();
+    final hasDriver =
+        booking['with_driver'] == true ||
+        booking['withDriver'] == true ||
+        (booking['driver_id']?.toString().trim().isNotEmpty == true) ||
+        booking['driver'] != null;
+    final ownerRole = vehicle?['owner_role']?.toString().trim().toLowerCase();
+    final ownerId = vehicle?['owner_id']?.toString().trim();
+    final operatorId =
+        booking['operator_id']?.toString().trim().isNotEmpty == true
+        ? booking['operator_id']?.toString().trim()
+        : vehicle?['operator_id']?.toString().trim();
+    final requiresPartner =
+        ownerRole == 'partner' ||
+        (ownerId != null &&
+            ownerId.isNotEmpty &&
+            operatorId != null &&
+            operatorId.isNotEmpty &&
+            ownerId != operatorId);
+
+    final operatorConfirmed = _hasTripConfirmation(
+      booking['operator_trip_confirmed_at'],
+    );
+    final partnerConfirmed = _hasTripConfirmation(
+      booking['partner_trip_confirmed_at'],
+    );
+    final driverConfirmed = _hasTripConfirmation(
+      booking['driver_trip_confirmed_at'],
+    );
+    final renterConfirmed = _hasTripConfirmation(
+      booking['renter_trip_confirmed_at'],
+    );
+
+    final pendingRoles = <String>[
+      if (!operatorConfirmed) 'operator',
+      if (requiresPartner && !partnerConfirmed) 'partner',
+      if (hasDriver && !driverConfirmed) 'driver',
+    ];
+
+    return {
+      'status': rawStatus,
+      'hasDriver': hasDriver,
+      'requiresPartner': requiresPartner,
+      'operatorConfirmed': operatorConfirmed,
+      'partnerConfirmed': partnerConfirmed,
+      'driverConfirmed': driverConfirmed,
+      'renterConfirmed': renterConfirmed,
+      'pendingRoles': pendingRoles,
+      'allNonRenterConfirmed':
+          rawStatus == 'completed' && pendingRoles.isEmpty,
+      'renterCanConfirm':
+          rawStatus == 'completed' && pendingRoles.isEmpty && !renterConfirmed,
+    };
+  }
+
+  Future<Map<String, dynamic>> confirmSuccessfulTrip({
+    required String bookingId,
+    required String actorRole,
+  }) async {
+    final normalizedRole = actorRole.trim().toLowerCase();
+    final confirmationColumn = _tripConfirmationColumnForRole(normalizedRole);
+    if (confirmationColumn == null) {
+      throw Exception('Unsupported trip confirmation role: $actorRole');
+    }
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) {
+      throw Exception('Booking not found');
+    }
+
+    final completionState = getTripCompletionState(booking);
+    final status = completionState['status']?.toString() ?? '';
+    if (status != 'completed') {
+      throw Exception('Trip is still ongoing and cannot be confirmed yet');
+    }
+
+    if (normalizedRole == 'renter' &&
+        completionState['renterCanConfirm'] != true) {
+      final pendingRoles =
+          (completionState['pendingRoles'] as List<dynamic>? ?? const [])
+              .map((role) => role.toString())
+              .toList();
+      final pendingText = pendingRoles.isEmpty
+          ? 'the trip still needs processing'
+          : pendingRoles.join(', ');
+      throw Exception(
+        'You can confirm this trip after $pendingText finishes their successful trip confirmation',
+      );
+    }
+
+    final nowIso = DateTime.now().toIso8601String();
+    await supabase
+        .from('bookings')
+        .update({confirmationColumn: nowIso, 'updated_at': nowIso})
+        .eq('id', bookingId);
+
+    final updatedBooking = await getBookingById(bookingId);
+    if (updatedBooking == null) {
+      throw Exception('Trip confirmation was saved, but the booking reload failed');
+    }
+
+    final updatedState = getTripCompletionState(updatedBooking);
+    if (normalizedRole != 'renter' &&
+        updatedState['allNonRenterConfirmed'] == true &&
+        updatedState['renterConfirmed'] != true) {
+      final renterId = updatedBooking['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        final vehicle = updatedBooking['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = _vehicleTitle(vehicle);
+        try {
+          await NotificationService().createNotification(
+            userId: renterId,
+            title: 'Trip Ready For Final Confirmation',
+            message:
+                '$vehicleTitle is now ready for your successful trip confirmation and rating.',
+            type: 'trip_completion',
+            data: {'booking_id': bookingId},
+          );
+        } catch (e) {
+          debugPrint('Could not notify renter about trip confirmation: $e');
+        }
+      }
+    }
+
+    return updatedBooking;
   }
 
   // Get booking counts by status for partner
@@ -1025,6 +1172,7 @@ class BookingService {
             'status': 'completed',
             'returned_at': returnedAt.toIso8601String(),
             'completed_at': DateTime.now().toIso8601String(),
+            'driver_trip_confirmed_at': DateTime.now().toIso8601String(),
             'total_price': recalculatedTotal,
             'total_cost': recalculatedTotal,
             'updated_at': DateTime.now().toIso8601String(),
@@ -1156,6 +1304,26 @@ class BookingService {
         .eq('id', driverProfileId)
         .maybeSingle();
     return driver?['user_id']?.toString();
+  }
+
+  bool _hasTripConfirmation(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isNotEmpty;
+  }
+
+  String? _tripConfirmationColumnForRole(String role) {
+    switch (role) {
+      case 'operator':
+        return 'operator_trip_confirmed_at';
+      case 'partner':
+        return 'partner_trip_confirmed_at';
+      case 'driver':
+        return 'driver_trip_confirmed_at';
+      case 'renter':
+        return 'renter_trip_confirmed_at';
+      default:
+        return null;
+    }
   }
 
   Future<void> _notifyOperatorsForBooking(

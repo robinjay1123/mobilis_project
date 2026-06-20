@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
-import 'message_filter_service.dart';
+import 'user_restriction_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -139,6 +139,29 @@ class ChatService {
     }
   }
 
+  Future<Map<String, dynamic>?> getConversationByBookingId(
+    String bookingId,
+  ) async {
+    try {
+      if (bookingId.trim().isEmpty) return null;
+
+      final response = await supabase
+          .from('conversations')
+          .select()
+          .eq('booking_id', bookingId)
+          .maybeSingle();
+
+      if (response == null) return null;
+      return Map<String, dynamic>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching booking conversation: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error fetching booking conversation: $e');
+      rethrow;
+    }
+  }
+
   // Get messages for a conversation
   Future<List<Map<String, dynamic>>> getMessages(String conversationId) async {
     try {
@@ -170,6 +193,15 @@ class ChatService {
     try {
       debugPrint('Sending message to conversation: $conversationId');
 
+      final restriction = await UserRestrictionService().getUserRestriction(
+        senderId,
+      );
+      if (restriction.isBlocked || restriction.isAccountRestricted) {
+        throw Exception(
+          'This account is temporarily restricted from messaging',
+        );
+      }
+
       final conversation = await supabase
           .from('conversations')
           .select('status')
@@ -200,18 +232,7 @@ class ChatService {
           .update({'updated_at': DateTime.now().toIso8601String()})
           .eq('id', conversationId);
 
-      // Auto-flag message if it contains filter words (async, don't await)
-      final messageId = response['id'] as String?;
-      if (messageId != null) {
-        unawaited(
-          MessageFilterService.autoFlagMessageIfNeeded(
-            messageId: messageId,
-            conversationId: conversationId,
-            senderId: senderId,
-            messageContent: content,
-          ),
-        );
-      }
+      // Flagging and enforcement are handled by the chat screen flow.
 
       debugPrint('Message sent successfully');
       return response;

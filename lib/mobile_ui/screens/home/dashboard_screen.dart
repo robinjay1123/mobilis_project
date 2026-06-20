@@ -13,6 +13,7 @@ import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/notification_permission_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
@@ -24,7 +25,7 @@ import '../../widgets/trip_timeline_step.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
-import '../profile/my_drivers_screen.dart';
+import '../profile/trip_rating_flow_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -438,9 +439,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final newNotification =
                   payload.newRecord as Map<String, dynamic>?;
               if (newNotification != null && mounted) {
+                final title = newNotification['title']?.toString() ?? 'Notification';
+                final message = newNotification['message']?.toString() ?? '';
                 setState(() {
                   _notifications.insert(0, newNotification);
                 });
+                NotificationPermissionService().showBrowserNotification(
+                  title: title,
+                  body: message,
+                );
               }
             },
           )
@@ -1883,8 +1890,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (rawStatus == 'active' ||
           rawStatus == 'approved' ||
           rawStatus == 'confirmed') {
-        uiStatus = 'Approved';
-        statusGroup = 'Approved';
+        uiStatus = rawStatus == 'active' ? 'Ongoing' : 'Confirmed';
+        statusGroup = 'Ongoing';
       } else if (rawStatus == 'completed') {
         uiStatus = 'Completed';
         statusGroup = 'Completed';
@@ -1936,6 +1943,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? (withDriver ? 'To be assigned' : 'Not requested')
             : driverName,
         'paymentStatus': paymentStatus,
+        'reservationPaymentType': booking['reservation_payment_type']
+            ?.toString()
+            .trim(),
+        'reservationPaymentCoversTotal':
+            booking['reservation_payment_covers_total'] == true,
+        'reservationFeeAmount': (booking['reservation_fee_amount'] as num?)
+            ?.toDouble(),
         'cancellationReason':
             booking['cancellation_reason']?.toString().trim().isNotEmpty == true
             ? booking['cancellation_reason'].toString().trim()
@@ -1944,6 +1958,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             : 'Booking was cancelled.',
         'cancelledAt': booking['cancelled_at'] ?? booking['updated_at'],
         'conversationCreated': booking['conversation_created'] == true,
+        'operator_trip_confirmed_at': booking['operator_trip_confirmed_at'],
+        'partner_trip_confirmed_at': booking['partner_trip_confirmed_at'],
+        'driver_trip_confirmed_at': booking['driver_trip_confirmed_at'],
+        'renter_trip_confirmed_at': booking['renter_trip_confirmed_at'],
         'carName': _vehicleTitle(vehicle),
         'carImage': Icons.directions_car,
         'imageUrl': vehicle == null ? null : _bookingVehicleImageUrl(vehicle),
@@ -1966,6 +1984,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }).toList();
   }
 
+  String _bookingPaymentTypeLabel(Map<String, dynamic> booking) {
+    final coversTotal = booking['reservationPaymentCoversTotal'] == true;
+    final type = booking['reservationPaymentType']?.toString().trim() ?? '';
+    if (coversTotal || type == 'full_payment') {
+      return 'Full payment';
+    }
+    if (type.isNotEmpty) {
+      return type.replaceAll('_', ' ');
+    }
+    return 'Reservation fee only';
+  }
+
+  String _bookingAmountPaidLabel(Map<String, dynamic> booking) {
+    final coversTotal = booking['reservationPaymentCoversTotal'] == true;
+    final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
+    final reservationFee =
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ?? 0;
+    final amountPaid = coversTotal
+        ? totalCost
+        : reservationFee > 0
+        ? reservationFee
+        : 0;
+    final suffix = coversTotal ? 'full amount' : 'reservation fee';
+    return 'PHP ${amountPaid.toStringAsFixed(0)} ($suffix)';
+  }
+
   List<Map<String, dynamic>> _uiNotifications() {
     return _notifications.map((n) {
       final type = (n['type'] ?? 'general').toString().toLowerCase();
@@ -1974,6 +2018,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (type.contains('booking')) {
         icon = Icons.calendar_today;
         iconColor = AppColors.warning;
+      } else if (type.contains('announcement')) {
+        icon = Icons.campaign;
+        iconColor = AppColors.primary;
       } else if (type.contains('message')) {
         icon = Icons.message;
         iconColor = AppColors.primary;
@@ -2332,8 +2379,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final uiBookings = _uiBookings();
     final homeTrips = uiBookings
         .where(
-          (b) =>
-              b['statusGroup'] == 'Approved' || b['statusGroup'] == 'Pending',
+          (b) => b['statusGroup'] == 'Ongoing' || b['statusGroup'] == 'Pending',
         )
         .take(10)
         .toList();
@@ -3610,7 +3656,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     indicatorColor: AppColors.primary,
                     tabs: [
                       Tab(text: 'Pending'),
-                      Tab(text: 'Approved'),
+                      Tab(text: 'Ongoing'),
                       Tab(text: 'Completed'),
                       Tab(text: 'Declined'),
                     ],
@@ -3626,7 +3672,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['statusGroup'] == 'Approved')
+                            .where((b) => b['statusGroup'] == 'Ongoing')
                             .toList(),
                       ),
                       _buildBookingsList(
@@ -3728,7 +3774,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       dropoffLocation: booking['dropoffLocation'],
                       totalCost: (booking['totalCost'] as num?)?.toInt() ?? 0,
                       rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
-                      isActive: booking['statusGroup'] == 'Approved',
+                      isActive: booking['statusGroup'] == 'Ongoing',
                       carImageUrl: booking['imageUrl'] as String?,
                       detailsButtonLabel: isCompleted
                           ? 'View Receipt'
@@ -4163,11 +4209,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     } else if (selectedProfilePage == 'favorites') {
       return _buildFavoriteVehiclesPage();
-    } else if (selectedProfilePage == 'drivers') {
-      return MyDriversScreen(
-        isDarkMode: widget.isDarkMode,
-        onBack: () => setState(() => selectedProfilePage = null),
-      );
     }
 
     return Column(
@@ -4356,12 +4397,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         badgeCount: _favoriteVehicleIds.length,
                         onTap: () =>
                             setState(() => selectedProfilePage = 'favorites'),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.people_outline,
-                        'My Drivers',
-                        onTap: () =>
-                            setState(() => selectedProfilePage = 'drivers'),
                       ),
                       _buildProfileMenuOption(
                         Icons.chat_bubble_outline,
@@ -4721,8 +4756,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Booking detail modal
   // ---------------------------------------------------------------------------
   void _showBookingDetails(Map<String, dynamic> booking) {
-    final isApprovedTrip = booking['statusGroup'] == 'Approved';
+    final isApprovedTrip = booking['statusGroup'] == 'Ongoing';
     final isPendingTrip = booking['statusGroup'] == 'Pending';
+    final completionState = BookingService().getTripCompletionState(booking);
+    final pendingRoles =
+        (completionState['pendingRoles'] as List<dynamic>? ?? const [])
+            .map((role) => role.toString())
+            .toList();
+    final renterCanConfirm = completionState['renterCanConfirm'] == true;
+    final renterConfirmed = completionState['renterConfirmed'] == true;
+    final isCompletedTrip = completionState['status'] == 'completed';
 
     if (isPendingTrip) {
       _showPendingBookingDetails(booking);
@@ -4875,6 +4918,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const Divider(color: AppColors.borderColor),
                   _buildBookingDetailRow(
+                    icon: Icons.receipt_long_outlined,
+                    label: 'Payment Type',
+                    value: _bookingPaymentTypeLabel(booking),
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
+                    icon: Icons.payments,
+                    label: 'Amount Paid',
+                    value: _bookingAmountPaidLabel(booking),
+                  ),
+                  const Divider(color: AppColors.borderColor),
+                  _buildBookingDetailRow(
                     icon: Icons.payments_outlined,
                     label: 'Booking Cost',
                     value: '₱${booking['totalCost']}',
@@ -4937,6 +4992,123 @@ class _DashboardScreenState extends State<DashboardScreen> {
               amountColor: AppColors.primary,
             ),
             const SizedBox(height: 20),
+            if (isCompletedTrip && pendingRoles.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                ),
+                child: Text(
+                  'Waiting for ${_formatRoleList(pendingRoles)} to confirm this trip as successful before you can finish it.',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (isApprovedTrip || isCompletedTrip) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final bookingId = booking['id']?.toString() ?? '';
+                    if (bookingId.isEmpty) return;
+
+                    if (!isCompletedTrip) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'This trip is still ongoing. You can confirm it after the return is completed.',
+                          ),
+                          backgroundColor: AppColors.warning,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (!renterCanConfirm) {
+                      if (renterConfirmed) {
+                        Navigator.pop(context);
+                        await Navigator.of(this.context).push(
+                          MaterialPageRoute(
+                            builder: (_) => TripRatingFlowScreen(
+                              bookingId: bookingId,
+                              reviewerRole: 'renter',
+                              subtitle:
+                                  'Leave ratings for the people involved in this completed trip.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      final waitingFor = pendingRoles.isEmpty
+                          ? 'the other trip participants'
+                          : _formatRoleList(pendingRoles);
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'You can finish this trip once $waitingFor confirm it as successful.',
+                          ),
+                          backgroundColor: AppColors.warning,
+                        ),
+                      );
+                      return;
+                    }
+
+                    try {
+                      await BookingService().confirmSuccessfulTrip(
+                        bookingId: bookingId,
+                        actorRole: 'renter',
+                      );
+                      if (!this.context.mounted) return;
+                      Navigator.pop(context);
+                      await _loadBookings();
+                      if (!this.context.mounted) return;
+                      await Navigator.of(this.context).push(
+                        MaterialPageRoute(
+                          builder: (_) => TripRatingFlowScreen(
+                            bookingId: bookingId,
+                            reviewerRole: 'renter',
+                            subtitle:
+                                'Leave ratings for the people involved in this completed trip.',
+                          ),
+                        ),
+                      );
+                    } catch (e) {
+                      if (!this.context.mounted) return;
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            e.toString().replaceFirst('Exception: ', ''),
+                          ),
+                          backgroundColor: AppColors.error,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.star_rate_rounded, size: 18),
+                  label: Text(
+                    isCompletedTrip ? 'Successful Trip' : 'Trip Ongoing',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (isApprovedTrip)
               SizedBox(
                 width: double.infinity,
@@ -6335,6 +6507,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     }
+  }
+
+  String _formatRoleList(List<String> roles) {
+    final labels = roles
+        .map((role) {
+          switch (role.trim().toLowerCase()) {
+            case 'operator':
+              return 'operator';
+            case 'partner':
+              return 'partner';
+            case 'driver':
+              return 'driver';
+            case 'renter':
+              return 'renter';
+            default:
+              return role;
+          }
+        })
+        .where((label) => label.isNotEmpty)
+        .toList();
+
+    if (labels.isEmpty) return 'the trip participants';
+    if (labels.length == 1) return labels.first;
+    if (labels.length == 2) return '${labels.first} and ${labels.last}';
+    return '${labels.sublist(0, labels.length - 1).join(', ')}, and ${labels.last}';
   }
 
   Future<String?> _resolveBookingOperatorId(

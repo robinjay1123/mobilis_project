@@ -121,6 +121,37 @@ class TrackingService {
     }
   }
 
+  Future<Map<String, dynamic>?> getTrackingLocationForBooking(
+    String bookingId,
+  ) async {
+    try {
+      final response = await supabase
+          .from('tracking_locations')
+          .select('''
+            *,
+            bookings:booking_id (
+              id,
+              status,
+              pickup_location,
+              dropoff_location,
+              vehicles:vehicle_id (id, brand, model, plate_number),
+              renter:renter_id (id, full_name, email, phone),
+              drivers:driver_id (id, user_id, users:user_id (id, full_name, email))
+            )
+          ''')
+          .eq('booking_id', bookingId)
+          .order('recorded_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (response == null) return null;
+      return Map<String, dynamic>.from(response);
+    } catch (e) {
+      debugPrint('Error loading tracking location for booking $bookingId: $e');
+      return null;
+    }
+  }
+
   Future<void> _ensureLocationPermission() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {

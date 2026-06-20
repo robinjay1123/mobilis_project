@@ -148,6 +148,14 @@ class NotificationService {
           .select()
           .single();
 
+      await _queuePushForUsers(
+        userIds: [userId],
+        title: title,
+        message: message,
+        type: type ?? 'general',
+        data: data,
+      );
+
       debugPrint('Notification created successfully');
       return response;
     } on PostgrestException catch (e) {
@@ -295,6 +303,107 @@ class NotificationService {
         'event': 'partner_payment_released',
       },
     );
+  }
+
+  Future<int> broadcastAnnouncement({
+    required String title,
+    required String message,
+    String targetRole = 'all',
+    String? announcementId,
+  }) async {
+    try {
+      final normalizedRole = targetRole.trim().toLowerCase();
+      var query = supabase.from('users').select('id, role');
+      if (normalizedRole != 'all') {
+        query = query.eq('role', normalizedRole);
+      }
+
+      final users = await query;
+      final recipients = List<Map<String, dynamic>>.from(users)
+          .where((user) => (user['id']?.toString().trim().isNotEmpty ?? false))
+          .toList();
+      if (recipients.isEmpty) return 0;
+
+      final nowIso = DateTime.now().toIso8601String();
+      final rows = recipients
+          .map(
+            (user) => {
+              'user_id': user['id'],
+              'title': title,
+              'message': message,
+              'type': 'announcement',
+              'data': {
+                'announcement_id': announcementId,
+                'target_role': normalizedRole,
+                'event': 'admin_announcement',
+              },
+              'is_read': false,
+              'created_at': nowIso,
+            },
+          )
+          .toList();
+
+      await supabase.from('notifications').insert(rows);
+      await _queuePushForUsers(
+        userIds: recipients.map((user) => user['id'].toString()).toList(),
+        title: title,
+        message: message,
+        type: 'announcement',
+        data: {
+          'announcement_id': announcementId,
+          'target_role': normalizedRole,
+          'event': 'admin_announcement',
+        },
+      );
+      return rows.length;
+    } catch (e) {
+      debugPrint('Announcement broadcast failed: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _queuePushForUsers({
+    required List<String> userIds,
+    required String title,
+    required String message,
+    required String type,
+    Map<String, dynamic>? data,
+  }) async {
+    final cleanIds = userIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cleanIds.isEmpty) return;
+
+    try {
+      final tokens = await supabase
+          .from('user_push_tokens')
+          .select('user_id, token, platform')
+          .inFilter('user_id', cleanIds)
+          .eq('is_active', true);
+
+      final tokenRows = List<Map<String, dynamic>>.from(tokens);
+      if (tokenRows.isEmpty) return;
+
+      final queueRows = tokenRows
+          .map(
+            (tokenRow) => {
+              'user_id': tokenRow['user_id'],
+              'push_token': tokenRow['token'],
+              'platform': tokenRow['platform'],
+              'title': title,
+              'message': message,
+              'type': type,
+              'payload': data,
+            },
+          )
+          .toList();
+
+      await supabase.from('push_notification_queue').insert(queueRows);
+    } catch (e) {
+      debugPrint('Push queue insert skipped: $e');
+    }
   }
 
   Future<bool> _safeCreate({

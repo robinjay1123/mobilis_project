@@ -39,6 +39,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _selectedIndex = 0;
   bool _isLoading = true;
   bool _sidebarExpanded = true;
+  String? _focusedTrackingBookingId;
 
   // Stats
   int _totalUsers = 0;
@@ -237,6 +238,98 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
+  Future<void> _confirmOperatorSuccessfulTrip(
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      await BookingService().confirmSuccessfulTrip(
+        bookingId: bookingId,
+        actorRole: 'operator',
+      );
+      await _loadRecentBookings();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Operator successful trip confirmation saved'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  bool _isCompanyOwnedBooking(Map<String, dynamic> booking) {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final ownerId = vehicle?['owner_id']?.toString();
+    if (currentUserId == null || ownerId == null || ownerId.isEmpty) {
+      return false;
+    }
+    return ownerId == currentUserId;
+  }
+
+  bool _canTrackBooking(Map<String, dynamic> booking) {
+    final status = (booking['status'] as String? ?? '').toLowerCase();
+    return _isCompanyOwnedBooking(booking) &&
+        (status == 'active' || status == 'approved' || status == 'confirmed');
+  }
+
+  Future<void> _openTrackingForBooking(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty || !_canTrackBooking(booking)) return;
+
+    setState(() {
+      _selectedIndex = 3;
+      _focusedTrackingBookingId = bookingId;
+      _isLoading = true;
+    });
+
+    try {
+      await _loadTrackingLocations();
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> _visibleTrackingLocations() {
+    if (_focusedTrackingBookingId == null || _focusedTrackingBookingId!.isEmpty) {
+      return _trackingLocations
+          .where((location) => _isCompanyOwnedTrackingLocation(location))
+          .toList();
+    }
+
+    final focused = _trackingLocations.where((location) {
+      final booking = location['bookings'] as Map<String, dynamic>?;
+      return booking?['id']?.toString() == _focusedTrackingBookingId;
+    }).toList();
+
+    if (focused.isNotEmpty) return focused;
+
+    return _trackingLocations
+        .where((location) => _isCompanyOwnedTrackingLocation(location))
+        .toList();
+  }
+
+  bool _isCompanyOwnedTrackingLocation(Map<String, dynamic> location) {
+    final booking = location['bookings'] as Map<String, dynamic>?;
+    if (booking == null) return false;
+    return _isCompanyOwnedBooking(booking);
+  }
+
   Future<void> _loadStats() async {
     try {
       final usersResponse = await _supabase
@@ -324,6 +417,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               picked_up_at,
               returned_at,
               completed_at,
+              operator_trip_confirmed_at,
+              partner_trip_confirmed_at,
+              driver_trip_confirmed_at,
+              renter_trip_confirmed_at,
               created_at,
               vehicles:vehicle_id (
                 id,
@@ -331,6 +428,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 model,
                 year,
                 owner_id,
+                owner_role,
+                operator_id,
                 vehicle_name,
                 price_per_day,
                 vehicle_images(id, image_url, display_order)
@@ -1454,12 +1553,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildTrackingContent(bool isDark) {
-    final mapUrl = _buildMapboxStaticUrl(_trackingLocations);
+    final visibleLocations = _visibleTrackingLocations();
+    final mapUrl = _buildMapboxStaticUrl(visibleLocations);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: _buildCard(
-        'Live Tracking (${_trackingLocations.length})',
+        'Live Tracking (${visibleLocations.length})',
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1478,9 +1578,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
+                if (_focusedTrackingBookingId != null) ...[
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _focusedTrackingBookingId = null;
+                      });
+                    },
+                    icon: const Icon(Icons.clear),
+                    label: const Text('Show all company trips'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: isDark ? Colors.white : Colors.black87,
+                      side: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade400,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
                   child: Text(
-                    'Tracking comes from the driver app while an assigned trip is active.',
+                    _focusedTrackingBookingId == null
+                        ? 'Tracking comes from the driver app while an assigned company trip is active.'
+                        : 'Showing the focused company booking selected from Bookings.',
                     style: TextStyle(
                       color: isDark ? Colors.grey[400] : Colors.grey[700],
                     ),
@@ -1498,8 +1620,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 child: mapUrl == null
                     ? Center(
                         child: Text(
-                          _trackingLocations.isEmpty
-                              ? 'No active tracking locations yet'
+                          visibleLocations.isEmpty
+                              ? 'No active company tracking locations yet'
                               : 'Add MAPBOX_ACCESS_TOKEN with --dart-define to show the map',
                           style: TextStyle(
                             color: isDark ? Colors.grey[400] : Colors.grey[700],
@@ -1523,15 +1645,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (_trackingLocations.isEmpty)
+            if (visibleLocations.isEmpty)
               Text(
-                'Ask the driver to start tracking from the active trip card.',
+                _focusedTrackingBookingId == null
+                    ? 'Ask the driver to start tracking from the active trip card.'
+                    : 'No live tracking has started yet for this booking.',
                 style: TextStyle(
                   color: isDark ? Colors.grey[400] : Colors.grey[700],
                 ),
               )
             else
-              ..._trackingLocations.map(
+              ...visibleLocations.map(
                 (location) => _buildTrackingRow(location, isDark),
               ),
           ],
@@ -1921,7 +2045,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 const SizedBox(height: 30),
                 // Active section - always show
                 _buildBookingSection(
-                  'Active Bookings',
+                  'Ongoing Bookings',
                   activeBookings,
                   isDark,
                   Colors.green,
@@ -2024,6 +2148,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final withDriver = _bookingNeedsDriver(booking['with_driver']);
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
+                final canTrack = _canTrackBooking(booking);
+                final completionState = BookingService().getTripCompletionState(
+                  booking,
+                );
+                final operatorConfirmed =
+                    completionState['operatorConfirmed'] == true;
                 final total =
                     (booking['total_price'] as num?)?.toDouble() ??
                     (booking['total_cost'] as num?)?.toDouble() ??
@@ -2340,55 +2470,117 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       // Status and actions
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           _buildStatusBadge(status),
-                          if (statusLower == 'pending')
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                          Flexible(
+                            child: Wrap(
+                              alignment: WrapAlignment.end,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 8,
                               children: [
-                                ElevatedButton.icon(
-                                  onPressed: () => _showApproveDialog(booking),
-                                  icon: const Icon(Icons.check, size: 16),
-                                  label: const Text('Confirm'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
+                                if (statusLower == 'pending')
+                                  ElevatedButton.icon(
+                                    onPressed: () => _showApproveDialog(booking),
+                                    icon: const Icon(Icons.check, size: 16),
+                                    label: const Text('Confirm'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                OutlinedButton.icon(
-                                  onPressed: () => _showRejectDialog(
-                                    booking['id'].toString(),
-                                  ),
-                                  icon: const Icon(Icons.close, size: 16),
-                                  label: const Text('Reject'),
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(color: Colors.red),
-                                    foregroundColor: Colors.red,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
+                                if (statusLower == 'pending')
+                                  OutlinedButton.icon(
+                                    onPressed: () => _showRejectDialog(
+                                      booking['id'].toString(),
+                                    ),
+                                    icon: const Icon(Icons.close, size: 16),
+                                    label: const Text('Reject'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Colors.red),
+                                      foregroundColor: Colors.red,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
                                     ),
                                   ),
-                                ),
+                                if (canTrack)
+                                  ElevatedButton.icon(
+                                    onPressed: () => _openTrackingForBooking(
+                                      booking,
+                                    ),
+                                    icon: const Icon(Icons.explore_outlined),
+                                    label: const Text('Track'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if ((statusLower == 'confirmed' ||
+                                        statusLower == 'approved' ||
+                                        statusLower == 'active') &&
+                                    !canTrack)
+                                  Text(
+                                    _isCompanyOwnedBooking(booking)
+                                        ? 'Waiting for live location'
+                                        : 'Partner monitors this trip',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                if (canTrack)
+                                  Text(
+                                    'Driver updates this trip',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                if (statusLower == 'completed' &&
+                                    !operatorConfirmed)
+                                  ElevatedButton.icon(
+                                    onPressed: () =>
+                                        _confirmOperatorSuccessfulTrip(booking),
+                                    icon: const Icon(Icons.task_alt, size: 16),
+                                    label: const Text('Successful Trip'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if (statusLower == 'completed' &&
+                                    operatorConfirmed)
+                                  Text(
+                                    'Successful trip confirmed',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
                               ],
                             ),
-                          if (statusLower == 'confirmed' ||
-                              statusLower == 'approved' ||
-                              statusLower == 'active')
-                            Text(
-                              'Driver updates this trip',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey[400]
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
+                          ),
                         ],
                       ),
                     ],

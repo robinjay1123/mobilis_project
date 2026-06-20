@@ -13,6 +13,7 @@ import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/admin_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 
@@ -49,6 +50,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _verificationRecords = [];
   List<Map<String, dynamic>> _pendingPartnerVehicleApplications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
+  List<Map<String, dynamic>> _announcements = [];
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -70,6 +72,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       TextEditingController();
   final TextEditingController _reservationInstructionsController =
       TextEditingController();
+  final TextEditingController _announcementTitleController =
+      TextEditingController();
+  final TextEditingController _announcementMessageController =
+      TextEditingController();
+  String _announcementTargetRole = 'all';
+  bool _isSendingAnnouncement = false;
 
   final _supabase = Supabase.instance.client;
 
@@ -88,6 +96,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _reservationQrUrlController.dispose();
     _reservationAccountNameController.dispose();
     _reservationInstructionsController.dispose();
+    _announcementTitleController.dispose();
+    _announcementMessageController.dispose();
     super.dispose();
   }
 
@@ -101,6 +111,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadAllBookings(),
         _loadAllVehicles(),
         _loadTrackingLocations(),
+        _loadAnnouncements(),
         _loadPendingVerifications(),
         _loadPendingPartnerVehicleApplications(),
       ]);
@@ -109,6 +120,58 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
 
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadAnnouncements() async {
+    _announcements = await AdminService().getRecentAnnouncements();
+  }
+
+  Future<void> _sendAnnouncement() async {
+    final title = _announcementTitleController.text.trim();
+    final message = _announcementMessageController.text.trim();
+    if (title.isEmpty || message.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter both announcement title and message'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSendingAnnouncement = true);
+    try {
+      final delivered = await AdminService().publishAnnouncement(
+        title: title,
+        message: message,
+        targetRole: _announcementTargetRole,
+      );
+      await _loadAnnouncements();
+      if (!mounted) return;
+      _announcementTitleController.clear();
+      _announcementMessageController.clear();
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Announcement sent to $delivered ${_announcementTargetRole == 'all' ? 'users' : '$_announcementTargetRole users'}',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to send announcement: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingAnnouncement = false);
+      }
+    }
   }
 
   Future<void> _loadRentalTerms() async {
@@ -940,8 +1003,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 7:
         return 'Analytics';
       case 8:
-        return 'Settings';
+        return 'Announcements';
       case 9:
+        return 'Settings';
+      case 10:
         return 'Live Tracking';
       default:
         return 'Dashboard';
@@ -971,8 +1036,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 7:
         return _buildAnalyticsContent(isDark);
       case 8:
-        return _buildSettingsContent(isDark);
+        return _buildAnnouncementsContent(isDark);
       case 9:
+        return _buildSettingsContent(isDark);
+      case 10:
         return _buildTrackingContent(isDark);
       default:
         return _buildDashboardContent(isDark);
@@ -1085,7 +1152,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           const SizedBox(height: 10),
           _buildNavItem(7, Icons.analytics, 'Analytics', isDark),
           _buildNavItem(
-            9,
+            10,
             Icons.location_on,
             'Live Tracking',
             isDark,
@@ -1093,7 +1160,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ? _trackingLocations.length
                 : null,
           ),
-          _buildNavItem(8, Icons.settings, 'Settings', isDark),
+          _buildNavItem(8, Icons.campaign_outlined, 'Announcements', isDark),
+          _buildNavItem(9, Icons.settings, 'Settings', isDark),
           const Divider(color: Colors.white12, height: 1),
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
@@ -1434,7 +1502,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 isDark,
               ),
               _buildStatCard(
-                'Active Bookings',
+                'Ongoing Bookings',
                 _activeBookings.toString(),
                 Icons.event_available,
                 Colors.teal,
@@ -3889,7 +3957,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ),
         const SizedBox(height: 12),
         _buildMetricRow(
-          'Active Bookings',
+          'Ongoing Bookings',
           '$_activeBookings',
           Icons.check_circle,
           Colors.green,
@@ -3987,6 +4055,215 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppColors.primary),
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementsContent(bool isDark) {
+    const roles = ['all', 'renter', 'driver', 'partner', 'operator'];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCard(
+            'Send Announcement',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _announcementTitleController,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    labelStyle: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                      borderSide: BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _announcementMessageController,
+                  minLines: 4,
+                  maxLines: 6,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Message',
+                    alignLabelWithHint: true,
+                    labelStyle: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
+                      borderSide: BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    DropdownButton<String>(
+                      value: _announcementTargetRole,
+                      dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                      items: roles
+                          .map(
+                            (role) => DropdownMenuItem(
+                              value: role,
+                              child: Text(
+                                role == 'all'
+                                    ? 'All users'
+                                    : '${role[0].toUpperCase()}${role.substring(1)}s',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _announcementTargetRole = value);
+                      },
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: _isSendingAnnouncement ? null : _sendAnnouncement,
+                      icon: _isSendingAnnouncement
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send),
+                      label: Text(
+                        _isSendingAnnouncement ? 'Sending...' : 'Send Announcement',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildCard(
+            'Announcement History',
+            _announcements.isEmpty
+                ? Text(
+                    'No announcements sent yet.',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                    ),
+                  )
+                : Column(
+                    children: _announcements.map((announcement) {
+                      final target =
+                          announcement['target_role']?.toString() ?? 'all';
+                      return Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.black26 : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    announcement['title']?.toString() ??
+                                        'Announcement',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: isDark
+                                          ? Colors.white
+                                          : Colors.black,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withOpacity(0.16),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    target == 'all' ? 'All users' : target,
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              announcement['message']?.toString() ?? '',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.grey[300]
+                                    : Colors.grey.shade800,
+                                height: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              announcement['created_at']?.toString() ?? '',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.grey[500]
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+            isDark,
+          ),
+        ],
       ),
     );
   }
@@ -4636,14 +4913,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       'Completed Bookings Revenue   : PHP ${completedRevenue.toStringAsFixed(2)}',
     );
     buffer.writeln(
-      'Active Bookings Revenue      : PHP ${activeRevenue.toStringAsFixed(2)}',
+      'Ongoing Bookings Revenue     : PHP ${activeRevenue.toStringAsFixed(2)}',
     );
     buffer.writeln('');
 
     buffer.writeln('BOOKINGS ANALYTICS');
     buffer.writeln(subDivider);
     buffer.writeln('Total Bookings      : $_totalBookings');
-    buffer.writeln('Active Bookings     : $_activeBookings');
+    buffer.writeln('Ongoing Bookings    : $_activeBookings');
     buffer.writeln('Completed Bookings  : $completedCount');
     buffer.writeln('Pending Bookings    : $pendingCount');
     buffer.writeln('Cancelled Bookings  : $cancelledCount');

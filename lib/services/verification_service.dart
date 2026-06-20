@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'notification_service.dart';
+import 'user_restriction_service.dart';
 
 class VerificationService {
   static final supabase = Supabase.instance.client;
@@ -82,6 +83,45 @@ class VerificationService {
     required File idBackFile,
   }) async {
     try {
+      final userProfile = await supabase
+          .from('users')
+          .select('email, phone, full_name')
+          .eq('id', userId)
+          .maybeSingle();
+      final blockedMatch = await UserRestrictionService()
+          .findBlockedIdentityMatch(
+            email: userProfile?['email']?.toString(),
+            phone: userProfile?['phone']?.toString(),
+            fullName: userProfile?['full_name']?.toString(),
+          );
+      if (blockedMatch != null) {
+        await UserRestrictionService().markUserAsBlockedMatch(
+          userId: userId,
+          matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
+          reason:
+              'Verification was automatically rejected because this identity matches a permanently blocked user.',
+        );
+
+        final rejected = await supabase
+            .from('user_verifications')
+            .upsert({
+              'user_id': userId,
+              'rejection_reason':
+                  'Automatically rejected because this identity matches a permanently blocked user.',
+              'verified_at': DateTime.now().toIso8601String(),
+              'verification_status': 'rejected',
+            }, onConflict: 'user_id')
+            .select()
+            .single();
+
+        return {
+          'success': false,
+          'message':
+              'Verification was automatically rejected because this identity matches a blocked user record.',
+          'data': rejected,
+        };
+      }
+
       // Upload ID front
       final idFrontPath =
           'verifications/$userId/id_front_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -462,6 +502,50 @@ class VerificationService {
   }) async {
     try {
       debugPrint('Submitting verification with details for user: $userId');
+
+      final userProfile = await supabase
+          .from('users')
+          .select('email, phone')
+          .eq('id', userId)
+          .maybeSingle();
+      final blockedMatch = await UserRestrictionService()
+          .findBlockedIdentityMatch(
+            email: userProfile?['email']?.toString(),
+            phone: userProfile?['phone']?.toString(),
+            fullName: fullName,
+          );
+      if (blockedMatch != null) {
+        await UserRestrictionService().markUserAsBlockedMatch(
+          userId: userId,
+          matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
+          reason:
+              'Verification was automatically rejected because this account matches a permanently blocked user.',
+        );
+
+        final rejected = await supabase
+            .from('user_verifications')
+            .upsert({
+              'user_id': userId,
+              'full_name': fullName,
+              'location': location,
+              'id_type': idType,
+              'id_number': idNumber,
+              'id_document_url': idDocumentUrl,
+              'verification_status': 'rejected',
+              'rejection_reason':
+                  'Automatically rejected because this identity matches a permanently blocked user.',
+              'created_at': DateTime.now().toIso8601String(),
+            }, onConflict: 'user_id')
+            .select()
+            .single();
+
+        return {
+          'success': false,
+          'message':
+              'Verification was automatically rejected because this identity matches a blocked user record.',
+          'data': rejected,
+        };
+      }
 
       final response = await supabase
           .from('user_verifications')

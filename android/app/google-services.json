@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "6772900574",
+    "project_id": "mobilis-project",
+    "storage_bucket": "mobilis-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:6772900574:android:f79165a4314ae58457384f",
+        "android_client_info": {
+          "package_name": "com.example.mobilis_by_psdc_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCuz-gf8H0eRO4-nlET4tXxLOAKVuQDptQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

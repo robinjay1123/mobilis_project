@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'preferences_service.dart';
+import 'user_restriction_service.dart';
 import 'verification_service.dart';
 
 class AuthService {
@@ -268,6 +269,24 @@ class AuthService {
     try {
       final user = currentUser;
       if (user == null) throw Exception('No user logged in');
+
+      final blockedMatch = await UserRestrictionService()
+          .findBlockedIdentityMatch(
+            email: user.email,
+            phone: phone,
+            fullName: fullName,
+          );
+      if (blockedMatch != null) {
+        await UserRestrictionService().markUserAsBlockedMatch(
+          userId: user.id,
+          matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
+          reason:
+              'Verification was automatically rejected because this identity matches a permanently blocked user.',
+        );
+        throw Exception(
+          'Verification was automatically rejected because this identity matches a blocked user record.',
+        );
+      }
 
       debugPrint('Updating verification for user: ${user.id}');
 
@@ -596,6 +615,21 @@ class AuthService {
           location: userMetadata['location'] as String?,
           role: userMetadata['role'] as String? ?? 'renter',
         );
+
+        final blockedMatch = await UserRestrictionService()
+            .findBlockedIdentityMatch(
+              email: email,
+              phone: userMetadata['phone'] as String?,
+              fullName: userMetadata['full_name'] as String?,
+            );
+        if (blockedMatch != null) {
+          await UserRestrictionService().markUserAsBlockedMatch(
+            userId: response.user!.id,
+            matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
+            reason:
+                'Matched a permanently blocked user record during signup review.',
+          );
+        }
       }
 
       if (response.session == null) {

@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'notification_service.dart';
+import 'user_restriction_service.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -216,6 +217,16 @@ class PartnerService {
     required bool isAvailable,
   }) async {
     try {
+      if (isAvailable) {
+        final restriction = await UserRestrictionService()
+            .getCurrentUserRestriction();
+        if (restriction.isBlocked || restriction.isAccountRestricted) {
+          throw Exception(
+            'Restricted partner accounts cannot relist vehicles right now',
+          );
+        }
+      }
+
       final updates = {
         'owner_is_driver': ownerIsDriver,
         'is_available': isAvailable,
@@ -251,6 +262,52 @@ class PartnerService {
       rethrow;
     } catch (e) {
       debugPrint('Unexpected error updating vehicle settings: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> updateApprovedVehicleDetails({
+    required String applicationId,
+    required String partnerVehicleId,
+    String? vehicleId,
+    required String brand,
+    required String model,
+    required int year,
+    required String plateNumber,
+    required int seats,
+    required String fuelType,
+    required String transmission,
+  }) async {
+    try {
+      final updates = {
+        'brand': brand,
+        'model': model,
+        'year': year,
+        'plate_number': plateNumber,
+        'seats': seats,
+        'fuel_type': fuelType,
+        'transmission': transmission,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      await supabase
+          .from('partner_vehicle_applications')
+          .update(updates)
+          .eq('id', applicationId);
+
+      await supabase
+          .from('partner_vehicles')
+          .update(updates)
+          .eq('id', partnerVehicleId);
+
+      if (vehicleId != null && vehicleId.isNotEmpty) {
+        await supabase.from('vehicles').update(updates).eq('id', vehicleId);
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('Database error updating vehicle details: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error updating vehicle details: $e');
       rethrow;
     }
   }

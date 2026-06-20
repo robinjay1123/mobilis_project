@@ -161,6 +161,47 @@ class AdminService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getRecentAnnouncements({
+    int limit = 20,
+  }) async {
+    try {
+      final response = await supabase
+          .from('announcements')
+          .select('id, admin_id, title, message, target_role, created_at')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error loading announcements: $e');
+      return [];
+    }
+  }
+
+  Future<int> publishAnnouncement({
+    required String title,
+    required String message,
+    String targetRole = 'all',
+  }) async {
+    final adminId = supabase.auth.currentUser?.id;
+    final announcement = await supabase
+        .from('announcements')
+        .insert({
+          'admin_id': adminId,
+          'title': title,
+          'message': message,
+          'target_role': targetRole.trim().toLowerCase(),
+        })
+        .select('id')
+        .single();
+
+    return NotificationService().broadcastAnnouncement(
+      title: title,
+      message: message,
+      targetRole: targetRole,
+      announcementId: announcement['id']?.toString(),
+    );
+  }
+
   // ================== DRIVER APPLICATIONS ==================
 
   /// Get all pending driver applications

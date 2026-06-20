@@ -36,6 +36,8 @@ import 'web_ui/screens/admin/admin_web_screen.dart';
 import 'web_ui/screens/operator/operator_web_screen.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
+import 'services/notification_permission_service.dart';
+import 'services/push_notification_service.dart';
 import 'services/theme_service.dart';
 
 Future<void> main() async {
@@ -51,6 +53,8 @@ Future<void> main() async {
   } catch (e) {
     debugPrint('Supabase initialization error: $e');
   }
+
+  await PushNotificationService().ensureInitialized();
 
   runApp(const MyApp());
 }
@@ -456,6 +460,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
     _initialScreen = _determineInitialScreen();
+    NotificationPermissionService().ensurePrompted();
     _setupAuthListener();
     _setupUserProfileListener();
   }
@@ -475,6 +480,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
         await Future.delayed(
           Duration(milliseconds: 500),
         ); // Small delay to ensure DB is updated
+        await NotificationPermissionService().ensurePrompted();
+        await PushNotificationService().syncTokenForCurrentUser();
         await _syncRouteForCurrentUser();
         _setupUserProfileListener();
       }

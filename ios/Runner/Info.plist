@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
+	<key>NSUserNotificationUsageDescription</key>
+	<string>This app uses notifications to keep you updated about bookings, trips, and announcements.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app needs your location to help you find nearby cars.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

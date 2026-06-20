@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'booking_service.dart';
 import 'notification_service.dart';
+import 'user_restriction_service.dart';
 
 class DriverService {
   static final DriverService _instance = DriverService._internal();
@@ -214,6 +215,17 @@ class DriverService {
   Future<void> setAvailability(String userId, bool available) async {
     try {
       debugPrint('Setting availability for user: $userId to $available');
+
+      if (available) {
+        final restriction = await UserRestrictionService().getUserRestriction(
+          userId,
+        );
+        if (restriction.isBlocked || restriction.isAccountRestricted) {
+          throw Exception(
+            'Driver availability cannot be turned on while the account is restricted',
+          );
+        }
+      }
 
       await supabase
           .from('users')

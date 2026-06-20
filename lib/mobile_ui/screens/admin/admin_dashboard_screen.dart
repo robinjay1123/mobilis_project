@@ -82,9 +82,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             .toString()
             .toLowerCase();
         final idVerified = map['id_verified'] as bool? ?? false;
+        final isBlocked = map['is_blocked'] == true;
 
         String displayStatus;
-        if (role == 'partner' || role == 'driver') {
+        if (isBlocked) {
+          displayStatus = 'blocked';
+        } else if (role == 'partner' || role == 'driver') {
           if (appStatus == 'approved') {
             displayStatus = 'verified';
           } else if (appStatus == 'rejected') {

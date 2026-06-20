@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
+import '../../../services/notification_permission_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
+import '../profile/ratings_reviews_screen.dart';
+import '../profile/trip_rating_flow_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -26,7 +30,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -114,6 +118,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 Tab(text: 'Jobs'),
                 Tab(text: 'Earnings'),
                 Tab(text: 'Availability'),
+                Tab(text: 'Notifications'),
                 Tab(text: 'Profile'),
               ],
             ),
@@ -126,6 +131,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                 _JobsTab(),
                 _EarningsTab(),
                 _AvailabilityTab(),
+                _NotificationsTab(),
                 _ProfileTab(
                   onThemeToggle: widget.onThemeToggle,
                   isDarkMode: widget.isDarkMode,
@@ -727,6 +733,19 @@ class _TripCardState extends State<_TripCard> {
 
   Map<String, dynamic> get trip => widget.trip;
 
+  String _displayTripStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'approved':
+      case 'confirmed':
+      case 'active':
+        return 'Ongoing';
+      case 'completed':
+        return 'Completed';
+      default:
+        return status;
+    }
+  }
+
   Future<void> _markPickedUp(BuildContext context) async {
     try {
       await DriverService().markAssignedBookingPickedUp(trip['id'].toString());
@@ -778,6 +797,18 @@ class _TripCardState extends State<_TripCard> {
         );
       }
       await TrackingService().stopTracking();
+      if (context.mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => TripRatingFlowScreen(
+              bookingId: trip['id'].toString(),
+              reviewerRole: 'driver',
+              subtitle:
+                  'Leave ratings for the renter, operator, and partner if applicable.',
+            ),
+          ),
+        );
+      }
       widget.onChanged();
     } catch (e) {
       if (context.mounted) {
@@ -900,7 +931,7 @@ class _TripCardState extends State<_TripCard> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  trip['status']?.toString() ?? 'assigned',
+                  _displayTripStatus(trip['status']?.toString() ?? 'assigned'),
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -1169,6 +1200,169 @@ class _DriverOfferCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _NotificationsTab extends StatefulWidget {
+  const _NotificationsTab();
+
+  @override
+  State<_NotificationsTab> createState() => _NotificationsTabState();
+}
+
+class _NotificationsTabState extends State<_NotificationsTab> {
+  late Future<List<Map<String, dynamic>>> _notificationsFuture;
+  final Set<String> _shownBrowserNotificationIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _notificationsFuture = _loadNotifications();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadNotifications() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return [];
+    return NotificationService().getNotifications(userId);
+  }
+
+  Future<void> _refresh() async {
+    final future = _loadNotifications();
+    setState(() => _notificationsFuture = future);
+    await future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _notificationsFuture,
+        builder: (context, snapshot) {
+          final notifications = snapshot.data ?? const <Map<String, dynamic>>[];
+
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              notifications.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (notifications.isEmpty) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Icon(
+                  Icons.notifications_none_outlined,
+                  size: 64,
+                  color: AppColors.textTertiary,
+                ),
+                SizedBox(height: 16),
+                Center(
+                  child: Text(
+                    'No notifications yet',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            itemCount: notifications.length,
+            itemBuilder: (context, index) {
+              final notification = notifications[index];
+              final title = notification['title']?.toString() ?? 'Notification';
+              final message = notification['message']?.toString() ?? '';
+              final createdAt = notification['created_at']?.toString() ?? '';
+              final isRead = notification['is_read'] == true;
+              final notificationId = notification['id']?.toString() ?? '';
+
+              if (!isRead &&
+                  notificationId.isNotEmpty &&
+                  !_shownBrowserNotificationIds.contains(notificationId)) {
+                _shownBrowserNotificationIds.add(notificationId);
+                NotificationPermissionService().showBrowserNotification(
+                  title: title,
+                  body: message,
+                );
+              }
+
+              return InkWell(
+                onTap: () async {
+                  final id = notification['id']?.toString();
+                  if (id != null && id.isNotEmpty) {
+                    await NotificationService().markAsRead(id);
+                    await _refresh();
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkCard : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isRead
+                          ? (isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade300)
+                          : AppColors.primary,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.notifications_active_outlined,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        message,
+                        style: TextStyle(
+                          color: isDark ? Colors.grey[300] : Colors.grey[800],
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        createdAt,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey[500] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -1653,6 +1847,23 @@ class __ProfileTabState extends State<_ProfileTab> {
                     Navigator.pushNamed(
                       context,
                       '/driver-identity-verification',
+                    );
+                  },
+                  isDark: isDark,
+                ),
+                _SettingTile(
+                  icon: Icons.star_outline_rounded,
+                  label: 'Ratings & Reviews',
+                  value: '',
+                  onTap: () {
+                    if (user == null) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => RatingsReviewsScreen(
+                          userId: user.id,
+                          title: 'Driver Ratings & Reviews',
+                        ),
+                      ),
                     );
                   },
                   isDark: isDark,

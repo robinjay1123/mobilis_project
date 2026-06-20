@@ -25,6 +25,12 @@ class AnchorElement {
   void remove() {}
 }
 
+class Notification {
+  Notification(String title, {String? body});
+
+  static Future<String> requestPermission() async => 'denied';
+}
+
 class _DocumentStub {
   _BodyStub? get body => null;
 }

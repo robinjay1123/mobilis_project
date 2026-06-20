@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../../services/auth_service.dart';
+import 'ratings_reviews_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -241,6 +242,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: Icons.privacy_tip,
                           title: 'Privacy Policy',
                           onTap: () {},
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSettingTile(
+                          icon: Icons.star_outline_rounded,
+                          title: 'Ratings & Reviews',
+                          onTap: () {
+                            final userId = AuthService().currentUser?.id;
+                            if (userId == null) return;
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => RatingsReviewsScreen(
+                                  userId: userId,
+                                  title: 'My Ratings & Reviews',
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),

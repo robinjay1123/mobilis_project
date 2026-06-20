@@ -33,6 +33,7 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
   final List<String> _filters = [
     'All Users',
     'Unverified Applicants',
+    'Blocked Users',
     'Renters',
     'Owners',
     'Operators',
@@ -65,6 +66,8 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
 
         return isApplicantRole && isUnverifiedApplicant;
       }).toList();
+    } else if (_selectedFilter == 'Blocked Users') {
+      filtered = filtered.where((user) => user['is_blocked'] == true).toList();
     } else if (_selectedFilter != 'All Users') {
       final filterRole = _selectedFilter.toLowerCase().replaceAll('s', '');
       filtered = filtered.where((user) {
@@ -124,6 +127,9 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
 
     return isApplicantRole && isUnverifiedApplicant;
   }).length;
+
+  int get _blockedUsersCount =>
+      widget.users.where((u) => u['is_blocked'] == true).length;
 
   @override
   Widget build(BuildContext context) {
@@ -243,6 +249,8 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
                       final isSelected = _selectedFilter == filter;
                       final chipLabel = filter == 'Unverified Applicants'
                           ? 'Unverified Applicants ($_unverifiedApplicantsCount)'
+                          : filter == 'Blocked Users'
+                          ? 'Blocked Users ($_blockedUsersCount)'
                           : filter;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
