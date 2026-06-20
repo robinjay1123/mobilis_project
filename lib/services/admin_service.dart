@@ -194,12 +194,20 @@ class AdminService {
         .select('id')
         .single();
 
-    return NotificationService().broadcastAnnouncement(
+    final recipients = await NotificationService().broadcastAnnouncement(
       title: title,
       message: message,
       targetRole: targetRole,
       announcementId: announcement['id']?.toString(),
     );
+
+    try {
+      await supabase.functions.invoke('send-push-queue');
+    } catch (e) {
+      debugPrint('Announcement push dispatch trigger failed: $e');
+    }
+
+    return recipients;
   }
 
   // ================== DRIVER APPLICATIONS ==================
