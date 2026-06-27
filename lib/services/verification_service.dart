@@ -430,6 +430,7 @@ class VerificationService {
     required Map<String, dynamic> verificationRecord,
     required String status,
   }) async {
+    final partnerStatus = _profileStatusFromVerificationStatus(status);
     final submittedFullName =
         verificationRecord['full_name']?.toString().trim() ?? '';
     final submittedLocation =
@@ -455,7 +456,7 @@ class VerificationService {
         'address': address,
         'business_address': address,
       },
-      'verification_status': status,
+      'verification_status': partnerStatus,
     };
 
     if (existingPartner == null) {
@@ -472,6 +473,7 @@ class VerificationService {
     required String userId,
     required String status,
   }) async {
+    final driverStatus = _profileStatusFromVerificationStatus(status);
     final existingDriver = await supabase
         .from('drivers')
         .select('id')
@@ -480,13 +482,13 @@ class VerificationService {
 
     final payload = <String, dynamic>{
       'user_id': userId,
-      'verification_status': status,
+      'verification_status': driverStatus,
     };
 
     if (existingDriver == null) {
       await supabase.from('drivers').insert({
         ...payload,
-        'driver_tier': status == 'verified' ? 'standard' : 'standard',
+        'driver_tier': 'standard',
       });
     } else {
       await supabase
@@ -494,6 +496,11 @@ class VerificationService {
           .update(payload)
           .eq('id', existingDriver['id']);
     }
+  }
+
+  static String _profileStatusFromVerificationStatus(String status) {
+    // user_verifications accepts "verified"; partners/drivers accept "approved".
+    return status == 'verified' ? 'approved' : status;
   }
 
   /// Submit verification with complete form details (name, location, ID type, ID number, image)
