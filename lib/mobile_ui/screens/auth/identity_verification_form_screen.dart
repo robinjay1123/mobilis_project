@@ -32,6 +32,9 @@ class _IdentityVerificationFormScreenState
   final _idNumberController = TextEditingController();
   String _selectedIdType = 'National ID';
   File? _idFrontFile;
+  File? _idBackFile;
+  File? _faceSelfieFile;
+  File? _selfieWithIdFile;
 
   // UI State
   bool _isLoading = false;
@@ -58,10 +61,9 @@ class _IdentityVerificationFormScreenState
 
   void _handleBackNavigation() {
     if (widget.userRole == 'partner') {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/partner-home',
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil('/partner-home', (route) => false);
       return;
     }
 
@@ -90,9 +92,13 @@ class _IdentityVerificationFormScreenState
       final verification = await VerificationService.getUserVerification(
         userId,
       );
-      final status = (verification?['verification_status'] ?? '')
-          .toString()
-          .toLowerCase();
+      final verificationState =
+          await VerificationService.getUserVerificationState(userId);
+      final status = verificationState['is_verified'] == true
+          ? 'verified'
+          : (verification?['verification_status'] ?? '')
+                .toString()
+                .toLowerCase();
 
       if (!mounted) return;
 
@@ -110,38 +116,56 @@ class _IdentityVerificationFormScreenState
           setState(() {
             _successMessage = 'Your verification has already been approved.';
           });
+          _redirectVerifiedUsersHome();
         } else if (status == 'pending') {
           setState(() {
             _successMessage =
                 'Your verification is pending admin review. Please check back soon.';
           });
         }
+      } else if (status == 'verified') {
+        setState(() {
+          _verificationStatus = status;
+          _successMessage = 'Your verification has already been approved.';
+        });
+        _redirectVerifiedUsersHome();
       }
     }
   }
 
-  Future<void> _captureIdFront() async {
-    final file = await VerificationService.pickImage(
-      source: ImageSource.camera,
-    );
-    if (file != null) {
-      setState(() {
-        _idFrontFile = file;
-        _errorMessage = null;
+  void _redirectVerifiedUsersHome() {
+    if (widget.userRole == 'partner' ||
+        widget.userRole == 'driver' ||
+        widget.userRole == 'renter') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _handleBackNavigation();
       });
     }
   }
 
-  Future<void> _uploadIdFront() async {
-    final file = await VerificationService.pickImage(
-      source: ImageSource.gallery,
-    );
-    if (file != null) {
-      setState(() {
-        _idFrontFile = file;
-        _errorMessage = null;
-      });
-    }
+  Future<void> _pickVerificationPhoto(
+    String photoType,
+    ImageSource source,
+  ) async {
+    final file = await VerificationService.pickImage(source: source);
+    if (file == null || !mounted) return;
+    setState(() {
+      switch (photoType) {
+        case 'id_back':
+          _idBackFile = file;
+          break;
+        case 'face_selfie':
+          _faceSelfieFile = file;
+          break;
+        case 'selfie_with_id':
+          _selfieWithIdFile = file;
+          break;
+        default:
+          _idFrontFile = file;
+      }
+      _errorMessage = null;
+    });
   }
 
   Future<void> _submitVerification() async {
@@ -159,7 +183,19 @@ class _IdentityVerificationFormScreenState
       return;
     }
     if (_idFrontFile == null) {
-      _showError('Please upload your ID image');
+      _showError('Please capture or upload the front of your ID');
+      return;
+    }
+    if (_idBackFile == null) {
+      _showError('Please capture or upload the back of your ID');
+      return;
+    }
+    if (_faceSelfieFile == null) {
+      _showError('Please take a clear face-only selfie');
+      return;
+    }
+    if (_selfieWithIdFile == null) {
+      _showError('Please take a selfie while holding your ID');
       return;
     }
 
@@ -176,7 +212,26 @@ class _IdentityVerificationFormScreenState
         throw Exception('User not authenticated');
       }
 
-      final idImageUrl = await _uploadVerificationImage(userId);
+      final idFrontUrl = await _uploadVerificationImage(
+        userId,
+        _idFrontFile!,
+        'id_front',
+      );
+      final idBackUrl = await _uploadVerificationImage(
+        userId,
+        _idBackFile!,
+        'id_back',
+      );
+      final faceSelfieUrl = await _uploadVerificationImage(
+        userId,
+        _faceSelfieFile!,
+        'face_selfie',
+      );
+      final selfieWithIdUrl = await _uploadVerificationImage(
+        userId,
+        _selfieWithIdFile!,
+        'selfie_with_id',
+      );
 
       // Submit verification with all form data
       final result = await VerificationService.submitVerificationWithDetails(
@@ -185,7 +240,11 @@ class _IdentityVerificationFormScreenState
         location: _locationController.text.trim(),
         idType: _selectedIdType,
         idNumber: _idNumberController.text.trim(),
-        idDocumentUrl: idImageUrl,
+        idDocumentUrl: '$idFrontUrl|$idBackUrl',
+        idFrontUrl: idFrontUrl,
+        idBackUrl: idBackUrl,
+        faceSelfieUrl: faceSelfieUrl,
+        selfieWithIdUrl: selfieWithIdUrl,
       );
 
       if (result['success']) {
@@ -214,18 +273,23 @@ class _IdentityVerificationFormScreenState
     }
   }
 
-  Future<String> _uploadVerificationImage(String userId) async {
+  Future<String> _uploadVerificationImage(
+    String userId,
+    File file,
+    String photoType,
+  ) async {
     if (widget.userRole == 'driver') {
       return DriverService().uploadToDriverDocumentsBucket(
         userId: userId,
-        file: _idFrontFile!,
-        documentType: 'identity_verification',
+        file: file,
+        documentType: 'identity_verification_$photoType',
       );
     }
 
     final uploadResult = await VerificationService.uploadIdentityPhoto(
       userId: userId,
-      idPhotoFile: _idFrontFile!,
+      idPhotoFile: file,
+      photoType: photoType,
     );
 
     if (uploadResult['success'] != true) {
@@ -311,10 +375,10 @@ class _IdentityVerificationFormScreenState
                   width: double.infinity,
                   child: CustomButton(
                     label: 'Back to Home',
-                      onPressed: () {
-                        Navigator.pop(context); // Close dialog
-                        _handleBackNavigation();
-                      },
+                    onPressed: () {
+                      Navigator.pop(context); // Close dialog
+                      _handleBackNavigation();
+                    },
                     backgroundColor: AppColors.primary,
                     textColor: Colors.black,
                   ),
@@ -331,7 +395,6 @@ class _IdentityVerificationFormScreenState
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = isDark ? AppColors.darkBg : AppColors.lightBg;
-    final cardColor = isDark ? AppColors.darkCard : Colors.white;
     final textColor = isDark
         ? AppColors.textPrimary
         : AppColors.lightTextPrimary;
@@ -341,9 +404,7 @@ class _IdentityVerificationFormScreenState
     final hintTextColor = isDark
         ? AppColors.textSecondary
         : AppColors.lightTextSecondary;
-    final inputBorderColor = isDark
-        ? AppColors.borderColor
-        : Colors.grey[300]!;
+    final inputBorderColor = isDark ? AppColors.borderColor : Colors.grey[300]!;
     final inputFillColor = isDark ? AppColors.darkCard : Colors.white;
 
     // Show if already verified
@@ -547,21 +608,54 @@ class _IdentityVerificationFormScreenState
             ),
             const SizedBox(height: 16),
 
-            // === ID IMAGE UPLOAD ===
-            Text(
-              'ID Image (Front) *',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
+            _buildVerificationPhotoSection(
+              title: '1. ID Front *',
+              description:
+                  'Capture the front of the ID. Keep all text and corners visible.',
+              file: _idFrontFile,
+              photoType: 'id_front',
+              icon: Icons.badge_outlined,
+              cardColor: inputFillColor,
+              textColor: textColor,
+              hintTextColor: hintTextColor,
             ),
-            const SizedBox(height: 8),
-            _buildImageUploadCard(
-              isDark,
-              inputFillColor,
-              textColor,
-              hintTextColor,
+            const SizedBox(height: 16),
+            _buildVerificationPhotoSection(
+              title: '2. ID Back *',
+              description:
+                  'Turn the same ID over and capture its complete back side.',
+              file: _idBackFile,
+              photoType: 'id_back',
+              icon: Icons.flip_to_back_outlined,
+              cardColor: inputFillColor,
+              textColor: textColor,
+              hintTextColor: hintTextColor,
+            ),
+            const SizedBox(height: 16),
+            _buildVerificationPhotoSection(
+              title: '3. Face Selfie *',
+              description:
+                  'Take a face-only selfie in good lighting. No mask, ID, or other person should appear.',
+              file: _faceSelfieFile,
+              photoType: 'face_selfie',
+              icon: Icons.face_retouching_natural,
+              cardColor: inputFillColor,
+              textColor: textColor,
+              hintTextColor: hintTextColor,
+              cameraOnly: true,
+            ),
+            const SizedBox(height: 16),
+            _buildVerificationPhotoSection(
+              title: '4. Selfie Holding ID *',
+              description:
+                  'Hold the front of your ID beside your face. Your face and ID must both be clear.',
+              file: _selfieWithIdFile,
+              photoType: 'selfie_with_id',
+              icon: Icons.co_present_outlined,
+              cardColor: inputFillColor,
+              textColor: textColor,
+              hintTextColor: hintTextColor,
+              cameraOnly: true,
             ),
             const SizedBox(height: 32),
 
@@ -614,10 +708,7 @@ class _IdentityVerificationFormScreenState
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: TextStyle(color: hintTextColor),
-              prefixIcon: Icon(
-                icon,
-                color: AppColors.primary,
-              ),
+              prefixIcon: Icon(icon, color: AppColors.primary),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
@@ -662,10 +753,7 @@ class _IdentityVerificationFormScreenState
                 .map(
                   (type) => DropdownMenuItem(
                     value: type,
-                    child: Text(
-                      type,
-                      style: TextStyle(color: inputTextColor),
-                    ),
+                    child: Text(type, style: TextStyle(color: inputTextColor)),
                   ),
                 )
                 .toList(),
@@ -695,31 +783,46 @@ class _IdentityVerificationFormScreenState
     );
   }
 
-  Widget _buildImageUploadCard(
-    bool isDark,
-    Color cardColor,
-    Color textColor,
-    Color hintTextColor,
-  ) {
+  Widget _buildVerificationPhotoSection({
+    required String title,
+    required String description,
+    required File? file,
+    required String photoType,
+    required IconData icon,
+    required Color cardColor,
+    required Color textColor,
+    required Color hintTextColor,
+    bool cameraOnly = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cardColor,
         border: Border.all(
-          color: _idFrontFile != null
-              ? AppColors.primary
-              : AppColors.borderColor,
-          width: _idFrontFile != null ? 2 : 1,
+          color: file != null ? AppColors.primary : AppColors.borderColor,
+          width: file != null ? 2 : 1,
         ),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: _idFrontFile != null
+      child: file != null
           ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(description, style: TextStyle(color: hintTextColor)),
+                const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.file(
-                    _idFrontFile!,
+                    file,
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
@@ -730,7 +833,8 @@ class _IdentityVerificationFormScreenState
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _captureIdFront,
+                      onPressed: () =>
+                          _pickVerificationPhoto(photoType, ImageSource.camera),
                       icon: const Icon(Icons.camera_alt),
                       label: const Text('Retake'),
                       style: ElevatedButton.styleFrom(
@@ -738,41 +842,48 @@ class _IdentityVerificationFormScreenState
                         foregroundColor: Colors.black,
                       ),
                     ),
-                    ElevatedButton.icon(
-                      onPressed: _uploadIdFront,
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Change'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
+                    if (!cameraOnly)
+                      ElevatedButton.icon(
+                        onPressed: () => _pickVerificationPhoto(
+                          photoType,
+                          ImageSource.gallery,
+                        ),
+                        icon: const Icon(Icons.photo_library),
+                        label: const Text('Change'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],
             )
           : Column(
               children: [
-                Icon(
-                  Icons.image_not_supported,
-                  size: 48,
-                  color: hintTextColor,
-                ),
+                Icon(icon, size: 48, color: hintTextColor),
                 const SizedBox(height: 12),
                 Text(
-                  'No image selected',
+                  title,
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                     color: textColor,
                   ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  description,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: hintTextColor),
                 ),
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _captureIdFront,
+                      onPressed: () =>
+                          _pickVerificationPhoto(photoType, ImageSource.camera),
                       icon: const Icon(Icons.camera_alt),
                       label: const Text('Take Photo'),
                       style: ElevatedButton.styleFrom(
@@ -780,15 +891,19 @@ class _IdentityVerificationFormScreenState
                         foregroundColor: Colors.black,
                       ),
                     ),
-                    ElevatedButton.icon(
-                      onPressed: _uploadIdFront,
-                      icon: const Icon(Icons.photo_library),
-                      label: const Text('Upload'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
+                    if (!cameraOnly)
+                      ElevatedButton.icon(
+                        onPressed: () => _pickVerificationPhoto(
+                          photoType,
+                          ImageSource.gallery,
+                        ),
+                        icon: const Icon(Icons.photo_library),
+                        label: const Text('Upload'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ],

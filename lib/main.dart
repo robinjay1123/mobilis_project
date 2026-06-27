@@ -12,7 +12,6 @@ import 'mobile_ui/screens/auth/face_scan_screen.dart';
 import 'mobile_ui/screens/auth/license_upload_screen.dart';
 import 'mobile_ui/screens/auth/profile_picture_upload_screen.dart';
 import 'mobile_ui/screens/auth/account_verification_screen.dart';
-import 'mobile_ui/screens/auth/id_verification_screen.dart';
 import 'mobile_ui/screens/auth/identity_verification_form_screen.dart';
 import 'mobile_ui/screens/auth/verification_options_screen.dart';
 import 'mobile_ui/screens/auth/forgot_password_screen.dart';
@@ -166,7 +165,7 @@ class _MyAppState extends State<MyApp> {
             const ProfilePictureUploadScreen(),
         '/account-verification': (context) => const AccountVerificationScreen(),
         '/verification-options': (context) => const VerificationOptionsScreen(),
-        '/id-verification': (context) => const IdVerificationScreen(),
+        '/id-verification': (context) => const IdentityVerificationFormScreen(),
         '/identity-verification-form': (context) =>
             const IdentityVerificationFormScreen(),
         '/driver-identity-verification': (context) =>
@@ -482,7 +481,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         ); // Small delay to ensure DB is updated
         await NotificationPermissionService().ensurePrompted();
         await PushNotificationService().syncTokenForCurrentUser();
-        await _syncRouteForCurrentUser();
+        await _syncRouteForCurrentUser(force: true);
         _setupUserProfileListener();
       }
 
@@ -530,7 +529,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
   }
 
-  Future<void> _syncRouteForCurrentUser() async {
+  Future<void> _syncRouteForCurrentUser({bool force = false}) async {
     final authService = AuthService();
     final user = authService.currentUser;
     if (!mounted || user == null) {
@@ -561,6 +560,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
     final targetRoute = _resolveRoute(role, applicationApproved);
     debugPrint('📍 Target route resolved: $targetRoute');
+
+    if (!force && _lastSyncedRoute != null) {
+      debugPrint('Route sync skipped during in-app navigation');
+      return;
+    }
 
     if (_lastSyncedRoute == targetRoute) {
       debugPrint('⏭️  Already synced to this route, skipping navigation');
@@ -603,7 +607,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (role == 'partner') {
       final route = applicationApproved
           ? '/partner-home'
-          : '/identity-verification-form';
+          : '/owner-verification';
       debugPrint('✅ Route: PARTNER ($route)');
       return route;
     }

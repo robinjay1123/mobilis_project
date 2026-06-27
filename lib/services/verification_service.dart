@@ -177,10 +177,15 @@ class VerificationService {
   static Future<Map<String, dynamic>> uploadIdentityPhoto({
     required String userId,
     required File idPhotoFile,
+    String photoType = 'id_photo',
   }) async {
     try {
+      final safePhotoType = photoType.replaceAll(
+        RegExp(r'[^A-Za-z0-9_-]'),
+        '_',
+      );
       final path =
-          'verifications/$userId/id_photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          'verifications/$userId/${safePhotoType}_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final idPhotoUrl = await _uploadFile(path, idPhotoFile);
 
       return {
@@ -499,6 +504,10 @@ class VerificationService {
     required String idType,
     required String idNumber,
     required String idDocumentUrl,
+    required String idFrontUrl,
+    required String idBackUrl,
+    required String faceSelfieUrl,
+    required String selfieWithIdUrl,
   }) async {
     try {
       debugPrint('Submitting verification with details for user: $userId');
@@ -531,6 +540,10 @@ class VerificationService {
               'id_type': idType,
               'id_number': idNumber,
               'id_document_url': idDocumentUrl,
+              'id_front_url': idFrontUrl,
+              'id_back_url': idBackUrl,
+              'face_selfie_url': faceSelfieUrl,
+              'selfie_with_id_url': selfieWithIdUrl,
               'verification_status': 'rejected',
               'rejection_reason':
                   'Automatically rejected because this identity matches a permanently blocked user.',
@@ -556,6 +569,10 @@ class VerificationService {
             'id_type': idType,
             'id_number': idNumber,
             'id_document_url': idDocumentUrl,
+            'id_front_url': idFrontUrl,
+            'id_back_url': idBackUrl,
+            'face_selfie_url': faceSelfieUrl,
+            'selfie_with_id_url': selfieWithIdUrl,
             'verification_status': 'pending',
             'created_at': DateTime.now().toIso8601String(),
           }, onConflict: 'user_id')

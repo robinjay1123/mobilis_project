@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../services/auth_service.dart';
@@ -34,6 +37,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late StreamSubscription _messagesStream;
   String? _warningMessage;
   bool _isLoading = false;
+  bool _isUploadingAttachment = false;
   final AuthService _authService = AuthService();
   final UserRestrictionService _restrictionService = UserRestrictionService();
   UserRestrictionState _restrictionState = UserRestrictionState.empty;
@@ -180,6 +184,92 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         );
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  Future<void> _pickAndSendAttachment() async {
+    if (_restrictionState.isMessagingRestricted || _isUploadingAttachment) {
+      return;
+    }
+
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      withData: false,
+    );
+    final picked = result?.files.single;
+    final path = picked?.path;
+    if (picked == null || path == null || path.isEmpty) return;
+
+    setState(() {
+      _isUploadingAttachment = true;
+      _warningMessage = null;
+    });
+
+    try {
+      final file = File(path);
+      final url = await ChatService().uploadChatAttachment(
+        senderId: currentUser.id,
+        file: file,
+        fileName: picked.name,
+      );
+      final type = _attachmentTypeForName(picked.name);
+
+      await ChatService().sendMessage(
+        conversationId: widget.conversationId,
+        senderId: currentUser.id,
+        content: 'Sent an attachment: ${picked.name}',
+        attachmentUrl: url,
+        attachmentType: type,
+        attachmentName: picked.name,
+        attachmentSize: picked.size,
+      );
+
+      _loadMessages();
+      _loadParticipants();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send attachment: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingAttachment = false;
+        });
+      }
+    }
+  }
+
+  String _attachmentTypeForName(String fileName) {
+    final lower = fileName.toLowerCase();
+    if (lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp')) {
+      return 'image';
+    }
+    if (lower.endsWith('.mp4') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.avi')) {
+      return 'video';
+    }
+    return 'document';
+  }
+
+  IconData _attachmentIcon(String type) {
+    switch (type) {
+      case 'image':
+        return Icons.image_outlined;
+      case 'video':
+        return Icons.videocam_outlined;
+      default:
+        return Icons.insert_drive_file_outlined;
     }
   }
 
@@ -370,6 +460,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     final content =
                         (message['content'] ?? message['message'] ?? '')
                             .toString();
+                    final attachmentUrl = message['attachment_url']?.toString();
+                    final attachmentName =
+                        message['attachment_name']?.toString() ?? 'Attachment';
+                    final attachmentType =
+                        message['attachment_type']?.toString() ?? 'document';
                     final violatesPolicy =
                         isCurrentUser &&
                         MessageFilterService.analyzeMessage(
@@ -424,16 +519,63 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                         : Colors.grey[200]),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Text(
-                              content,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: isCurrentUser
-                                    ? Colors.black
-                                    : (isDark
-                                          ? AppColors.textPrimary
-                                          : Colors.black),
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (attachmentUrl != null &&
+                                    attachmentUrl.isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () => launchUrl(
+                                      Uri.parse(attachmentUrl),
+                                      mode: LaunchMode.externalApplication,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _attachmentIcon(attachmentType),
+                                          color: isCurrentUser
+                                              ? Colors.black
+                                              : AppColors.primary,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            attachmentName,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              color: isCurrentUser
+                                                  ? Colors.black
+                                                  : (isDark
+                                                        ? AppColors.textPrimary
+                                                        : Colors.black),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (content.isNotEmpty)
+                                    const SizedBox(height: 8),
+                                ],
+                                if (content.isNotEmpty)
+                                  Text(
+                                    content,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: isCurrentUser
+                                          ? Colors.black
+                                          : (isDark
+                                                ? AppColors.textPrimary
+                                                : Colors.black),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                           // Timestamp
@@ -522,6 +664,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
             child: Row(
               children: [
+                IconButton(
+                  tooltip: 'Attach file',
+                  onPressed:
+                      _isLoading ||
+                          _isUploadingAttachment ||
+                          _restrictionState.isMessagingRestricted
+                      ? null
+                      : _pickAndSendAttachment,
+                  icon: _isUploadingAttachment
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.add_circle_outline,
+                          color: AppColors.primary,
+                        ),
+                ),
+                const SizedBox(width: 4),
                 Expanded(
                   child: TextField(
                     controller: _messageController,

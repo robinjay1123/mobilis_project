@@ -243,7 +243,7 @@ class PartnerService {
           .update({
             'owner_is_driver': ownerIsDriver,
             'is_available': isAvailable,
-            'status': isAvailable ? 'available' : 'pending',
+            'status': isAvailable ? 'available' : 'disabled',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', partnerVehicleId);
@@ -254,6 +254,7 @@ class PartnerService {
             .update({
               'owner_is_driver': ownerIsDriver,
               'is_available': isAvailable,
+              'status': isAvailable ? 'available' : 'inactive',
             })
             .eq('id', vehicleId);
       }
@@ -277,8 +278,10 @@ class PartnerService {
     required int seats,
     required String fuelType,
     required String transmission,
+    List<String>? photoUrls,
   }) async {
     try {
+      final nowIso = DateTime.now().toIso8601String();
       final updates = {
         'brand': brand,
         'model': model,
@@ -287,7 +290,12 @@ class PartnerService {
         'seats': seats,
         'fuel_type': fuelType,
         'transmission': transmission,
-        'updated_at': DateTime.now().toIso8601String(),
+        'application_status': 'pending',
+        'status': 'pending',
+        'is_available': false,
+        if (photoUrls != null)
+          'vehicle_photo_url': photoUrls.isEmpty ? null : photoUrls.first,
+        'updated_at': nowIso,
       };
 
       await supabase
@@ -297,11 +305,90 @@ class PartnerService {
 
       await supabase
           .from('partner_vehicles')
-          .update(updates)
+          .update({
+            'brand': brand,
+            'model': model,
+            'year': year,
+            'plate_number': plateNumber,
+            'seats': seats,
+            'fuel_type': fuelType,
+            'transmission': transmission,
+            'status': 'pending',
+            'is_available': false,
+            'updated_at': nowIso,
+          })
           .eq('id', partnerVehicleId);
 
       if (vehicleId != null && vehicleId.isNotEmpty) {
-        await supabase.from('vehicles').update(updates).eq('id', vehicleId);
+        await supabase
+            .from('vehicles')
+            .update({
+              'brand': brand,
+              'model': model,
+              'year': year,
+              'plate_number': plateNumber,
+              'seats': seats,
+              'fuel_type': fuelType,
+              'transmission': transmission,
+              'status': 'inactive',
+              'is_available': false,
+              'updated_at': nowIso,
+            })
+            .eq('id', vehicleId);
+      }
+
+      if (photoUrls != null) {
+        await supabase
+            .from('partner_vehicle_documents')
+            .delete()
+            .eq('partner_vehicle_application_id', applicationId)
+            .eq('document_type', 'vehicle_photo');
+
+        final cleanUrls = photoUrls
+            .map((url) => url.trim())
+            .where((url) => url.isNotEmpty)
+            .toList();
+
+        if (cleanUrls.isNotEmpty) {
+          await supabase
+              .from('partner_vehicle_documents')
+              .insert(
+                List.generate(cleanUrls.length, (index) {
+                  return {
+                    'partner_vehicle_application_id': applicationId,
+                    'document_type': 'vehicle_photo',
+                    'file_url': cleanUrls[index],
+                    'created_at': nowIso,
+                  };
+                }),
+              );
+        }
+
+        await supabase
+            .from('vehicle_images')
+            .delete()
+            .eq('partner_vehicle_id', partnerVehicleId);
+
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          await supabase
+              .from('vehicle_images')
+              .delete()
+              .eq('vehicle_id', vehicleId);
+        }
+
+        if (cleanUrls.isNotEmpty) {
+          await supabase
+              .from('vehicle_images')
+              .insert(
+                List.generate(cleanUrls.length, (index) {
+                  return {
+                    'partner_vehicle_id': partnerVehicleId,
+                    'image_url': cleanUrls[index],
+                    'display_order': index,
+                  };
+                }),
+              );
+        }
       }
     } on PostgrestException catch (e) {
       debugPrint('Database error updating vehicle details: ${e.message}');
@@ -310,6 +397,60 @@ class PartnerService {
       debugPrint('Unexpected error updating vehicle details: $e');
       rethrow;
     }
+  }
+
+  Future<int> requestVehiclePriceChange({
+    required String partnerId,
+    required String applicationId,
+    required String partnerVehicleId,
+    String? vehicleId,
+    required String vehicleTitle,
+    required double currentPricePerDay,
+    required double currentPricePerHour,
+    required double requestedPricePerDay,
+    required double requestedPricePerHour,
+    String? note,
+  }) async {
+    final admins = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', 'admin');
+
+    final adminIds = List<Map<String, dynamic>>.from(admins)
+        .map((row) => row['id']?.toString().trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (adminIds.isEmpty) {
+      throw Exception('No admin account is available to receive this request');
+    }
+
+    for (final adminId in adminIds) {
+      await NotificationService().createNotification(
+        userId: adminId,
+        title: 'Partner Price Change Request',
+        message:
+            '$vehicleTitle needs admin review before an operator updates the price.',
+        type: 'price_change_request',
+        data: {
+          'event': 'partner_price_change_request',
+          'partner_id': partnerId,
+          'application_id': applicationId,
+          'partner_vehicle_id': partnerVehicleId,
+          if (vehicleId != null && vehicleId.isNotEmpty)
+            'vehicle_id': vehicleId,
+          'vehicle_title': vehicleTitle,
+          'current_price_per_day': currentPricePerDay,
+          'current_price_per_hour': currentPricePerHour,
+          'requested_price_per_day': requestedPricePerDay,
+          'requested_price_per_hour': requestedPricePerHour,
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          'forwarded_to_operator': false,
+        },
+      );
+    }
+
+    return adminIds.length;
   }
 
   Future<void> notifyPaymentReleased({

@@ -5,6 +5,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/partner_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../utils/pricing_policy.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -32,6 +33,9 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   bool isCheckingEligibility = true;
   bool hasPendingApplication = false;
   String verificationStatus = 'pending';
+  String _latestApplicationStatus = '';
+  String? _latestApplicationReviewedAt;
+  String? _latestApplicationRejectionReason;
   int _currentStep = 0;
   File? _orDocumentFile;
   File? _crDocumentFile;
@@ -76,15 +80,32 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       final user = authService.currentUser;
 
       if (user != null) {
-        final hasPending = await partnerService.hasPendingApplication(user.id);
+        final applications = await partnerService.getVehicleApplications(
+          user.id,
+        );
+        final latestApplication = applications.isNotEmpty
+            ? applications.first
+            : null;
+        final latestStatus = _normalizeApplicationStatus(
+          latestApplication?['application_status']?.toString() ??
+              latestApplication?['status']?.toString(),
+        );
         final status = _normalizeVerificationStatus(
           await partnerService.getVerificationStatus(user.id),
         );
 
         if (!mounted) return;
         setState(() {
-          hasPendingApplication = hasPending;
+          hasPendingApplication = latestStatus.isNotEmpty;
           verificationStatus = status;
+          _latestApplicationStatus = latestStatus;
+          _latestApplicationReviewedAt =
+              latestApplication?['reviewed_at']?.toString() ??
+              latestApplication?['verified_at']?.toString() ??
+              latestApplication?['updated_at']?.toString() ??
+              latestApplication?['created_at']?.toString();
+          _latestApplicationRejectionReason =
+              latestApplication?['rejection_reason']?.toString();
           isCheckingEligibility = false;
         });
       } else if (mounted) {
@@ -105,8 +126,15 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   bool get _isVerifiedPartner =>
       verificationStatus == 'verified' || verificationStatus == 'certified';
 
+  bool get _shouldShowStatusTracker => hasPendingApplication;
+
+  String _normalizeApplicationStatus(String? rawStatus) {
+    final value = (rawStatus ?? '').trim().toLowerCase();
+    return value;
+  }
+
   void _goToVerification() {
-    Navigator.pushNamed(context, '/identity-verification-form');
+    Navigator.pushNamed(context, '/owner-verification');
   }
 
   void _showErrorSnackBar(String message) {
@@ -176,8 +204,9 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     }
 
     final pricePerDay = double.tryParse(pricePerDayController.text.trim());
-    if (pricePerDay == null || pricePerDay <= 0) {
-      _showErrorSnackBar('Please enter a valid price per day');
+    final dayPriceError = PricingPolicy.validateDailyRentalPrice(pricePerDay);
+    if (dayPriceError != null) {
+      _showErrorSnackBar(dayPriceError);
       return false;
     }
 
@@ -187,8 +216,11 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     }
 
     final pricePerHour = double.tryParse(pricePerHourController.text.trim());
-    if (pricePerHour == null || pricePerHour <= 0) {
-      _showErrorSnackBar('Please enter a valid price per hour');
+    final hourPriceError = PricingPolicy.validateHourlyRentalPrice(
+      pricePerHour,
+    );
+    if (hourPriceError != null) {
+      _showErrorSnackBar(hourPriceError);
       return false;
     }
 
@@ -231,8 +263,18 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     }
 
     final pricePerDay = double.tryParse(pricePerDayController.text.trim());
-    if (pricePerDay == null || pricePerDay <= 0) {
-      _showErrorSnackBar('Please enter a valid target daily rental price');
+    final dayPriceError = PricingPolicy.validateDailyRentalPrice(pricePerDay);
+    if (dayPriceError != null) {
+      _showErrorSnackBar(dayPriceError);
+      return false;
+    }
+
+    final pricePerHour = double.tryParse(pricePerHourController.text.trim());
+    final hourPriceError = PricingPolicy.validateHourlyRentalPrice(
+      pricePerHour,
+    );
+    if (hourPriceError != null) {
+      _showErrorSnackBar(hourPriceError);
       return false;
     }
 
@@ -389,16 +431,27 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         ownerIsDriver: ownerIsDriver,
       );
       final applicationId = application['id']?.toString();
-      if (applicationId != null && applicationId.isNotEmpty) {
-        await partnerService.addVehicleApplicationPhotos(
-          applicationId: applicationId,
-          photoUrls: vehiclePhotoUrls,
-        );
+      if (applicationId != null &&
+          applicationId.isNotEmpty &&
+          vehiclePhotoUrls.length > 1) {
+        try {
+          await partnerService.addVehicleApplicationPhotos(
+            applicationId: applicationId,
+            photoUrls: vehiclePhotoUrls.skip(1).toList(),
+          );
+        } catch (photoError) {
+          debugPrint(
+            'Extra partner vehicle photos could not be saved: $photoError',
+          );
+        }
       }
 
       if (mounted) {
         setState(() {
           hasPendingApplication = true;
+          _latestApplicationStatus = 'pending';
+          _latestApplicationReviewedAt = DateTime.now().toIso8601String();
+          _latestApplicationRejectionReason = null;
           _currentStep = 3;
         });
       }
@@ -495,7 +548,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
           ),
         ],
       ),
-      body: hasPendingApplication
+      body: _shouldShowStatusTracker
           ? _buildStatusTracker()
           : isCheckingEligibility
           ? const Center(
@@ -838,6 +891,33 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   }
 
   Widget _buildStatusTracker() {
+    final isApproved = _latestApplicationStatus == 'approved';
+    final isRejected =
+        _latestApplicationStatus == 'rejected' ||
+        _latestApplicationStatus == 'declined' ||
+        _latestApplicationStatus == 'cancelled' ||
+        _latestApplicationStatus == 'canceled';
+    final chipColor = isApproved
+        ? AppColors.success
+        : isRejected
+        ? AppColors.error
+        : AppColors.primary;
+    final chipLabel = isApproved
+        ? 'APPROVED'
+        : isRejected
+        ? 'NEEDS ACTION'
+        : 'UNDER REVIEW';
+    final heading = isApproved
+        ? 'Application Approved!'
+        : isRejected
+        ? 'Application Update'
+        : 'Almost There!';
+    final subheading = isApproved
+        ? 'Your partner vehicle application has been approved by our team.'
+        : isRejected
+        ? 'Your latest application needs correction before it can move forward.'
+        : 'Your application is currently being processed by our team.';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 30, 24, 28),
       child: Column(
@@ -846,23 +926,31 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: AppColors.primary),
+              border: Border.all(color: chipColor),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.18),
+                  color: chipColor.withValues(alpha: 0.18),
                   blurRadius: 18,
                 ),
               ],
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.schedule, size: 14, color: AppColors.primary),
-                SizedBox(width: 8),
+                Icon(
+                  isApproved
+                      ? Icons.check_circle_outline
+                      : isRejected
+                      ? Icons.warning_amber_rounded
+                      : Icons.schedule,
+                  size: 14,
+                  color: chipColor,
+                ),
+                const SizedBox(width: 8),
                 Text(
-                  'UNDER REVIEW',
+                  chipLabel,
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: chipColor,
                     fontWeight: FontWeight.w800,
                     fontSize: 12,
                   ),
@@ -871,8 +959,8 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const Text(
-            'Almost There!',
+          Text(
+            heading,
             style: TextStyle(
               fontSize: 30,
               fontWeight: FontWeight.w900,
@@ -880,8 +968,8 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          const Text(
-            'Your application is currently being processed by our team.',
+          Text(
+            subheading,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 16,
@@ -898,38 +986,112 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
               borderRadius: BorderRadius.circular(22),
               border: Border.all(color: AppColors.borderColor),
             ),
-            child: const Column(
+            child: Column(
               children: [
                 _StatusStep(
                   icon: Icons.check,
                   title: 'Application Submitted',
-                  subtitle: 'Completed just now',
+                  subtitle: _latestApplicationReviewedAt == null
+                      ? 'Completed'
+                      : 'Updated ${_formatStatusTimestamp(_latestApplicationReviewedAt)}',
                   active: true,
                   complete: true,
                 ),
                 _StatusStep(
-                  icon: Icons.hourglass_bottom,
-                  title: 'Admin Review',
-                  subtitle: 'In Progress',
+                  icon: isRejected
+                      ? Icons.edit_note_rounded
+                      : isApproved
+                      ? Icons.verified_outlined
+                      : Icons.hourglass_bottom,
+                  title: isRejected
+                      ? 'Review Feedback'
+                      : isApproved
+                      ? 'Admin Review Completed'
+                      : 'Admin Review',
+                  subtitle: isRejected
+                      ? 'Please review the correction details below'
+                      : isApproved
+                      ? 'Approved by admin'
+                      : 'In Progress',
                   active: true,
+                  complete: isApproved,
                 ),
                 _StatusStep(
-                  icon: Icons.lock_outline,
-                  title: 'Final Approval',
-                  subtitle: 'Pending review completion',
+                  icon: isApproved
+                      ? Icons.directions_car_filled_outlined
+                      : Icons.lock_outline,
+                  title: isApproved
+                      ? 'Vehicle Ready For Fleet'
+                      : 'Final Approval',
+                  subtitle: isApproved
+                      ? 'You can now monitor this vehicle in Manage Fleet'
+                      : isRejected
+                      ? 'Reapply after fixing the issue'
+                      : 'Pending review completion',
+                  active: isApproved,
+                  complete: isApproved,
                 ),
               ],
             ),
           ),
+          if (isRejected &&
+              _latestApplicationRejectionReason != null &&
+              _latestApplicationRejectionReason!.trim().isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppColors.error),
+              ),
+              child: Text(
+                'Reason: ${_latestApplicationRejectionReason!.trim()}',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 28),
           _buildInfoBox(
-            'Our team is currently verifying your documents. This usually takes 24-48 hours. You will receive a notification once approved.',
+            isApproved
+                ? 'Approval is complete. Your vehicle should now appear in the approved fleet section after a refresh.'
+                : isRejected
+                ? 'Your application was reviewed and needs changes. After correcting the issue, you can submit a fresh vehicle application.'
+                : 'Our team is currently verifying your documents. This usually takes 24-48 hours. You will receive a notification once approved.',
           ),
           const SizedBox(height: 28),
           CustomButton(
             label: 'Refresh Status',
             onPressed: _loadEligibilityState,
           ),
+          if (isRejected) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  hasPendingApplication = false;
+                  _latestApplicationStatus = '';
+                  _latestApplicationReviewedAt = null;
+                  _latestApplicationRejectionReason = null;
+                });
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Create New Application'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () {},
@@ -947,6 +1109,13 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         ],
       ),
     );
+  }
+
+  String _formatStatusTimestamp(String? raw) {
+    final parsed = DateTime.tryParse(raw ?? '');
+    if (parsed == null) return 'recently';
+    final local = parsed.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
   }
 
   Widget _buildHeroPanel({required String title, required String subtitle}) {

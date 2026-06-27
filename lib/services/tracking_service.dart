@@ -132,9 +132,11 @@ class TrackingService {
             bookings:booking_id (
               id,
               status,
+              renter_id,
+              operator_id,
               pickup_location,
               dropoff_location,
-              vehicles:vehicle_id (id, brand, model, plate_number),
+              vehicles:vehicle_id (id, brand, model, plate_number, owner_id, operator_id),
               renter:renter_id (id, full_name, email, phone),
               drivers:driver_id (id, user_id, users:user_id (id, full_name, email))
             )
@@ -145,7 +147,26 @@ class TrackingService {
           .maybeSingle();
 
       if (response == null) return null;
-      return Map<String, dynamic>.from(response);
+      final location = Map<String, dynamic>.from(response);
+      final booking = location['bookings'] as Map<String, dynamic>?;
+      final status = booking?['status']?.toString().toLowerCase() ?? '';
+      if (!{'active', 'approved', 'confirmed'}.contains(status)) return null;
+
+      final currentUserId = supabase.auth.currentUser?.id;
+      if (currentUserId == null || currentUserId.isEmpty) return null;
+
+      final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+      final driver = booking?['drivers'] as Map<String, dynamic>?;
+      final allowedUserIds = {
+        booking?['renter_id']?.toString(),
+        booking?['operator_id']?.toString(),
+        vehicle?['owner_id']?.toString(),
+        vehicle?['operator_id']?.toString(),
+        driver?['user_id']?.toString(),
+      }..removeWhere((id) => id == null || id.isEmpty);
+
+      if (!allowedUserIds.contains(currentUserId)) return null;
+      return location;
     } catch (e) {
       debugPrint('Error loading tracking location for booking $bookingId: $e');
       return null;

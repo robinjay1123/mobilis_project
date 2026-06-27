@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -14,6 +16,7 @@ import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/admin_service.dart';
+import '../../../services/chat_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 
@@ -49,8 +52,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _allVehicles = [];
   List<Map<String, dynamic>> _verificationRecords = [];
   List<Map<String, dynamic>> _pendingPartnerVehicleApplications = [];
+  List<Map<String, dynamic>> _priceChangeRequests = [];
   List<Map<String, dynamic>> _trackingLocations = [];
+  Timer? _trackingRefreshTimer;
   List<Map<String, dynamic>> _announcements = [];
+  List<Map<String, dynamic>> _supportConversations = [];
+  final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
+  String? _selectedSupportConversationId;
+  bool _isLoadingSupportInbox = false;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -76,6 +85,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       TextEditingController();
   final TextEditingController _announcementMessageController =
       TextEditingController();
+  final TextEditingController _supportReplyController = TextEditingController();
   String _announcementTargetRole = 'all';
   bool _isSendingAnnouncement = false;
 
@@ -87,10 +97,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _loadDashboardData();
     _loadRentalTerms();
     _loadReservationPaymentSettings();
+    _trackingRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshTrackingLocations(),
+    );
   }
 
   @override
   void dispose() {
+    _trackingRefreshTimer?.cancel();
     _rentalTermsController.dispose();
     _reservationAmountController.dispose();
     _reservationQrUrlController.dispose();
@@ -98,6 +113,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _reservationInstructionsController.dispose();
     _announcementTitleController.dispose();
     _announcementMessageController.dispose();
+    _supportReplyController.dispose();
     super.dispose();
   }
 
@@ -112,8 +128,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadAllVehicles(),
         _loadTrackingLocations(),
         _loadAnnouncements(),
+        _loadSupportInbox(),
         _loadPendingVerifications(),
         _loadPendingPartnerVehicleApplications(),
+        _loadPriceChangeRequests(),
       ]);
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
@@ -124,6 +142,155 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAnnouncements() async {
     _announcements = await AdminService().getRecentAnnouncements();
+  }
+
+  Future<void> _loadSupportInbox() async {
+    _isLoadingSupportInbox = true;
+
+    try {
+      final adminRows = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'admin');
+      final adminIds = List<Map<String, dynamic>>.from(adminRows)
+          .map((row) => row['id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (adminIds.isEmpty) {
+        _supportConversations = [];
+        _selectedSupportConversationId = null;
+        return;
+      }
+
+      final participations = await _supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .inFilter('user_id', adminIds);
+
+      final conversationIds = List<Map<String, dynamic>>.from(participations)
+          .map((row) => row['conversation_id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+
+      if (conversationIds.isEmpty) {
+        _supportConversations = [];
+        _selectedSupportConversationId = null;
+        return;
+      }
+
+      final rows = await _supabase
+          .from('conversations')
+          .select('id, status, created_at, updated_at, booking_id')
+          .inFilter('id', conversationIds)
+          .isFilter('booking_id', null)
+          .order('updated_at', ascending: false);
+
+      final conversations = <Map<String, dynamic>>[];
+      for (final raw in List<Map<String, dynamic>>.from(rows)) {
+        final conversationId = raw['id']?.toString() ?? '';
+        if (conversationId.isEmpty) continue;
+
+        final participants = await ChatService().getConversationParticipants(
+          conversationId,
+        );
+        final customer = participants.firstWhere(
+          (participant) =>
+              (participant['role']?.toString().toLowerCase() ?? '') != 'admin',
+          orElse: () => <String, dynamic>{},
+        );
+
+        final latestMessages = await _supabase
+            .from('messages')
+            .select('content, created_at, sender_id, is_read')
+            .eq('conversation_id', conversationId)
+            .order('created_at', ascending: false)
+            .limit(1);
+
+        final latestMessage = latestMessages.isNotEmpty
+            ? Map<String, dynamic>.from(latestMessages.first)
+            : <String, dynamic>{};
+
+        conversations.add({
+          ...raw,
+          'participants': participants,
+          'customer': customer,
+          'latest_message': latestMessage,
+        });
+      }
+
+      _supportConversations = conversations;
+      if (_supportConversations.isEmpty) {
+        _selectedSupportConversationId = null;
+      } else {
+        _selectedSupportConversationId ??= _supportConversations.first['id']
+            ?.toString();
+        if (!_supportConversations.any(
+          (conversation) =>
+              conversation['id']?.toString() == _selectedSupportConversationId,
+        )) {
+          _selectedSupportConversationId = _supportConversations.first['id']
+              ?.toString();
+        }
+        if (_selectedSupportConversationId != null) {
+          await _loadSupportConversationMessages(
+            _selectedSupportConversationId!,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading support inbox: $e');
+    } finally {
+      _isLoadingSupportInbox = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _loadSupportConversationMessages(String conversationId) async {
+    try {
+      final messages = await ChatService().getMessages(conversationId);
+      _supportMessages[conversationId] = messages;
+      final adminId = _supabase.auth.currentUser?.id;
+      if (adminId != null && adminId.isNotEmpty) {
+        await ChatService().markMessagesAsRead(conversationId, adminId);
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error loading support conversation messages: $e');
+    }
+  }
+
+  Future<void> _sendSupportReply() async {
+    final conversationId = _selectedSupportConversationId;
+    final content = _supportReplyController.text.trim();
+    final adminId = _supabase.auth.currentUser?.id;
+    if (conversationId == null ||
+        conversationId.isEmpty ||
+        content.isEmpty ||
+        adminId == null ||
+        adminId.isEmpty) {
+      return;
+    }
+
+    try {
+      await ChatService().sendMessage(
+        conversationId: conversationId,
+        senderId: adminId,
+        content: content,
+      );
+      _supportReplyController.clear();
+      await _loadSupportConversationMessages(conversationId);
+      await _loadSupportInbox();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to send support reply: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   Future<void> _sendAnnouncement() async {
@@ -608,6 +775,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
+  Future<void> _refreshTrackingLocations() async {
+    final locations = await TrackingService().getActiveTrackingLocations();
+    if (!mounted) return;
+    setState(() => _trackingLocations = locations);
+  }
+
   Future<void> _loadPendingVerifications() async {
     try {
       final response = await _supabase
@@ -636,12 +809,171 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .eq('application_status', 'pending')
           .order('created_at', ascending: false);
 
-      _pendingPartnerVehicleApplications = List<Map<String, dynamic>>.from(
-        response,
-      );
+      final applications = List<Map<String, dynamic>>.from(response);
+      for (final application in applications) {
+        application['photo_urls'] = await _loadVehicleApplicationPhotoUrls(
+          application,
+        );
+      }
+      _pendingPartnerVehicleApplications = applications;
     } catch (e) {
       debugPrint('Error loading partner vehicle applications: $e');
       _pendingPartnerVehicleApplications = [];
+    }
+  }
+
+  Future<List<String>> _loadVehicleApplicationPhotoUrls(
+    Map<String, dynamic> application,
+  ) async {
+    final urls = <String>{};
+    final primaryUrl = application['vehicle_photo_url']?.toString().trim();
+    if (primaryUrl != null && primaryUrl.isNotEmpty) {
+      urls.add(primaryUrl);
+    }
+
+    final applicationId = application['id']?.toString().trim() ?? '';
+    final partnerVehicleId =
+        application['partner_vehicle_id']?.toString().trim() ?? '';
+    final createdVehicleId =
+        application['created_vehicle_id']?.toString().trim() ?? '';
+
+    try {
+      if (applicationId.isNotEmpty) {
+        final docs = await _supabase
+            .from('partner_vehicle_documents')
+            .select('file_url')
+            .eq('partner_vehicle_application_id', applicationId)
+            .eq('document_type', 'vehicle_photo');
+        for (final row in List<Map<String, dynamic>>.from(docs)) {
+          final url = row['file_url']?.toString().trim();
+          if (url != null && url.isNotEmpty) {
+            urls.add(url);
+          }
+        }
+      }
+
+      if (partnerVehicleId.isNotEmpty) {
+        final images = await _supabase
+            .from('vehicle_images')
+            .select('image_url')
+            .eq('partner_vehicle_id', partnerVehicleId);
+        for (final row in List<Map<String, dynamic>>.from(images)) {
+          final url = row['image_url']?.toString().trim();
+          if (url != null && url.isNotEmpty) {
+            urls.add(url);
+          }
+        }
+      }
+
+      if (createdVehicleId.isNotEmpty) {
+        final images = await _supabase
+            .from('vehicle_images')
+            .select('image_url')
+            .eq('vehicle_id', createdVehicleId);
+        for (final row in List<Map<String, dynamic>>.from(images)) {
+          final url = row['image_url']?.toString().trim();
+          if (url != null && url.isNotEmpty) {
+            urls.add(url);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading application photo urls: $e');
+    }
+
+    return urls.toList();
+  }
+
+  Future<void> _loadPriceChangeRequests() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      _priceChangeRequests = [];
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('notifications')
+          .select('id, title, message, type, data, is_read, created_at')
+          .eq('user_id', currentUserId)
+          .eq('type', 'price_change_request')
+          .order('created_at', ascending: false);
+      _priceChangeRequests = List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error loading price change requests: $e');
+      _priceChangeRequests = [];
+    }
+  }
+
+  Future<void> _forwardPriceChangeRequestToOperators(
+    Map<String, dynamic> request,
+  ) async {
+    try {
+      final data = request['data'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(request['data'])
+          : <String, dynamic>{};
+      final vehicleTitle =
+          data['vehicle_title']?.toString().trim().isNotEmpty == true
+          ? data['vehicle_title'].toString().trim()
+          : 'Partner vehicle';
+
+      final operators = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'operator');
+      final operatorIds = List<Map<String, dynamic>>.from(operators)
+          .map((row) => row['id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (operatorIds.isEmpty) {
+        throw Exception('No operator account is available');
+      }
+
+      for (final operatorId in operatorIds) {
+        await NotificationService().createNotification(
+          userId: operatorId,
+          title: 'Price Update Request',
+          message:
+              'Admin forwarded a partner price request for $vehicleTitle. Update price only and keep the details/images unchanged.',
+          type: 'price_change_request_forwarded',
+          data: {
+            ...data,
+            'event': 'operator_partner_price_change_request',
+            'forwarded_by_admin': _supabase.auth.currentUser?.id,
+            'forwarded_at': DateTime.now().toIso8601String(),
+          },
+        );
+      }
+
+      await _supabase
+          .from('notifications')
+          .update({
+            'data': {
+              ...data,
+              'forwarded_to_operator': true,
+              'forwarded_at': DateTime.now().toIso8601String(),
+            },
+          })
+          .eq('id', request['id']);
+
+      await _loadPriceChangeRequests();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Price request forwarded to operator'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to forward request: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -1001,13 +1333,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 6:
         return 'Message Review';
       case 7:
-        return 'Analytics';
+        return 'Customer Service';
       case 8:
-        return 'Announcements';
+        return 'Analytics';
       case 9:
-        return 'Settings';
+        return 'Announcements';
       case 10:
         return 'Live Tracking';
+      case 11:
+        return 'Settings';
       default:
         return 'Dashboard';
     }
@@ -1030,17 +1364,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       case 4:
         return _buildVerificationsContent(isDark);
       case 5:
-        return _buildApplicationsContent(isDark);
+        return _buildApplicationsContentEnhanced(isDark);
       case 6:
         return _buildMessageReviewContent(isDark);
       case 7:
-        return _buildAnalyticsContent(isDark);
+        return _buildCustomerServiceContent(isDark);
       case 8:
-        return _buildAnnouncementsContent(isDark);
+        return _buildAnalyticsContent(isDark);
       case 9:
-        return _buildSettingsContent(isDark);
+        return _buildAnnouncementsContent(isDark);
       case 10:
         return _buildTrackingContent(isDark);
+      case 11:
+        return _buildSettingsContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -1135,6 +1471,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 : null,
           ),
           _buildNavItem(6, Icons.mail, 'Message Review', isDark),
+          _buildNavItem(
+            7,
+            Icons.support_agent,
+            'Customer Service',
+            isDark,
+            badge: _supportConversations.isNotEmpty
+                ? _supportConversations.length
+                : null,
+          ),
           const SizedBox(height: 18),
           if (_sidebarExpanded)
             Padding(
@@ -1150,7 +1495,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               ),
             ),
           const SizedBox(height: 10),
-          _buildNavItem(7, Icons.analytics, 'Analytics', isDark),
+          _buildNavItem(8, Icons.analytics, 'Analytics', isDark),
           _buildNavItem(
             10,
             Icons.location_on,
@@ -1160,8 +1505,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ? _trackingLocations.length
                 : null,
           ),
-          _buildNavItem(8, Icons.campaign_outlined, 'Announcements', isDark),
-          _buildNavItem(9, Icons.settings, 'Settings', isDark),
+          _buildNavItem(9, Icons.campaign_outlined, 'Announcements', isDark),
+          _buildNavItem(11, Icons.settings, 'Settings', isDark),
           const Divider(color: Colors.white12, height: 1),
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
@@ -3217,6 +3562,375 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildApplicationsContentEnhanced(bool isDark) {
+    final records = _pendingPartnerVehicleApplications;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        children: [
+          _buildCard(
+            'Partner Vehicle Applications (${records.length})',
+            records.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      child: Text(
+                        'No pending vehicle applications.',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                  )
+                : Column(
+                    children: records.map((record) {
+                      final partner =
+                          record['partner'] as Map<String, dynamic>?;
+                      final title =
+                          '${record['brand'] ?? 'Unknown'} ${record['model'] ?? ''}'
+                              .trim();
+                      final subtitle = [
+                        if (record['year'] != null) record['year'].toString(),
+                        if ((record['plate_number'] ?? '')
+                            .toString()
+                            .isNotEmpty)
+                          'Plate: ${record['plate_number']}',
+                      ].join('  •  ');
+                      final photoUrls = List<String>.from(
+                        (record['photo_urls'] as List?) ?? const <String>[],
+                      );
+                      final detailPairs = <MapEntry<String, String>>[
+                        MapEntry(
+                          'Price Per Day',
+                          'PHP ${((record['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                        ),
+                        MapEntry(
+                          'Price Per Hour',
+                          'PHP ${((record['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                        ),
+                        MapEntry('Seats', record['seats']?.toString() ?? 'N/A'),
+                        MapEntry(
+                          'Fuel Type',
+                          record['fuel_type']?.toString() ?? 'N/A',
+                        ),
+                        MapEntry(
+                          'Transmission',
+                          record['transmission']?.toString() ?? 'N/A',
+                        ),
+                        MapEntry(
+                          'Driver Setup',
+                          record['owner_is_driver'] == true
+                              ? 'Owner will drive'
+                              : 'Vehicle only',
+                        ),
+                        MapEntry(
+                          'Submitted',
+                          _formatDate(record['created_at']?.toString() ?? ''),
+                        ),
+                        MapEntry(
+                          'Application Status',
+                          record['application_status']?.toString() ?? 'pending',
+                        ),
+                      ];
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.black26 : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                            if (subtitle.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 6),
+                            Text(
+                              'Partner: ${partner?['full_name'] ?? 'Unknown'} (${partner?['email'] ?? ''})',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade800,
+                              ),
+                            ),
+                            if (photoUrls.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                height: 150,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: photoUrls.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(width: 12),
+                                  itemBuilder: (context, index) => ClipRRect(
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: Container(
+                                      width: 220,
+                                      color: isDark
+                                          ? AppColors.darkBg
+                                          : Colors.grey.shade100,
+                                      child: Image.network(
+                                        photoUrls[index],
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) =>
+                                            const Center(
+                                              child: Icon(
+                                                Icons
+                                                    .image_not_supported_outlined,
+                                              ),
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isNarrow = constraints.maxWidth < 900;
+                                final cardWidth = isNarrow
+                                    ? constraints.maxWidth
+                                    : (constraints.maxWidth - 24) / 3;
+                                return Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    ...detailPairs.map(
+                                      (detail) => SizedBox(
+                                        width: cardWidth,
+                                        child: _buildDetailCard(
+                                          detail.key,
+                                          detail.value,
+                                          isDark,
+                                        ),
+                                      ),
+                                    ),
+                                    if ((record['or_document_url'] ?? '')
+                                        .toString()
+                                        .isNotEmpty)
+                                      SizedBox(
+                                        width: cardWidth,
+                                        child: _buildDocumentPreview(
+                                          title: 'OR Document',
+                                          url:
+                                              record['or_document_url']
+                                                  ?.toString() ??
+                                              '',
+                                          isDark: isDark,
+                                        ),
+                                      ),
+                                    if ((record['cr_document_url'] ?? '')
+                                        .toString()
+                                        .isNotEmpty)
+                                      SizedBox(
+                                        width: cardWidth,
+                                        child: _buildDocumentPreview(
+                                          title: 'CR Document',
+                                          url:
+                                              record['cr_document_url']
+                                                  ?.toString() ??
+                                              '',
+                                          isDark: isDark,
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                FilledButton.icon(
+                                  onPressed: () =>
+                                      _approvePartnerVehicleApplication(record),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.check, size: 16),
+                                  label: const Text('Approve'),
+                                ),
+                                const SizedBox(width: 8),
+                                OutlinedButton.icon(
+                                  onPressed: () =>
+                                      _rejectPartnerVehicleApplication(record),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                    side: const BorderSide(
+                                      color: Colors.redAccent,
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.close, size: 16),
+                                  label: const Text('Reject'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildCard(
+            'Price Change Requests (${_priceChangeRequests.length})',
+            _priceChangeRequests.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      child: Text(
+                        'No partner price requests right now.',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                  )
+                : Column(
+                    children: _priceChangeRequests.map((request) {
+                      final data = request['data'] is Map<String, dynamic>
+                          ? Map<String, dynamic>.from(request['data'])
+                          : <String, dynamic>{};
+                      final forwarded = data['forwarded_to_operator'] == true;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.black26 : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              data['vehicle_title']?.toString() ??
+                                  'Partner vehicle',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              request['message']?.toString() ?? '',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade800,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _buildDetailCard(
+                                  'Current Daily',
+                                  'PHP ${((data['current_price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                  isDark,
+                                ),
+                                _buildDetailCard(
+                                  'Requested Daily',
+                                  'PHP ${((data['requested_price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                  isDark,
+                                ),
+                                _buildDetailCard(
+                                  'Current Hourly',
+                                  'PHP ${((data['current_price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                  isDark,
+                                ),
+                                _buildDetailCard(
+                                  'Requested Hourly',
+                                  'PHP ${((data['requested_price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                  isDark,
+                                ),
+                              ],
+                            ),
+                            if ((data['note'] ?? '')
+                                .toString()
+                                .trim()
+                                .isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Text(
+                                  'Note: ${data['note']}',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey.shade300
+                                        : Colors.grey.shade800,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              onPressed: forwarded
+                                  ? null
+                                  : () => _forwardPriceChangeRequestToOperators(
+                                      request,
+                                    ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                              ),
+                              icon: const Icon(
+                                Icons.forward_to_inbox,
+                                size: 16,
+                              ),
+                              label: Text(
+                                forwarded
+                                    ? 'Forwarded to Operator'
+                                    : 'Forward to Operator',
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+            isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildVerificationSection({
     required String title,
     required List<Map<String, dynamic>> records,
@@ -3254,9 +3968,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final user = record['users'] as Map<String, dynamic>?;
     final submittedName = (record['full_name'] as String?)?.trim();
     final idParts = (record['id_document_url'] as String? ?? '').split('|');
-    final idImageUrls = idParts
+    final legacyIdUrls = idParts
         .where((part) => part.trim().isNotEmpty)
+        .map((part) => part.trim())
         .toList();
+    final idFrontUrl =
+        record['id_front_url']?.toString().trim().isNotEmpty == true
+        ? record['id_front_url'].toString().trim()
+        : legacyIdUrls.isNotEmpty
+        ? legacyIdUrls.first
+        : null;
+    final idBackUrl =
+        record['id_back_url']?.toString().trim().isNotEmpty == true
+        ? record['id_back_url'].toString().trim()
+        : legacyIdUrls.length > 1
+        ? legacyIdUrls[1]
+        : null;
+    final faceSelfieUrl = record['face_selfie_url']?.toString().trim();
+    final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim();
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -3420,16 +4149,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             builder: (context, constraints) {
               final isNarrow = constraints.maxWidth < 700;
               final imageWidgets = <Widget>[
-                if (idImageUrls.isNotEmpty)
+                if (idFrontUrl?.isNotEmpty == true)
                   _buildDocumentPreview(
-                    title: 'ID Image',
-                    url: idImageUrls.first,
+                    title: 'ID Front',
+                    url: idFrontUrl!,
                     isDark: isDark,
                   ),
-                if (idImageUrls.length > 1)
+                if (idBackUrl?.isNotEmpty == true)
                   _buildDocumentPreview(
                     title: 'ID Back',
-                    url: idImageUrls[1],
+                    url: idBackUrl!,
+                    isDark: isDark,
+                  ),
+                if (faceSelfieUrl?.isNotEmpty == true)
+                  _buildDocumentPreview(
+                    title: 'Face Selfie',
+                    url: faceSelfieUrl!,
+                    isDark: isDark,
+                  ),
+                if (selfieWithIdUrl?.isNotEmpty == true)
+                  _buildDocumentPreview(
+                    title: 'Selfie Holding ID',
+                    url: selfieWithIdUrl!,
                     isDark: isDark,
                   ),
               ];
@@ -4059,6 +4800,337 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildCustomerServiceContent(bool isDark) {
+    final selectedConversation = _supportConversations
+        .cast<Map<String, dynamic>?>()
+        .firstWhere(
+          (conversation) =>
+              conversation?['id']?.toString() == _selectedSupportConversationId,
+          orElse: () => _supportConversations.isNotEmpty
+              ? _supportConversations.first
+              : null,
+        );
+    final selectedConversationId = selectedConversation?['id']?.toString();
+    final messages = selectedConversationId == null
+        ? const <Map<String, dynamic>>[]
+        : (_supportMessages[selectedConversationId] ??
+              const <Map<String, dynamic>>[]);
+
+    if (_isLoadingSupportInbox) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_supportConversations.isEmpty) {
+      return Center(
+        child: Text(
+          'No customer service conversations yet.',
+          style: TextStyle(
+            color: isDark ? Colors.white70 : Colors.grey.shade700,
+            fontSize: 16,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Row(
+        children: [
+          Container(
+            width: 340,
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBgSecondary : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+              ),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.support_agent, color: AppColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Support Inbox',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _loadSupportInbox,
+                        icon: const Icon(Icons.refresh),
+                        color: isDark ? Colors.white70 : Colors.grey.shade700,
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _supportConversations.length,
+                    itemBuilder: (context, index) {
+                      final conversation = _supportConversations[index];
+                      final conversationId =
+                          conversation['id']?.toString() ?? '';
+                      final customer =
+                          conversation['customer'] as Map<String, dynamic>? ??
+                          {};
+                      final latestMessage =
+                          conversation['latest_message']
+                              as Map<String, dynamic>? ??
+                          {};
+                      final isSelected =
+                          conversationId == _selectedSupportConversationId;
+                      final customerName =
+                          customer['full_name']?.toString().trim().isNotEmpty ==
+                              true
+                          ? customer['full_name'].toString().trim()
+                          : customer['email']?.toString().trim().isNotEmpty ==
+                                true
+                          ? customer['email'].toString().trim()
+                          : 'Customer';
+
+                      return InkWell(
+                        onTap: () async {
+                          setState(
+                            () =>
+                                _selectedSupportConversationId = conversationId,
+                          );
+                          await _loadSupportConversationMessages(
+                            conversationId,
+                          );
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primary.withOpacity(0.14)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      customerName,
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    (customer['role']?.toString().isNotEmpty ??
+                                            false)
+                                        ? customer['role']
+                                              .toString()
+                                              .toUpperCase()
+                                        : 'USER',
+                                    style: TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                latestMessage['content']?.toString() ??
+                                    'Open support thread',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.white70
+                                      : Colors.grey.shade700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBgSecondary : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            (() {
+                              final customer =
+                                  selectedConversation?['customer']
+                                      as Map<String, dynamic>? ??
+                                  {};
+                              final fullName = customer['full_name']
+                                  ?.toString()
+                                  .trim();
+                              if (fullName != null && fullName.isNotEmpty)
+                                return fullName;
+                              final email = customer['email']
+                                  ?.toString()
+                                  .trim();
+                              if (email != null && email.isNotEmpty)
+                                return email;
+                              return 'Customer Service Chat';
+                            })(),
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Admin Support',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.white70
+                                : Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: messages.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No messages yet in this support conversation.',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.white70
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(18),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              final message = messages[index];
+                              final isAdminMessage =
+                                  message['sender_id']?.toString() ==
+                                  _supabase.auth.currentUser?.id;
+                              return Align(
+                                alignment: isAdminMessage
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(12),
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 520,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isAdminMessage
+                                        ? AppColors.primary
+                                        : (isDark
+                                              ? Colors.black26
+                                              : Colors.grey.shade100),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Text(
+                                    message['content']?.toString() ?? '',
+                                    style: TextStyle(
+                                      color: isAdminMessage
+                                          ? Colors.black
+                                          : (isDark
+                                                ? Colors.white
+                                                : Colors.black87),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _supportReplyController,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            decoration: _settingsInputDecoration(
+                              isDark,
+                              label: 'Reply',
+                              hint: 'Send a support response...',
+                            ),
+                            minLines: 1,
+                            maxLines: 3,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: _sendSupportReply,
+                          icon: const Icon(Icons.send),
+                          label: const Text('Reply'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 18,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAnnouncementsContent(bool isDark) {
     const roles = ['all', 'renter', 'driver', 'partner', 'operator'];
 
@@ -4150,7 +5222,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       },
                     ),
                     ElevatedButton.icon(
-                      onPressed: _isSendingAnnouncement ? null : _sendAnnouncement,
+                      onPressed: _isSendingAnnouncement
+                          ? null
+                          : _sendAnnouncement,
                       icon: _isSendingAnnouncement
                           ? const SizedBox(
                               width: 16,
@@ -4159,7 +5233,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             )
                           : const Icon(Icons.send),
                       label: Text(
-                        _isSendingAnnouncement ? 'Sending...' : 'Send Announcement',
+                        _isSendingAnnouncement
+                            ? 'Sending...'
+                            : 'Send Announcement',
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,

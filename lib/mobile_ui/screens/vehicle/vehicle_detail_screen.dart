@@ -9,12 +9,16 @@ import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/booking_evidence_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/emergency_contact_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
+import '../profile/emergency_contact_screen.dart';
 import '../../../utils/locations.dart';
+import '../../../utils/pricing_policy.dart';
 import '../../../utils/web_html.dart' as html;
 
 class VehicleDetailScreen extends StatefulWidget {
@@ -49,6 +53,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _returnTime = const TimeOfDay(hour: 6, minute: 0);
   String? _acceptedTermsSnapshot;
+  Map<String, dynamic>? _defaultEmergencyContact;
+  bool _isLoadingEmergencyContact = false;
+  double? _deliveryDistanceKm;
+  bool _isCalculatingDeliveryFee = false;
 
   // Location selection state
   String? _pickupProvince;
@@ -63,6 +71,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       TextEditingController();
   final TextEditingController _dropoffFreetextController =
       TextEditingController();
+  final TextEditingController _signatureController = TextEditingController();
+  final TextEditingController _coTravelerNameController =
+      TextEditingController();
+  final TextEditingController _coTravelerPhoneController =
+      TextEditingController();
+  final TextEditingController _coTravelerLicenseController =
+      TextEditingController();
+  XFile? _validIdPhoto;
+  XFile? _selfiePhoto;
 
   @override
   void initState() {
@@ -88,6 +105,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   void dispose() {
     _pickupFreetextController.dispose();
     _dropoffFreetextController.dispose();
+    _signatureController.dispose();
+    _coTravelerNameController.dispose();
+    _coTravelerPhoneController.dispose();
+    _coTravelerLicenseController.dispose();
     super.dispose();
   }
 
@@ -112,6 +133,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
       await _loadMyBookings();
       await _loadFavoriteState();
+      await _loadEmergencyContact();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -139,6 +161,60 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       debugPrint('Could not load renter bookings for calendar: $e');
       _myBookings = [];
     }
+  }
+
+  Future<void> _loadEmergencyContact() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    setState(() {
+      _isLoadingEmergencyContact = true;
+    });
+
+    try {
+      _defaultEmergencyContact = await EmergencyContactService()
+          .getDefaultContact();
+    } catch (e) {
+      debugPrint('Could not load emergency contact: $e');
+      _defaultEmergencyContact = null;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingEmergencyContact = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openEmergencyContactScreen() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => EmergencyContactScreen(
+          isDarkMode: Theme.of(context).brightness == Brightness.dark,
+        ),
+      ),
+    );
+
+    if (saved == true) {
+      await _loadEmergencyContact();
+    }
+  }
+
+  Future<void> _pickBookingEvidencePhoto({required bool isSelfie}) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: isSelfie ? ImageSource.camera : ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (file == null) return;
+
+    setState(() {
+      if (isSelfie) {
+        _selfiePhoto = file;
+      } else {
+        _validIdPhoto = file;
+      }
+    });
   }
 
   Future<void> _loadFavoriteState() async {
@@ -899,7 +975,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return (minutes / 60).ceil();
   }
 
-  double get _totalPrice {
+  double get _rentalSubtotal {
     final pricePerHour =
         (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
     if (pricePerHour > 0) return pricePerHour * _billableHours;
@@ -910,6 +986,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         : _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
     return pricePerDay * (days < 0 ? 0 : days);
   }
+
+  double get _deliveryFee {
+    if (!_withDriver || _deliveryDistanceKm == null) return 0;
+    return _deliveryDistanceKm! * PricingPolicy.deliveryRatePerKm;
+  }
+
+  double get _totalPrice => _rentalSubtotal + _deliveryFee;
 
   Future<void> _selectTime({required bool isStartTime}) async {
     final initial = isStartTime ? _startTime : _returnTime;
@@ -922,6 +1005,57 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _returnTime = picked;
       }
     });
+  }
+
+  Future<void> _refreshDeliveryEstimate() async {
+    if (!_withDriver) {
+      setState(() {
+        _deliveryDistanceKm = null;
+      });
+      return;
+    }
+
+    final pickup = _getPickupLocation();
+    final dropoff = _getDropoffLocation();
+    if (pickup.trim().isEmpty || dropoff.trim().isEmpty) return;
+
+    setState(() {
+      _isCalculatingDeliveryFee = true;
+    });
+
+    try {
+      final pickupPlaces = await locationFromAddress(pickup);
+      final dropoffPlaces = await locationFromAddress(dropoff);
+      if (pickupPlaces.isEmpty || dropoffPlaces.isEmpty) {
+        throw Exception('Location could not be resolved');
+      }
+
+      final pickupPlace = pickupPlaces.first;
+      final dropoffPlace = dropoffPlaces.first;
+      final meters = Geolocator.distanceBetween(
+        pickupPlace.latitude,
+        pickupPlace.longitude,
+        dropoffPlace.latitude,
+        dropoffPlace.longitude,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _deliveryDistanceKm = meters <= 0 ? 0 : meters / 1000;
+      });
+    } catch (e) {
+      debugPrint('Delivery fee estimate failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _deliveryDistanceKm = null;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCalculatingDeliveryFee = false;
+        });
+      }
+    }
   }
 
   Future<void> _handleBooking() async {
@@ -1036,6 +1170,54 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    if (_withDriver && _deliveryDistanceKm == null) {
+      await _refreshDeliveryEstimate();
+      if (_deliveryDistanceKm == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please estimate the delivery fee before booking with a driver.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
+    }
+
+    if (_defaultEmergencyContact == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please add at least one emergency contact before booking.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      await _openEmergencyContactScreen();
+      return;
+    }
+
+    if (_signatureController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please provide your digital signature.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (_validIdPhoto == null || _selfiePhoto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload a valid ID photo and a clear selfie.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     if (requireTermsAgreement) {
       setState(() {
         _isBooking = true;
@@ -1081,12 +1263,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         throw Exception('You need to log in before booking.');
       }
 
+      final evidenceService = BookingEvidenceService();
+      final validIdUrl = await evidenceService.uploadEvidenceFile(
+        userId: currentUser.id,
+        file: _validIdPhoto!,
+        evidenceType: 'valid_id',
+      );
+      final selfieUrl = await evidenceService.uploadEvidenceFile(
+        userId: currentUser.id,
+        file: _selfiePhoto!,
+        evidenceType: 'selfie',
+      );
+
       final createdBooking = await BookingService().createBooking(
         renterId: currentUser.id,
         vehicleId: widget.vehicleId,
         startAt: startAtLocal.toUtc(),
         endAt: endAtLocal.toUtc(),
         totalPrice: _totalPrice,
+        rentalSubtotal: _rentalSubtotal,
+        deliveryDistanceKm: _deliveryDistanceKm,
+        deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
+        deliveryFee: _deliveryFee,
         withDriver: _withDriver,
         pickupLocation: _getPickupLocation(),
         dropoffLocation: _getDropoffLocation(),
@@ -1099,6 +1297,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
         reservationPaymentMethod: reservationPaymentProof?.method,
         reservationPaymentType: reservationPaymentProof?.paymentType,
+        emergencyContactName: _defaultEmergencyContact?['full_name']
+            ?.toString(),
+        emergencyContactPhone: _defaultEmergencyContact?['phone_number']
+            ?.toString(),
+        emergencyContactRelationship: _defaultEmergencyContact?['relationship']
+            ?.toString(),
+        renterSignatureText: _signatureController.text.trim(),
+        renterValidIdUrl: validIdUrl,
+        renterSelfieUrl: selfieUrl,
+        coTravelerName: _coTravelerNameController.text.trim(),
+        coTravelerPhone: _coTravelerPhoneController.text.trim(),
+        coTravelerLicense: _coTravelerLicenseController.text.trim(),
       );
 
       if (reservationPaymentProof != null) {
@@ -2270,8 +2480,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 _dropoffBarangay = null;
                                 _dropoffFreetext = null;
                                 _dropoffFreetextController.clear();
+                                _deliveryDistanceKm = null;
                               }
                             });
+                            if (value) _refreshDeliveryEstimate();
                           },
                         ),
                       ],
@@ -2304,25 +2516,35 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           _pickupProvince = value;
                           _pickupCity = null;
                           _pickupBarangay = null;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onCityChanged: (value) {
                         setState(() {
                           _pickupCity = value;
                           _pickupBarangay = null;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onBarangayChanged: (value) {
                         setState(() {
                           _pickupBarangay = value;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onFreetextChanged: (value) {
                         final cleanValue = value?.trim();
-                        _pickupFreetext =
-                            cleanValue == null || cleanValue.isEmpty
-                            ? null
-                            : value;
+                        setState(() {
+                          _pickupFreetext =
+                              cleanValue == null || cleanValue.isEmpty
+                              ? null
+                              : value;
+                          _deliveryDistanceKm = null;
+                        });
+                        _refreshDeliveryEstimate();
                       },
                     ),
                     const SizedBox(height: 24),
@@ -2347,29 +2569,45 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           _dropoffProvince = value;
                           _dropoffCity = null;
                           _dropoffBarangay = null;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onCityChanged: (value) {
                         setState(() {
                           _dropoffCity = value;
                           _dropoffBarangay = null;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onBarangayChanged: (value) {
                         setState(() {
                           _dropoffBarangay = value;
+                          _deliveryDistanceKm = null;
                         });
+                        _refreshDeliveryEstimate();
                       },
                       onFreetextChanged: (value) {
                         final cleanValue = value?.trim();
-                        _dropoffFreetext =
-                            cleanValue == null || cleanValue.isEmpty
-                            ? null
-                            : value;
+                        setState(() {
+                          _dropoffFreetext =
+                              cleanValue == null || cleanValue.isEmpty
+                              ? null
+                              : value;
+                          _deliveryDistanceKm = null;
+                        });
+                        _refreshDeliveryEstimate();
                       },
                     ),
                   ],
 
+                  const SizedBox(height: 24),
+                  _buildDeliverySafetyNote(),
+                  const SizedBox(height: 24),
+                  _buildEmergencyContactCard(),
+                  const SizedBox(height: 24),
+                  _buildBookingEvidenceCard(),
                   const SizedBox(height: 24),
 
                   if (_selectedStartDate != null &&
@@ -2529,6 +2767,30 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 ? '$_billableHours hour${_billableHours == 1 ? '' : 's'}'
                                 : '${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1)} day${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1) == 1 ? '' : 's'}',
                           ),
+                          if (_withDriver) ...[
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Rental subtotal',
+                              'PHP ${_rentalSubtotal.toStringAsFixed(2)}',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Delivery distance',
+                              _deliveryDistanceKm == null
+                                  ? 'Not estimated'
+                                  : '${_deliveryDistanceKm!.toStringAsFixed(2)} km',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Delivery rate',
+                              'PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(2)} / km',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Delivery fee',
+                              'PHP ${_deliveryFee.toStringAsFixed(2)}',
+                            ),
+                          ],
                           const Divider(
                             color: AppColors.borderColor,
                             height: 24,
@@ -2587,6 +2849,367 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeliverySafetyNote() {
+    final distance = _deliveryDistanceKm;
+    final fee = _deliveryFee;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.local_shipping_outlined, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Delivery Note',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Doorstep delivery is PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(0)} per kilometer.',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+                if (_withDriver) ...[
+                  const SizedBox(height: 12),
+                  if (_isCalculatingDeliveryFee)
+                    const LinearProgressIndicator(color: AppColors.primary)
+                  else if (distance != null)
+                    Column(
+                      children: [
+                        _buildSummaryRow(
+                          'Delivery distance',
+                          '${distance.toStringAsFixed(2)} km',
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSummaryRow(
+                          'Rate per kilometer',
+                          'PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(2)}',
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSummaryRow(
+                          'Delivery fee',
+                          'PHP ${fee.toStringAsFixed(2)}',
+                        ),
+                      ],
+                    )
+                  else
+                    TextButton.icon(
+                      onPressed: _refreshDeliveryEstimate,
+                      icon: const Icon(Icons.route_outlined),
+                      label: const Text('Estimate delivery fee'),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmergencyContactCard() {
+    final contact = _defaultEmergencyContact;
+    final hasContact = contact != null;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasContact ? AppColors.borderColor : AppColors.warning,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.health_and_safety_outlined,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Emergency Contact',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: hasContact
+                      ? AppColors.success.withOpacity(0.15)
+                      : AppColors.warning.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  hasContact ? 'Saved' : 'Required',
+                  style: TextStyle(
+                    color: hasContact ? AppColors.success : AppColors.warning,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'This helps PSDC contact someone quickly if the renter or driver is involved in an accident or emergency.',
+            style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          if (_isLoadingEmergencyContact)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            )
+          else if (hasContact) ...[
+            _buildEmergencyContactRow(
+              Icons.person_outline,
+              contact['full_name']?.toString() ?? 'Unknown',
+            ),
+            const SizedBox(height: 10),
+            _buildEmergencyContactRow(
+              Icons.family_restroom_outlined,
+              contact['relationship']?.toString() ?? 'Relationship not set',
+            ),
+            const SizedBox(height: 10),
+            _buildEmergencyContactRow(
+              Icons.phone_outlined,
+              contact['phone_number']?.toString() ?? 'Phone not set',
+            ),
+          ] else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Add at least one emergency contact before submitting this booking.',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+            ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _openEmergencyContactScreen,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.primary),
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                hasContact ? 'Edit Emergency Contact' : 'Add Emergency Contact',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmergencyContactRow(IconData icon, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBookingEvidenceCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.verified_user_outlined, color: AppColors.primary),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Booking Identity & Safety',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Required before booking so PSDC, the operator, and the partner can verify the renter tied to this trip.',
+            style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          _buildBookingEvidenceField(
+            controller: _signatureController,
+            label: 'Digital signature',
+            hint: 'Type your full legal name',
+            icon: Icons.draw_outlined,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildEvidenceButton(
+                  label: _validIdPhoto == null ? 'Upload valid ID' : 'ID ready',
+                  icon: Icons.badge_outlined,
+                  isReady: _validIdPhoto != null,
+                  onTap: () => _pickBookingEvidencePhoto(isSelfie: false),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildEvidenceButton(
+                  label: _selfiePhoto == null ? 'Take selfie' : 'Selfie ready',
+                  icon: Icons.face_retouching_natural_outlined,
+                  isReady: _selfiePhoto != null,
+                  onTap: () => _pickBookingEvidencePhoto(isSelfie: true),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: AppColors.borderColor),
+          const SizedBox(height: 12),
+          const Text(
+            'Co-traveler / additional contact (optional)',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildBookingEvidenceField(
+            controller: _coTravelerNameController,
+            label: 'Name',
+            hint: 'Optional passenger or contact',
+            icon: Icons.person_add_alt_1_outlined,
+          ),
+          const SizedBox(height: 12),
+          _buildBookingEvidenceField(
+            controller: _coTravelerPhoneController,
+            label: 'Phone',
+            hint: 'Optional phone number',
+            icon: Icons.phone_outlined,
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 12),
+          _buildBookingEvidenceField(
+            controller: _coTravelerLicenseController,
+            label: 'Driver license',
+            hint: 'If the co-traveler may drive',
+            icon: Icons.credit_card_outlined,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvidenceButton({
+    required String label,
+    required IconData icon,
+    required bool isReady,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon),
+      label: Text(label, textAlign: TextAlign.center),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: isReady ? AppColors.success : AppColors.primary,
+        side: BorderSide(
+          color: isReady ? AppColors.success : AppColors.primary,
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  Widget _buildBookingEvidenceField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: AppColors.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: AppColors.primary),
+        labelStyle: const TextStyle(color: AppColors.textSecondary),
+        hintStyle: const TextStyle(color: AppColors.textTertiary),
+        filled: true,
+        fillColor: AppColors.darkBg,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary),
         ),
       ),
     );
@@ -2728,7 +3351,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _pickupProvince = match.province;
         _pickupCity = match.city;
         _pickupBarangay = match.barangay;
+        _deliveryDistanceKm = null;
       });
+      await _refreshDeliveryEstimate();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

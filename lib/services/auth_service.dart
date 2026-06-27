@@ -464,8 +464,39 @@ class AuthService {
 
   // Check if partner/driver has been approved by admin
   Future<bool> isApplicationApproved() async {
-    final status = await getApplicationStatus();
-    return status == 'approved';
+    try {
+      final user = currentUser;
+      if (user == null) return false;
+
+      final verificationState = await VerificationService.getUserVerificationState(
+        user.id,
+      );
+      final isVerified = verificationState['is_verified'] == true;
+
+      final response = await supabase
+          .from('users')
+          .select('role, application_status, id_verified')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final role = response?['role']?.toString().trim().toLowerCase();
+      final status =
+          response?['application_status']?.toString().trim().toLowerCase();
+      final idVerified = response?['id_verified'] == true;
+
+      if ((role == 'partner' || role == 'driver') &&
+          (idVerified || isVerified)) {
+        return true;
+      }
+
+      return status == 'approved';
+    } on PostgrestException catch (e) {
+      debugPrint('Database error checking application approval: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('Error checking application approval: $e');
+      return false;
+    }
   }
 
   // Check if user is verified for rental

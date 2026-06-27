@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import '../utils/pricing_policy.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -181,6 +182,10 @@ class BookingService {
     required DateTime startAt,
     required DateTime endAt,
     required double totalPrice,
+    double? rentalSubtotal,
+    double? deliveryDistanceKm,
+    double? deliveryRatePerKm,
+    double? deliveryFee,
     bool withDriver = false,
     String? pickupLocation,
     String? dropoffLocation,
@@ -191,6 +196,15 @@ class BookingService {
     String? reservationPaymentProofUrl,
     String? reservationPaymentMethod,
     String? reservationPaymentType,
+    String? emergencyContactName,
+    String? emergencyContactPhone,
+    String? emergencyContactRelationship,
+    String? renterSignatureText,
+    String? renterValidIdUrl,
+    String? renterSelfieUrl,
+    String? coTravelerName,
+    String? coTravelerPhone,
+    String? coTravelerLicense,
   }) async {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
@@ -202,6 +216,21 @@ class BookingService {
         throw Exception(
           'This renter account is restricted and cannot book vehicles right now',
         );
+      }
+
+      final vehicleState = await supabase
+          .from('vehicles')
+          .select('is_available, is_posted, status')
+          .eq('id', vehicleId)
+          .maybeSingle();
+      final vehicleStatus =
+          vehicleState?['status']?.toString().trim().toLowerCase() ?? '';
+      final vehicleCanBeBooked =
+          vehicleState?['is_available'] == true &&
+          vehicleState?['is_posted'] == true &&
+          !{'inactive', 'archived', 'deleted'}.contains(vehicleStatus);
+      if (!vehicleCanBeBooked) {
+        throw Exception('This vehicle is currently unavailable for booking');
       }
 
       final overlappingBookings = await supabase
@@ -236,6 +265,12 @@ class BookingService {
           endAt.toLocal().day,
         ).toIso8601String(),
         'total_price': totalPrice,
+        'rental_subtotal': rentalSubtotal ?? totalPrice,
+        if (deliveryDistanceKm != null)
+          'delivery_distance_km': deliveryDistanceKm,
+        if (deliveryRatePerKm != null)
+          'delivery_rate_per_km': deliveryRatePerKm,
+        'delivery_fee': deliveryFee ?? 0,
         'with_driver': withDriver,
         'pickup_location': pickupLocation,
         'dropoff_location': dropoffLocation,
@@ -282,6 +317,48 @@ class BookingService {
 
       if (rentalTermsSnapshot != null) {
         bookingPayload['rental_terms_snapshot'] = rentalTermsSnapshot;
+      }
+
+      if (emergencyContactName != null &&
+          emergencyContactName.trim().isNotEmpty) {
+        bookingPayload['emergency_contact_name'] = emergencyContactName.trim();
+      }
+
+      if (emergencyContactPhone != null &&
+          emergencyContactPhone.trim().isNotEmpty) {
+        bookingPayload['emergency_contact_phone'] = emergencyContactPhone
+            .trim();
+      }
+
+      if (emergencyContactRelationship != null &&
+          emergencyContactRelationship.trim().isNotEmpty) {
+        bookingPayload['emergency_contact_relationship'] =
+            emergencyContactRelationship.trim();
+      }
+
+      if (renterSignatureText != null &&
+          renterSignatureText.trim().isNotEmpty) {
+        bookingPayload['renter_signature_text'] = renterSignatureText.trim();
+      }
+
+      if (renterValidIdUrl != null && renterValidIdUrl.trim().isNotEmpty) {
+        bookingPayload['renter_valid_id_url'] = renterValidIdUrl.trim();
+      }
+
+      if (renterSelfieUrl != null && renterSelfieUrl.trim().isNotEmpty) {
+        bookingPayload['renter_selfie_url'] = renterSelfieUrl.trim();
+      }
+
+      if (coTravelerName != null && coTravelerName.trim().isNotEmpty) {
+        bookingPayload['co_traveler_name'] = coTravelerName.trim();
+      }
+
+      if (coTravelerPhone != null && coTravelerPhone.trim().isNotEmpty) {
+        bookingPayload['co_traveler_phone'] = coTravelerPhone.trim();
+      }
+
+      if (coTravelerLicense != null && coTravelerLicense.trim().isNotEmpty) {
+        bookingPayload['co_traveler_license'] = coTravelerLicense.trim();
       }
 
       final response = await supabase
@@ -495,7 +572,9 @@ class BookingService {
   Map<String, dynamic> getTripCompletionState(Map<String, dynamic> booking) {
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final rawStatus =
-        (booking['rawStatus']?.toString() ?? booking['status']?.toString() ?? '')
+        (booking['rawStatus']?.toString() ??
+                booking['status']?.toString() ??
+                '')
             .toLowerCase();
     final hasDriver =
         booking['with_driver'] == true ||
@@ -544,8 +623,7 @@ class BookingService {
       'driverConfirmed': driverConfirmed,
       'renterConfirmed': renterConfirmed,
       'pendingRoles': pendingRoles,
-      'allNonRenterConfirmed':
-          rawStatus == 'completed' && pendingRoles.isEmpty,
+      'allNonRenterConfirmed': rawStatus == 'completed' && pendingRoles.isEmpty,
       'renterCanConfirm':
           rawStatus == 'completed' && pendingRoles.isEmpty && !renterConfirmed,
     };
@@ -594,7 +672,9 @@ class BookingService {
 
     final updatedBooking = await getBookingById(bookingId);
     if (updatedBooking == null) {
-      throw Exception('Trip confirmation was saved, but the booking reload failed');
+      throw Exception(
+        'Trip confirmation was saved, but the booking reload failed',
+      );
     }
 
     final updatedState = getTripCompletionState(updatedBooking);
@@ -1162,9 +1242,13 @@ class BookingService {
           _asDouble(vehicle?['price_per_day']) ??
           (bookedDays > 0 ? originalTotal / bookedDays : originalTotal);
       final actualDays = _inclusiveRentalDays(startDate, returnedAt);
-      final recalculatedTotal = actualDays == bookedDays
-          ? originalTotal
-          : dailyRate * actualDays;
+      final lateDays = actualDays > bookedDays ? actualDays - bookedDays : 0;
+      final lateReturnFee = lateDays * dailyRate;
+      final rentalSubtotal = bookedDays > 0
+          ? dailyRate * bookedDays
+          : originalTotal;
+      final deliveryFee = _asDouble(booking['delivery_fee']) ?? 0.0;
+      final recalculatedTotal = rentalSubtotal + lateReturnFee + deliveryFee;
 
       await supabase
           .from('bookings')
@@ -1175,6 +1259,9 @@ class BookingService {
             'driver_trip_confirmed_at': DateTime.now().toIso8601String(),
             'total_price': recalculatedTotal,
             'total_cost': recalculatedTotal,
+            'rental_subtotal': rentalSubtotal,
+            'late_return_days': lateDays,
+            'late_return_fee': lateReturnFee,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -1207,7 +1294,7 @@ class BookingService {
         booking,
         title: 'Unit Returned',
         message:
-            'The driver marked the unit as returned. Final total: PHP ${recalculatedTotal.toStringAsFixed(0)}.',
+            'The driver marked the unit as returned. Late fee: ${PricingPolicy.peso(lateReturnFee)}. Final total: ${PricingPolicy.peso(recalculatedTotal)}.',
         action: 'returned',
       );
 

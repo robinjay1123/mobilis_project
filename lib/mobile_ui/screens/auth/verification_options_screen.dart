@@ -62,7 +62,7 @@ class _VerificationOptionsScreenState extends State<VerificationOptionsScreen> {
   }
 
   void _handleRenterVerification() {
-    Navigator.of(context).pushReplacementNamed('/id-verification');
+    Navigator.of(context).pushReplacementNamed('/identity-verification-form');
   }
 
   Future<void> _handlePartnerVerification() async {

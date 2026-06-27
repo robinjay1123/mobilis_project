@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'notification_service.dart';
 import 'user_restriction_service.dart';
 
 class ChatService {
@@ -139,6 +141,59 @@ class ChatService {
     }
   }
 
+  Future<String> getPrimaryAdminUserId() async {
+    final response = await supabase
+        .from('users')
+        .select('id')
+        .eq('role', 'admin')
+        .limit(1)
+        .maybeSingle();
+
+    final adminId = response?['id']?.toString().trim() ?? '';
+    if (adminId.isEmpty) {
+      throw Exception('No admin account is available for customer service');
+    }
+    return adminId;
+  }
+
+  Future<Map<String, dynamic>> getOrCreateCustomerServiceConversation({
+    required String userId,
+    String? userName,
+    String? userRole,
+  }) async {
+    final adminId = await getPrimaryAdminUserId();
+
+    final existing = await getOrCreateConversation(userId, adminId);
+    final conversationId = existing['id']?.toString().trim() ?? '';
+    if (conversationId.isEmpty) {
+      throw Exception('Could not open customer service conversation');
+    }
+
+    final existingMessages = await supabase
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .limit(1);
+
+    if (existingMessages.isEmpty) {
+      await NotificationService().createNotification(
+        userId: adminId,
+        title: 'Customer Service Request',
+        message:
+            '${userName?.trim().isNotEmpty == true ? userName!.trim() : 'A user'} opened a customer service conversation.',
+        type: 'customer_service',
+        data: {
+          'conversation_id': conversationId,
+          'requester_id': userId,
+          if (userRole != null && userRole.trim().isNotEmpty)
+            'requester_role': userRole.trim(),
+        },
+      );
+    }
+
+    return existing;
+  }
+
   Future<Map<String, dynamic>?> getConversationByBookingId(
     String bookingId,
   ) async {
@@ -189,6 +244,10 @@ class ChatService {
     required String conversationId,
     required String senderId,
     required String content,
+    String? attachmentUrl,
+    String? attachmentType,
+    String? attachmentName,
+    int? attachmentSize,
   }) async {
     try {
       debugPrint('Sending message to conversation: $conversationId');
@@ -220,6 +279,10 @@ class ChatService {
             'sender_id': senderId,
             'message': content,
             'content': content,
+            if (attachmentUrl != null) 'attachment_url': attachmentUrl,
+            if (attachmentType != null) 'attachment_type': attachmentType,
+            if (attachmentName != null) 'attachment_name': attachmentName,
+            if (attachmentSize != null) 'attachment_size': attachmentSize,
             'created_at': DateTime.now().toIso8601String(),
             'is_read': false,
           })
@@ -243,6 +306,22 @@ class ChatService {
       debugPrint('Unexpected error sending message: $e');
       rethrow;
     }
+  }
+
+  Future<String> uploadChatAttachment({
+    required String senderId,
+    required File file,
+    required String fileName,
+  }) async {
+    final safeFileName = fileName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final objectPath =
+        '$senderId/${DateTime.now().millisecondsSinceEpoch}_$safeFileName';
+
+    await supabase.storage
+        .from('chat_attachments')
+        .upload(objectPath, file, fileOptions: const FileOptions(upsert: true));
+
+    return supabase.storage.from('chat_attachments').getPublicUrl(objectPath);
   }
 
   // Mark messages as read

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../../services/auth_service.dart';
 import 'ratings_reviews_screen.dart';
+import 'emergency_contact_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -255,6 +256,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 builder: (_) => RatingsReviewsScreen(
                                   userId: userId,
                                   title: 'My Ratings & Reviews',
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSettingTile(
+                          icon: Icons.health_and_safety_outlined,
+                          title: 'Emergency Contact',
+                          subtitle: 'Required for renter and driver safety',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EmergencyContactScreen(
+                                  isDarkMode: widget.isDarkMode,
                                 ),
                               ),
                             );

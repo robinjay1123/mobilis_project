@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
@@ -57,6 +62,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _conversations = [];
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
+  Timer? _trackingRefreshTimer;
   Map<String, List<Map<String, dynamic>>> _messages = {};
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
 
@@ -90,10 +96,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     super.initState();
     _loadDashboardData();
     _loadConversations();
+    _trackingRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshTrackingLocations(),
+    );
   }
 
   @override
   void dispose() {
+    _trackingRefreshTimer?.cancel();
     _brandController.dispose();
     _modelController.dispose();
     _yearController.dispose();
@@ -238,6 +249,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
+  Future<void> _refreshTrackingLocations() async {
+    final locations = await TrackingService().getActiveTrackingLocations();
+    if (!mounted) return;
+    setState(() => _trackingLocations = locations);
+  }
+
   Future<void> _confirmOperatorSuccessfulTrip(
     Map<String, dynamic> booking,
   ) async {
@@ -306,7 +323,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   List<Map<String, dynamic>> _visibleTrackingLocations() {
-    if (_focusedTrackingBookingId == null || _focusedTrackingBookingId!.isEmpty) {
+    if (_focusedTrackingBookingId == null ||
+        _focusedTrackingBookingId!.isEmpty) {
       return _trackingLocations
           .where((location) => _isCompanyOwnedTrackingLocation(location))
           .toList();
@@ -411,6 +429,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               end_date,
               total_price,
               total_cost,
+              rental_subtotal,
+              delivery_distance_km,
+              delivery_rate_per_km,
+              delivery_fee,
+              late_return_days,
+              late_return_fee,
+              emergency_contact_name,
+              emergency_contact_phone,
+              emergency_contact_relationship,
+              renter_signature_text,
+              renter_valid_id_url,
+              renter_selfie_url,
+              co_traveler_name,
+              co_traveler_phone,
+              co_traveler_license,
               with_driver,
               pickup_location,
               dropoff_location,
@@ -2482,7 +2515,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               children: [
                                 if (statusLower == 'pending')
                                   ElevatedButton.icon(
-                                    onPressed: () => _showApproveDialog(booking),
+                                    onPressed: () =>
+                                        _showApproveDialog(booking),
                                     icon: const Icon(Icons.check, size: 16),
                                     label: const Text('Confirm'),
                                     style: ElevatedButton.styleFrom(
@@ -2512,14 +2546,79 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 if (canTrack)
                                   ElevatedButton.icon(
-                                    onPressed: () => _openTrackingForBooking(
-                                      booking,
-                                    ),
+                                    onPressed: () =>
+                                        _openTrackingForBooking(booking),
                                     icon: const Icon(Icons.explore_outlined),
                                     label: const Text('Track'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary,
                                       foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                OutlinedButton.icon(
+                                  onPressed: () =>
+                                      _showBookingSafetyReviewDialog(booking),
+                                  icon: const Icon(
+                                    Icons.verified_user_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Review Docs'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    side: const BorderSide(
+                                      color: AppColors.primary,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                ),
+                                if (statusLower == 'confirmed' ||
+                                    statusLower == 'approved' ||
+                                    statusLower == 'active')
+                                  OutlinedButton.icon(
+                                    onPressed: () => _showInspectionDialog(
+                                      booking,
+                                      inspectionType: 'before',
+                                    ),
+                                    icon: const Icon(
+                                      Icons.fact_check_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Before Check'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.blue,
+                                      side: const BorderSide(
+                                        color: Colors.blue,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if (statusLower == 'active' ||
+                                    statusLower == 'completed')
+                                  OutlinedButton.icon(
+                                    onPressed: () => _showInspectionDialog(
+                                      booking,
+                                      inspectionType: 'after',
+                                    ),
+                                    icon: const Icon(
+                                      Icons.assignment_turned_in_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('After Check'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.green,
+                                      side: const BorderSide(
+                                        color: Colors.green,
+                                      ),
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 8,
@@ -2823,6 +2922,322 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showBookingSafetyReviewDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final evidence = [
+      MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
+      MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
+    ];
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: const Text('Renter Safety Review'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildReviewLine(
+                  'Digital signature',
+                  booking['renter_signature_text']?.toString(),
+                ),
+                _buildReviewLine(
+                  'Emergency contact',
+                  [
+                        booking['emergency_contact_name']?.toString(),
+                        booking['emergency_contact_relationship']?.toString(),
+                        booking['emergency_contact_phone']?.toString(),
+                      ]
+                      .where((part) => part != null && part.trim().isNotEmpty)
+                      .join(' - '),
+                ),
+                _buildReviewLine(
+                  'Co-traveler',
+                  [
+                        booking['co_traveler_name']?.toString(),
+                        booking['co_traveler_phone']?.toString(),
+                      ]
+                      .where((part) => part != null && part.trim().isNotEmpty)
+                      .join(' - '),
+                ),
+                _buildReviewLine(
+                  'Co-traveler license',
+                  booking['co_traveler_license']?.toString(),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Uploaded files',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                ...evidence.map((item) {
+                  final url = item.value.trim();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: OutlinedButton.icon(
+                      onPressed: url.isEmpty
+                          ? null
+                          : () => launchUrl(
+                              Uri.parse(url),
+                              mode: LaunchMode.externalApplication,
+                            ),
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: Text(
+                        url.isEmpty ? '${item.key}: missing' : item.key,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewLine(String label, String? value) {
+    final clean = value?.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              clean == null || clean.isEmpty ? 'Not provided' : clean,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showInspectionDialog(
+    Map<String, dynamic> booking, {
+    required String inspectionType,
+  }) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    final bookingId = booking['id']?.toString() ?? '';
+    if (currentUserId == null || bookingId.isEmpty) return;
+
+    final fuelController = TextEditingController();
+    final mileageController = TextEditingController();
+    final cleanlinessController = TextEditingController();
+    final scratchesController = TextEditingController();
+    final dentsController = TextEditingController();
+    final damagesController = TextEditingController();
+    final remarksController = TextEditingController();
+    final selectedEvidence = <PlatformFile>[];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          title: Text(
+            inspectionType == 'before'
+                ? 'Before Rental Checklist'
+                : 'After Return Checklist',
+          ),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildInspectionTextField(fuelController, 'Fuel level'),
+                  _buildInspectionTextField(
+                    mileageController,
+                    'Mileage',
+                    keyboardType: TextInputType.number,
+                  ),
+                  _buildInspectionTextField(
+                    cleanlinessController,
+                    'Cleanliness',
+                  ),
+                  _buildInspectionTextField(scratchesController, 'Scratches'),
+                  _buildInspectionTextField(dentsController, 'Dents'),
+                  _buildInspectionTextField(damagesController, 'Damages'),
+                  _buildInspectionTextField(
+                    remarksController,
+                    'Other remarks',
+                    maxLines: 3,
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.media,
+                          allowMultiple: true,
+                          withData: true,
+                        );
+                        if (result == null) return;
+                        final usableFiles = result.files
+                            .where(
+                              (file) =>
+                                  file.bytes != null &&
+                                  file.size <= 25 * 1024 * 1024,
+                            )
+                            .take(8)
+                            .toList();
+                        setDialogState(() {
+                          selectedEvidence
+                            ..clear()
+                            ..addAll(usableFiles);
+                        });
+                      },
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      label: const Text('Add photos or videos'),
+                    ),
+                  ),
+                  if (selectedEvidence.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: selectedEvidence
+                            .map(
+                              (file) => InputChip(
+                                label: Text(file.name),
+                                onDeleted: () => setDialogState(
+                                  () => selectedEvidence.remove(file),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save Checklist'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldSave != true) {
+      fuelController.dispose();
+      mileageController.dispose();
+      cleanlinessController.dispose();
+      scratchesController.dispose();
+      dentsController.dispose();
+      damagesController.dispose();
+      remarksController.dispose();
+      return;
+    }
+
+    try {
+      if (selectedEvidence.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Uploading checklist evidence...')),
+        );
+      }
+      final evidenceUrls = <String>[];
+      for (final file in selectedEvidence) {
+        final bytes = file.bytes;
+        if (bytes == null) continue;
+        evidenceUrls.add(
+          await BookingInspectionService().uploadEvidenceBytes(
+            userId: currentUserId,
+            bookingId: bookingId,
+            bytes: bytes,
+            extension: file.extension ?? 'jpg',
+          ),
+        );
+      }
+      await BookingInspectionService().saveInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+        inspectorId: currentUserId,
+        fuelLevel: fuelController.text.trim(),
+        mileage: double.tryParse(mileageController.text.trim()),
+        cleanliness: cleanlinessController.text.trim(),
+        scratches: scratchesController.text.trim(),
+        dents: dentsController.text.trim(),
+        damages: damagesController.text.trim(),
+        remarks: remarksController.text.trim(),
+        evidenceUrls: evidenceUrls,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vehicle checklist saved'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save checklist: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      fuelController.dispose();
+      mileageController.dispose();
+      cleanlinessController.dispose();
+      scratchesController.dispose();
+      dentsController.dispose();
+      damagesController.dispose();
+      remarksController.dispose();
+    }
+  }
+
+  Widget _buildInspectionTextField(
+    TextEditingController controller,
+    String label, {
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
         ),
       ),
     );
@@ -4844,6 +5259,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   void _showEditVehicleDialog(Map<String, dynamic> vehicle, bool isDark) {
+    final isPartnerVehicle =
+        vehicle['_source'] == 'partner' ||
+        vehicle['source'] == 'partner' ||
+        vehicle['is_partner_vehicle'] == true;
+    final partnerVehicleId =
+        vehicle['partner_vehicle_id'] ??
+        vehicle['_partner_vehicle_id'] ??
+        vehicle['id'];
     final brandController = TextEditingController(text: vehicle['brand'] ?? '');
     final modelController = TextEditingController(text: vehicle['model'] ?? '');
     final categoryController = TextEditingController(
@@ -4898,6 +5321,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           Future<void> pickNewImages() async {
+            if (isPartnerVehicle) return;
             try {
               if (kIsWeb) {
                 final picked = await _imagePicker.pickMultiImage();
@@ -4918,6 +5342,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           }
 
           Future<void> removeExistingImage(int index) async {
+            if (isPartnerVehicle) return;
             final id = existingImages[index]['id'];
             try {
               await _supabase.from('vehicle_images').delete().eq('id', id);
@@ -5166,11 +5591,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                             ),
                           const SizedBox(height: 12),
+                          if (isPartnerVehicle)
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.primary.withOpacity(0.35),
+                                ),
+                              ),
+                              child: Text(
+                                'Partner vehicles are price-managed by operators. Vehicle details and images stay read-only here.',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: pickNewImages,
+                                  onPressed: isPartnerVehicle
+                                      ? null
+                                      : pickNewImages,
                                   icon: const Icon(Icons.add_photo_alternate),
                                   label: const Text('Add Image'),
                                   style: OutlinedButton.styleFrom(
@@ -5203,6 +5650,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: brandController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration('Brand', isDark),
                             style: _fieldTextStyle(isDark),
@@ -5210,6 +5658,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: modelController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration('Model', isDark),
                             style: _fieldTextStyle(isDark),
@@ -5217,6 +5666,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: categoryController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration('Category', isDark),
                             style: _fieldTextStyle(isDark),
@@ -5224,6 +5674,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: vehicleTypeController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration(
                               'Vehicle Type',
@@ -5234,6 +5685,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: vehicleNameController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration(
                               'Vehicle Name',
@@ -5244,6 +5696,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: colorController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration('Color', isDark),
                             style: _fieldTextStyle(isDark),
@@ -5251,6 +5704,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: transmissionController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             decoration: _fieldDecoration(
                               'Transmission (Manual/Automatic)',
@@ -5261,6 +5715,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: descriptionController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             maxLines: 4,
                             decoration: _fieldDecoration('Description', isDark),
@@ -5269,6 +5724,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: yearController,
+                            readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
                             keyboardType: TextInputType.number,
                             decoration: _fieldDecoration('Year', isDark),
@@ -5302,6 +5758,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: locationController,
+                                  readOnly: isPartnerVehicle,
                                   cursorColor: AppColors.primary,
                                   decoration: _fieldDecoration(
                                     'Location',
@@ -5320,19 +5777,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 child: Material(
                                   color: Colors.transparent,
                                   child: InkWell(
-                                    onTap: () => _getCurrentVehicleLocation(
-                                      onLocationFound:
-                                          (location, latitude, longitude) {
-                                            setDialogState(() {
-                                              locationController.text =
-                                                  location;
-                                              latitudeController.text =
-                                                  latitude;
-                                              longitudeController.text =
-                                                  longitude;
-                                            });
-                                          },
-                                    ),
+                                    onTap: isPartnerVehicle
+                                        ? null
+                                        : () => _getCurrentVehicleLocation(
+                                            onLocationFound:
+                                                (
+                                                  location,
+                                                  latitude,
+                                                  longitude,
+                                                ) {
+                                                  setDialogState(() {
+                                                    locationController.text =
+                                                        location;
+                                                    latitudeController.text =
+                                                        latitude;
+                                                    longitudeController.text =
+                                                        longitude;
+                                                  });
+                                                },
+                                          ),
                                     borderRadius: BorderRadius.circular(12),
                                     child: const Padding(
                                       padding: EdgeInsets.all(12),
@@ -5405,8 +5868,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 child: Text('Maintenance'),
                               ),
                             ],
-                            onChanged: (value) =>
-                                selectedStatus = value ?? 'active',
+                            onChanged: isPartnerVehicle
+                                ? null
+                                : (value) => selectedStatus = value ?? 'active',
                             decoration: _fieldDecoration('Status', isDark),
                             dropdownColor: isDark
                                 ? AppColors.darkCard
@@ -5446,107 +5910,150 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               : () async {
                                   setDialogState(() => isUpdating = true);
                                   try {
-                                    await _supabase
-                                        .from('vehicles')
-                                        .update({
-                                          'brand': brandController.text,
-                                          'model': modelController.text,
-                                          'category': categoryController.text,
-                                          'vehicle_type':
-                                              vehicleTypeController.text,
-                                          'vehicle_name':
-                                              vehicleNameController.text,
-                                          'description':
-                                              descriptionController.text,
-                                          'color': colorController.text,
-                                          'transmission':
-                                              transmissionController
-                                                  .text
-                                                  .isEmpty
-                                              ? 'Manual'
-                                              : transmissionController.text,
-                                          'year':
-                                              int.tryParse(
-                                                yearController.text,
-                                              ) ??
-                                              0,
-                                          'price_per_day':
-                                              double.tryParse(
-                                                priceController.text,
-                                              ) ??
-                                              0.0,
-                                          'price_per_hour':
-                                              double.tryParse(
-                                                pricePerHourController.text,
-                                              ) ??
-                                              0.0,
-                                          'location': locationController.text,
-                                          'latitude':
-                                              double.tryParse(
-                                                latitudeController.text,
-                                              ) ??
-                                              0.0,
-                                          'longitude':
-                                              double.tryParse(
-                                                longitudeController.text,
-                                              ) ??
-                                              0.0,
-                                          'status': selectedStatus,
-                                        })
-                                        .eq('id', vehicle['id']);
+                                    if (isPartnerVehicle) {
+                                      await _supabase
+                                          .from('partner_vehicles')
+                                          .update({
+                                            'price_per_day':
+                                                double.tryParse(
+                                                  priceController.text,
+                                                ) ??
+                                                0.0,
+                                            'price_per_hour':
+                                                double.tryParse(
+                                                  pricePerHourController.text,
+                                                ) ??
+                                                0.0,
+                                            'updated_at': DateTime.now()
+                                                .toIso8601String(),
+                                          })
+                                          .eq('id', partnerVehicleId);
 
-                                    final List<String> uploadErrors = [];
-                                    for (int i = 0; i < newImages.length; i++) {
-                                      final fileName =
-                                          'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                                      final ownerId =
-                                          vehicle['owner_id'] ??
-                                          _supabase.auth.currentUser?.id;
-                                      final filePath =
-                                          'vehicles/${ownerId ?? 'unknown'}/$fileName';
-                                      try {
-                                        final imageBytes = await newImages[i]
-                                            .readAsBytes();
-                                        await _supabase.storage
-                                            .from(_vehicleImagesBucket)
-                                            .uploadBinary(
-                                              filePath,
-                                              imageBytes,
-                                              fileOptions: const FileOptions(
-                                                cacheControl: '3600',
-                                                upsert: false,
-                                              ),
-                                            );
-                                        final imageUrl = _supabase.storage
-                                            .from(_vehicleImagesBucket)
-                                            .getPublicUrl(filePath);
-                                        await _supabase
-                                            .from('vehicle_images')
-                                            .insert({
-                                              'vehicle_id': vehicle['id'],
-                                              'image_url': imageUrl,
-                                              'display_order':
-                                                  existingImages.length + i,
-                                            });
-                                      } catch (e) {
-                                        debugPrint(
-                                          'Error uploading new image: $e',
-                                        );
-                                        uploadErrors.add(e.toString());
+                                      await _supabase
+                                          .from('partner_vehicle_applications')
+                                          .update({
+                                            'price_per_day':
+                                                double.tryParse(
+                                                  priceController.text,
+                                                ) ??
+                                                0.0,
+                                            'price_per_hour':
+                                                double.tryParse(
+                                                  pricePerHourController.text,
+                                                ) ??
+                                                0.0,
+                                          })
+                                          .eq(
+                                            'partner_vehicle_id',
+                                            partnerVehicleId,
+                                          );
+                                    } else {
+                                      await _supabase
+                                          .from('vehicles')
+                                          .update({
+                                            'brand': brandController.text,
+                                            'model': modelController.text,
+                                            'category': categoryController.text,
+                                            'vehicle_type':
+                                                vehicleTypeController.text,
+                                            'vehicle_name':
+                                                vehicleNameController.text,
+                                            'description':
+                                                descriptionController.text,
+                                            'color': colorController.text,
+                                            'transmission':
+                                                transmissionController
+                                                    .text
+                                                    .isEmpty
+                                                ? 'Manual'
+                                                : transmissionController.text,
+                                            'year':
+                                                int.tryParse(
+                                                  yearController.text,
+                                                ) ??
+                                                0,
+                                            'price_per_day':
+                                                double.tryParse(
+                                                  priceController.text,
+                                                ) ??
+                                                0.0,
+                                            'price_per_hour':
+                                                double.tryParse(
+                                                  pricePerHourController.text,
+                                                ) ??
+                                                0.0,
+                                            'location': locationController.text,
+                                            'latitude':
+                                                double.tryParse(
+                                                  latitudeController.text,
+                                                ) ??
+                                                0.0,
+                                            'longitude':
+                                                double.tryParse(
+                                                  longitudeController.text,
+                                                ) ??
+                                                0.0,
+                                            'status': selectedStatus,
+                                          })
+                                          .eq('id', vehicle['id']);
+
+                                      final List<String> uploadErrors = [];
+                                      for (
+                                        int i = 0;
+                                        i < newImages.length;
+                                        i++
+                                      ) {
+                                        final fileName =
+                                            'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                        final ownerId =
+                                            vehicle['owner_id'] ??
+                                            _supabase.auth.currentUser?.id;
+                                        final filePath =
+                                            'vehicles/${ownerId ?? 'unknown'}/$fileName';
+                                        try {
+                                          final imageBytes = await newImages[i]
+                                              .readAsBytes();
+                                          await _supabase.storage
+                                              .from(_vehicleImagesBucket)
+                                              .uploadBinary(
+                                                filePath,
+                                                imageBytes,
+                                                fileOptions: const FileOptions(
+                                                  cacheControl: '3600',
+                                                  upsert: false,
+                                                ),
+                                              );
+                                          final imageUrl = _supabase.storage
+                                              .from(_vehicleImagesBucket)
+                                              .getPublicUrl(filePath);
+                                          await _supabase
+                                              .from('vehicle_images')
+                                              .insert({
+                                                'vehicle_id': vehicle['id'],
+                                                'image_url': imageUrl,
+                                                'display_order':
+                                                    existingImages.length + i,
+                                              });
+                                        } catch (e) {
+                                          debugPrint(
+                                            'Error uploading new image: $e',
+                                          );
+                                          uploadErrors.add(e.toString());
+                                        }
                                       }
-                                    }
 
-                                    if (uploadErrors.isNotEmpty) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'Some images failed: ${uploadErrors.first}',
+                                      if (uploadErrors.isNotEmpty) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Some images failed: ${uploadErrors.first}',
+                                            ),
+                                            backgroundColor: Colors.orange,
                                           ),
-                                          backgroundColor: Colors.orange,
-                                        ),
-                                      );
+                                        );
+                                      }
                                     }
 
                                     Navigator.pop(context);
