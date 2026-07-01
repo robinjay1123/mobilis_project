@@ -1156,7 +1156,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 10),
               children: [
-                _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
+                _buildNavItem(0, Icons.home, 'Home', isDark),
                 _buildNavItem(1, Icons.book, 'Bookings', isDark),
                 _buildNavItem(2, Icons.message, 'Messages', isDark),
                 _buildNavItem(
