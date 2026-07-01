@@ -28,9 +28,14 @@ class _IdentityVerificationFormScreenState
     extends State<IdentityVerificationFormScreen> {
   // Form fields
   final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _locationController = TextEditingController();
   final _idNumberController = TextEditingController();
+  final _yearsExperienceController = TextEditingController();
+  final _previousCompaniesController = TextEditingController();
   String _selectedIdType = 'National ID';
+  String _preferredVehicleType = 'Sedan';
   File? _idFrontFile;
   File? _idBackFile;
   File? _faceSelfieFile;
@@ -56,7 +61,21 @@ class _IdentityVerificationFormScreenState
   @override
   void initState() {
     super.initState();
+    _prefillUserDetails();
     _loadExistingVerification();
+  }
+
+  void _prefillUserDetails() {
+    final user = AuthService().currentUser;
+    final metadata = user?.userMetadata ?? {};
+    _emailController.text = user?.email ?? '';
+    _phoneController.text = metadata['phone']?.toString() ?? '';
+    _nameController.text = metadata['full_name']?.toString() ?? '';
+    _locationController.text = metadata['location']?.toString() ?? '';
+
+    if (widget.userRole == 'driver') {
+      _selectedIdType = "Driver's License";
+    }
   }
 
   void _handleBackNavigation() {
@@ -370,7 +389,9 @@ class _IdentityVerificationFormScreenState
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Verification Submitted!',
+                  widget.userRole == 'driver'
+                      ? 'Application Submitted!'
+                      : 'Verification Submitted!',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -380,7 +401,9 @@ class _IdentityVerificationFormScreenState
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Your verification has been submitted for admin review. We\'ll notify you once it\'s complete.',
+                  widget.userRole == 'driver'
+                      ? 'Your driver application has been submitted for admin review. We\'ll notify you once it\'s complete.'
+                      : 'Your verification has been submitted for admin review. We\'ll notify you once it\'s complete.',
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark
@@ -426,6 +449,36 @@ class _IdentityVerificationFormScreenState
         : AppColors.lightTextSecondary;
     final inputBorderColor = isDark ? AppColors.borderColor : Colors.grey[300]!;
     final inputFillColor = isDark ? AppColors.darkCard : Colors.white;
+
+    if (widget.userRole == 'driver') {
+      if (_verificationStatus == 'verified') {
+        return _buildDriverStatusScaffold(
+          title: 'Documents Verified',
+          subtitle:
+              'Excellent. Your identity and supporting documents have been processed and confirmed.',
+          status: 'verified',
+        );
+      }
+
+      if (_verificationStatus == 'pending') {
+        return _buildDriverStatusScaffold(
+          title: 'Application Under Review',
+          subtitle:
+              'Your driver application documents were submitted. Our team is reviewing them now.',
+          status: 'pending',
+        );
+      }
+
+      return _buildDriverApplicationScaffold(
+        isDark: isDark,
+        bgColor: bgColor,
+        textColor: textColor,
+        inputTextColor: inputTextColor,
+        hintTextColor: hintTextColor,
+        inputBorderColor: inputBorderColor,
+        inputFillColor: inputFillColor,
+      );
+    }
 
     // Show if already verified
     if (_verificationStatus == 'verified') {
@@ -692,6 +745,594 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  Widget _buildDriverApplicationScaffold({
+    required bool isDark,
+    required Color bgColor,
+    required Color textColor,
+    required Color inputTextColor,
+    required Color hintTextColor,
+    required Color inputBorderColor,
+    required Color inputFillColor,
+  }) {
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: bgColor,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppColors.primary),
+          onPressed: _handleBackNavigation,
+        ),
+        title: const Text(
+          'Driver Partnership',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildDriverProgressCard(),
+            const SizedBox(height: 24),
+            if (_errorMessage != null) ...[
+              _buildDriverNotice(
+                message: _errorMessage!,
+                color: AppColors.error,
+                icon: Icons.error_outline,
+              ),
+              const SizedBox(height: 16),
+            ],
+            _buildDriverStepSection(
+              step: 1,
+              title: 'Basic Information',
+              icon: Icons.person_outline,
+              children: [
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Full Name *',
+                  controller: _nameController,
+                  hint: 'Enter your full legal name',
+                  icon: Icons.badge_outlined,
+                ),
+                const SizedBox(height: 14),
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Email Address',
+                  controller: _emailController,
+                  hint: 'name@example.com',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  readOnly: true,
+                ),
+                const SizedBox(height: 14),
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Phone Number',
+                  controller: _phoneController,
+                  hint: '+63 900 000 0000',
+                  icon: Icons.phone_outlined,
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 14),
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Location / Address *',
+                  controller: _locationController,
+                  hint: 'Enter your address',
+                  icon: Icons.location_on_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 26),
+            _buildDriverStepSection(
+              step: 2,
+              title: 'Professional Experience',
+              icon: Icons.work_outline,
+              children: [
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Years of Driving Experience',
+                  controller: _yearsExperienceController,
+                  hint: 'e.g. 5',
+                  icon: Icons.timeline_outlined,
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 14),
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: 'Previous Companies / Platforms',
+                  controller: _previousCompaniesController,
+                  hint: 'List your transport experience',
+                  icon: Icons.business_center_outlined,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Preferred Vehicle Type',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildPreferredVehicleTypes(),
+              ],
+            ),
+            const SizedBox(height: 26),
+            _buildDriverStepSection(
+              step: 3,
+              title: 'Required Documents',
+              icon: Icons.upload_file_outlined,
+              children: [
+                _buildIdTypeDropdown(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor,
+                  hintTextColor,
+                  inputBorderColor,
+                ),
+                const SizedBox(height: 14),
+                _buildFormField(
+                  isDark,
+                  inputFillColor,
+                  textColor,
+                  inputTextColor: inputTextColor,
+                  hintTextColor: hintTextColor,
+                  borderColor: inputBorderColor,
+                  label: _idNumberLabel,
+                  controller: _idNumberController,
+                  hint: _idNumberHint,
+                  icon: Icons.credit_card_outlined,
+                ),
+                const SizedBox(height: 14),
+                _buildVerificationPhotoSection(
+                  title: 'ID Front *',
+                  description:
+                      'Capture the front of your valid ID. Keep text and corners visible.',
+                  file: _idFrontFile,
+                  photoType: 'id_front',
+                  icon: Icons.badge_outlined,
+                  cardColor: inputFillColor,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
+                ),
+                const SizedBox(height: 14),
+                _buildVerificationPhotoSection(
+                  title: 'ID Back *',
+                  description:
+                      'Capture the back of the same ID clearly.',
+                  file: _idBackFile,
+                  photoType: 'id_back',
+                  icon: Icons.flip_to_back_outlined,
+                  cardColor: inputFillColor,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
+                ),
+                const SizedBox(height: 14),
+                _buildVerificationPhotoSection(
+                  title: 'Face Selfie *',
+                  description:
+                      'Take a face-only selfie in good lighting for liveness review.',
+                  file: _faceSelfieFile,
+                  photoType: 'face_selfie',
+                  icon: Icons.face_retouching_natural,
+                  cardColor: inputFillColor,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
+                  cameraOnly: true,
+                ),
+                const SizedBox(height: 14),
+                _buildVerificationPhotoSection(
+                  title: 'Selfie Holding ID *',
+                  description:
+                      'Hold your ID beside your face. Both your face and ID must be readable.',
+                  file: _selfieWithIdFile,
+                  photoType: 'selfie_with_id',
+                  icon: Icons.co_present_outlined,
+                  cardColor: inputFillColor,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
+                  cameraOnly: true,
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            CustomButton(
+              label: _isLoading ? 'Submitting...' : 'Submit Application',
+              onPressed: _isLoading ? null : _submitVerification,
+              backgroundColor: AppColors.primary,
+              textColor: Colors.black,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'By submitting, you agree to Mobilis by PSDC driver screening and partnership review.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDriverProgressCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Application Progress',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                'Step 1 of 3',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: 1 / 3,
+              minHeight: 10,
+              backgroundColor: AppColors.borderColor,
+              valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverStepSection({
+    required int step,
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Step $step: $title',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _buildPreferredVehicleTypes() {
+    const options = [
+      (label: 'Sedan', icon: Icons.directions_car_outlined),
+      (label: 'SUV', icon: Icons.airport_shuttle_outlined),
+      (label: 'Luxury', icon: Icons.workspace_premium_outlined),
+    ];
+
+    return Row(
+      children: options.map((option) {
+        final selected = _preferredVehicleType == option.label;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => setState(() => _preferredVehicleType = option.label),
+              child: Container(
+                height: 88,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary.withOpacity(0.14)
+                      : AppColors.darkCard,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: selected ? AppColors.primary : AppColors.borderColor,
+                    width: selected ? 2 : 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      option.icon,
+                      color: selected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      size: 24,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      option.label,
+                      style: TextStyle(
+                        color: selected
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDriverNotice({
+    required String message,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverStatusScaffold({
+    required String title,
+    required String subtitle,
+    required String status,
+  }) {
+    final isVerified = status == 'verified';
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.darkBg,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+          onPressed: _handleBackNavigation,
+        ),
+        title: Text(
+          isVerified ? 'Application Status' : 'Partnership',
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                color: (isVerified ? AppColors.success : AppColors.primary)
+                    .withOpacity(0.18),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isVerified
+                    ? Icons.verified_outlined
+                    : Icons.hourglass_top_rounded,
+                color: isVerified ? AppColors.success : AppColors.primary,
+                size: 48,
+              ),
+            ),
+            const SizedBox(height: 28),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 34),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'VERIFIED RECORDS',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  letterSpacing: 1.8,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _buildDriverStatusRecord(
+              icon: Icons.badge_outlined,
+              title: 'Government ID',
+              subtitle: isVerified ? 'Verified' : 'Submitted for review',
+              complete: isVerified,
+            ),
+            _buildDriverStatusRecord(
+              icon: Icons.face_retouching_natural,
+              title: 'Biometric Face Selfie',
+              subtitle: isVerified ? 'Liveness check completed' : 'Pending',
+              complete: isVerified,
+            ),
+            _buildDriverStatusRecord(
+              icon: Icons.co_present_outlined,
+              title: 'Selfie Holding ID',
+              subtitle: isVerified ? 'Authenticated' : 'Pending',
+              complete: isVerified,
+            ),
+            const SizedBox(height: 20),
+            _buildDriverNotice(
+              message: isVerified
+                  ? 'Next Step: final driver partnership review.'
+                  : 'Next Step: admin review. This usually takes 2-4 hours.',
+              color: AppColors.primary,
+              icon: Icons.info_outline,
+            ),
+            const SizedBox(height: 30),
+            CustomButton(
+              label: isVerified ? 'Continue to Dashboard' : 'Back to Dashboard',
+              onPressed: _handleBackNavigation,
+              backgroundColor: AppColors.primary,
+              textColor: Colors.black,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDriverStatusRecord({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool complete,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary, size: 24),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            complete ? Icons.check_circle_outline : Icons.radio_button_checked,
+            color: complete ? AppColors.success : AppColors.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFormField(
     bool isDark,
     Color cardColor,
@@ -703,6 +1344,8 @@ class _IdentityVerificationFormScreenState
     required TextEditingController controller,
     required String hint,
     required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    bool readOnly = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -724,6 +1367,8 @@ class _IdentityVerificationFormScreenState
           ),
           child: TextFormField(
             controller: controller,
+            keyboardType: keyboardType,
+            readOnly: readOnly,
             style: TextStyle(color: inputTextColor),
             decoration: InputDecoration(
               hintText: hint,
@@ -953,8 +1598,12 @@ class _IdentityVerificationFormScreenState
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
     _locationController.dispose();
     _idNumberController.dispose();
+    _yearsExperienceController.dispose();
+    _previousCompaniesController.dispose();
     super.dispose();
   }
 }

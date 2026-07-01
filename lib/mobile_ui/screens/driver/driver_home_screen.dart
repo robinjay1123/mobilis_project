@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/driver_service.dart';
@@ -144,6 +145,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.w900,
                 ),
+              ),
+        leading: _selectedTab == 0
+            ? null
+            : IconButton(
+                onPressed: () => setState(() => _selectedTab = 0),
+                icon: const Icon(Icons.arrow_back, color: Colors.black),
               ),
         actions: [
           if (_selectedTab == 3)
@@ -295,9 +302,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 22, 18, 18),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 23,
-                    backgroundColor: AppColors.primary,
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    alignment: Alignment.center,
                     child: Text(
                       displayName.isNotEmpty
                           ? displayName[0].toUpperCase()
@@ -357,6 +369,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       label: 'Bookings',
                       selected: _selectedTab == 1,
                       onTap: () => _selectDrawerTab(context, 1),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.assignment_turned_in_outlined,
+                      label: 'Application',
+                      selected: false,
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(
+                          context,
+                          '/driver-identity-verification',
+                        );
+                      },
                     ),
                     _DriverDrawerItem(
                       icon: Icons.chat_bubble_outline,
@@ -886,7 +910,7 @@ class __DashboardTabState extends State<_DashboardTab> {
             width: 62,
             height: 62,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: AppColors.primary, width: 3),
               color: const Color(0xFFFFEDD6),
             ),
@@ -1177,6 +1201,86 @@ class __DashboardTabState extends State<_DashboardTab> {
     );
   }
 
+  Widget _buildDriverApplicationCta() {
+    final title = _isCertifiedDriver
+        ? 'Certified Driver Application'
+        : _isVerified
+        ? 'Apply as a Driver'
+        : 'Start Driver Application';
+    final subtitle = _isCertifiedDriver
+        ? 'Your certified driver application is approved.'
+        : _isVerified
+        ? 'Submit your driver requirements and documents for final review.'
+        : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF082E49),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.primary.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.assignment_turned_in_outlined,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: widget.onOpenApplication,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            child: Text(
+              _isCertifiedDriver ? 'View' : 'Apply',
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -1194,6 +1298,8 @@ class __DashboardTabState extends State<_DashboardTab> {
               const SizedBox(height: 16),
               _buildStats(stats),
               const SizedBox(height: 24),
+              _buildDriverApplicationCta(),
+              const SizedBox(height: 28),
               Row(
                 children: [
                   const Expanded(
@@ -1764,6 +1870,13 @@ class _JobsTab extends StatefulWidget {
 
 class __JobsTabState extends State<_JobsTab> {
   late Future<List<Map<String, dynamic>>> jobsFuture;
+  String _selectedStatus = 'pending';
+  static const List<String> _statusTabs = [
+    'pending',
+    'approved',
+    'completed',
+    'cancelled',
+  ];
 
   @override
   void initState() {
@@ -1786,6 +1899,82 @@ class __JobsTabState extends State<_JobsTab> {
   Future<void> _refreshJobs() async {
     setState(() => _loadJobs());
     await jobsFuture;
+  }
+
+  String _statusGroup(Map<String, dynamic> trip) {
+    final status = (trip['status']?.toString() ?? '').trim().toLowerCase();
+    if (['completed', 'returned', 'successful', 'success'].contains(status)) {
+      return 'completed';
+    }
+    if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status)) {
+      return 'cancelled';
+    }
+    if ([
+      'approved',
+      'confirmed',
+      'active',
+      'ongoing',
+      'picked_up',
+      'in_progress',
+    ].contains(status)) {
+      return 'approved';
+    }
+    return 'pending';
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Pending';
+    }
+  }
+
+  Widget _buildStatusTabs(List<Map<String, dynamic>> trips) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _statusTabs.map((status) {
+          final selected = _selectedStatus == status;
+          final count = trips.where((trip) => _statusGroup(trip) == status).length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _selectedStatus = status),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: status == 'cancelled' ? 108 : 96,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.primary : AppColors.darkBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected ? AppColors.primary : AppColors.borderColor,
+                  ),
+                ),
+                child: Text(
+                  '${_statusLabel(status)} ($count)',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? Colors.black : AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   @override
@@ -1814,28 +2003,49 @@ class __JobsTabState extends State<_JobsTab> {
               }
 
               final trips = snapshot.data ?? [];
+              final visibleTrips = trips
+                  .where((trip) => _statusGroup(trip) == _selectedStatus)
+                  .toList();
 
               if (trips.isEmpty) {
-                return const _DriverEmptyStateCard(
-                  icon: Icons.route_outlined,
-                  title: 'No assigned trips yet',
-                  message:
-                      'When an operator assigns you to a booking, it will show here.',
+                return Column(
+                  children: [
+                    _buildStatusTabs(trips),
+                    const SizedBox(height: 14),
+                    const _DriverEmptyStateCard(
+                      icon: Icons.route_outlined,
+                      title: 'No assigned trips yet',
+                      message:
+                          'When an operator assigns you to a booking, it will show here.',
+                    ),
+                  ],
                 );
               }
 
               return Column(
-                children: trips.map((trip) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _TripCard(
-                      trip: trip,
-                      onChanged: () {
-                        setState(() => _loadJobs());
-                      },
-                    ),
-                  );
-                }).toList(),
+                children: [
+                  _buildStatusTabs(trips),
+                  const SizedBox(height: 14),
+                  if (visibleTrips.isEmpty)
+                    _DriverEmptyStateCard(
+                      icon: Icons.inbox_outlined,
+                      title: 'No ${_statusLabel(_selectedStatus).toLowerCase()} trips',
+                      message:
+                          'Trips with this status will appear here once available.',
+                    )
+                  else
+                    ...visibleTrips.map((trip) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _TripCard(
+                          trip: trip,
+                          onChanged: () {
+                            setState(() => _loadJobs());
+                          },
+                        ),
+                      );
+                    }),
+                ],
               );
             },
           ),
@@ -2001,6 +2211,10 @@ class _TripCardState extends State<_TripCard> {
 
   @override
   Widget build(BuildContext context) {
+    return _buildLegacyRevenueView(context);
+  }
+
+  Widget _buildLegacyRevenueView(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final status = (trip['status']?.toString() ?? 'assigned').toLowerCase();
     final isTrackingThisTrip =
@@ -2187,6 +2401,10 @@ class _DriverOfferCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _buildLegacyRevenueView(context);
+  }
+
+  Widget _buildLegacyRevenueView(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final booking = offer['bookings'] as Map<String, dynamic>?;
     final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
@@ -2771,17 +2989,37 @@ class _EarningsTab extends StatefulWidget {
 
 class __EarningsTabState extends State<_EarningsTab> {
   late Future<double> earningsFuture;
+  String _selectedPeriod = 'Month';
+  static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
 
   @override
   void initState() {
     super.initState();
+    _loadEarnings();
+  }
+
+  DateTime _periodStart() {
+    final now = DateTime.now();
+    switch (_selectedPeriod) {
+      case 'Day':
+        return DateTime(now.year, now.month, now.day);
+      case 'Week':
+        return now.subtract(const Duration(days: 7));
+      case 'Year':
+        return DateTime(now.year, 1, 1);
+      default:
+        return DateTime(now.year, now.month, 1);
+    }
+  }
+
+  void _loadEarnings() {
     final authService = AuthService();
     final driverService = DriverService();
     if (authService.currentUser != null) {
       earningsFuture = driverService
           .getEarnings(
             authService.currentUser!.id,
-            fromDate: DateTime.now().subtract(const Duration(days: 30)),
+            fromDate: _periodStart(),
             toDate: DateTime.now(),
           )
           .catchError((_) => 0.0);
@@ -2792,6 +3030,10 @@ class __EarningsTabState extends State<_EarningsTab> {
 
   @override
   Widget build(BuildContext context) {
+    return _buildRevenueView();
+  }
+
+  Widget _buildLegacyRevenueView(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
@@ -2882,6 +3124,258 @@ class __EarningsTabState extends State<_EarningsTab> {
       ),
     );
   }
+
+  Widget _buildRevenueView() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Revenue & Earnings',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            _buildPeriodDropdown(),
+          ],
+        ),
+        const SizedBox(height: 22),
+        FutureBuilder<double>(
+          future: earningsFuture,
+          builder: (context, snapshot) {
+            final earnings = snapshot.data ?? 0.0;
+            return Column(
+              children: [
+                _buildMetricCard(
+                  label: 'Total Revenue',
+                  value: _currency(earnings),
+                  subtext: earnings <= 0
+                      ? 'No revenue for this ${_selectedPeriod.toLowerCase()}'
+                      : 'Driver earnings this ${_selectedPeriod.toLowerCase()}',
+                  icon: Icons.payments_outlined,
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSmallMetricCard(
+                        label: 'Completed Jobs',
+                        value: '0',
+                        icon: Icons.route_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSmallMetricCard(
+                        label: 'Avg / Job',
+                        value: _currency(0),
+                        icon: Icons.analytics_outlined,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 26),
+        _buildSectionHeader('Linked Payout Methods', action: 'Manage'),
+        const SizedBox(height: 12),
+        _buildEmptyPanel(
+          icon: Icons.account_balance_wallet_outlined,
+          text: 'No linked payout methods yet.',
+        ),
+        const SizedBox(height: 18),
+        _buildSectionHeader('Earnings Breakdown', action: 'View All'),
+        const SizedBox(height: 12),
+        _buildEmptyPanel(
+          icon: Icons.receipt_long_outlined,
+          text: 'Completed trip earnings will appear here.',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPeriodDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedPeriod,
+          dropdownColor: AppColors.darkBgSecondary,
+          iconEnabledColor: AppColors.primary,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+          items: _periodOptions
+              .map(
+                (period) =>
+                    DropdownMenuItem(value: period, child: Text(period)),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() {
+              _selectedPeriod = value;
+              _loadEarnings();
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricCard({
+    required String label,
+    required String value,
+    required String subtext,
+    required IconData icon,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFF071D31),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtext,
+                  style: const TextStyle(
+                    color: AppColors.success,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(icon, color: AppColors.primary, size: 26),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmallMetricCard({
+    required String label,
+    required String value,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppColors.primary, size: 22),
+          const SizedBox(height: 12),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, {String? action}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        if (action != null)
+          Text(
+            action,
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyPanel({required IconData icon, required String text}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _currency(num value) => 'PHP ${value.toStringAsFixed(2)}';
 }
 
 // AVAILABILITY TAB
@@ -3119,6 +3613,167 @@ class _ProfileTab extends StatefulWidget {
 }
 
 class __ProfileTabState extends State<_ProfileTab> {
+  late Future<Map<String, dynamic>> _driverStatsFuture;
+  late Future<String?> _avatarUrlFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final userId = AuthService().currentUser?.id;
+    _driverStatsFuture = userId == null
+        ? Future.value(<String, dynamic>{})
+        : DriverService()
+              .getDriverStats(userId)
+              .catchError((_) => <String, dynamic>{});
+    _avatarUrlFuture = _loadAvatarUrl(userId);
+  }
+
+  Future<String?> _loadAvatarUrl(String? userId) async {
+    if (userId == null) return null;
+    try {
+      final row = await Supabase.instance.client
+          .from('users')
+          .select('avatar_url, profile_picture_url')
+          .eq('id', userId)
+          .maybeSingle();
+      final url = (row?['avatar_url'] ?? row?['profile_picture_url'])
+          ?.toString()
+          .trim();
+      return url == null || url.isEmpty ? null : url;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _removeProfilePicture() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+
+    try {
+      await Supabase.instance.client.from('users').update({
+        'avatar_url': null,
+        'profile_picture_url': null,
+      }).eq('id', userId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile picture removed'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      setState(() {
+        _avatarUrlFuture = Future.value(null);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to remove profile picture: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Widget _buildRatingSummaryCard(Map<String, dynamic> stats) {
+    final rating =
+        (stats['rating'] as num?)?.toDouble() ??
+        double.tryParse(stats['rating']?.toString() ?? '') ??
+        0.0;
+    final ratingCount =
+        int.tryParse(
+          (stats['rating_count'] ?? stats['total_ratings'] ?? 0).toString(),
+        ) ??
+        0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF071D31),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.star_rounded, color: AppColors.primary),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Driver Rating',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  ratingCount == 0
+                      ? 'No reviews yet'
+                      : '${rating.toStringAsFixed(1)} / 5.0',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  ratingCount == 0
+                      ? 'Ratings from renters will appear here.'
+                      : '$ratingCount total rating${ratingCount == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final user = AuthService().currentUser;
+              if (user == null) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RatingsReviewsScreen(
+                    userId: user.id,
+                    title: 'Driver Ratings & Reviews',
+                  ),
+                ),
+              );
+            },
+            child: const Text('View'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverInitial(String displayName) {
+    return Center(
+      child: Text(
+        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+        style: const TextStyle(
+          fontSize: 30,
+          fontWeight: FontWeight.w800,
+          color: Colors.black,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -3136,6 +3791,12 @@ class __ProfileTabState extends State<_ProfileTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          FutureBuilder<Map<String, dynamic>>(
+            future: _driverStatsFuture,
+            builder: (context, snapshot) =>
+                _buildRatingSummaryCard(snapshot.data ?? {}),
+          ),
+          const SizedBox(height: 16),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -3147,17 +3808,70 @@ class __ProfileTabState extends State<_ProfileTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                CircleAvatar(
-                  radius: 40,
-                  backgroundColor: AppColors.primary,
-                  child: Text(
-                    displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
-                    style: const TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.black,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 86,
+                      height: 86,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      alignment: Alignment.center,
+                      clipBehavior: Clip.antiAlias,
+                      child: FutureBuilder<String?>(
+                        future: _avatarUrlFuture,
+                        builder: (context, snapshot) {
+                          final avatarUrl = snapshot.data ?? '';
+                          if (avatarUrl.isNotEmpty) {
+                            return Image.network(
+                              avatarUrl,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                              errorBuilder: (_, _, _) =>
+                                  _buildDriverInitial(displayName),
+                            );
+                          }
+                          return _buildDriverInitial(displayName);
+                        },
+                      ),
                     ),
-                  ),
+                    Positioned(
+                      right: -6,
+                      bottom: -6,
+                      child: InkWell(
+                        onTap: () async {
+                          final updated = await Navigator.pushNamed(
+                            context,
+                            '/profile-picture-upload',
+                          );
+                          if (updated == true && context.mounted) {
+                            setState(() {
+                              _avatarUrlFuture = _loadAvatarUrl(
+                                AuthService().currentUser?.id,
+                              );
+                            });
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.primary),
+                          ),
+                          child: const Icon(
+                            Icons.edit_outlined,
+                            color: AppColors.primary,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Text(
@@ -3171,14 +3885,40 @@ class __ProfileTabState extends State<_ProfileTab> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                const Row(
-                  children: [
-                    Expanded(child: _DriverProfileStat('Trips', '0')),
-                    _DriverProfileDivider(),
-                    Expanded(child: _DriverProfileStat('Bookings', '0')),
-                    _DriverProfileDivider(),
-                    Expanded(child: _DriverProfileStat('Rating', '0.0')),
-                  ],
+                FutureBuilder<Map<String, dynamic>>(
+                  future: _driverStatsFuture,
+                  builder: (context, snapshot) {
+                    final stats = snapshot.data ?? {};
+                    final totalTrips =
+                        int.tryParse(
+                          (stats['total_trips'] ?? stats['trips'] ?? 0)
+                              .toString(),
+                        ) ??
+                        0;
+                    final rating =
+                        (stats['rating'] as num?)?.toDouble() ??
+                        double.tryParse(stats['rating']?.toString() ?? '') ??
+                        0.0;
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _DriverProfileStat(
+                            'Trips',
+                            totalTrips.toString(),
+                          ),
+                        ),
+                        const _DriverProfileDivider(),
+                        const Expanded(child: _DriverProfileStat('Bookings', '0')),
+                        const _DriverProfileDivider(),
+                        Expanded(
+                          child: _DriverProfileStat(
+                            'Rating',
+                            rating <= 0 ? '0.0' : rating.toStringAsFixed(1),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 18),
                 _InfoRow(
@@ -3236,6 +3976,13 @@ class __ProfileTabState extends State<_ProfileTab> {
                 ),
               );
             },
+            isDark: true,
+          ),
+          _SettingTile(
+            icon: Icons.no_photography_outlined,
+            label: 'Remove Profile Picture',
+            value: '',
+            onTap: _removeProfilePicture,
             isDark: true,
           ),
           _SettingTile(

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../../services/auth_service.dart';
@@ -13,8 +16,70 @@ class ProfilePictureUploadScreen extends StatefulWidget {
 
 class _ProfilePictureUploadScreenState
     extends State<ProfilePictureUploadScreen> {
+  File? _selectedPhoto;
   bool _isUploaded = false;
   bool _isSkipping = false;
+  bool _isSaving = false;
+
+  Future<void> _pickProfilePhoto() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1200,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedPhoto = File(picked.path);
+      _isUploaded = true;
+    });
+  }
+
+  Future<void> _saveProfilePhoto() async {
+    final user = AuthService().currentUser;
+    final file = _selectedPhoto;
+    if (user == null || file == null) return;
+
+    setState(() => _isSaving = true);
+    try {
+      final extension = file.path.split('.').last.toLowerCase();
+      final safeExtension = extension.isEmpty ? 'jpg' : extension;
+      final objectPath =
+          'profile_pictures/${user.id}/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
+      final supabase = Supabase.instance.client;
+      await supabase.storage.from('id_images').upload(
+            objectPath,
+            file,
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+          );
+      final publicUrl = supabase.storage.from('id_images').getPublicUrl(
+            objectPath,
+          );
+
+      await supabase.from('users').update({
+        'avatar_url': publicUrl,
+        'profile_picture_url': publicUrl,
+      }).eq('id', user.id);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile picture updated'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update profile picture: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   Future<void> _handleSkipVerification() async {
     setState(() {
@@ -126,11 +191,7 @@ class _ProfilePictureUploadScreenState
 
               // Upload area
               GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _isUploaded = true;
-                  });
-                },
+                onTap: _pickProfilePhoto,
                 child: Container(
                   height: 320,
                   decoration: BoxDecoration(
@@ -150,17 +211,22 @@ class _ProfilePictureUploadScreenState
                       if (_isUploaded)
                         Column(
                           children: [
-                            Container(
-                              width: 120,
-                              height: 120,
-                              decoration: BoxDecoration(
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(26),
+                              child: Container(
+                                width: 120,
+                                height: 120,
                                 color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(60),
-                              ),
-                              child: const Icon(
-                                Icons.person,
-                                color: Colors.black,
-                                size: 60,
+                                child: _selectedPhoto == null
+                                    ? const Icon(
+                                        Icons.person,
+                                        color: Colors.black,
+                                        size: 60,
+                                      )
+                                    : Image.file(
+                                        _selectedPhoto!,
+                                        fit: BoxFit.cover,
+                                      ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -190,7 +256,7 @@ class _ProfilePictureUploadScreenState
                               height: 100,
                               decoration: BoxDecoration(
                                 color: AppColors.primary.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(50),
+                                borderRadius: BorderRadius.circular(24),
                               ),
                               child: const Icon(
                                 Icons.camera_alt_outlined,
@@ -255,14 +321,10 @@ class _ProfilePictureUploadScreenState
               Opacity(
                 opacity: _isUploaded ? 1.0 : 0.5,
                 child: CustomButton(
-                  label: 'Continue',
-                  onPressed: () {
-                    if (_isUploaded) {
-                      Navigator.of(
-                        context,
-                      ).pushReplacementNamed('/verification-options');
-                    }
-                  },
+                  label: _isSaving ? 'Saving...' : 'Save Profile Picture',
+                  onPressed: _isUploaded && !_isSaving
+                      ? _saveProfilePhoto
+                      : null,
                 ),
               ),
               const SizedBox(height: 12),

@@ -1888,16 +1888,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  _buildBookingTabButton('Pending', 0),
-                  const SizedBox(width: 8),
-                  _buildBookingTabButton('Active', 1),
-                  const SizedBox(width: 8),
-                  _buildBookingTabButton('Past', 2),
-                  const SizedBox(width: 8),
-                  _buildBookingTabButton('Cancelled', 3),
-                ],
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildBookingTabButton('Pending', 0),
+                    const SizedBox(width: 8),
+                    _buildBookingTabButton('Active', 1),
+                    const SizedBox(width: 8),
+                    _buildBookingTabButton('Past', 2),
+                    const SizedBox(width: 8),
+                    _buildBookingTabButton('Cancelled', 3),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               if (filteredBookings.isEmpty)
@@ -1942,7 +1945,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   Widget _buildBookingTabButton(String label, int index) {
     final isSelected = selectedBookingTab == index;
-    return Expanded(
+    return SizedBox(
+      width: label == 'Cancelled' ? 92 : 78,
       child: GestureDetector(
         onTap: () => setState(() => selectedBookingTab = index),
         child: AnimatedContainer(
@@ -2886,11 +2890,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             children: [
               GestureDetector(
                 onTap: () => _scaffoldKey.currentState?.openDrawer(),
-                child: const Icon(
-                  Icons.menu,
-                  color: Colors.black,
-                  size: 24,
-                ),
+                child: const Icon(Icons.menu, color: Colors.black, size: 24),
               ),
               const Spacer(),
               const Text(
@@ -3637,8 +3637,24 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     Map<String, dynamic> booking,
   ) async {
     final files = [
+      MapEntry(
+        'Signature image',
+        booking['renter_signature_url']?.toString() ?? '',
+      ),
       MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
       MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
+      MapEntry(
+        'Co-traveler signature image',
+        booking['co_traveler_signature_url']?.toString() ?? '',
+      ),
+      MapEntry(
+        'Co-traveler valid ID',
+        booking['co_traveler_valid_id_url']?.toString() ?? '',
+      ),
+      MapEntry(
+        'Co-traveler selfie',
+        booking['co_traveler_selfie_url']?.toString() ?? '',
+      ),
     ];
 
     await showModalBottomSheet<void>(
@@ -3691,6 +3707,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 _buildPartnerReviewLine(
                   'Co-traveler license',
                   booking['co_traveler_license']?.toString(),
+                ),
+                _buildPartnerReviewLine(
+                  'Co-traveler signature',
+                  booking['co_traveler_signature_text']?.toString(),
                 ),
                 const SizedBox(height: 12),
                 ...files.map((file) {
@@ -4236,25 +4256,59 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ),
                   child: Column(
                     children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(40),
-                        ),
-                        child: Center(
-                          child: Text(
-                            partnerName.isNotEmpty
-                                ? partnerName[0].toUpperCase()
-                                : 'P',
-                            style: const TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black,
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 82,
+                            height: 82,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Center(
+                              child: Text(
+                                partnerName.isNotEmpty
+                                    ? partnerName[0].toUpperCase()
+                                    : 'P',
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          Positioned(
+                            right: -6,
+                            bottom: -6,
+                            child: InkWell(
+                              onTap: () async {
+                                final updated = await Navigator.pushNamed(
+                                  context,
+                                  '/profile-picture-upload',
+                                );
+                                if (updated == true && mounted) {
+                                  _loadPartnerData();
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.darkBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: AppColors.primary),
+                                ),
+                                child: const Icon(
+                                  Icons.edit_outlined,
+                                  color: AppColors.primary,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       Text(

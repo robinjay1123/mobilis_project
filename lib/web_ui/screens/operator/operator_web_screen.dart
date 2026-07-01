@@ -439,11 +439,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               emergency_contact_phone,
               emergency_contact_relationship,
               renter_signature_text,
+              renter_signature_url,
               renter_valid_id_url,
               renter_selfie_url,
               co_traveler_name,
               co_traveler_phone,
               co_traveler_license,
+              co_traveler_signature_text,
+              co_traveler_signature_url,
+              co_traveler_valid_id_url,
+              co_traveler_selfie_url,
               with_driver,
               pickup_location,
               dropoff_location,
@@ -2932,8 +2937,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   ) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final evidence = [
+      MapEntry(
+        'Signature image',
+        booking['renter_signature_url']?.toString() ?? '',
+      ),
       MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
       MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
+      MapEntry(
+        'Co-traveler signature image',
+        booking['co_traveler_signature_url']?.toString() ?? '',
+      ),
+      MapEntry(
+        'Co-traveler valid ID',
+        booking['co_traveler_valid_id_url']?.toString() ?? '',
+      ),
+      MapEntry(
+        'Co-traveler selfie',
+        booking['co_traveler_selfie_url']?.toString() ?? '',
+      ),
     ];
 
     await showDialog<void>(
@@ -2974,6 +2995,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 _buildReviewLine(
                   'Co-traveler license',
                   booking['co_traveler_license']?.toString(),
+                ),
+                _buildReviewLine(
+                  'Co-traveler signature',
+                  booking['co_traveler_signature_text']?.toString(),
                 ),
                 const SizedBox(height: 16),
                 const Text(

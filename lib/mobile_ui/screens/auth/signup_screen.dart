@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../../../services/auth_service.dart';
@@ -151,6 +152,11 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    if (!_isValidPhilippinePhone(phoneController.text.trim())) {
+      _showErrorSnackBar('Phone number must be 11 digits, e.g. 09171234567');
+      return;
+    }
+
     if (locationController.text.trim().isEmpty) {
       _showErrorSnackBar('Please enter your location or use auto-detect');
       return;
@@ -278,8 +284,11 @@ class _SignupScreenState extends State<SignupScreen> {
     if (password.length < 8) {
       return 'Password must be at least 8 characters long';
     }
-    if (!RegExp(r'[A-Za-z]').hasMatch(password)) {
-      return 'Password must include at least one letter';
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'Password must include at least one uppercase letter';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'Password must include at least one lowercase letter';
     }
     if (!RegExp(r'\d').hasMatch(password)) {
       return 'Password must include at least one number';
@@ -288,6 +297,12 @@ class _SignupScreenState extends State<SignupScreen> {
       return 'Password must include at least one special character';
     }
     return null;
+  }
+
+  bool _isValidPhilippinePhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return RegExp(r'^09\d{9}$').hasMatch(digits) ||
+        RegExp(r'^639\d{9}$').hasMatch(digits);
   }
 
   Future<void> _getCurrentLocation() async {
@@ -799,9 +814,13 @@ class _SignupScreenState extends State<SignupScreen> {
               // Phone
               CustomTextField(
                 label: 'Phone Number *',
-                hintText: '+63',
+                hintText: '09171234567',
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(11),
+                ],
                 prefixIcon: const Icon(
                   Icons.phone_outlined,
                   color: AppColors.textTertiary,

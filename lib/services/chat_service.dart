@@ -142,16 +142,20 @@ class ChatService {
   }
 
   Future<String> getPrimaryAdminUserId() async {
-    final response = await supabase
-        .from('users')
-        .select('id')
-        .eq('role', 'admin')
-        .limit(1)
-        .maybeSingle();
+    Map<String, dynamic>? response;
+    for (final role in ['customer_service', 'support', 'admin']) {
+      response = await supabase
+          .from('users')
+          .select('id')
+          .eq('role', role)
+          .limit(1)
+          .maybeSingle();
+      if (response != null) break;
+    }
 
     final adminId = response?['id']?.toString().trim() ?? '';
     if (adminId.isEmpty) {
-      throw Exception('No admin account is available for customer service');
+      throw Exception('No support or admin account is available for customer service');
     }
     return adminId;
   }

@@ -283,7 +283,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.isDarkMode;
+    // Chat should follow the Mobilis dark system style even when callers omit
+    // theme args, which fixes customer-service opening in light mode.
+    const isDark = true;
     final bgColor = isDark ? AppColors.darkBg : AppColors.lightBg;
     final cardColor = isDark ? AppColors.darkCard : Colors.white;
     final textColor = isDark

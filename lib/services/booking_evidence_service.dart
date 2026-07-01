@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -33,6 +34,27 @@ class BookingEvidenceService {
             upsert: true,
             contentType: file.mimeType ?? 'image/$extension',
           ),
+        );
+
+    return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);
+  }
+
+  Future<String> uploadEvidenceBytes({
+    required String userId,
+    required Uint8List bytes,
+    required String evidenceType,
+    String extension = 'png',
+    String contentType = 'image/png',
+  }) async {
+    final objectPath =
+        '$userId/${evidenceType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    await supabase.storage
+        .from('booking_evidence')
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: FileOptions(upsert: true, contentType: contentType),
         );
 
     return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);

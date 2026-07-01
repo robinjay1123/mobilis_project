@@ -13,7 +13,10 @@ class BookingCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onViewDetails;
   final VoidCallback? onMessage;
+  final VoidCallback? onTrack;
   final bool showMessageButton;
+  final bool showTrackButton;
+  final bool showRating;
   final String detailsButtonLabel;
   final bool isActive;
   final String? carImageUrl;
@@ -31,7 +34,10 @@ class BookingCard extends StatelessWidget {
     required this.onTap,
     this.onViewDetails,
     this.onMessage,
+    this.onTrack,
     this.showMessageButton = false,
+    this.showTrackButton = false,
+    this.showRating = true,
     this.detailsButtonLabel = 'View Details',
     this.isActive = false,
     this.carImageUrl,
@@ -40,6 +46,8 @@ class BookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final normalizedStatus = status.toLowerCase();
+    final shouldShowRating =
+        showRating && normalizedStatus != 'pending' && rating > 0;
     final statusColor =
         normalizedStatus == 'approved' ||
             normalizedStatus == 'active' ||
@@ -230,27 +238,64 @@ class BookingCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.star,
-                      size: 12,
-                      color: AppColors.ratingGold,
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      '$rating',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
+                Flexible(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (shouldShowRating) ...[
+                        const Icon(
+                          Icons.star,
+                          size: 12,
+                          color: AppColors.ratingGold,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ] else
+                        const Flexible(
+                          child: Text(
+                            'No ratings yet',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textTertiary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
+            if (showTrackButton) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: onTrack,
+                  icon: const Icon(Icons.near_me_outlined, size: 16),
+                  label: const Text('Track Ongoing Trip'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Row(
               children: [
                 Expanded(

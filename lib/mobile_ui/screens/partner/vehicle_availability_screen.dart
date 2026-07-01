@@ -1293,6 +1293,50 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
       return;
     }
 
+    if (ownerIsDriver && !_truthy(application['owner_is_driver'])) {
+      final currentApplicationId = application['id']?.toString();
+      final otherAssigned = applications.any(
+        (item) =>
+            item['id']?.toString() != currentApplicationId &&
+            _truthy(item['owner_is_driver']),
+      );
+
+      if (otherAssigned) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: AppColors.darkBgSecondary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Text(
+              'Switch With Me Vehicle?',
+              style: TextStyle(color: AppColors.textPrimary),
+            ),
+            content: const Text(
+              'Only one approved vehicle can be assigned as "With me". Turning this on will remove "With me" from your other vehicle.',
+              style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+    }
+
     try {
       final partnerService = PartnerService();
       await partnerService.updateApprovedVehicleSettings(
@@ -1538,11 +1582,13 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                                                   padding: const EdgeInsets.all(
                                                     6,
                                                   ),
-                                                  decoration:
-                                                      const BoxDecoration(
-                                                        color: Colors.black87,
-                                                        shape: BoxShape.circle,
-                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black87,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
                                                   child: const Icon(
                                                     Icons.close,
                                                     color: Colors.white,
@@ -1594,11 +1640,13 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                                                   padding: const EdgeInsets.all(
                                                     6,
                                                   ),
-                                                  decoration:
-                                                      const BoxDecoration(
-                                                        color: Colors.black87,
-                                                        shape: BoxShape.circle,
-                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black87,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
                                                   child: const Icon(
                                                     Icons.close,
                                                     color: Colors.white,

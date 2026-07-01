@@ -205,11 +205,16 @@ class BookingService {
     String? emergencyContactPhone,
     String? emergencyContactRelationship,
     String? renterSignatureText,
+    String? renterSignatureUrl,
     String? renterValidIdUrl,
     String? renterSelfieUrl,
     String? coTravelerName,
     String? coTravelerPhone,
     String? coTravelerLicense,
+    String? coTravelerSignatureText,
+    String? coTravelerSignatureUrl,
+    String? coTravelerValidIdUrl,
+    String? coTravelerSelfieUrl,
   }) async {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
@@ -227,8 +232,34 @@ class BookingService {
         throw Exception('A clear renter selfie is required before booking');
       }
 
+      if (renterSignatureUrl == null || renterSignatureUrl.trim().isEmpty) {
+        throw Exception('A drawn digital signature is required before booking');
+      }
+
       if (renterValidIdUrl == null || renterValidIdUrl.trim().isEmpty) {
         throw Exception('A valid ID photo is required before booking');
+      }
+
+      final coTravelerFields = [
+        coTravelerName?.trim() ?? '',
+        coTravelerPhone?.trim() ?? '',
+        coTravelerLicense?.trim() ?? '',
+      ];
+      if (coTravelerFields.any((value) => value.isEmpty)) {
+        throw Exception(
+          'Co-traveler name, phone number, and license number are required',
+        );
+      }
+
+      if (coTravelerSignatureUrl == null ||
+          coTravelerSignatureUrl.trim().isEmpty ||
+          coTravelerValidIdUrl == null ||
+          coTravelerValidIdUrl.trim().isEmpty ||
+          coTravelerSelfieUrl == null ||
+          coTravelerSelfieUrl.trim().isEmpty) {
+        throw Exception(
+          'Co-traveler signature, valid ID, and selfie are required',
+        );
       }
 
       final vehicleState = await supabase
@@ -354,13 +385,11 @@ class BookingService {
         bookingPayload['renter_signature_text'] = renterSignatureText.trim();
       }
 
-      if (renterValidIdUrl != null && renterValidIdUrl.trim().isNotEmpty) {
-        bookingPayload['renter_valid_id_url'] = renterValidIdUrl.trim();
-      }
+      bookingPayload['renter_signature_url'] = renterSignatureUrl.trim();
 
-      if (renterSelfieUrl != null && renterSelfieUrl.trim().isNotEmpty) {
-        bookingPayload['renter_selfie_url'] = renterSelfieUrl.trim();
-      }
+      bookingPayload['renter_valid_id_url'] = renterValidIdUrl.trim();
+
+      bookingPayload['renter_selfie_url'] = renterSelfieUrl.trim();
 
       if (coTravelerName != null && coTravelerName.trim().isNotEmpty) {
         bookingPayload['co_traveler_name'] = coTravelerName.trim();
@@ -373,6 +402,17 @@ class BookingService {
       if (coTravelerLicense != null && coTravelerLicense.trim().isNotEmpty) {
         bookingPayload['co_traveler_license'] = coTravelerLicense.trim();
       }
+
+      if (coTravelerSignatureText != null &&
+          coTravelerSignatureText.trim().isNotEmpty) {
+        bookingPayload['co_traveler_signature_text'] =
+            coTravelerSignatureText.trim();
+      }
+
+      bookingPayload['co_traveler_signature_url'] =
+          coTravelerSignatureUrl.trim();
+      bookingPayload['co_traveler_valid_id_url'] = coTravelerValidIdUrl.trim();
+      bookingPayload['co_traveler_selfie_url'] = coTravelerSelfieUrl.trim();
 
       final response = await supabase
           .from('bookings')

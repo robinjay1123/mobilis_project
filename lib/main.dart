@@ -422,7 +422,7 @@ class _DashboardRouteSelectorState extends State<DashboardRouteSelector> {
     if (kIsWeb || screenWidth > 900) {
       // Web dashboard
       return Scaffold(
-        appBar: AppBar(title: const Text('Dashboard')),
+      appBar: AppBar(title: const Text('Dashboard')),
         body: const Center(child: Text('Renter Dashboard - Web Version')),
       );
     }

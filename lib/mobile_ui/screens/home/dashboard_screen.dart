@@ -26,6 +26,7 @@ import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../partner/partner_tracking_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -46,6 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ---------------------------------------------------------------------------
   String userName = 'User';
   String userLocation = 'Not specified';
+  String? userAvatarUrl;
   bool emailConfirmed = true;
   bool userVerified = false;
   int _userCreatedYear = DateTime.now().year;
@@ -176,6 +178,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           userLocation = (location != null && location.isNotEmpty)
               ? location
               : userLocation;
+          userAvatarUrl = (resp['avatar_url'] ?? resp['profile_picture_url'])
+              ?.toString()
+              .trim();
           userVerified =
               resp['is_verified'] as bool? ??
               (resp['id_verified'] as bool?) ??
@@ -216,7 +221,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final record = await supabase
           .from('users')
-          .select('full_name, id_verified, verification_status, created_at')
+          .select(
+            'full_name, id_verified, verification_status, created_at, avatar_url, profile_picture_url',
+          )
           .eq('id', userId)
           .maybeSingle();
       if (record == null) return null;
@@ -2195,6 +2202,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _openBookingTracking(Map<String, dynamic> booking) async {
+    final rawStatus = booking['rawStatus']?.toString().toLowerCase() ?? '';
+    if (rawStatus != 'active') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tracking is available once the trip is ongoing.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    final conversationId = await _findBookingConversationId(booking);
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PartnerTrackingScreen(
+          booking: booking,
+          conversationId: conversationId ?? '',
+          recipientName: '${booking['carName']} Booking',
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _findBookingConversationId(
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return null;
+
+    final existingConversation = _conversations.firstWhere(
+      (conversation) => conversation['booking_id']?.toString() == bookingId,
+      orElse: () => {},
+    );
+    final existingId = existingConversation['id']?.toString();
+    if (existingId != null && existingId.isNotEmpty) return existingId;
+
+    final conversation = await Supabase.instance.client
+        .from('conversations')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .maybeSingle();
+    return conversation?['id']?.toString();
+  }
+
   List<Map<String, dynamic>> _topRentalPartners() {
     final partnerMap = <String, Map<String, dynamic>>{};
 
@@ -3854,6 +3907,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
                       isActive: booking['statusGroup'] == 'Ongoing',
                       carImageUrl: booking['imageUrl'] as String?,
+                      showRating:
+                          booking['statusGroup'] == 'Completed' &&
+                          ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
+                      showTrackButton: booking['rawStatus'] == 'active',
+                      onTrack: () => _openBookingTracking(booking),
                       detailsButtonLabel: isCompleted
                           ? 'View Receipt'
                           : isCancelled
@@ -4346,38 +4404,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   child: Column(
                     children: [
                       Stack(
+                        clipBehavior: Clip.none,
                         children: [
                           Container(
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
                               color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(50),
+                              borderRadius: BorderRadius.circular(26),
                             ),
-                            child: const Icon(
-                              Icons.person,
-                              color: Colors.black,
-                              size: 50,
-                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child:
+                                userAvatarUrl != null &&
+                                    userAvatarUrl!.isNotEmpty
+                                ? Image.network(
+                                    userAvatarUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const Icon(
+                                      Icons.person,
+                                      color: Colors.black,
+                                      size: 50,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.person,
+                                    color: Colors.black,
+                                    size: 50,
+                                  ),
                           ),
                           Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: AppColors.success,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
+                            bottom: -4,
+                            right: -4,
+                            child: InkWell(
+                              onTap: () async {
+                                final updated = await Navigator.pushNamed(
+                                  context,
+                                  '/profile-picture-upload',
+                                );
+                                if (updated == true && mounted) {
+                                  _loadUserData();
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
                                   color: AppColors.darkBg,
-                                  width: 2,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: AppColors.primary),
                                 ),
-                              ),
-                              child: const Icon(
-                                Icons.verified,
-                                color: Colors.white,
-                                size: 16,
+                                child: const Icon(
+                                  Icons.edit_outlined,
+                                  color: AppColors.primary,
+                                  size: 16,
+                                ),
                               ),
                             ),
                           ),
@@ -4887,6 +4968,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (isApprovedTrip) ...[
               _buildActiveTripHero(booking),
               const SizedBox(height: 16),
+              if (booking['rawStatus'] == 'active') ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _openBookingTracking(booking);
+                    },
+                    icon: const Icon(Icons.near_me_outlined, size: 18),
+                    label: const Text('Track Ongoing Trip'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
             ],
             Container(
               padding: const EdgeInsets.all(12),
@@ -6658,6 +6761,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _handleBookingCancellation(Map<String, dynamic> booking) async {
     final bookingService = BookingService();
     final canCancel = _canCancelBooking(booking);
+    final reasonController = TextEditingController();
 
     if (!canCancel) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -6666,33 +6770,133 @@ class _DashboardScreenState extends State<DashboardScreen> {
           backgroundColor: AppColors.error,
         ),
       );
+      reasonController.dispose();
       return;
     }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cancel Booking?'),
-        content: const Text(
-          'Are you sure you want to cancel this booking? This action cannot be undone.',
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.error),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Cancel Request',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
         ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.borderColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      booking['carName']?.toString() ?? 'Selected vehicle',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${booking['startDate'] ?? 'Start'} - ${booking['endDate'] ?? 'End'}',
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Tell us why you are cancelling. This helps the operator and partner review the request.',
+                style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                minLines: 3,
+                maxLines: 5,
+                maxLength: 180,
+                style: const TextStyle(color: AppColors.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Cancellation reason',
+                  hintStyle: const TextStyle(color: AppColors.textTertiary),
+                  filled: true,
+                  fillColor: AppColors.darkBg,
+                  counterStyle: const TextStyle(color: AppColors.textTertiary),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.pop(context, false),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              side: const BorderSide(color: AppColors.borderColor),
+            ),
             child: const Text('Keep Booking'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              'Cancel Booking',
-              style: TextStyle(color: AppColors.error),
+          ElevatedButton(
+            onPressed: () {
+              if (reasonController.text.trim().length < 5) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please add a cancellation reason.'),
+                    backgroundColor: AppColors.warning,
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context, true);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
             ),
+            child: const Text('Cancel Request'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) {
+      reasonController.dispose();
+      return;
+    }
+    final cancellationReason = reasonController.text.trim();
+    reasonController.dispose();
 
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
@@ -6704,6 +6908,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     try {
       await bookingService.updateBookingStatus(booking['id'], 'cancelled');
+      await Supabase.instance.client
+          .from('bookings')
+          .update({
+            'cancellation_reason': cancellationReason,
+            'cancelled_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', booking['id']);
 
       if (!mounted) return;
       messenger.showSnackBar(

@@ -1,5 +1,9 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
@@ -71,15 +75,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       TextEditingController();
   final TextEditingController _dropoffFreetextController =
       TextEditingController();
-  final TextEditingController _signatureController = TextEditingController();
   final TextEditingController _coTravelerNameController =
       TextEditingController();
   final TextEditingController _coTravelerPhoneController =
       TextEditingController();
   final TextEditingController _coTravelerLicenseController =
       TextEditingController();
+  final GlobalKey _signaturePadKey = GlobalKey();
+  final List<Offset?> _signaturePoints = [];
+  final GlobalKey _coTravelerSignaturePadKey = GlobalKey();
+  final List<Offset?> _coTravelerSignaturePoints = [];
   XFile? _validIdPhoto;
   XFile? _selfiePhoto;
+  XFile? _coTravelerValidIdPhoto;
+  XFile? _coTravelerSelfiePhoto;
 
   @override
   void initState() {
@@ -105,7 +114,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   void dispose() {
     _pickupFreetextController.dispose();
     _dropoffFreetextController.dispose();
-    _signatureController.dispose();
     _coTravelerNameController.dispose();
     _coTravelerPhoneController.dispose();
     _coTravelerLicenseController.dispose();
@@ -200,7 +208,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
-  Future<void> _pickBookingEvidencePhoto({required bool isSelfie}) async {
+  Future<void> _pickBookingEvidencePhoto({
+    required bool isSelfie,
+    bool isCoTraveler = false,
+  }) async {
     final picker = ImagePicker();
     final file = await picker.pickImage(
       source: isSelfie ? ImageSource.camera : ImageSource.gallery,
@@ -209,12 +220,32 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (file == null) return;
 
     setState(() {
-      if (isSelfie) {
+      if (isCoTraveler && isSelfie) {
+        _coTravelerSelfiePhoto = file;
+      } else if (isCoTraveler) {
+        _coTravelerValidIdPhoto = file;
+      } else if (isSelfie) {
         _selfiePhoto = file;
       } else {
         _validIdPhoto = file;
       }
     });
+  }
+
+  Future<Uint8List?> _captureSignatureBytes(GlobalKey key) async {
+    final boundary =
+        key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+
+    final image = await boundary.toImage(pixelRatio: 3);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  bool _isValidPhilippinePhone(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    return RegExp(r'^09\d{9}$').hasMatch(digits) ||
+        RegExp(r'^639\d{9}$').hasMatch(digits);
   }
 
   Future<void> _loadFavoriteState() async {
@@ -744,6 +775,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   ) {
     final details = <DateTime, List<Map<String, dynamic>>>{};
     for (final booking in bookings) {
+      if (!_bookingBelongsToCurrentVehicle(booking)) continue;
+
       final status =
           (booking['rawStatus'] ?? booking['status'])
               ?.toString()
@@ -775,6 +808,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
     }
     return details;
+  }
+
+  bool _bookingBelongsToCurrentVehicle(Map<String, dynamic> booking) {
+    final directVehicleId = booking['vehicle_id']?.toString();
+    if (directVehicleId == widget.vehicleId) return true;
+
+    final vehicle = booking['vehicles'];
+    if (vehicle is Map) {
+      return vehicle['id']?.toString() == widget.vehicleId;
+    }
+
+    return false;
   }
 
   DateTime? _parseBookingCalendarDate(Object? value) {
@@ -1216,19 +1261,46 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (_signatureController.text.trim().isEmpty) {
+    if (_signaturePoints.whereType<Offset>().length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please provide your digital signature.'),
+          content: Text('Please draw your digital signature.'),
           backgroundColor: AppColors.warning,
         ),
       );
       return;
     }
 
+    final coTravelerName = _coTravelerNameController.text.trim();
+    final coTravelerPhone = _coTravelerPhoneController.text.trim();
     final coTravelerLicense = _coTravelerLicenseController.text.trim();
-    if (coTravelerLicense.isNotEmpty &&
-        !RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(coTravelerLicense)) {
+    if (coTravelerName.isEmpty ||
+        coTravelerPhone.isEmpty ||
+        coTravelerLicense.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Co-traveler name, phone number, and license number are required.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (!_isValidPhilippinePhone(coTravelerPhone)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Co-traveler phone must be 11 digits, e.g. 09171234567.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(coTravelerLicense)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1240,11 +1312,33 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    if (_coTravelerSignaturePoints.whereType<Offset>().length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please draw the co-traveler digital signature.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     if (_validIdPhoto == null || _selfiePhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
             'Please upload a valid ID photo and capture a clear selfie before booking.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (_coTravelerValidIdPhoto == null || _coTravelerSelfiePhoto == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please upload the co-traveler valid ID and capture their selfie.',
           ),
           backgroundColor: AppColors.warning,
         ),
@@ -1298,6 +1392,31 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
 
       final evidenceService = BookingEvidenceService();
+      final signatureBytes = await _captureSignatureBytes(_signaturePadKey);
+      if (signatureBytes == null || signatureBytes.isEmpty) {
+        throw Exception(
+          'Could not save the digital signature. Please redraw it.',
+        );
+      }
+      final signatureUrl = await evidenceService.uploadEvidenceBytes(
+        userId: currentUser.id,
+        bytes: signatureBytes,
+        evidenceType: 'signature',
+      );
+      final coTravelerSignatureBytes = await _captureSignatureBytes(
+        _coTravelerSignaturePadKey,
+      );
+      if (coTravelerSignatureBytes == null ||
+          coTravelerSignatureBytes.isEmpty) {
+        throw Exception(
+          'Could not save the co-traveler signature. Please redraw it.',
+        );
+      }
+      final coTravelerSignatureUrl = await evidenceService.uploadEvidenceBytes(
+        userId: currentUser.id,
+        bytes: coTravelerSignatureBytes,
+        evidenceType: 'co_traveler_signature',
+      );
       final validIdUrl = await evidenceService.uploadEvidenceFile(
         userId: currentUser.id,
         file: _validIdPhoto!,
@@ -1307,6 +1426,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         userId: currentUser.id,
         file: _selfiePhoto!,
         evidenceType: 'selfie',
+      );
+      final coTravelerValidIdUrl = await evidenceService.uploadEvidenceFile(
+        userId: currentUser.id,
+        file: _coTravelerValidIdPhoto!,
+        evidenceType: 'co_traveler_valid_id',
+      );
+      final coTravelerSelfieUrl = await evidenceService.uploadEvidenceFile(
+        userId: currentUser.id,
+        file: _coTravelerSelfiePhoto!,
+        evidenceType: 'co_traveler_selfie',
       );
 
       final createdBooking = await BookingService().createBooking(
@@ -1337,12 +1466,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ?.toString(),
         emergencyContactRelationship: _defaultEmergencyContact?['relationship']
             ?.toString(),
-        renterSignatureText: _signatureController.text.trim(),
+        renterSignatureText: 'Digital signature captured',
+        renterSignatureUrl: signatureUrl,
         renterValidIdUrl: validIdUrl,
         renterSelfieUrl: selfieUrl,
-        coTravelerName: _coTravelerNameController.text.trim(),
-        coTravelerPhone: _coTravelerPhoneController.text.trim(),
-        coTravelerLicense: _coTravelerLicenseController.text.trim(),
+        coTravelerName: coTravelerName,
+        coTravelerPhone: coTravelerPhone,
+        coTravelerLicense: coTravelerLicense,
+        coTravelerSignatureText: 'Co-traveler digital signature captured',
+        coTravelerSignatureUrl: coTravelerSignatureUrl,
+        coTravelerValidIdUrl: coTravelerValidIdUrl,
+        coTravelerSelfieUrl: coTravelerSelfieUrl,
       );
 
       if (reservationPaymentProof != null) {
@@ -3189,11 +3323,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             style: TextStyle(color: AppColors.textSecondary, height: 1.4),
           ),
           const SizedBox(height: 16),
-          _buildBookingEvidenceField(
-            controller: _signatureController,
-            label: 'Digital signature',
-            hint: 'Type your full legal name',
-            icon: Icons.draw_outlined,
+          _buildSignaturePad(
+            key: _signaturePadKey,
+            points: _signaturePoints,
+            label: 'Digital signature *',
           ),
           const SizedBox(height: 12),
           Row(
@@ -3221,7 +3354,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const Divider(color: AppColors.borderColor),
           const SizedBox(height: 12),
           const Text(
-            'Co-traveler / additional contact (optional)',
+            'Co-traveler information (required)',
             style: TextStyle(
               color: AppColors.textPrimary,
               fontWeight: FontWeight.w700,
@@ -3230,27 +3363,148 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
             controller: _coTravelerNameController,
-            label: 'Name',
-            hint: 'Optional passenger or contact',
+            label: 'Full name',
+            hint: 'Co-traveler legal name',
             icon: Icons.person_add_alt_1_outlined,
           ),
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
             controller: _coTravelerPhoneController,
             label: 'Phone',
-            hint: 'Optional phone number',
+            hint: '09171234567',
             icon: Icons.phone_outlined,
             keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(11),
+            ],
           ),
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
             controller: _coTravelerLicenseController,
             label: "Driver's License Number",
-            hint: 'If the co-traveler may drive',
+            hint: 'Required if they are joining this booking',
             icon: Icons.credit_card_outlined,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+              LengthLimitingTextInputFormatter(32),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildSignaturePad(
+            key: _coTravelerSignaturePadKey,
+            points: _coTravelerSignaturePoints,
+            label: 'Co-traveler digital signature *',
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildEvidenceButton(
+                  label: _coTravelerValidIdPhoto == null
+                      ? 'Co-traveler ID'
+                      : 'Co-traveler ID ready',
+                  icon: Icons.badge_outlined,
+                  isReady: _coTravelerValidIdPhoto != null,
+                  onTap: () => _pickBookingEvidencePhoto(
+                    isSelfie: false,
+                    isCoTraveler: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildEvidenceButton(
+                  label: _coTravelerSelfiePhoto == null
+                      ? 'Co-traveler selfie'
+                      : 'Selfie ready',
+                  icon: Icons.face_retouching_natural_outlined,
+                  isReady: _coTravelerSelfiePhoto != null,
+                  onTap: () => _pickBookingEvidencePhoto(
+                    isSelfie: true,
+                    isCoTraveler: true,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSignaturePad({
+    required GlobalKey key,
+    required List<Offset?> points,
+    required String label,
+  }) {
+    final hasSignature = points.whereType<Offset>().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.draw_outlined, color: AppColors.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: hasSignature
+                  ? () => setState(() => points.clear())
+                  : null,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Clear'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        RepaintBoundary(
+          key: key,
+          child: GestureDetector(
+            onPanStart: (details) {
+              setState(() => points.add(details.localPosition));
+            },
+            onPanUpdate: (details) {
+              setState(() => points.add(details.localPosition));
+            },
+            onPanEnd: (_) => setState(() => points.add(null)),
+            child: Container(
+              height: 150,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: hasSignature
+                      ? AppColors.primary
+                      : AppColors.borderColor,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(13),
+                child: CustomPaint(
+                  painter: _SignaturePadPainter(points),
+                  child: Center(
+                    child: hasSignature
+                        ? const SizedBox.shrink()
+                        : const Text(
+                            'Draw signature here',
+                            style: TextStyle(color: Colors.black38),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -3281,10 +3535,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required String hint,
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,
@@ -3777,5 +4033,32 @@ class _CalendarLegendDot extends StatelessWidget {
         Text(label, style: TextStyle(fontSize: 12, color: textColor)),
       ],
     );
+  }
+}
+
+class _SignaturePadPainter extends CustomPainter {
+  final List<Offset?> points;
+
+  const _SignaturePadPainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black87
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    for (var i = 0; i < points.length - 1; i++) {
+      final current = points[i];
+      final next = points[i + 1];
+      if (current == null || next == null) continue;
+      canvas.drawLine(current, next, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SignaturePadPainter oldDelegate) {
+    return oldDelegate.points != points;
   }
 }
