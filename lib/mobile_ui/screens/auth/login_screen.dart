@@ -320,7 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // Email field
               CustomTextField(
-                label: 'Email Address',
+                label: 'Email Address *',
                 hintText: 'name@gmail.com',
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -333,7 +333,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               // Password field
               CustomTextField(
-                label: 'Password',
+                label: 'Password *',
                 hintText: '••••••••',
                 controller: passwordController,
                 obscureText: obscurePassword,
@@ -527,9 +527,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () {
-                          // Navigate to partnership application or info page
-                          // For now, navigate to signup with partner flag
-                          Navigator.of(context).pushNamed('/signup');
+                          Navigator.of(context).pushNamed(
+                            '/signup',
+                            arguments: {'initialRole': 'partner'},
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,

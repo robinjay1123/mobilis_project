@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 
-class PartnerRevenueScreen extends StatelessWidget {
+class PartnerRevenueScreen extends StatefulWidget {
   final String partnerName;
   final List<Map<String, dynamic>> bookings;
   final int completedTrips;
@@ -17,25 +17,30 @@ class PartnerRevenueScreen extends StatelessWidget {
   });
 
   @override
+  State<PartnerRevenueScreen> createState() => _PartnerRevenueScreenState();
+}
+
+class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
+  String _selectedPeriod = 'Month';
+  static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
+
+  @override
   Widget build(BuildContext context) {
-    final completedBookings = bookings
+    final completedBookings = widget.bookings
         .where(
           (booking) =>
               (booking['status']?.toString().toLowerCase() ?? '') ==
               'completed',
         )
+        .where(_isWithinSelectedPeriod)
         .toList();
     final computedRevenue = completedBookings.fold<double>(
       0,
       (sum, booking) =>
           sum + ((booking['total_price'] as num?)?.toDouble() ?? 0),
     );
-    final totalRevenue = recordedTotalEarnings > 0
-        ? recordedTotalEarnings
-        : computedRevenue;
-    final tripCount = completedTrips > 0
-        ? completedTrips
-        : completedBookings.length;
+    final totalRevenue = computedRevenue;
+    final tripCount = completedBookings.length;
     final averageTrip = tripCount == 0 ? 0.0 : totalRevenue / tripCount;
 
     return Scaffold(
@@ -76,7 +81,7 @@ class PartnerRevenueScreen extends StatelessWidget {
                   radius: 19,
                   backgroundColor: AppColors.primary,
                   child: Text(
-                    _initials(partnerName),
+                    _initials(widget.partnerName),
                     style: const TextStyle(
                       color: Colors.black,
                       fontWeight: FontWeight.w900,
@@ -98,7 +103,7 @@ class PartnerRevenueScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                _buildPeriodPill(),
+                _buildPeriodDropdown(),
               ],
             ),
             const SizedBox(height: 28),
@@ -106,8 +111,8 @@ class PartnerRevenueScreen extends StatelessWidget {
               label: 'Total Revenue',
               value: _currency(totalRevenue),
               subtext: completedBookings.isEmpty
-                  ? 'No completed trip revenue yet'
-                  : 'From completed trips',
+                  ? 'No revenue for this ${_selectedPeriod.toLowerCase()}'
+                  : 'From completed trips this ${_selectedPeriod.toLowerCase()}',
               icon: Icons.payments_outlined,
             ),
             const SizedBox(height: 24),
@@ -155,35 +160,34 @@ class PartnerRevenueScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPeriodPill() {
-    const labels = ['D', 'W', 'M', 'Y'];
+  Widget _buildPeriodDropdown() {
     return Container(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: labels.map((label) {
-          final selected = label == 'M';
-          return Container(
-            width: 36,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? AppColors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.black : AppColors.textSecondary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          );
-        }).toList(),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedPeriod,
+          dropdownColor: AppColors.darkBgSecondary,
+          iconEnabledColor: AppColors.primary,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+          items: _periodOptions
+              .map(
+                (period) =>
+                    DropdownMenuItem(value: period, child: Text(period)),
+              )
+              .toList(),
+          onChanged: (value) {
+            if (value == null) return;
+            setState(() => _selectedPeriod = value);
+          },
+        ),
       ),
     );
   }
@@ -252,9 +256,12 @@ class PartnerRevenueScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Monthly Performance',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+          Text(
+            '$_selectedPeriod Performance',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 14,
+            ),
           ),
           const SizedBox(height: 3),
           Row(
@@ -435,6 +442,47 @@ class PartnerRevenueScreen extends StatelessWidget {
   }
 
   static String _currency(double value) => 'PHP ${value.toStringAsFixed(2)}';
+
+  bool _isWithinSelectedPeriod(Map<String, dynamic> booking) {
+    final date = _bookingDate(booking);
+    if (date == null) return false;
+    final local = date.toLocal();
+    final now = DateTime.now();
+    late final DateTime start;
+    switch (_selectedPeriod) {
+      case 'Day':
+        start = DateTime(now.year, now.month, now.day);
+        break;
+      case 'Week':
+        start = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(const Duration(days: 6));
+        break;
+      case 'Year':
+        start = DateTime(now.year);
+        break;
+      case 'Month':
+      default:
+        start = DateTime(now.year, now.month);
+    }
+    return !local.isBefore(start) && !local.isAfter(now);
+  }
+
+  DateTime? _bookingDate(Map<String, dynamic> booking) {
+    for (final key in [
+      'completed_at',
+      'updated_at',
+      'end_at',
+      'end_date',
+      'created_at',
+    ]) {
+      final parsed = DateTime.tryParse(booking[key]?.toString() ?? '');
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
 
   static String _initials(String name) {
     final parts = name

@@ -994,6 +994,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   double get _totalPrice => _rentalSubtotal + _deliveryFee;
 
+  int get _billableDays {
+    final minutes = _rentalDuration.inMinutes;
+    if (minutes <= 0) return 0;
+    return (minutes / Duration.minutesPerDay).ceil();
+  }
+
+  bool get _requiresLongBookingReservation =>
+      _billableDays > PricingPolicy.longBookingReservationThresholdDays;
+
+  double get _reservationFeeAmount => _requiresLongBookingReservation
+      ? _totalPrice * PricingPolicy.longBookingReservationRate
+      : 0;
+
+  double get _remainingBalance {
+    final balance = _totalPrice - _reservationFeeAmount;
+    return balance < 0 ? 0 : balance;
+  }
+
   Future<void> _selectTime({required bool isStartTime}) async {
     final initial = isStartTime ? _startTime : _returnTime;
     final picked = await showTimePicker(context: context, initialTime: initial);
@@ -1208,10 +1226,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    final coTravelerLicense = _coTravelerLicenseController.text.trim();
+    if (coTravelerLicense.isNotEmpty &&
+        !RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(coTravelerLicense)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Driver's License Number must be 6-32 letters/numbers and may include hyphens.",
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     if (_validIdPhoto == null || _selfiePhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please upload a valid ID photo and a clear selfie.'),
+          content: Text(
+            'Please upload a valid ID photo and capture a clear selfie before booking.',
+          ),
           backgroundColor: AppColors.warning,
         ),
       );
@@ -1594,9 +1628,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               final partnerCommission = isPartnerVehicle
                   ? rentalTotal * 0.10
                   : 0.0;
+              final reservationOnlyAmount = _requiresLongBookingReservation
+                  ? _reservationFeeAmount
+                  : settings.amount;
               final payableAmount = payFullAmount
                   ? rentalTotal + partnerCommission
-                  : settings.amount;
+                  : reservationOnlyAmount;
               Future<void> pickReceipt() async {
                 final picked = await ImagePicker().pickImage(
                   source: ImageSource.gallery,
@@ -1613,7 +1650,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 final reference = referenceController.text.trim();
                 final payableAmount = payFullAmount
                     ? rentalTotal + partnerCommission
-                    : settings.amount;
+                    : reservationOnlyAmount;
                 if (settings.qrUrl.trim().isEmpty) {
                   setDialogState(() {
                     errorText =
@@ -1681,6 +1718,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       Text(
                         payFullAmount
                             ? 'Pay full rental amount now'
+                            : _requiresLongBookingReservation
+                            ? 'Pay 20% reservation fee'
                             : 'Pay refundable reservation fee',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
@@ -1746,6 +1785,46 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   ),
                                 ),
                               ],
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (!payFullAmount &&
+                          _requiresLongBookingReservation) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderColor),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Long Booking Reservation',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              _buildPaymentBreakdownRow(
+                                'Total booking amount',
+                                rentalTotal,
+                              ),
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                'Reservation fee (20%)',
+                                reservationOnlyAmount,
+                              ),
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                'Remaining balance',
+                                _remainingBalance,
+                                isTotal: true,
+                              ),
                             ],
                           ),
                         ),
@@ -2795,6 +2874,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             color: AppColors.borderColor,
                             height: 24,
                           ),
+                          if (_requiresLongBookingReservation) ...[
+                            _buildSummaryRow(
+                              'Reservation fee',
+                              '20% = PHP ${_reservationFeeAmount.toStringAsFixed(2)}',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Remaining balance',
+                              'PHP ${_remainingBalance.toStringAsFixed(2)}',
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                           _buildSummaryRow(
                             'Total',
                             '₱${_totalPrice.toStringAsFixed(2)}',
@@ -3154,7 +3245,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
             controller: _coTravelerLicenseController,
-            label: 'Driver license',
+            label: "Driver's License Number",
             hint: 'If the co-traveler may drive',
             icon: Icons.credit_card_outlined,
           ),

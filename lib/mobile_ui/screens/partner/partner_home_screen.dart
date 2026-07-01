@@ -62,6 +62,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   double totalEarnings = 0.0;
   int activeVehicles = 0;
   double rating = 0.0;
+  int ratingCount = 0;
 
   // Application counts
   Map<String, int> applicationCounts = {
@@ -96,6 +97,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   bool isLoading = true;
   bool dismissedVerificationBanner = false;
+  bool _dimCustomerServiceFab = false;
 
   String _normalizeVerificationStatus(String? status) {
     final value = (status ?? 'pending').toLowerCase();
@@ -148,6 +150,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         duration: Duration(seconds: 3),
       ),
     );
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    final shouldDim =
+        notification is OverscrollNotification ||
+        (notification.metrics.outOfRange &&
+            notification is! ScrollEndNotification);
+    if (_dimCustomerServiceFab != shouldDim) {
+      setState(() => _dimCustomerServiceFab = shouldDim);
+    }
+    if (notification is ScrollEndNotification && _dimCustomerServiceFab) {
+      setState(() => _dimCustomerServiceFab = false);
+    }
+    return false;
   }
 
   Future<void> _loadPartnerData() async {
@@ -213,6 +229,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           trackingLocations = liveTracking;
           activeVehicles = appCounts['approved'] ?? 0;
           rating = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
+          ratingCount = (ratingSummary['count'] as num?)?.toInt() ?? 0;
           _restrictionState = restrictionState;
           isLoading = false;
         });
@@ -386,6 +403,107 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
   }
 
+  Future<void> _showEditPartnerProfileDialog() async {
+    final nameController = TextEditingController(text: partnerName);
+    final addressController = TextEditingController(
+      text:
+          partnerProfile?['business_address']?.toString() ??
+          partnerProfile?['address']?.toString() ??
+          '',
+    );
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Edit Profile',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: AppColors.textPrimary),
+              decoration: const InputDecoration(
+                labelText: 'Display / Business Name',
+                labelStyle: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: addressController,
+              style: const TextStyle(color: AppColors.textPrimary),
+              decoration: const InputDecoration(
+                labelText: 'Business Address',
+                labelStyle: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true) {
+      nameController.dispose();
+      addressController.dispose();
+      return;
+    }
+
+    final cleanName = nameController.text.trim();
+    final cleanAddress = addressController.text.trim();
+    if (cleanName.isEmpty) {
+      _showErrorSnackBar('Name is required');
+      return;
+    }
+
+    try {
+      final user = AuthService().currentUser;
+      if (user == null) throw Exception('User not authenticated');
+
+      final supabase = Supabase.instance.client;
+      await supabase
+          .from('users')
+          .update({'full_name': cleanName})
+          .eq('id', user.id);
+
+      final profileId = partnerProfile?['id']?.toString();
+      if (profileId != null && profileId.isNotEmpty) {
+        await PartnerService().updatePartnerProfile(profileId, {
+          'business_name': cleanName,
+          if (cleanAddress.isNotEmpty) 'business_address': cleanAddress,
+          if (cleanAddress.isNotEmpty) 'address': cleanAddress,
+        });
+      }
+
+      if (!mounted) return;
+      setState(() => partnerName = cleanName);
+      _showSuccessSnackBar('Profile updated');
+      await _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Could not update profile: $e');
+    } finally {
+      nameController.dispose();
+      addressController.dispose();
+    }
+  }
+
   void _handleApplyVehicleNavigation() {
     if (_isPartnerVerified) {
       Navigator.pushNamed(context, '/apply-vehicle');
@@ -410,57 +528,66 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       key: _scaffoldKey,
       backgroundColor: AppColors.darkBg,
       drawer: _buildDrawer(),
-      body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-              ),
-            )
-          : _buildTabContent(),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'customer_service_partner',
-        onPressed: _openCustomerServiceConversation,
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.support_agent),
-        label: const Text(
-          'Customer Service',
-          style: TextStyle(fontWeight: FontWeight.w700),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+              )
+            : _buildTabContent(),
+      ),
+      floatingActionButton: AnimatedOpacity(
+        opacity: _dimCustomerServiceFab ? 0.5 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: FloatingActionButton(
+          heroTag: 'customer_service_partner',
+          onPressed: _openCustomerServiceConversation,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          tooltip: 'Customer Service',
+          child: const Icon(Icons.support_agent),
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: selectedNavIndex,
-        backgroundColor: AppColors.darkBgSecondary,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications_outlined),
-            label: 'Notifications',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            label: 'Messages',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: 'Bookings',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
-          ),
-        ],
-        onTap: (index) {
-          setState(() {
-            selectedNavIndex = index;
-          });
-        },
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          border: Border(top: BorderSide(color: AppColors.borderColor)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: selectedNavIndex,
+          backgroundColor: AppColors.darkBgSecondary,
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: AppColors.primary,
+          unselectedItemColor: AppColors.textSecondary,
+          selectedFontSize: 12,
+          unselectedFontSize: 11,
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_month_outlined),
+              label: 'Bookings',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              label: 'Messages',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.notifications_outlined),
+              label: 'Alerts',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline),
+              label: 'Profile',
+            ),
+          ],
+          onTap: (index) {
+            setState(() {
+              selectedNavIndex = index;
+            });
+          },
+        ),
       ),
     );
   }
@@ -468,193 +595,200 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   Scaffold _buildRestrictedScaffold() {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'customer_service_partner_restricted',
-        onPressed: _openCustomerServiceConversation,
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.support_agent),
-        label: const Text(
-          'Customer Service',
-          style: TextStyle(fontWeight: FontWeight.w700),
+      floatingActionButton: AnimatedOpacity(
+        opacity: _dimCustomerServiceFab ? 0.5 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: FloatingActionButton(
+          heroTag: 'customer_service_partner_restricted',
+          onPressed: _openCustomerServiceConversation,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          tooltip: 'Customer Service',
+          child: const Icon(Icons.support_agent),
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.maybePop(context),
-                    icon: const Icon(
-                      Icons.arrow_back,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Account Restricted',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
-              ),
-              const SizedBox(height: 26),
-              Container(
-                width: double.infinity,
-                height: 238,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xFF243A2C), Color(0xFF1E2A33)],
-                  ),
-                ),
-                child: Center(
-                  child: Container(
-                    width: 180,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: const Icon(
-                      Icons.directions_car_filled_rounded,
-                      color: Colors.white70,
-                      size: 62,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
-              Container(
-                width: 78,
-                height: 78,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF3A3120),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.warning_amber_rounded,
-                  color: AppColors.warning,
-                  size: 42,
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Your account is\ntemporarily restricted',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _restrictionState.isBlocked
-                    ? 'For safety reasons and due to repeated policy violations, this owner account has been permanently blocked from messaging and bookings.'
-                    : 'For safety reasons and due to a policy violation, this owner account cannot accept new messages or bookings during the restriction period.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 15,
-                  height: 1.6,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10243A),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Column(
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      _restrictionState.isBlocked
-                          ? 'ACCOUNT STATUS'
-                          : 'AVAILABLE AGAIN IN',
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 12,
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.w700,
+                    IconButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    if (_restrictionState.isBlocked)
-                      const Text(
-                        'PERMANENTLY BLOCKED',
+                    const Expanded(
+                      child: Text(
+                        'Account Restricted',
+                        textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Color(0xFFFF5B5B),
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
                         ),
-                      )
-                    else
-                      RestrictionCountdownRow(
-                        until: _restrictionState.activeUntil,
                       ),
+                    ),
+                    const SizedBox(width: 48),
                   ],
                 ),
-              ),
-              const SizedBox(height: 26),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => showPolicyDetailsSheet(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF083562),
-                    foregroundColor: AppColors.textPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                const SizedBox(height: 26),
+                Container(
+                  width: double.infinity,
+                  height: 238,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFF243A2C), Color(0xFF1E2A33)],
                     ),
                   ),
-                  child: const Text(
-                    'View Policy Details',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: _contactSupport,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    side: const BorderSide(color: AppColors.borderColor),
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                  child: Center(
+                    child: Container(
+                      width: 180,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(50),
+                      ),
+                      child: const Icon(
+                        Icons.directions_car_filled_rounded,
+                        color: Colors.white70,
+                        size: 62,
+                      ),
                     ),
                   ),
-                  child: const Text(
-                    'Contact Support',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 28),
+                Container(
+                  width: 78,
+                  height: 78,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF3A3120),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: AppColors.warning,
+                    size: 42,
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'Learn more about our Community Guidelines',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              ),
-            ],
+                const SizedBox(height: 24),
+                const Text(
+                  'Your account is\ntemporarily restricted',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  _restrictionState.isBlocked
+                      ? 'For safety reasons and due to repeated policy violations, this owner account has been permanently blocked from messaging and bookings.'
+                      : 'For safety reasons and due to a policy violation, this owner account cannot accept new messages or bookings during the restriction period.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 15,
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10243A),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        _restrictionState.isBlocked
+                            ? 'ACCOUNT STATUS'
+                            : 'AVAILABLE AGAIN IN',
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 12,
+                          letterSpacing: 1.2,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_restrictionState.isBlocked)
+                        const Text(
+                          'PERMANENTLY BLOCKED',
+                          style: TextStyle(
+                            color: Color(0xFFFF5B5B),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        )
+                      else
+                        RestrictionCountdownRow(
+                          until: _restrictionState.activeUntil,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 26),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => showPolicyDetailsSheet(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF083562),
+                      foregroundColor: AppColors.textPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: const Text(
+                      'View Policy Details',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: _contactSupport,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(color: AppColors.borderColor),
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: const Text(
+                      'Contact Support',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Learn more about our Community Guidelines',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -663,6 +797,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   // ===================== DRAWER =====================
   Widget _buildDrawer() {
+    final user = AuthService().currentUser;
+    final email = user?.email ?? 'partner account';
+
     return Drawer(
       backgroundColor: AppColors.darkBgSecondary,
       child: SafeArea(
@@ -670,42 +807,63 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           children: [
             // Header
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 20, 18, 16),
               child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.directions_car,
-                      color: Colors.black,
-                      size: 24,
+                  CircleAvatar(
+                    radius: 23,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      partnerName.isNotEmpty
+                          ? partnerName[0].toUpperCase()
+                          : 'P',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.black,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Mobilis by PSDC',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          partnerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Fleet Manager',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
+                        const SizedBox(height: 3),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 5),
+                        Text(
+                          _getPartnerBadge(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            color: _getPartnerBadgeColor(),
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -718,8 +876,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 children: [
                   _buildDrawerItem(
-                    icon: Icons.dashboard,
-                    label: 'Dashboard Overview',
+                    icon: Icons.home,
+                    label: 'Home',
                     isSelected: selectedNavIndex == 0,
                     onTap: () {
                       setState(() => selectedNavIndex = 0);
@@ -745,8 +903,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   _buildDrawerItem(
                     icon: Icons.book_online,
                     label: 'Booking Requests',
+                    isSelected: selectedNavIndex == 1,
                     onTap: () {
-                      setState(() => selectedNavIndex = 3);
+                      setState(() => selectedNavIndex = 1);
                       Navigator.pop(context);
                     },
                   ),
@@ -801,60 +960,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 ],
               ),
             ),
-
-            // User Profile at bottom
-            const Divider(color: AppColors.borderColor, height: 1),
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Center(
-                      child: Text(
-                        partnerName.isNotEmpty
-                            ? partnerName[0].toUpperCase()
-                            : 'P',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          partnerName,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Text(
-                          _getPartnerBadge(),
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: _getPartnerBadgeColor(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -871,35 +976,36 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     required VoidCallback onTap,
   }) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: isSelected
-            ? AppColors.primary.withAlpha(30)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+        color: isSelected ? AppColors.primary : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: ListTile(
         leading: Icon(
           icon,
           color:
               iconColor ??
-              (isSelected ? AppColors.primary : AppColors.textSecondary),
-          size: 22,
+              (isSelected ? Colors.black : AppColors.textSecondary),
+          size: 20,
         ),
         title: Text(
           label,
           style: TextStyle(
             fontSize: 14,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
             color:
                 labelColor ??
-                (isSelected ? AppColors.primary : AppColors.textPrimary),
+                (isSelected ? Colors.black : AppColors.textPrimary),
           ),
         ),
         trailing: trailing,
         onTap: onTap,
         dense: true,
-        visualDensity: VisualDensity.compact,
+        minLeadingWidth: 22,
+        horizontalTitleGap: 10,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        visualDensity: const VisualDensity(horizontal: -1, vertical: -1),
       ),
     );
   }
@@ -929,11 +1035,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       case 0:
         return _buildDashboardTab();
       case 1:
-        return _buildNotificationsTab();
+        return _buildBookingsTab();
       case 2:
         return _buildMessagesTab();
       case 3:
-        return _buildBookingsTab();
+        return _buildNotificationsTab();
       case 4:
         return _buildProfileTab();
       default:
@@ -976,8 +1082,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 const SizedBox(width: 12),
                 _buildStatCard(
                   label: 'RATING',
-                  value: rating > 0 ? rating.toStringAsFixed(1) : '-',
-                  subtext: rating >= 4.5 ? 'High' : 'Good',
+                  value: ratingCount > 0 ? rating.toStringAsFixed(1) : '0.0',
+                  subtext: ratingCount > 0 ? 'From reviews' : 'No reviews yet',
                   subtextColor: AppColors.success,
                 ),
               ],
@@ -1131,47 +1237,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ],
                 ),
                 const Text(
-                  'Mobilis by PSDC Fleet Manager',
+                  'Mobilis by PSDC Certified Partner',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
                   ),
                 ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: () => setState(() => selectedNavIndex = 1),
-            child: Stack(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBgSecondary,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.notifications_outlined,
-                    color: AppColors.textPrimary,
-                    size: 22,
-                  ),
-                ),
-                if (notifications
-                    .where((n) => n['is_read'] == false)
-                    .isNotEmpty)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: AppColors.error,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
@@ -1794,7 +1865,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
             GestureDetector(
-              onTap: () => setState(() => selectedNavIndex = 3),
+              onTap: () => setState(() => selectedNavIndex = 1),
               child: const Text(
                 'View All',
                 style: TextStyle(
@@ -2804,7 +2875,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Column(
       children: [
         Container(
-          color: const Color(0xFF131E2D),
+          color: AppColors.primary,
           padding: EdgeInsets.fromLTRB(
             16,
             MediaQuery.of(context).padding.top + 12,
@@ -2817,7 +2888,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 onTap: () => _scaffoldKey.currentState?.openDrawer(),
                 child: const Icon(
                   Icons.menu,
-                  color: AppColors.textPrimary,
+                  color: Colors.black,
                   size: 24,
                 ),
               ),
@@ -2827,18 +2898,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: Colors.black,
                 ),
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () => setState(() => selectedNavIndex = 1),
+                onTap: () => setState(() => selectedNavIndex = 3),
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
                     const Icon(
                       Icons.notifications_none_rounded,
-                      color: AppColors.textPrimary,
+                      color: Colors.black,
                       size: 24,
                     ),
                     if (notifications.any((item) => item['is_read'] != true))
@@ -2849,7 +2920,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           width: 8,
                           height: 8,
                           decoration: const BoxDecoration(
-                            color: AppColors.primary,
+                            color: Colors.black,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -4243,7 +4314,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                           Expanded(
                             child: _buildProfileStat(
                               'Rating',
-                              rating > 0 ? rating.toStringAsFixed(1) : '-',
+                              ratingCount > 0
+                                  ? rating.toStringAsFixed(1)
+                                  : '0.0',
                             ),
                           ),
                         ],
@@ -4257,7 +4330,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 _buildProfileMenuItem(
                   Icons.person_outline,
                   'Edit Profile',
-                  onTap: () {},
+                  onTap: _showEditPartnerProfileDialog,
                 ),
                 _buildProfileMenuItem(
                   Icons.security,
@@ -4268,12 +4341,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 _buildProfileMenuItem(
                   Icons.account_balance_wallet,
                   'Payment Settings',
-                  onTap: () {},
+                  onTap: _openRevenuePayoutScreen,
                 ),
                 _buildProfileMenuItem(
                   Icons.help_outline,
                   'Help & Support',
-                  onTap: () {},
+                  onTap: _openCustomerServiceConversation,
                 ),
                 _buildProfileMenuItem(
                   Icons.logout,

@@ -8,7 +8,6 @@ import '../../../services/partner_service.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/custom_button.dart';
 
 class VehicleAvailabilityScreen extends StatefulWidget {
   const VehicleAvailabilityScreen({super.key});
@@ -28,9 +27,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
   ];
   static const List<String> _transmissionOptions = ['Manual', 'Automatic'];
 
-  String? selectedVehicleId;
   int selectedApplicationStatusTab = 0;
-  List<Map<String, dynamic>> vehicles = [];
+  int selectedApprovedVehicleTab = 0;
   List<Map<String, dynamic>> applications = [];
   Map<String, int> applicationCounts = {
     'pending': 0,
@@ -38,73 +36,13 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     'rejected': 0,
     'total': 0,
   };
-  Set<DateTime> unavailableDates = {};
-  Set<DateTime> selectedDates = {};
-  DateTime focusedDay = DateTime.now();
-  CalendarFormat calendarFormat = CalendarFormat.month;
 
   bool isLoading = true;
-  bool isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _loadVehicles();
-  }
-
-  List<Map<String, dynamic>> _availabilityVehiclesFromApplications(
-    List<Map<String, dynamic>> appList,
-  ) {
-    final merged = <String, Map<String, dynamic>>{};
-
-    for (final application in appList) {
-      final status = _applicationStatus(application);
-      if (status != 'approved') continue;
-
-      final vehicleId =
-          application['created_vehicle_id']?.toString().trim() ??
-          application['partner_vehicle_id']?.toString().trim() ??
-          '';
-      if (vehicleId.isEmpty) continue;
-
-      merged[vehicleId] = {
-        'id': vehicleId,
-        'brand': application['brand']?.toString() ?? 'Vehicle',
-        'model': application['model']?.toString() ?? '',
-        'plate_number': application['plate_number']?.toString() ?? '',
-        'year': application['year'],
-        'source': 'approved_application',
-      };
-    }
-
-    return merged.values.toList();
-  }
-
-  List<Map<String, dynamic>> _mergeAvailabilityVehicles({
-    required List<Map<String, dynamic>> directVehicles,
-    required List<Map<String, dynamic>> appList,
-  }) {
-    final merged = <String, Map<String, dynamic>>{};
-
-    for (final vehicle in directVehicles) {
-      final id = vehicle['id']?.toString().trim() ?? '';
-      if (id.isEmpty) continue;
-      merged[id] = Map<String, dynamic>.from(vehicle);
-    }
-
-    for (final vehicle in _availabilityVehiclesFromApplications(appList)) {
-      final id = vehicle['id']?.toString().trim() ?? '';
-      if (id.isEmpty) continue;
-      merged.putIfAbsent(id, () => vehicle);
-    }
-
-    final results = merged.values.toList();
-    results.sort((a, b) {
-      final aBrand = '${a['brand'] ?? ''} ${a['model'] ?? ''}'.trim();
-      final bBrand = '${b['brand'] ?? ''} ${b['model'] ?? ''}'.trim();
-      return aBrand.toLowerCase().compareTo(bBrand.toLowerCase());
-    });
-    return results;
   }
 
   Future<void> _loadVehicles() async {
@@ -114,30 +52,12 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
       final user = authService.currentUser;
 
       if (user != null) {
-        final profile = await partnerService.getPartnerProfile(user.id);
         final appList = await partnerService.getVehicleApplications(user.id);
         final counts = await partnerService.getApplicationCounts(user.id);
-        final vehicleService = VehicleService();
-        final vehicleList = await vehicleService.getPartnerVehicles(user.id);
-        final availabilityVehicles = _mergeAvailabilityVehicles(
-          directVehicles: vehicleList,
-          appList: appList,
-        );
-        final stillValidSelectedVehicleId =
-            selectedVehicleId != null &&
-            availabilityVehicles.any(
-              (vehicle) => vehicle['id']?.toString() == selectedVehicleId,
-            );
 
         setState(() {
-          vehicles = availabilityVehicles;
           applications = appList;
           applicationCounts = counts;
-          if (!stillValidSelectedVehicleId) {
-            selectedVehicleId = null;
-            unavailableDates.clear();
-            selectedDates.clear();
-          }
           isLoading = false;
         });
       } else {
@@ -153,42 +73,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     }
   }
 
-  Future<void> _loadAvailability(String vehicleId) async {
-    try {
-      final vehicleService = VehicleService();
-      final dates = await vehicleService.getUnavailableDates(vehicleId);
-
-      setState(() {
-        unavailableDates = dates.map((d) => _normalizeDate(d)).toSet();
-        selectedDates.clear();
-      });
-    } catch (e) {
-      debugPrint('Error loading availability: $e');
-    }
-  }
-
   DateTime _normalizeDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
-  }
-
-  bool _isUnavailable(DateTime day) {
-    return unavailableDates.contains(_normalizeDate(day));
-  }
-
-  bool _isSelected(DateTime day) {
-    return selectedDates.contains(_normalizeDate(day));
-  }
-
-  void _toggleDateSelection(DateTime day) {
-    final normalizedDay = _normalizeDate(day);
-
-    setState(() {
-      if (selectedDates.contains(normalizedDay)) {
-        selectedDates.remove(normalizedDay);
-      } else {
-        selectedDates.add(normalizedDay);
-      }
-    });
   }
 
   void _showErrorSnackBar(String message) {
@@ -221,89 +107,6 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
         duration: const Duration(seconds: 2),
       ),
     );
-  }
-
-  Future<void> _markAsUnavailable() async {
-    if (selectedVehicleId == null) {
-      _showErrorSnackBar('Please select a vehicle first');
-      return;
-    }
-
-    if (selectedDates.isEmpty) {
-      _showErrorSnackBar('Please select dates to mark as unavailable');
-      return;
-    }
-
-    setState(() {
-      isSaving = true;
-    });
-
-    try {
-      final vehicleService = VehicleService();
-
-      for (final date in selectedDates) {
-        await vehicleService.setAvailability(
-          vehicleId: selectedVehicleId!,
-          date: date,
-          isAvailable: false,
-        );
-      }
-
-      setState(() {
-        unavailableDates.addAll(selectedDates);
-        selectedDates.clear();
-      });
-
-      _showSuccessSnackBar('Dates marked as unavailable');
-    } catch (e) {
-      _showErrorSnackBar('Failed to update availability');
-    } finally {
-      setState(() {
-        isSaving = false;
-      });
-    }
-  }
-
-  Future<void> _markAsAvailable() async {
-    if (selectedVehicleId == null) {
-      _showErrorSnackBar('Please select a vehicle first');
-      return;
-    }
-
-    if (selectedDates.isEmpty) {
-      _showErrorSnackBar('Please select dates to mark as available');
-      return;
-    }
-
-    setState(() {
-      isSaving = true;
-    });
-
-    try {
-      final vehicleService = VehicleService();
-
-      for (final date in selectedDates) {
-        await vehicleService.clearAvailability(
-          vehicleId: selectedVehicleId!,
-          date: date,
-        );
-      }
-
-      setState(() {
-        for (final date in selectedDates) {
-          unavailableDates.remove(date);
-        }
-        selectedDates.clear();
-      });
-
-      _showSuccessSnackBar('Dates marked as available');
-    } catch (e) {
-      _showErrorSnackBar('Failed to update availability');
-    } finally {
-      setState(() {
-        isSaving = false;
-      });
-    }
   }
 
   @override
@@ -348,312 +151,11 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                               child: _buildApplicationOverview(),
                             ),
-
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Select Vehicle',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.darkBgSecondary,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: AppColors.borderColor,
-                                      ),
-                                    ),
-                                    child: vehicles.isEmpty
-                                        ? const Padding(
-                                            padding: EdgeInsets.all(16),
-                                            child: Text(
-                                              'No approved vehicles found',
-                                              style: TextStyle(
-                                                color: AppColors.textSecondary,
-                                              ),
-                                            ),
-                                          )
-                                        : DropdownButtonHideUnderline(
-                                            child: DropdownButton<String>(
-                                              value: selectedVehicleId,
-                                              isExpanded: true,
-                                              hint: const Text(
-                                                'Choose a vehicle',
-                                                style: TextStyle(
-                                                  color:
-                                                      AppColors.textSecondary,
-                                                ),
-                                              ),
-                                              dropdownColor:
-                                                  AppColors.darkBgSecondary,
-                                              style: const TextStyle(
-                                                color: AppColors.textPrimary,
-                                                fontSize: 14,
-                                              ),
-                                              items: vehicles.map((vehicle) {
-                                                return DropdownMenuItem(
-                                                  value:
-                                                      vehicle['id'] as String,
-                                                  child: Text(
-                                                    '${vehicle['brand']} ${vehicle['model']} - ${vehicle['plate_number']}',
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                );
-                                              }).toList(),
-                                              onChanged: (value) {
-                                                if (value != null) {
-                                                  setState(() {
-                                                    selectedVehicleId = value;
-                                                  });
-                                                  _loadAvailability(value);
-                                                }
-                                              },
-                                            ),
-                                          ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child: Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 18,
-                                runSpacing: 8,
-                                children: [
-                                  _buildLegendItem(
-                                    AppColors.error,
-                                    'Unavailable',
-                                  ),
-                                  _buildLegendItem(
-                                    AppColors.primary,
-                                    'Selected',
-                                  ),
-                                  _buildLegendItem(
-                                    AppColors.darkBgSecondary,
-                                    'Available',
-                                    outlined: true,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
-                            if (selectedVehicleId == null)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(
-                                  vertical: 40,
-                                  horizontal: 24,
-                                ),
-                                child: Column(
-                                  children: [
-                                    Icon(
-                                      Icons.calendar_month,
-                                      size: 64,
-                                      color: AppColors.textTertiary,
-                                    ),
-                                    SizedBox(height: 16),
-                                    Text(
-                                      'Pull down to refresh fleet status, then select a vehicle to manage availability.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            else
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                ),
-                                child: TableCalendar(
-                                  firstDay: DateTime.now(),
-                                  lastDay: DateTime.now().add(
-                                    const Duration(days: 365),
-                                  ),
-                                  focusedDay: focusedDay,
-                                  calendarFormat: calendarFormat,
-                                  selectedDayPredicate: (day) =>
-                                      _isSelected(day),
-                                  onDaySelected: (selectedDay, focusedDay) {
-                                    _toggleDateSelection(selectedDay);
-                                    setState(() {
-                                      this.focusedDay = focusedDay;
-                                    });
-                                  },
-                                  onFormatChanged: (format) {
-                                    setState(() {
-                                      calendarFormat = format;
-                                    });
-                                  },
-                                  onPageChanged: (focusedDay) {
-                                    this.focusedDay = focusedDay;
-                                  },
-                                  calendarStyle: CalendarStyle(
-                                    defaultTextStyle: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                    ),
-                                    weekendTextStyle: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                    ),
-                                    outsideTextStyle: const TextStyle(
-                                      color: AppColors.textTertiary,
-                                    ),
-                                    todayDecoration: BoxDecoration(
-                                      color: AppColors.darkBgTertiary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    todayTextStyle: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    selectedDecoration: const BoxDecoration(
-                                      color: AppColors.primary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    selectedTextStyle: const TextStyle(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  calendarBuilders: CalendarBuilders(
-                                    defaultBuilder: (context, day, focusedDay) {
-                                      if (_isUnavailable(day)) {
-                                        return Container(
-                                          margin: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: AppColors.error,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Center(
-                                            child: Text(
-                                              '${day.day}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  headerStyle: const HeaderStyle(
-                                    titleTextStyle: TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    formatButtonTextStyle: TextStyle(
-                                      color: AppColors.primary,
-                                    ),
-                                    formatButtonDecoration: BoxDecoration(
-                                      border: Border.fromBorderSide(
-                                        BorderSide(color: AppColors.primary),
-                                      ),
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(12),
-                                      ),
-                                    ),
-                                    leftChevronIcon: Icon(
-                                      Icons.chevron_left,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                    rightChevronIcon: Icon(
-                                      Icons.chevron_right,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  daysOfWeekStyle: const DaysOfWeekStyle(
-                                    weekdayStyle: TextStyle(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                    weekendStyle: TextStyle(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),
                     ),
                   ),
-                  if (selectedVehicleId != null)
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        0,
-                        16,
-                        16 + MediaQuery.of(context).padding.bottom,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (selectedDates.isNotEmpty)
-                            Text(
-                              '${selectedDates.length} date(s) selected',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: isSaving ? null : _markAsAvailable,
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                    side: const BorderSide(
-                                      color: AppColors.success,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Mark Available',
-                                    style: TextStyle(color: AppColors.success),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: CustomButton(
-                                  label: 'Mark Unavailable',
-                                  onPressed: _markAsUnavailable,
-                                  isLoading: isSaving,
-                                  backgroundColor: AppColors.error,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -684,9 +186,13 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
   Widget _buildApplicationOverview() {
     final filteredApplications = _filteredApplicationsForSelectedStatus();
+    final displayedApplications =
+        selectedApplicationStatusTab == 1 && selectedApprovedVehicleTab == 1
+        ? filteredApplications.where(_isPostedVehicle).toList()
+        : filteredApplications;
     final selectedStatusTitle = switch (selectedApplicationStatusTab) {
       0 => 'Pending Applications',
-      1 => 'Approved Applications',
+      1 => selectedApprovedVehicleTab == 0 ? 'My Cars' : 'Car Posted',
       _ => 'Declined Applications',
     };
 
@@ -771,17 +277,114 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              if (filteredApplications.isEmpty)
+              if (selectedApplicationStatusTab == 1) ...[
+                _buildApprovedVehicleTabs(filteredApplications),
+                const SizedBox(height: 12),
+              ],
+              if (displayedApplications.isEmpty)
                 Text(
-                  'No ${selectedStatusTitle.toLowerCase()} yet.',
+                  selectedApplicationStatusTab == 1 &&
+                          selectedApprovedVehicleTab == 1
+                      ? 'No posted cars yet.'
+                      : 'No ${selectedStatusTitle.toLowerCase()} yet.',
                   style: TextStyle(color: AppColors.textSecondary),
                 )
+              else if (selectedApplicationStatusTab == 1 &&
+                  selectedApprovedVehicleTab == 1)
+                ...displayedApplications.map(_buildPostedVehicleCard)
               else
-                ...filteredApplications.map(_buildApplicationCard),
+                ...displayedApplications.map(_buildApplicationCard),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildApprovedVehicleTabs(
+    List<Map<String, dynamic>> approvedApplications,
+  ) {
+    final postedCount = approvedApplications.where(_isPostedVehicle).length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          _buildApprovedVehicleTab(
+            label: 'My Cars',
+            count: approvedApplications.length,
+            index: 0,
+          ),
+          _buildApprovedVehicleTab(
+            label: 'Car Posted',
+            count: postedCount,
+            index: 1,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApprovedVehicleTab({
+    required String label,
+    required int count,
+    required int index,
+  }) {
+    final isSelected = selectedApprovedVehicleTab == index;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => selectedApprovedVehicleTab = index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.darkBgSecondary,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -851,6 +454,377 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     );
   }
 
+  String _approvedVehicleId(Map<String, dynamic> application) {
+    final createdVehicleId = application['created_vehicle_id']
+        ?.toString()
+        .trim();
+    if (createdVehicleId != null && createdVehicleId.isNotEmpty) {
+      return createdVehicleId;
+    }
+
+    final partnerVehicleId = application['partner_vehicle_id']
+        ?.toString()
+        .trim();
+    return partnerVehicleId ?? '';
+  }
+
+  Future<void> _openAvailabilityCalendar(
+    Map<String, dynamic> application,
+  ) async {
+    final vehicleId = _approvedVehicleId(application);
+    if (vehicleId.isEmpty) {
+      _showErrorSnackBar('Approved vehicle link is missing');
+      return;
+    }
+
+    final vehicleName =
+        '${application['brand'] ?? 'Vehicle'} ${application['model'] ?? ''}'
+            .trim();
+    final vehicleService = VehicleService();
+    final unavailable = await vehicleService.getUnavailableDates(vehicleId);
+    if (!mounted) return;
+
+    final localUnavailableDates = unavailable.map(_normalizeDate).toSet();
+    final localSelectedDates = <DateTime>{};
+    final today = _normalizeDate(DateTime.now());
+    var localFocusedDay = today;
+    var saving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            bool isUnavailable(DateTime day) =>
+                localUnavailableDates.contains(_normalizeDate(day));
+            bool isSelected(DateTime day) =>
+                localSelectedDates.contains(_normalizeDate(day));
+
+            void toggleDate(DateTime day) {
+              final normalizedDay = _normalizeDate(day);
+              setSheetState(() {
+                if (localSelectedDates.contains(normalizedDay)) {
+                  localSelectedDates.remove(normalizedDay);
+                } else {
+                  localSelectedDates.add(normalizedDay);
+                }
+              });
+            }
+
+            Future<void> saveAvailability(bool makeAvailable) async {
+              if (localSelectedDates.isEmpty || saving) return;
+
+              setSheetState(() => saving = true);
+              try {
+                final dates = List<DateTime>.from(localSelectedDates);
+                for (final date in dates) {
+                  if (makeAvailable) {
+                    await vehicleService.clearAvailability(
+                      vehicleId: vehicleId,
+                      date: date,
+                    );
+                  } else {
+                    await vehicleService.setAvailability(
+                      vehicleId: vehicleId,
+                      date: date,
+                      isAvailable: false,
+                    );
+                  }
+                }
+
+                setSheetState(() {
+                  if (makeAvailable) {
+                    localUnavailableDates.removeAll(dates);
+                  } else {
+                    localUnavailableDates.addAll(dates);
+                  }
+                  localSelectedDates.clear();
+                  saving = false;
+                });
+
+                _showSuccessSnackBar(
+                  makeAvailable
+                      ? 'Selected dates marked available'
+                      : 'Selected dates marked unavailable',
+                );
+                _loadVehicles();
+              } catch (_) {
+                setSheetState(() => saving = false);
+                _showErrorSnackBar('Failed to update availability');
+              }
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  14,
+                  16,
+                  16 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 46,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: AppColors.borderColor,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_month_outlined,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Vehicle Availability',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  vehicleName.isEmpty
+                                      ? 'Approved vehicle'
+                                      : vehicleName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 8,
+                        children: [
+                          _buildLegendItem(AppColors.error, 'Unavailable'),
+                          _buildLegendItem(AppColors.primary, 'Selected'),
+                          _buildLegendItem(
+                            AppColors.darkBgSecondary,
+                            'Available',
+                            outlined: true,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TableCalendar(
+                        firstDay: DateTime(today.year, today.month, 1),
+                        lastDay: today.add(const Duration(days: 365)),
+                        focusedDay: localFocusedDay,
+                        calendarFormat: CalendarFormat.month,
+                        availableCalendarFormats: const {
+                          CalendarFormat.month: 'Month',
+                        },
+                        sixWeekMonthsEnforced: true,
+                        enabledDayPredicate: (day) =>
+                            !_normalizeDate(day).isBefore(today),
+                        selectedDayPredicate: isSelected,
+                        onDaySelected: (selectedDay, focusedDay) {
+                          toggleDate(selectedDay);
+                          setSheetState(() => localFocusedDay = focusedDay);
+                        },
+                        onPageChanged: (focusedDay) =>
+                            localFocusedDay = focusedDay,
+                        calendarStyle: const CalendarStyle(
+                          defaultTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          weekendTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                          ),
+                          outsideTextStyle: TextStyle(
+                            color: AppColors.textTertiary,
+                          ),
+                          disabledTextStyle: TextStyle(
+                            color: AppColors.textTertiary,
+                          ),
+                          todayDecoration: BoxDecoration(
+                            color: AppColors.darkBgTertiary,
+                            shape: BoxShape.circle,
+                          ),
+                          todayTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          selectedDecoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          selectedTextStyle: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        calendarBuilders: CalendarBuilders(
+                          defaultBuilder: (context, day, focusedDay) {
+                            if (isUnavailable(day)) {
+                              return _buildAvailabilityDayCell(
+                                day,
+                                AppColors.error,
+                                Colors.white,
+                              );
+                            }
+                            return null;
+                          },
+                          todayBuilder: (context, day, focusedDay) {
+                            if (isUnavailable(day)) {
+                              return _buildAvailabilityDayCell(
+                                day,
+                                AppColors.error,
+                                Colors.white,
+                              );
+                            }
+                            return _buildAvailabilityDayCell(
+                              day,
+                              AppColors.darkBgTertiary,
+                              AppColors.textPrimary,
+                            );
+                          },
+                        ),
+                        headerStyle: const HeaderStyle(
+                          titleCentered: true,
+                          formatButtonVisible: false,
+                          titleTextStyle: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          leftChevronIcon: Icon(
+                            Icons.chevron_left,
+                            color: AppColors.textPrimary,
+                          ),
+                          rightChevronIcon: Icon(
+                            Icons.chevron_right,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        daysOfWeekStyle: const DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
+                          weekendStyle: TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (localSelectedDates.isNotEmpty)
+                        Text(
+                          '${localSelectedDates.length} date(s) selected',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: saving || localSelectedDates.isEmpty
+                                  ? null
+                                  : () => saveAvailability(true),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                side: const BorderSide(
+                                  color: AppColors.success,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Mark Available',
+                                style: TextStyle(color: AppColors.success),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: saving || localSelectedDates.isEmpty
+                                  ? null
+                                  : () => saveAvailability(false),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.error,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text('Mark Unavailable'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAvailabilityDayCell(
+    DateTime day,
+    Color backgroundColor,
+    Color textColor,
+  ) {
+    return Container(
+      margin: const EdgeInsets.all(5),
+      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
+      child: Center(
+        child: Text(
+          '${day.day}',
+          style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
   Widget _buildApplicationCard(Map<String, dynamic> application) {
     final status =
         (application['application_status'] ??
@@ -896,6 +870,31 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 ),
               ),
               _buildStatusChip(status.toUpperCase(), statusColor),
+              if (status == 'approved') ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Manage availability',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _openAvailabilityCalendar(application),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.calendar_month_outlined,
+                        color: AppColors.primary,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
           if (plateNumber.isNotEmpty) ...[
@@ -994,6 +993,244 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     );
   }
 
+  Widget _buildPostedVehicleCard(Map<String, dynamic> application) {
+    final brand = application['brand']?.toString() ?? 'Vehicle';
+    final model = application['model']?.toString() ?? '';
+    final title = '$brand $model'.trim().isEmpty
+        ? 'Posted Vehicle'
+        : '$brand $model'.trim();
+    final year = application['year']?.toString() ?? '';
+    final plateNumber = application['plate_number']?.toString() ?? '';
+    final fuelType = application['fuel_type']?.toString() ?? '';
+    final transmission = application['transmission']?.toString() ?? '';
+    final color = application['color']?.toString() ?? '';
+    final photoUrl = application['vehicle_photo_url']?.toString().trim();
+    final isPosted = _isPostedVehicle(application);
+    final ownerIsDriver = _truthy(application['owner_is_driver']);
+    final pricePerDay = application['price_per_day'] ?? 0;
+    final pricePerHour = application['price_per_hour'] ?? 0;
+    final metadata = <String>[
+      if (year.isNotEmpty) year,
+      if (plateNumber.isNotEmpty) plateNumber,
+      if (transmission.isNotEmpty) transmission,
+      if (fuelType.isNotEmpty) fuelType,
+      if (color.isNotEmpty) color,
+    ];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+            child: SizedBox(
+              width: double.infinity,
+              height: 145,
+              child: photoUrl != null && photoUrl.isNotEmpty
+                  ? Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _buildPostedImageFallback(),
+                    )
+                  : _buildPostedImageFallback(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                _buildStatusChip(
+                  isPosted ? 'POSTED' : 'NOT POSTED',
+                  isPosted ? AppColors.success : AppColors.textSecondary,
+                ),
+              ],
+            ),
+          ),
+          if (metadata.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Text(
+                metadata.join(' • '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          const Divider(color: AppColors.borderColor, height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        const TextSpan(
+                          text: 'PHP ',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                        TextSpan(
+                          text: pricePerDay.toString(),
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const TextSpan(
+                          text: '/day',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Text(
+                  'PHP $pricePerHour /hr',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isPosted ? 'Visible for booking' : 'Hidden from renters',
+                    style: TextStyle(
+                      color: isPosted
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => _updateApprovedApplicationSettings(
+                    application,
+                    ownerIsDriver: ownerIsDriver,
+                    isAvailable: !isPosted,
+                  ),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 40,
+                    height: 22,
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: isPosted
+                          ? AppColors.primary
+                          : AppColors.textTertiary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: AnimatedAlign(
+                      duration: const Duration(milliseconds: 180),
+                      alignment: isPosted
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(color: AppColors.borderColor, height: 1),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showApplicationDetailsDialog(application),
+                    icon: const Icon(Icons.visibility_outlined, size: 14),
+                    label: const Text(
+                      'Details',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: const BorderSide(color: AppColors.borderColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openAvailabilityCalendar(application),
+                    icon: const Icon(Icons.calendar_month_outlined, size: 14),
+                    label: const Text(
+                      'Calendar',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostedImageFallback() {
+    return Container(
+      color: AppColors.darkBgTertiary,
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.directions_car_outlined,
+        color: AppColors.textTertiary,
+        size: 42,
+      ),
+    );
+  }
+
   Widget _buildApprovedApplicationToggle({
     required IconData icon,
     required String title,
@@ -1067,6 +1304,14 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
       );
 
       setState(() {
+        if (ownerIsDriver) {
+          final currentApplicationId = application['id']?.toString();
+          for (final item in applications) {
+            if (item['id']?.toString() != currentApplicationId) {
+              item['owner_is_driver'] = false;
+            }
+          }
+        }
         application['owner_is_driver'] = ownerIsDriver;
         application['is_available'] = isAvailable;
       });
@@ -1124,6 +1369,7 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     final existingPhotoUrls = List<String>.from(
       await _loadApplicationPhotoUrls(application),
     );
+    if (!mounted) return;
     final List<XFile> newPhotoFiles = [];
 
     final shouldSave = await showModalBottomSheet<bool>(
@@ -1146,408 +1392,350 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     20,
                     20 + MediaQuery.of(context).viewInsets.bottom,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 48,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: AppColors.textTertiary,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Edit Vehicle Details',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 48,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: AppColors.textTertiary,
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
-                          IconButton(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, false),
-                            icon: const Icon(
-                              Icons.close,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Review the current photos and update the vehicle info below. Once saved, this vehicle returns to pending review.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                          height: 1.5,
                         ),
-                      ),
-                      const SizedBox(height: 18),
-                      if (existingPhotoUrls.isEmpty && newPhotoFiles.isEmpty)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBg,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.borderColor),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(
-                                Icons.image_not_supported_outlined,
-                                color: AppColors.textSecondary,
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'No vehicle images were attached to this application yet.',
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 13,
-                                  ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Edit Vehicle Details',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ],
-                          ),
-                        )
-                      else
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Car Images',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
                             ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              height: 148,
-                              child: ListView(
-                                scrollDirection: Axis.horizontal,
-                                children: [
-                                  ...existingPhotoUrls.asMap().entries.map((
-                                    entry,
-                                  ) {
-                                    final index = entry.key;
-                                    final url = entry.value;
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        right:
-                                            index ==
-                                                    existingPhotoUrls.length -
-                                                        1 &&
-                                                newPhotoFiles.isEmpty
-                                            ? 0
-                                            : 12,
-                                      ),
-                                      child: Stack(
-                                        children: [
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              16,
-                                            ),
-                                            child: Container(
-                                              width: 220,
-                                              color: AppColors.darkBg,
-                                              child: Image.network(
-                                                url,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    Container(
-                                                      color: AppColors.darkBg,
-                                                      alignment:
-                                                          Alignment.center,
-                                                      child: const Icon(
-                                                        Icons
-                                                            .image_not_supported_outlined,
-                                                        color: AppColors
-                                                            .textSecondary,
-                                                      ),
-                                                    ),
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: 8,
-                                            right: 8,
-                                            child: GestureDetector(
-                                              onTap: () => setDialogState(
-                                                () => existingPhotoUrls
-                                                    .removeAt(index),
-                                              ),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  6,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.black87,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.close,
-                                                  color: Colors.white,
-                                                  size: 16,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                  ...newPhotoFiles.asMap().entries.map((entry) {
-                                    final index = entry.key;
-                                    final file = entry.value;
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                        right: index == newPhotoFiles.length - 1
-                                            ? 0
-                                            : 12,
-                                      ),
-                                      child: Stack(
-                                        children: [
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              16,
-                                            ),
-                                            child: Container(
-                                              width: 220,
-                                              color: AppColors.darkBg,
-                                              child: Image.file(
-                                                File(file.path),
-                                                fit: BoxFit.cover,
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: 8,
-                                            right: 8,
-                                            child: GestureDetector(
-                                              onTap: () => setDialogState(
-                                                () => newPhotoFiles.removeAt(
-                                                  index,
-                                                ),
-                                              ),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  6,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.black87,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.close,
-                                                  color: Colors.white,
-                                                  size: 16,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                ],
+                            IconButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              icon: const Icon(
+                                Icons.close,
+                                color: AppColors.textSecondary,
                               ),
                             ),
                           ],
                         ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                final picked = await ImagePicker()
-                                    .pickMultiImage(imageQuality: 85);
-                                if (picked.isEmpty) return;
-                                setDialogState(() {
-                                  final existingPaths = newPhotoFiles
-                                      .map((file) => file.path)
-                                      .toSet();
-                                  for (final file in picked) {
-                                    if (!existingPaths.contains(file.path)) {
-                                      newPhotoFiles.add(file);
-                                    }
-                                  }
-                                });
-                              },
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                              ),
-                              label: const Text('Add more images'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.primary,
-                                side: const BorderSide(
-                                  color: AppColors.primary,
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Review the current photos and update the vehicle info below. Once saved, this vehicle returns to pending review.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        if (existingPhotoUrls.isEmpty && newPhotoFiles.isEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.darkBg,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.borderColor),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(
+                                  Icons.image_not_supported_outlined,
+                                  color: AppColors.textSecondary,
                                 ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
+                                SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'No vehicle images were attached to this application yet.',
+                                    style: TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Car Images',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                height: 148,
+                                child: ListView(
+                                  scrollDirection: Axis.horizontal,
+                                  children: [
+                                    ...existingPhotoUrls.asMap().entries.map((
+                                      entry,
+                                    ) {
+                                      final index = entry.key;
+                                      final url = entry.value;
+                                      return Padding(
+                                        padding: EdgeInsets.only(
+                                          right:
+                                              index ==
+                                                      existingPhotoUrls.length -
+                                                          1 &&
+                                                  newPhotoFiles.isEmpty
+                                              ? 0
+                                              : 12,
+                                        ),
+                                        child: Stack(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              child: Container(
+                                                width: 220,
+                                                color: AppColors.darkBg,
+                                                child: Image.network(
+                                                  url,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, _, _) =>
+                                                      Container(
+                                                        color: AppColors.darkBg,
+                                                        alignment:
+                                                            Alignment.center,
+                                                        child: const Icon(
+                                                          Icons
+                                                              .image_not_supported_outlined,
+                                                          color: AppColors
+                                                              .textSecondary,
+                                                        ),
+                                                      ),
+                                                ),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              top: 8,
+                                              right: 8,
+                                              child: GestureDetector(
+                                                onTap: () => setDialogState(
+                                                  () => existingPhotoUrls
+                                                      .removeAt(index),
+                                                ),
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    6,
+                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Colors.black87,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                  child: const Icon(
+                                                    Icons.close,
+                                                    color: Colors.white,
+                                                    size: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                    ...newPhotoFiles.asMap().entries.map((
+                                      entry,
+                                    ) {
+                                      final index = entry.key;
+                                      final file = entry.value;
+                                      return Padding(
+                                        padding: EdgeInsets.only(
+                                          right:
+                                              index == newPhotoFiles.length - 1
+                                              ? 0
+                                              : 12,
+                                        ),
+                                        child: Stack(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              child: Container(
+                                                width: 220,
+                                                color: AppColors.darkBg,
+                                                child: Image.file(
+                                                  File(file.path),
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              top: 8,
+                                              right: 8,
+                                              child: GestureDetector(
+                                                onTap: () => setDialogState(
+                                                  () => newPhotoFiles.removeAt(
+                                                    index,
+                                                  ),
+                                                ),
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    6,
+                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Colors.black87,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                  child: const Icon(
+                                                    Icons.close,
+                                                    color: Colors.white,
+                                                    size: 16,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await ImagePicker()
+                                      .pickMultiImage(imageQuality: 85);
+                                  if (picked.isEmpty) return;
+                                  setDialogState(() {
+                                    final existingPaths = newPhotoFiles
+                                        .map((file) => file.path)
+                                        .toSet();
+                                    for (final file in picked) {
+                                      if (!existingPaths.contains(file.path)) {
+                                        newPhotoFiles.add(file);
+                                      }
+                                    }
+                                  });
+                                },
+                                icon: const Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                ),
+                                label: const Text('Add more images'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.primary,
+                                  side: const BorderSide(
+                                    color: AppColors.primary,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final useTwoColumns = constraints.maxWidth >= 620;
-                              if (useTwoColumns) {
-                                return Column(
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _buildEditField(
-                                            brandController,
-                                            'Brand',
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: _buildEditField(
-                                            modelController,
-                                            'Model',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _buildEditField(
-                                            yearController,
-                                            'Year',
-                                            keyboardType: TextInputType.number,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: _buildEditField(
-                                            plateController,
-                                            'Plate Number',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _buildEditDropdown<int>(
-                                            label: 'Seats',
-                                            value: selectedSeats,
-                                            items: _seatOptions,
-                                            labelBuilder: (value) =>
-                                                '$value seats',
-                                            onChanged: (value) {
-                                              if (value == null) return;
-                                              setDialogState(
-                                                () => selectedSeats = value,
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: _buildEditDropdown<String>(
-                                            label: 'Fuel Type',
-                                            value: selectedFuelType,
-                                            items: _fuelTypeOptions,
-                                            labelBuilder: (value) => value,
-                                            onChanged: (value) {
-                                              if (value == null) return;
-                                              setDialogState(
-                                                () => selectedFuelType = value,
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _buildEditDropdown<String>(
-                                      label: 'Transmission',
-                                      value: selectedTransmission,
-                                      items: _transmissionOptions,
-                                      labelBuilder: (value) => value,
-                                      onChanged: (value) {
-                                        if (value == null) return;
-                                        setDialogState(
-                                          () => selectedTransmission = value,
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                );
-                              }
-
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final useTwoColumns = constraints.maxWidth >= 620;
+                            if (useTwoColumns) {
                               return Column(
-                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _buildEditField(brandController, 'Brand'),
-                                  const SizedBox(height: 12),
-                                  _buildEditField(modelController, 'Model'),
-                                  const SizedBox(height: 12),
-                                  _buildEditField(
-                                    yearController,
-                                    'Year',
-                                    keyboardType: TextInputType.number,
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: _buildEditField(
+                                          brandController,
+                                          'Brand',
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildEditField(
+                                          modelController,
+                                          'Model',
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildEditField(
-                                    plateController,
-                                    'Plate Number',
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: _buildEditField(
+                                          yearController,
+                                          'Year',
+                                          keyboardType: TextInputType.number,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildEditField(
+                                          plateController,
+                                          'Plate Number',
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildEditDropdown<int>(
-                                    label: 'Seats',
-                                    value: selectedSeats,
-                                    items: _seatOptions,
-                                    labelBuilder: (value) => '$value seats',
-                                    onChanged: (value) {
-                                      if (value == null) return;
-                                      setDialogState(
-                                        () => selectedSeats = value,
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _buildEditDropdown<String>(
-                                    label: 'Fuel Type',
-                                    value: selectedFuelType,
-                                    items: _fuelTypeOptions,
-                                    labelBuilder: (value) => value,
-                                    onChanged: (value) {
-                                      if (value == null) return;
-                                      setDialogState(
-                                        () => selectedFuelType = value,
-                                      );
-                                    },
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: _buildEditDropdown<int>(
+                                          label: 'Seats',
+                                          value: selectedSeats,
+                                          items: _seatOptions,
+                                          labelBuilder: (value) =>
+                                              '$value seats',
+                                          onChanged: (value) {
+                                            if (value == null) return;
+                                            setDialogState(
+                                              () => selectedSeats = value,
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildEditDropdown<String>(
+                                          label: 'Fuel Type',
+                                          value: selectedFuelType,
+                                          items: _fuelTypeOptions,
+                                          labelBuilder: (value) => value,
+                                          onChanged: (value) {
+                                            if (value == null) return;
+                                            setDialogState(
+                                              () => selectedFuelType = value,
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 12),
                                   _buildEditDropdown<String>(
@@ -1564,88 +1752,145 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                                   ),
                                 ],
                               );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.borderColor),
-                        ),
-                        child: const Text(
-                          'Pricing stays locked here. Contact admin if the rental price needs to change.',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            Navigator.pop(dialogContext, false);
-                            await _showPriceChangeRequestDialog(application);
+                            }
+
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildEditField(brandController, 'Brand'),
+                                const SizedBox(height: 12),
+                                _buildEditField(modelController, 'Model'),
+                                const SizedBox(height: 12),
+                                _buildEditField(
+                                  yearController,
+                                  'Year',
+                                  keyboardType: TextInputType.number,
+                                ),
+                                const SizedBox(height: 12),
+                                _buildEditField(
+                                  plateController,
+                                  'Plate Number',
+                                ),
+                                const SizedBox(height: 12),
+                                _buildEditDropdown<int>(
+                                  label: 'Seats',
+                                  value: selectedSeats,
+                                  items: _seatOptions,
+                                  labelBuilder: (value) => '$value seats',
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    setDialogState(() => selectedSeats = value);
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                _buildEditDropdown<String>(
+                                  label: 'Fuel Type',
+                                  value: selectedFuelType,
+                                  items: _fuelTypeOptions,
+                                  labelBuilder: (value) => value,
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    setDialogState(
+                                      () => selectedFuelType = value,
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                _buildEditDropdown<String>(
+                                  label: 'Transmission',
+                                  value: selectedTransmission,
+                                  items: _transmissionOptions,
+                                  labelBuilder: (value) => value,
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    setDialogState(
+                                      () => selectedTransmission = value,
+                                    );
+                                  },
+                                ),
+                              ],
+                            );
                           },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.warning,
-                            side: const BorderSide(color: AppColors.warning),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.borderColor),
                           ),
-                          icon: const Icon(Icons.support_agent_outlined),
-                          label: const Text(
-                            'Request Price Change From Admin',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                          child: const Text(
+                            'Pricing stays locked here. Contact admin if the rental price needs to change.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, false),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.textPrimary,
-                                side: const BorderSide(
-                                  color: AppColors.borderColor,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                              ),
-                              child: const Text('Cancel'),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              Navigator.pop(dialogContext, false);
+                              await _showPriceChangeRequestDialog(application);
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.warning,
+                              side: const BorderSide(color: AppColors.warning),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            icon: const Icon(Icons.support_agent_outlined),
+                            label: const Text(
+                              'Request Price Change From Admin',
+                              style: TextStyle(fontWeight: FontWeight.w700),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () =>
-                                  Navigator.pop(dialogContext, true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, false),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.textPrimary,
+                                  side: const BorderSide(
+                                    color: AppColors.borderColor,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
                                 ),
-                              ),
-                              child: const Text(
-                                'Save Changes',
-                                style: TextStyle(fontWeight: FontWeight.w700),
+                                child: const Text('Cancel'),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Save Changes',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1845,6 +2090,27 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     return false;
   }
 
+  bool _isPostedVehicle(Map<String, dynamic> application) {
+    if (_truthy(application['is_available']) ||
+        _truthy(application['is_posted'])) {
+      return true;
+    }
+
+    final statusValues = [
+      application['vehicle_status'],
+      application['posting_status'],
+      application['availability_status'],
+      application['status'],
+    ];
+
+    return statusValues.any((value) {
+      final normalized = value?.toString().trim().toLowerCase() ?? '';
+      return normalized == 'available' ||
+          normalized == 'posted' ||
+          normalized == 'active';
+    });
+  }
+
   String _formatDate(String value) {
     try {
       final date = DateTime.parse(value);
@@ -1858,7 +2124,6 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
   void _showApplicationDetailsDialog(Map<String, dynamic> application) {
     final status = _applicationStatus(application);
-    final applicationId = application['id']?.toString() ?? '';
     final detailRows = <MapEntry<String, String>>[
       MapEntry('Brand', application['brand']?.toString() ?? 'N/A'),
       MapEntry('Model', application['model']?.toString() ?? 'N/A'),
@@ -1971,35 +2236,42 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      SizedBox(
-                        height: 148,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: photoUrls.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 10),
-                          itemBuilder: (context, index) {
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: 210,
-                                color: AppColors.darkBg,
-                                child: Image.network(
-                                  photoUrls[index],
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final useTwoColumns = constraints.maxWidth >= 430;
+                          final imageWidth = useTwoColumns
+                              ? (constraints.maxWidth - 10) / 2
+                              : constraints.maxWidth;
+
+                          return Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: photoUrls.map((url) {
+                              return SizedBox(
+                                width: imageWidth,
+                                height: 150,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
                                     color: AppColors.darkBg,
-                                    alignment: Alignment.center,
-                                    child: const Icon(
-                                      Icons.image_not_supported_outlined,
-                                      color: AppColors.textSecondary,
+                                    child: Image.network(
+                                      url,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, _, _) => Container(
+                                        color: AppColors.darkBg,
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.image_not_supported_outlined,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                              );
+                            }).toList(),
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
                     ],

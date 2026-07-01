@@ -41,7 +41,7 @@ class ChatService {
           .from('conversations')
           .select('''
             *,
-            messages(*),
+            messages!messages_conversation_id_fkey(*),
             bookings!conversations_booking_id_fkey (
               id,
               status,

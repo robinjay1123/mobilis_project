@@ -233,6 +233,46 @@ class PartnerService {
         'updated_at': DateTime.now().toIso8601String(),
       };
 
+      String? partnerId;
+      if (ownerIsDriver) {
+        final application = await supabase
+            .from('partner_vehicle_applications')
+            .select('partner_id')
+            .eq('id', applicationId)
+            .maybeSingle();
+        partnerId = application?['partner_id']?.toString();
+
+        if (partnerId != null && partnerId.isNotEmpty) {
+          await supabase
+              .from('partner_vehicle_applications')
+              .update({
+                'owner_is_driver': false,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('partner_id', partnerId)
+              .eq('application_status', 'approved')
+              .neq('id', applicationId);
+
+          await supabase
+              .from('partner_vehicles')
+              .update({
+                'owner_is_driver': false,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('partner_id', partnerId)
+              .neq('id', partnerVehicleId);
+
+          var vehicleQuery = supabase
+              .from('vehicles')
+              .update({'owner_is_driver': false})
+              .eq('owner_id', partnerId);
+          if (vehicleId != null && vehicleId.isNotEmpty) {
+            vehicleQuery = vehicleQuery.neq('id', vehicleId);
+          }
+          await vehicleQuery;
+        }
+      }
+
       await supabase
           .from('partner_vehicle_applications')
           .update(updates)

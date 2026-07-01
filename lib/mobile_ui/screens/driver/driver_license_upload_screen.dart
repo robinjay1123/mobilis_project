@@ -31,7 +31,9 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
   }
 
   Future<void> _pickLicenseImage(bool isFront) async {
-    final file = await VerificationService.pickImage(source: ImageSource.gallery);
+    final file = await VerificationService.pickImage(
+      source: ImageSource.gallery,
+    );
     if (file == null) return;
     setState(() {
       if (isFront) {
@@ -97,7 +99,16 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
 
   bool _validateInputs() {
     if (licenseNumberController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your license number');
+      _showErrorSnackBar("Please enter your driver's license number");
+      return false;
+    }
+
+    if (!RegExp(
+      r'^[A-Za-z0-9-]{6,32}$',
+    ).hasMatch(licenseNumberController.text.trim())) {
+      _showErrorSnackBar(
+        "Driver's License Number must be 6-32 letters/numbers and may include hyphens",
+      );
       return false;
     }
 
@@ -176,11 +187,12 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
         }
 
         // Upload license document
-        final licenseDocumentUrl = await driverService.uploadToDriverDocumentsBucket(
-          userId: user.id,
-          file: licenseImageFront!,
-          documentType: 'license',
-        );
+        final licenseDocumentUrl = await driverService
+            .uploadToDriverDocumentsBucket(
+              userId: user.id,
+              file: licenseImageFront!,
+              documentType: 'license',
+            );
         await driverService.uploadDriverDocument(
           driverId: driverProfile['id'],
           documentType: 'license',
@@ -270,8 +282,8 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             // License Number
             CustomTextField(
               controller: licenseNumberController,
-              label: 'License Number',
-              hintText: 'Enter your license number',
+              label: "Driver's License Number *",
+              hintText: "Enter your driver's license number",
               prefixIcon: const Icon(Icons.badge),
             ),
             const SizedBox(height: 20),
@@ -349,64 +361,66 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             GestureDetector(
               onTap: () => _pickLicenseImage(true),
               child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.image_outlined,
-                          color: AppColors.primary,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'License Front',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            Text(
-                              'Clear photo of license front',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (licenseImageFront != null)
-                        const Icon(Icons.check_circle, color: Colors.green)
-                      else
-                        const Icon(Icons.chevron_right, color: Colors.grey),
-                    ],
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.borderColor
+                        : Colors.grey.shade300,
                   ),
-                ],
-              ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'License Front',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              Text(
+                                'Clear photo of license front',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.grey
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (licenseImageFront != null)
+                          const Icon(Icons.check_circle, color: Colors.green)
+                        else
+                          const Icon(Icons.chevron_right, color: Colors.grey),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -415,64 +429,66 @@ class _DriverLicenseUploadScreenState extends State<DriverLicenseUploadScreen> {
             GestureDetector(
               onTap: () => _pickLicenseImage(false),
               child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.image_outlined,
-                          color: AppColors.primary,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'License Back',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            Text(
-                              'Clear photo of license back',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (licenseImageBack != null)
-                        const Icon(Icons.check_circle, color: Colors.green)
-                      else
-                        const Icon(Icons.chevron_right, color: Colors.grey),
-                    ],
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.borderColor
+                        : Colors.grey.shade300,
                   ),
-                ],
-              ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'License Back',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              Text(
+                                'Clear photo of license back',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.grey
+                                      : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (licenseImageBack != null)
+                          const Icon(Icons.check_circle, color: Colors.green)
+                        else
+                          const Icon(Icons.chevron_right, color: Colors.grey),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 32),

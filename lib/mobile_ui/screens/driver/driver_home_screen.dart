@@ -25,20 +25,16 @@ class DriverHomeScreen extends StatefulWidget {
   State<DriverHomeScreen> createState() => _DriverHomeScreenState();
 }
 
-class _DriverHomeScreenState extends State<DriverHomeScreen>
-    with TickerProviderStateMixin {
-  late TabController _tabController;
+class _DriverHomeScreenState extends State<DriverHomeScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<_NotificationsTabState> _notificationsKey =
+      GlobalKey<_NotificationsTabState>();
+  int _selectedTab = 0;
+  bool _dimCustomerServiceFab = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   void _handleLogout() async {
@@ -76,11 +72,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
         throw Exception('User not authenticated');
       }
 
-      final conversation = await ChatService().getOrCreateCustomerServiceConversation(
-        userId: user.id,
-        userName: user.userMetadata?['full_name']?.toString(),
-        userRole: 'driver',
-      );
+      final conversation = await ChatService()
+          .getOrCreateCustomerServiceConversation(
+            userId: user.id,
+            userName: user.userMetadata?['full_name']?.toString(),
+            userRole: 'driver',
+          );
 
       final conversationId = conversation['id']?.toString() ?? '';
       if (conversationId.isEmpty || !mounted) return;
@@ -105,91 +102,422 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  void _openDriverApplication() {
+    Navigator.pushNamed(context, '/driver-identity-verification');
+  }
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBg : const Color(0xFFF5F5F5),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'customer_service_driver',
-        onPressed: _openCustomerServiceConversation,
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.support_agent),
-        label: const Text(
-          'Customer Service',
-          style: TextStyle(fontWeight: FontWeight.w700),
+  void _openDriverRatings() {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RatingsReviewsScreen(
+          userId: userId,
+          title: 'Driver Ratings & Reviews',
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: const Color(0xFF07111D),
+      drawer: _buildDriverDrawer(context),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        toolbarHeight: _selectedTab == 0 ? 28 : kToolbarHeight,
+        centerTitle: true,
         automaticallyImplyLeading: false,
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(8),
+        backgroundColor: _selectedTab == 0
+            ? const Color(0xFF07111D)
+            : AppColors.primary,
+        surfaceTintColor: Colors.transparent,
+        title: _selectedTab == 0
+            ? null
+            : Text(
+                _appBarTitle,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-              child: const Icon(
-                Icons.directions_car,
-                color: Colors.black,
-                size: 22,
+        actions: [
+          if (_selectedTab == 3)
+            TextButton(
+              onPressed: () => _notificationsKey.currentState?.markAllAsRead(),
+              child: const Text(
+                'Mark all read',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Text(
-              'Mobilis Driver',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: isDark
-                    ? AppColors.textPrimary
-                    : AppColors.lightTextPrimary,
+        ],
+      ),
+      floatingActionButton: AnimatedOpacity(
+        opacity: _dimCustomerServiceFab ? 0.5 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: FloatingActionButton(
+          heroTag: 'customer_service_driver',
+          onPressed: _openCustomerServiceConversation,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          tooltip: 'Customer Service',
+          child: const Icon(Icons.support_agent),
+        ),
+      ),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: _buildSelectedContent(),
+      ),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF07111D),
+          border: Border(top: BorderSide(color: Color(0xFF1B3047))),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _bottomNavIndex,
+          backgroundColor: const Color(0xFF07111D),
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: AppColors.primary,
+          unselectedItemColor: const Color(0xFF7E8CA3),
+          onTap: (index) => setState(() => _selectedTab = index),
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_month_outlined),
+              label: 'Bookings',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              label: 'Messages',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.notifications_outlined),
+              label: 'Notifications',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline),
+              label: 'Profile',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int get _bottomNavIndex =>
+      _selectedTab >= 0 && _selectedTab <= 4 ? _selectedTab : 0;
+
+  String get _appBarTitle {
+    switch (_selectedTab) {
+      case 1:
+        return 'Assigned Trips';
+      case 2:
+        return 'Messages';
+      case 3:
+        return 'Notifications';
+      case 4:
+        return 'Profile';
+      case 5:
+        return 'Earnings';
+      case 6:
+        return 'Availability';
+      default:
+        return 'Home';
+    }
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    final shouldDim =
+        notification is OverscrollNotification ||
+        (notification.metrics.outOfRange &&
+            notification is! ScrollEndNotification);
+    if (_dimCustomerServiceFab != shouldDim) {
+      setState(() => _dimCustomerServiceFab = shouldDim);
+    }
+    if (notification is ScrollEndNotification && _dimCustomerServiceFab) {
+      setState(() => _dimCustomerServiceFab = false);
+    }
+    return false;
+  }
+
+  Widget _buildSelectedContent() {
+    switch (_selectedTab) {
+      case 1:
+        return const _JobsTab();
+      case 2:
+        return const _DriverMessagesTab();
+      case 3:
+        return _NotificationsTab(key: _notificationsKey);
+      case 4:
+        return _ProfileTab(
+          onThemeToggle: widget.onThemeToggle,
+          isDarkMode: widget.isDarkMode,
+          onLogout: _handleLogout,
+        );
+      case 5:
+        return const _EarningsTab();
+      case 6:
+        return const _AvailabilityTab();
+      default:
+        return _DashboardTab(
+          onOpenMenu: () => _scaffoldKey.currentState?.openDrawer(),
+          onOpenBookings: () => setState(() => _selectedTab = 1),
+          onOpenMessages: () => setState(() => _selectedTab = 2),
+          onOpenEarnings: () => setState(() => _selectedTab = 5),
+          onOpenApplication: _openDriverApplication,
+          onOpenRatings: _openDriverRatings,
+        );
+    }
+  }
+
+  Widget _buildDriverDrawer(BuildContext context) {
+    final user = AuthService().currentUser;
+    final displayName =
+        user?.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
+        ? user!.userMetadata!['full_name'].toString().trim()
+        : user?.email?.split('@').first ?? 'Driver';
+    final email = user?.email ?? 'driver account';
+
+    return Drawer(
+      backgroundColor: const Color(0xFF062A44),
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 18, 18),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 23,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      displayName.isNotEmpty
+                          ? displayName[0].toUpperCase()
+                          : 'D',
+                      style: const TextStyle(
+                        color: Color(0xFF062A44),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF9DB2C8),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    _DriverDrawerItem(
+                      icon: Icons.home_rounded,
+                      label: 'Home',
+                      selected: _selectedTab == 0,
+                      onTap: () => _selectDrawerTab(context, 0),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.calendar_month_outlined,
+                      label: 'Bookings',
+                      selected: _selectedTab == 1,
+                      onTap: () => _selectDrawerTab(context, 1),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.chat_bubble_outline,
+                      label: 'Messages',
+                      selected: _selectedTab == 2,
+                      onTap: () => _selectDrawerTab(context, 2),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.notifications_outlined,
+                      label: 'Notifications',
+                      selected: _selectedTab == 3,
+                      onTap: () => _selectDrawerTab(context, 3),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.handshake_outlined,
+                      label: 'Availability',
+                      selected: _selectedTab == 6,
+                      onTap: () => _selectDrawerTab(context, 6),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.payments_outlined,
+                      label: 'Revenue & Earnings',
+                      selected: _selectedTab == 5,
+                      onTap: () => _selectDrawerTab(context, 5),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 33,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.dark_mode,
+                            color: Color(0xFFD9E7FF),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Text(
+                              'Dark Mode',
+                              style: TextStyle(
+                                color: Color(0xFFD9E7FF),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Switch(
+                            value: widget.isDarkMode,
+                            activeColor: AppColors.primary,
+                            onChanged: (value) =>
+                                widget.onThemeToggle?.call(value),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.star_rounded,
+                      label: 'Reviews & Ratings',
+                      selected: false,
+                      onTap: () {
+                        Navigator.pop(context);
+                        final userId = AuthService().currentUser?.id;
+                        if (userId == null) return;
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => RatingsReviewsScreen(
+                              userId: userId,
+                              title: 'Driver Ratings & Reviews',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: Divider(color: Color(0xFF1B4A67)),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.settings,
+                      label: 'Settings',
+                      selected: _selectedTab == 4,
+                      onTap: () => _selectDrawerTab(context, 4),
+                    ),
+                    _DriverDrawerItem(
+                      icon: Icons.logout,
+                      label: 'Logout',
+                      color: const Color(0xFFFF6B77),
+                      selected: false,
+                      onTap: () {
+                        Navigator.pop(context);
+                        _handleLogout();
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          // Tab Bar
-          Container(
-            color: isDark ? AppColors.darkCard : Colors.white,
-            child: TabBar(
-              controller: _tabController,
-              tabs: const [
-                Tab(text: 'Dashboard'),
-                Tab(text: 'Jobs'),
-                Tab(text: 'Earnings'),
-                Tab(text: 'Availability'),
-                Tab(text: 'Notifications'),
-                Tab(text: 'Profile'),
-              ],
-            ),
+    );
+  }
+
+  void _selectDrawerTab(BuildContext context, int tab) {
+    Navigator.pop(context);
+    setState(() => _selectedTab = tab);
+  }
+}
+
+class _DriverDrawerItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? color;
+
+  const _DriverDrawerItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final itemColor =
+        color ?? (selected ? Colors.black : const Color(0xFFD9E7FF));
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 11),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
           ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _DashboardTab(),
-                _JobsTab(),
-                _EarningsTab(),
-                _AvailabilityTab(),
-                _NotificationsTab(),
-                _ProfileTab(
-                  onThemeToggle: widget.onThemeToggle,
-                  isDarkMode: widget.isDarkMode,
-                  onLogout: _handleLogout,
+          child: Row(
+            children: [
+              Icon(icon, color: itemColor, size: 20),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: itemColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -197,7 +525,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
 // DASHBOARD TAB
 class _DashboardTab extends StatefulWidget {
-  const _DashboardTab();
+  final VoidCallback onOpenMenu;
+  final VoidCallback onOpenBookings;
+  final VoidCallback onOpenMessages;
+  final VoidCallback onOpenEarnings;
+  final VoidCallback onOpenApplication;
+  final VoidCallback onOpenRatings;
+
+  const _DashboardTab({
+    required this.onOpenMenu,
+    required this.onOpenBookings,
+    required this.onOpenMessages,
+    required this.onOpenEarnings,
+    required this.onOpenApplication,
+    required this.onOpenRatings,
+  });
 
   @override
   State<_DashboardTab> createState() => __DashboardTabState();
@@ -206,6 +548,7 @@ class _DashboardTab extends StatefulWidget {
 class __DashboardTabState extends State<_DashboardTab> {
   late Future<Map<String, dynamic>> driverStatsFuture;
   late Future<List<Map<String, dynamic>>> pendingOffersFuture;
+  late Future<List<Map<String, dynamic>>> assignedBookingsFuture;
   String verificationStatus = 'pending';
   String certificationStatus = 'basic'; // 'basic', 'approved', 'certified'
   bool hasPendingVerification = false;
@@ -225,18 +568,29 @@ class __DashboardTabState extends State<_DashboardTab> {
       pendingOffersFuture = driverService.getPendingOffers(
         authService.currentUser!.id,
       );
+      assignedBookingsFuture = driverService.getAssignedBookings(
+        authService.currentUser!.id,
+      );
     } else {
       driverStatsFuture = Future.value({});
       pendingOffersFuture = Future.value([]);
+      assignedBookingsFuture = Future.value([]);
     }
   }
 
-  void _refreshPendingOffers() {
+  void _refreshDriverData() {
     final userId = AuthService().currentUser?.id;
     setState(() {
-      pendingOffersFuture = userId == null
-          ? Future.value([])
-          : DriverService().getPendingOffers(userId);
+      final driverService = DriverService();
+      if (userId == null) {
+        driverStatsFuture = Future.value({});
+        pendingOffersFuture = Future.value([]);
+        assignedBookingsFuture = Future.value([]);
+      } else {
+        driverStatsFuture = _loadDriverStats(driverService, userId);
+        pendingOffersFuture = driverService.getPendingOffers(userId);
+        assignedBookingsFuture = driverService.getAssignedBookings(userId);
+      }
     });
   }
 
@@ -259,7 +613,11 @@ class __DashboardTabState extends State<_DashboardTab> {
                 'pending'),
     );
     final nextCertificationStatus = _normalizeStatus(
-      stats['driver_tier'] ?? stats['tier'] ?? 'basic',
+      stats['application_status'] ??
+          stats['driver_application_status'] ??
+          stats['driver_tier'] ??
+          stats['tier'] ??
+          'basic',
     );
 
     if (mounted) {
@@ -289,15 +647,18 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   String _normalizeStatus(dynamic value) {
     final status = value?.toString().trim().toLowerCase() ?? '';
-    if (status == 'approved') return 'verified';
     return status.isEmpty ? 'pending' : status;
   }
 
   bool get _isVerified {
     return verificationStatus == 'verified' ||
         verificationStatus == 'approved' ||
-        verificationStatus == 'certified' ||
-        certificationStatus == 'certified';
+        verificationStatus == 'certified';
+  }
+
+  bool get _isCertifiedDriver {
+    return certificationStatus == 'certified' ||
+        certificationStatus == 'approved';
   }
 
   void _showVerificationPopup() {
@@ -430,237 +791,965 @@ class __DashboardTabState extends State<_DashboardTab> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  String _displayName() {
+    final user = AuthService().currentUser;
+    final metadataName = user?.userMetadata?['full_name']?.toString().trim();
+    if (metadataName != null && metadataName.isNotEmpty) return metadataName;
+    return user?.email?.split('@').first ?? 'Driver';
+  }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Profile Card
-          FutureBuilder<Map<String, dynamic>>(
-            future: driverStatsFuture,
-            builder: (context, snapshot) {
-              final stats = snapshot.data ?? {};
-              final rating = (stats['rating'] as num?)?.toDouble() ?? 0.0;
-              final totalTrips = stats['total_trips'] ?? 0;
+  double _numValue(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is num) return value.toDouble();
+      final parsed = double.tryParse(value?.toString() ?? '');
+      if (parsed != null) return parsed;
+    }
+    return 0;
+  }
 
-              return Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkCard : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isDark
-                        ? AppColors.borderColor
-                        : Colors.grey.shade200,
-                  ),
+  Map<String, dynamic>? _activeBooking(List<Map<String, dynamic>> bookings) {
+    if (bookings.isEmpty) return null;
+    final preferredStatuses = {'active', 'ongoing', 'approved', 'confirmed'};
+    for (final booking in bookings) {
+      final status = booking['status']?.toString().toLowerCase();
+      if (preferredStatuses.contains(status)) return booking;
+    }
+    return bookings.first;
+  }
+
+  String _bookingRenterName(Map<String, dynamic> booking) {
+    final renter = booking['renter'];
+    if (renter is Map) {
+      final name = renter['full_name']?.toString().trim();
+      if (name != null && name.isNotEmpty) return name;
+      final email = renter['email']?.toString();
+      if (email != null && email.isNotEmpty) return email.split('@').first;
+    }
+    return booking['renter_name']?.toString() ?? 'Renter';
+  }
+
+  String _bookingVehicleName(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'];
+    if (vehicle is Map) {
+      final vehicleName = vehicle['vehicle_name']?.toString().trim();
+      if (vehicleName != null && vehicleName.isNotEmpty) return vehicleName;
+      final brand = vehicle['brand']?.toString().trim() ?? '';
+      final model = vehicle['model']?.toString().trim() ?? '';
+      final combined = '$brand $model'.trim();
+      if (combined.isNotEmpty) return combined;
+    }
+    return booking['vehicle_name']?.toString() ?? 'Assigned Vehicle';
+  }
+
+  String _bookingPickupLocation(Map<String, dynamic> booking) {
+    final pickup = booking['pickup_location'] ?? booking['pickupLocation'];
+    final value = pickup?.toString().trim();
+    return value == null || value.isEmpty ? 'Pickup location pending' : value;
+  }
+
+  String _bookingStartLabel(Map<String, dynamic> booking) {
+    final raw = booking['start_at'] ?? booking['start_date'];
+    final parsed = DateTime.tryParse(raw?.toString() ?? '');
+    if (parsed == null) return 'Schedule pending';
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final hour = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    final suffix = parsed.hour >= 12 ? 'PM' : 'AM';
+    return '${months[parsed.month - 1]} ${parsed.day} • $hour:$minute $suffix';
+  }
+
+  Widget _buildHeader(Map<String, dynamic> stats) {
+    final displayName = _displayName();
+    final badge = _getDriverBadge();
+    final badgeColor = _getDriverBadgeColor();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: widget.onOpenMenu,
+          child: Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primary, width: 3),
+              color: const Color(0xFFFFEDD6),
+            ),
+            child: Center(
+              child: Text(
+                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+                style: const TextStyle(
+                  color: Color(0xFF062A44),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.person,
-                            color: AppColors.primary,
-                            size: 32,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                AuthService()
-                                        .currentUser
-                                        ?.userMetadata?['full_name'] ??
-                                    'Driver',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark ? Colors.white : Colors.black,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _getDriverBadgeColor().withOpacity(
-                                    0.2,
-                                  ),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  _getDriverBadge(),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _getDriverBadgeColor(),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _StatCard(
-                          label: 'Rating',
-                          value: rating.toStringAsFixed(1),
-                          icon: Icons.star,
-                        ),
-                        _StatCard(
-                          label: 'Trips',
-                          value: totalTrips.toString(),
-                          icon: Icons.local_taxi,
-                        ),
-                        _StatCard(
-                          label: 'Status',
-                          value: 'Active',
-                          icon: Icons.check_circle,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-
-          // Pending Offers Section
-          Text(
-            'Pending Job Offers',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: pendingOffersFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final offers = snapshot.data ?? [];
-              if (offers.isEmpty) {
-                return Container(
-                  padding: const EdgeInsets.all(16),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (badge != null) ...[
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.borderColor
-                          : Colors.grey.shade300,
+                    color: badgeColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    badge,
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  child: Center(
-                    child: Text(
-                      'No pending job offers at the moment',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.grey : Colors.grey.shade600,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStats(Map<String, dynamic> stats) {
+    final earnings = _numValue(stats, ['earnings', 'total_earnings']);
+    final rating = _numValue(stats, ['rating', 'average_rating']);
+
+    return Row(
+      children: [
+        Expanded(
+          child: _DriverMetricCard(
+            label: 'Earnings',
+            value: earnings.toStringAsFixed(0),
+            footer: 'EARNED',
+            footerColor: const Color(0xFF48E0B5),
+            icon: Icons.trending_up,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _DriverMetricCard(
+            label: 'Rating',
+            value: rating <= 0 ? '0.0' : rating.toStringAsFixed(1),
+            footer: rating >= 4.7 ? 'TOP RATED' : 'BUILDING',
+            footerColor: AppColors.primary,
+            icon: Icons.star,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _DriverMetricCard(
+            label: 'Identity',
+            value: '',
+            footer: _isVerified ? 'VERIFIED' : 'PENDING',
+            footerColor: _isVerified
+                ? const Color(0xFF48E0B5)
+                : AppColors.primary,
+            icon: Icons.verified_user,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActiveBookingSection() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: assignedBookingsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _DriverLoadingCard(label: 'Loading active booking...');
+        }
+
+        final booking = _activeBooking(snapshot.data ?? []);
+        if (booking == null) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0C1B2A),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFF173651)),
+            ),
+            child: const Text(
+              'No active booking yet. New assigned trips will appear here.',
+              style: TextStyle(
+                color: Color(0xFF9DAEC4),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: const Color(0xFF061B31),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: const Color(0xFF063D67)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Next Pickup',
+                          style: TextStyle(
+                            color: Color(0xFF9DAEC4),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _bookingRenterName(booking),
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text(
+                        'Vehicle',
+                        style: TextStyle(
+                          color: Color(0xFF9DAEC4),
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 150),
+                        child: Text(
+                          _bookingVehicleName(booking),
+                          textAlign: TextAlign.end,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const Divider(color: Color(0xFF1B3047)),
+              const SizedBox(height: 16),
+              _DriverInfoLine(
+                icon: Icons.calendar_month,
+                text: _bookingStartLabel(booking),
+              ),
+              const SizedBox(height: 16),
+              _DriverInfoLine(
+                icon: Icons.location_on,
+                text: _bookingPickupLocation(booking),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: widget.onOpenBookings,
+                      icon: const Icon(Icons.navigation, color: Colors.black),
+                      label: const Text('Navigate'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),
-                );
-              }
-
-              return Column(
-                children: offers
-                    .map((offer) => _DriverOfferCard(offer: offer))
-                    .toList(),
-              );
-            },
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onOpenMessages,
+                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                      label: const Text('Message'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: Color(0xFF2F5D86)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 16,
+      mainAxisSpacing: 16,
+      childAspectRatio: 2.2,
+      children: [
+        _DriverQuickActionCard(
+          icon: Icons.calendar_month,
+          label: 'Booking',
+          onTap: widget.onOpenBookings,
+        ),
+        _DriverQuickActionCard(
+          icon: Icons.assignment_turned_in_outlined,
+          label: 'Application',
+          onTap: widget.onOpenApplication,
+        ),
+        _DriverQuickActionCard(
+          icon: Icons.payments,
+          label: 'Revenue',
+          onTap: widget.onOpenEarnings,
+        ),
+        _DriverQuickActionCard(
+          icon: Icons.star_outline_rounded,
+          label: 'Review & Ratings',
+          onTap: widget.onOpenRatings,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: () async => _refreshDriverData(),
+      color: AppColors.primary,
+      backgroundColor: const Color(0xFF0C1B2A),
+      child: FutureBuilder<Map<String, dynamic>>(
+        future: driverStatsFuture,
+        builder: (context, snapshot) {
+          final stats = snapshot.data ?? {};
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
+            children: [
+              _buildHeader(stats),
+              const SizedBox(height: 16),
+              _buildStats(stats),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'ACTIVE BOOKING',
+                      style: TextStyle(
+                        color: Color(0xFFAAB7C8),
+                        fontSize: 14,
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  FutureBuilder<List<Map<String, dynamic>>>(
+                    future: pendingOffersFuture,
+                    builder: (context, offersSnapshot) {
+                      final count = offersSnapshot.data?.length ?? 0;
+                      return Container(
+                        width: count > 0 ? null : 12,
+                        height: count > 0 ? null : 12,
+                        padding: count > 0
+                            ? const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              )
+                            : EdgeInsets.zero,
+                        decoration: BoxDecoration(
+                          color: count > 0
+                              ? AppColors.primary
+                              : const Color(0xFF12A37C),
+                          borderRadius: count > 0
+                              ? BorderRadius.circular(18)
+                              : null,
+                          shape: count > 0
+                              ? BoxShape.rectangle
+                              : BoxShape.circle,
+                        ),
+                        child: count > 0
+                            ? Text(
+                                '$count requests',
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _buildActiveBookingSection(),
+              const SizedBox(height: 34),
+              const Text(
+                'QUICK ACTIONS',
+                style: TextStyle(
+                  color: Color(0xFFAAB7C8),
+                  fontSize: 14,
+                  letterSpacing: 2,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _buildQuickActions(),
+            ],
+          );
+        },
       ),
     );
   }
 
-  String _getDriverBadge() {
-    if (certificationStatus == 'certified') {
-      return 'CERTIFIED PSDC DRIVER';
-    } else if (_isVerified) {
-      return 'VERIFIED DRIVER';
-    } else if (hasPendingVerification) {
-      return 'VERIFICATION PENDING';
-    } else {
-      return 'BASIC DRIVER';
+  String? _getDriverBadge() {
+    if (_isCertifiedDriver) {
+      return 'Mobilis by PSDC Certified Driver';
     }
+    if (_isVerified) {
+      return 'Basic Driver';
+    }
+    return null;
   }
 
   Color _getDriverBadgeColor() {
-    if (certificationStatus == 'certified') {
+    if (_isCertifiedDriver) {
       return const Color(0xFF6366F1); // Indigo for certified
-    } else if (_isVerified) {
-      return AppColors.success;
-    } else if (hasPendingVerification) {
-      return AppColors.primary;
-    } else {
-      return AppColors.warning;
     }
+    if (_isVerified) {
+      return AppColors.success;
+    }
+    return AppColors.primary;
   }
 }
 
-class _StatCard extends StatelessWidget {
+class _DriverMetricCard extends StatelessWidget {
   final String label;
   final String value;
+  final String footer;
+  final Color footerColor;
   final IconData icon;
 
-  const _StatCard({
+  const _DriverMetricCard({
     required this.label,
     required this.value,
+    required this.footer,
+    required this.footerColor,
     required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Column(
-      children: [
-        Icon(icon, color: AppColors.primary, size: 24),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : Colors.black,
+    return Container(
+      height: 88,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1B2A),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF1B3047), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF9DAEC4),
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: isDark ? Colors.grey : Colors.grey.shade600,
+          const SizedBox(height: 8),
+          if (value.isNotEmpty)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            )
+          else
+            Icon(icon, color: footerColor, size: 18),
+          const Spacer(),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              footer,
+              maxLines: 1,
+              style: TextStyle(
+                color: footerColor,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverInfoLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _DriverInfoLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.primary, size: 26),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DriverQuickActionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _DriverQuickActionCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0C1B2A),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFF1B3047), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF071A2C),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 24),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 11,
+                  height: 1.1,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DriverLoadingCard extends StatelessWidget {
+  final String label;
+
+  const _DriverLoadingCard({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1B2A),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF173651)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF9DAEC4),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverTabHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String? badge;
+
+  const _DriverTabHeader({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    this.badge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102033),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF1F3A55)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, color: Colors.black, size: 26),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF9DAEC4),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (badge != null) ...[
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.primary.withOpacity(0.45)),
+              ),
+              child: Text(
+                badge!,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverEmptyStateCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _DriverEmptyStateCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 34),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverConversationCard extends StatelessWidget {
+  final String title;
+  final String message;
+  final String timestamp;
+  final int unreadCount;
+  final VoidCallback onTap;
+
+  const _DriverConversationCard({
+    required this.title,
+    required this.message,
+    required this.timestamp,
+    required this.unreadCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.darkBgSecondary,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: unreadCount > 0
+                  ? AppColors.primary
+                  : AppColors.borderColor,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.groups_2_outlined,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (timestamp.isNotEmpty)
+                          Text(
+                            timestamp,
+                            style: const TextStyle(
+                              color: AppColors.textTertiary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            message,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        if (unreadCount > 0) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -694,70 +1783,59 @@ class __JobsTabState extends State<_JobsTab> {
     }
   }
 
+  Future<void> _refreshJobs() async {
+    setState(() => _loadJobs());
+    await jobsFuture;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return RefreshIndicator(
+      onRefresh: _refreshJobs,
+      color: AppColors.primary,
+      backgroundColor: AppColors.darkBgSecondary,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
         children: [
-          Text(
-            'Assigned Trips',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black,
-            ),
+          const _DriverTabHeader(
+            title: 'Assigned Trips',
+            subtitle: 'Accepted trips, pickups, returns, and tracking controls',
+            icon: Icons.calendar_month_outlined,
           ),
           const SizedBox(height: 12),
           FutureBuilder<List<Map<String, dynamic>>>(
             future: jobsFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return const _DriverLoadingCard(
+                  label: 'Loading assigned trips...',
+                );
               }
 
               final trips = snapshot.data ?? [];
 
               if (trips.isEmpty) {
-                return Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.borderColor
-                          : Colors.grey.shade300,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      'No assigned trips yet',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.grey : Colors.grey.shade600,
-                      ),
-                    ),
-                  ),
+                return const _DriverEmptyStateCard(
+                  icon: Icons.route_outlined,
+                  title: 'No assigned trips yet',
+                  message:
+                      'When an operator assigns you to a booking, it will show here.',
                 );
               }
 
-              return ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: trips.length,
-                itemBuilder: (context, index) {
-                  final trip = trips[index];
-                  return _TripCard(
-                    trip: trip,
-                    onChanged: () {
-                      setState(() => _loadJobs());
-                    },
+              return Column(
+                children: trips.map((trip) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _TripCard(
+                      trip: trip,
+                      onChanged: () {
+                        setState(() => _loadJobs());
+                      },
+                    ),
                   );
-                },
+                }).toList(),
               );
             },
           ),
@@ -1101,6 +2179,7 @@ class _TripCardState extends State<_TripCard> {
   }
 }
 
+// ignore: unused_element
 class _DriverOfferCard extends StatelessWidget {
   final Map<String, dynamic> offer;
 
@@ -1254,8 +2333,177 @@ class _DriverOfferCard extends StatelessWidget {
   }
 }
 
+class _DriverMessagesTab extends StatefulWidget {
+  const _DriverMessagesTab();
+
+  @override
+  State<_DriverMessagesTab> createState() => _DriverMessagesTabState();
+}
+
+class _DriverMessagesTabState extends State<_DriverMessagesTab> {
+  late Future<List<Map<String, dynamic>>> _conversationsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _conversationsFuture = _loadConversations();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadConversations() async {
+    final user = AuthService().currentUser;
+    if (user == null) return [];
+
+    final conversations = await ChatService().getConversations(user.id);
+    return conversations.map((conversation) {
+      final messages = List<Map<String, dynamic>>.from(
+        conversation['messages'] as List? ?? const [],
+      );
+      messages.sort((a, b) {
+        final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '');
+        final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '');
+        return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+      });
+
+      final lastMessage = messages.isNotEmpty ? messages.first : null;
+      final unreadCount = messages.where((message) {
+        final senderId = message['sender_id']?.toString();
+        final isRead = message['is_read'] == true;
+        return senderId != user.id && !isRead;
+      }).length;
+
+      return {
+        ...conversation,
+        'last_message': lastMessage,
+        'unread_count': unreadCount,
+      };
+    }).toList();
+  }
+
+  Future<void> _refresh() async {
+    final future = _loadConversations();
+    setState(() => _conversationsFuture = future);
+    await future;
+  }
+
+  String _conversationTitle(Map<String, dynamic> conversation) {
+    final booking = conversation['bookings'];
+    if (booking is Map) {
+      final vehicle = booking['vehicles'];
+      if (vehicle is Map) {
+        final name = vehicle['vehicle_name']?.toString().trim();
+        final brand = vehicle['brand']?.toString().trim() ?? '';
+        final model = vehicle['model']?.toString().trim() ?? '';
+        final vehicleName = name?.isNotEmpty == true
+            ? name!
+            : '$brand $model'.trim();
+        if (vehicleName.isNotEmpty) return '$vehicleName Booking';
+      }
+    }
+    return 'Booking Group Chat';
+  }
+
+  String _lastMessage(Map<String, dynamic> conversation) {
+    final last = conversation['last_message'];
+    if (last is Map) {
+      final text = (last['content'] ?? last['message'])?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return 'No messages yet';
+  }
+
+  String _formatTimeAgo(String? raw) {
+    final date = DateTime.tryParse(raw ?? '');
+    if (date == null) return '';
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'Now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    if (diff.inDays < 7) return '${diff.inDays}d';
+    return '${date.month}/${date.day}/${date.year}';
+  }
+
+  void _openConversation(Map<String, dynamic> conversation) {
+    final conversationId = conversation['id']?.toString() ?? '';
+    if (conversationId.isEmpty) return;
+
+    Navigator.of(context)
+        .pushNamed(
+          '/chat-detail',
+          arguments: {
+            'conversationId': conversationId,
+            'recipientName': _conversationTitle(conversation),
+            'recipientAvatar': '',
+            'isAutoGenerated':
+                (conversation['last_message'] as Map?)?['is_auto_generated'] ==
+                true,
+          },
+        )
+        .then((_) => _refresh());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.primary,
+      backgroundColor: AppColors.darkBgSecondary,
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _conversationsFuture,
+        builder: (context, snapshot) {
+          final conversations = snapshot.data ?? [];
+          final unreadTotal = conversations.fold<int>(
+            0,
+            (sum, item) => sum + ((item['unread_count'] as int?) ?? 0),
+          );
+
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              conversations.isEmpty) {
+            return const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            );
+          }
+
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            children: [
+              _DriverTabHeader(
+                title: 'Messages',
+                subtitle: 'Booking conversations and customer service',
+                icon: Icons.chat_bubble_outline,
+                badge: unreadTotal > 0 ? '$unreadTotal unread' : null,
+              ),
+              const SizedBox(height: 18),
+              if (conversations.isEmpty)
+                const _DriverEmptyStateCard(
+                  icon: Icons.chat_bubble_outline,
+                  title: 'No messages yet',
+                  message:
+                      'Booking group chats and support conversations will appear here.',
+                )
+              else
+                ...conversations.map((conversation) {
+                  final last = conversation['last_message'] as Map?;
+                  final unreadCount =
+                      (conversation['unread_count'] as int?) ?? 0;
+                  return _DriverConversationCard(
+                    title: _conversationTitle(conversation),
+                    message: _lastMessage(conversation),
+                    timestamp: _formatTimeAgo(last?['created_at']?.toString()),
+                    unreadCount: unreadCount,
+                    onTap: () => _openConversation(conversation),
+                  );
+                }),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _NotificationsTab extends StatefulWidget {
-  const _NotificationsTab();
+  const _NotificationsTab({super.key});
 
   @override
   State<_NotificationsTab> createState() => _NotificationsTabState();
@@ -1283,10 +2531,108 @@ class _NotificationsTabState extends State<_NotificationsTab> {
     await future;
   }
 
+  Future<void> markAllAsRead() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+    await NotificationService().markAllAsRead(userId);
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('All notifications marked as read')),
+    );
+  }
+
+  Future<void> _openNotificationModal(Map<String, dynamic> notification) async {
+    final id = notification['id']?.toString();
+    if (id != null && id.isNotEmpty && notification['is_read'] != true) {
+      await NotificationService().markAsRead(id);
+      await _refresh();
+    }
+
+    if (!mounted) return;
+    final title = notification['title']?.toString() ?? 'Notification';
+    final message = notification['message']?.toString() ?? '';
+    final createdAt = notification['created_at']?.toString() ?? '';
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.notifications_active_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.close,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                message.isEmpty ? 'No message content.' : message,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+              if (createdAt.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  createdAt,
+                  style: const TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return RefreshIndicator(
       onRefresh: _refresh,
       child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -1302,114 +2648,112 @@ class _NotificationsTabState extends State<_NotificationsTab> {
           if (notifications.isEmpty) {
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: const [
-                SizedBox(height: 120),
-                Icon(
-                  Icons.notifications_none_outlined,
-                  size: 64,
-                  color: AppColors.textTertiary,
+                _DriverTabHeader(
+                  title: 'Notifications',
+                  subtitle: 'Driver updates, approvals, and trip reminders',
+                  icon: Icons.notifications_outlined,
                 ),
-                SizedBox(height: 16),
-                Center(
-                  child: Text(
-                    'No notifications yet',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 16,
-                    ),
-                  ),
+                SizedBox(height: 18),
+                _DriverEmptyStateCard(
+                  icon: Icons.notifications_none_outlined,
+                  title: 'No notifications yet',
+                  message:
+                      'Important trip and account notifications will appear here.',
                 ),
               ],
             );
           }
 
-          return ListView.builder(
+          return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            itemCount: notifications.length,
-            itemBuilder: (context, index) {
-              final notification = notifications[index];
-              final title = notification['title']?.toString() ?? 'Notification';
-              final message = notification['message']?.toString() ?? '';
-              final createdAt = notification['created_at']?.toString() ?? '';
-              final isRead = notification['is_read'] == true;
-              final notificationId = notification['id']?.toString() ?? '';
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+            children: [
+              _DriverTabHeader(
+                title: 'Notifications',
+                subtitle: 'Driver updates, approvals, and trip reminders',
+                icon: Icons.notifications_outlined,
+                badge:
+                    '${notifications.where((item) => item['is_read'] != true).length} unread',
+              ),
+              const SizedBox(height: 18),
+              ...notifications.map((notification) {
+                final title =
+                    notification['title']?.toString() ?? 'Notification';
+                final message = notification['message']?.toString() ?? '';
+                final createdAt = notification['created_at']?.toString() ?? '';
+                final isRead = notification['is_read'] == true;
+                final notificationId = notification['id']?.toString() ?? '';
 
-              if (!isRead &&
-                  notificationId.isNotEmpty &&
-                  !_shownBrowserNotificationIds.contains(notificationId)) {
-                _shownBrowserNotificationIds.add(notificationId);
-                NotificationPermissionService().showBrowserNotification(
-                  title: title,
-                  body: message,
-                );
-              }
+                if (!isRead &&
+                    notificationId.isNotEmpty &&
+                    !_shownBrowserNotificationIds.contains(notificationId)) {
+                  _shownBrowserNotificationIds.add(notificationId);
+                  NotificationPermissionService().showBrowserNotification(
+                    title: title,
+                    body: message,
+                  );
+                }
 
-              return InkWell(
-                onTap: () async {
-                  final id = notification['id']?.toString();
-                  if (id != null && id.isNotEmpty) {
-                    await NotificationService().markAsRead(id);
-                    await _refresh();
-                  }
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isRead
-                          ? (isDark
-                                ? AppColors.borderColor
-                                : Colors.grey.shade300)
-                          : AppColors.primary,
+                return InkWell(
+                  onTap: () => _openNotificationModal(notification),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isRead
+                            ? AppColors.borderColor
+                            : AppColors.primary,
+                      ),
                     ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.notifications_active_outlined,
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white : Colors.black,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.notifications_active_outlined,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.textPrimary,
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          message,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            height: 1.4,
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        message,
-                        style: TextStyle(
-                          color: isDark ? Colors.grey[300] : Colors.grey[800],
-                          height: 1.4,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        createdAt,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.grey[500] : Colors.grey[600],
+                        const SizedBox(height: 8),
+                        Text(
+                          createdAt,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textTertiary,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              }),
+            ],
           );
         },
       ),
@@ -1788,29 +3132,28 @@ class __ProfileTabState extends State<_ProfileTab> {
     final location = user?.userMetadata?['location']?.toString() ?? 'Not set';
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: isDark ? AppColors.darkCard : Colors.white,
+              color: AppColors.darkBgSecondary,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-              ),
+              border: Border.all(color: AppColors.borderColor),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 CircleAvatar(
-                  radius: 42,
+                  radius: 40,
                   backgroundColor: AppColors.primary,
                   child: Text(
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
                     style: const TextStyle(
-                      fontSize: 32,
+                      fontSize: 30,
                       fontWeight: FontWeight.w800,
                       color: Colors.black,
                     ),
@@ -1819,26 +3162,22 @@ class __ProfileTabState extends State<_ProfileTab> {
                 const SizedBox(height: 14),
                 Text(
                   displayName,
-                  style: TextStyle(
-                    fontSize: 20,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white : Colors.black,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 18),
                 const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.verified, color: AppColors.success, size: 16),
-                    SizedBox(width: 5),
-                    Text(
-                      'Verified Driver',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.success,
-                      ),
-                    ),
+                    Expanded(child: _DriverProfileStat('Trips', '0')),
+                    _DriverProfileDivider(),
+                    Expanded(child: _DriverProfileStat('Bookings', '0')),
+                    _DriverProfileDivider(),
+                    Expanded(child: _DriverProfileStat('Rating', '0.0')),
                   ],
                 ),
                 const SizedBox(height: 18),
@@ -1854,94 +3193,72 @@ class __ProfileTabState extends State<_ProfileTab> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
-
-          // Settings Section
-          Text(
-            'Settings',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black,
+          const SizedBox(height: 20),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Settings',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkCard : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade300,
-              ),
-            ),
-            child: Column(
-              children: [
-                // Theme Toggle
-                _SettingTile(
-                  icon: isDark ? Icons.light_mode : Icons.dark_mode,
-                  label: 'Appearance',
-                  value: isDark ? 'Dark Mode' : 'Light Mode',
-                  onTap: () {
-                    widget.onThemeToggle?.call(!isDark);
-                  },
-                  isDark: isDark,
-                  isFirst: true,
+          _SettingTile(
+            icon: isDark ? Icons.light_mode : Icons.dark_mode,
+            label: 'Appearance',
+            value: isDark ? 'Dark Mode' : 'Light Mode',
+            onTap: () => widget.onThemeToggle?.call(!isDark),
+            isDark: true,
+          ),
+          _SettingTile(
+            icon: Icons.verified_user_outlined,
+            label: 'Verification',
+            value: '',
+            onTap: () =>
+                Navigator.pushNamed(context, '/driver-identity-verification'),
+            isDark: true,
+          ),
+          _SettingTile(
+            icon: Icons.star_outline_rounded,
+            label: 'Ratings & Reviews',
+            value: '',
+            onTap: () {
+              if (user == null) return;
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RatingsReviewsScreen(
+                    userId: user.id,
+                    title: 'Driver Ratings & Reviews',
+                  ),
                 ),
-                // Logout
-                _SettingTile(
-                  icon: Icons.verified_user_outlined,
-                  label: 'Verification',
-                  value: '',
-                  onTap: () {
-                    Navigator.pushNamed(
-                      context,
-                      '/driver-identity-verification',
-                    );
-                  },
-                  isDark: isDark,
+              );
+            },
+            isDark: true,
+          ),
+          _SettingTile(
+            icon: Icons.health_and_safety_outlined,
+            label: 'Emergency Contact',
+            value: '',
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EmergencyContactScreen(isDarkMode: isDark),
                 ),
-                _SettingTile(
-                  icon: Icons.star_outline_rounded,
-                  label: 'Ratings & Reviews',
-                  value: '',
-                  onTap: () {
-                    if (user == null) return;
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => RatingsReviewsScreen(
-                          userId: user.id,
-                          title: 'Driver Ratings & Reviews',
-                        ),
-                      ),
-                    );
-                  },
-                  isDark: isDark,
-                ),
-                _SettingTile(
-                  icon: Icons.health_and_safety_outlined,
-                  label: 'Emergency Contact',
-                  value: '',
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            EmergencyContactScreen(isDarkMode: isDark),
-                      ),
-                    );
-                  },
-                  isDark: isDark,
-                ),
-                _SettingTile(
-                  icon: Icons.logout,
-                  label: 'Logout',
-                  value: '',
-                  onTap: widget.onLogout,
-                  isDark: isDark,
-                  textColor: Colors.red,
-                  isLast: true,
-                ),
-              ],
-            ),
+              );
+            },
+            isDark: true,
+          ),
+          _SettingTile(
+            icon: Icons.logout,
+            label: 'Logout',
+            value: '',
+            onTap: widget.onLogout,
+            isDark: true,
+            textColor: Colors.red,
+            isLast: true,
           ),
         ],
       ),
@@ -1968,20 +3285,65 @@ class _InfoRow extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 12,
             color: isDark ? Colors.grey : Colors.grey.shade600,
           ),
         ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white : Colors.black,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black,
+            ),
           ),
         ),
       ],
     );
+  }
+}
+
+class _DriverProfileStat extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DriverProfileStat(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
+      ],
+    );
+  }
+}
+
+class _DriverProfileDivider extends StatelessWidget {
+  const _DriverProfileDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 34, color: AppColors.borderColor);
   }
 }
 
@@ -1992,7 +3354,6 @@ class _SettingTile extends StatelessWidget {
   final VoidCallback onTap;
   final bool isDark;
   final Color? textColor;
-  final bool isFirst;
   final bool isLast;
 
   const _SettingTile({
@@ -2002,7 +3363,6 @@ class _SettingTile extends StatelessWidget {
     required this.onTap,
     required this.isDark,
     this.textColor,
-    this.isFirst = false,
     this.isLast = false,
   });
 
@@ -2011,16 +3371,11 @@ class _SettingTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: !isLast
-                ? BorderSide(
-                    color: isDark
-                        ? AppColors.borderColor
-                        : Colors.grey.shade200,
-                  )
-                : BorderSide.none,
-          ),
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.borderColor),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
@@ -2033,22 +3388,19 @@ class _SettingTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: textColor ?? (isDark ? Colors.white : Colors.black),
+                  color: textColor ?? AppColors.textPrimary,
                 ),
               ),
             ),
             if (value.isNotEmpty)
               Text(
                 value,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isDark ? Colors.grey : Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
               ),
             const SizedBox(width: 8),
-            Icon(
+            const Icon(
               Icons.chevron_right,
-              color: isDark ? Colors.grey : Colors.grey.shade400,
+              color: AppColors.textTertiary,
               size: 20,
             ),
           ],

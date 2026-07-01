@@ -11,7 +11,13 @@ class VehicleService {
       'id,brand,model,year,plate_number,price_per_day,price_per_hour,'
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
-      'latitude,longitude,seats,is_available,is_posted,status,owner_id';
+      'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
+      'rating';
+  static const List<String> _bookingBlockingStatuses = [
+    'confirmed',
+    'active',
+    'ongoing',
+  ];
 
   factory VehicleService() => _instance;
   VehicleService._internal();
@@ -58,6 +64,7 @@ class VehicleService {
     }).toList();
 
     merged['vehicle_images'] = normalizedImages;
+    merged['rating_count'] = (merged['rating_count'] as num?)?.toInt() ?? 0;
 
     // Pick primary image_url — prefer vehicle_images relation, fall back to column
     String? primaryUrl;
@@ -562,7 +569,7 @@ class VehicleService {
           .from('bookings')
           .select('start_at,end_at,start_date,end_date')
           .eq('vehicle_id', vehicleId)
-          .inFilter('status', ['pending', 'approved', 'confirmed', 'active']);
+          .inFilter('status', _bookingBlockingStatuses);
 
       final dates = <String, DateTime>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
@@ -627,7 +634,7 @@ class VehicleService {
           .from('bookings')
           .select('vehicle_id,start_at,end_at,start_date,end_date')
           .inFilter('vehicle_id', ids)
-          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          .inFilter('status', _bookingBlockingStatuses)
           .lt(
             'start_at',
             lastDay.add(const Duration(days: 1)).toUtc().toIso8601String(),
@@ -716,14 +723,27 @@ class VehicleService {
     DateTime endDate,
   ) async {
     try {
+      final startDay = DateTime(startDate.year, startDate.month, startDate.day);
+      final endDay = DateTime(endDate.year, endDate.month, endDate.day);
       final response = await supabase
           .from('vehicle_availability')
           .select('date')
           .eq('vehicle_id', vehicleId)
           .eq('is_available', false)
-          .gte('date', startDate.toIso8601String().split('T')[0])
-          .lte('date', endDate.toIso8601String().split('T')[0]);
-      return response.isEmpty;
+          .gte('date', _dateKey(startDay))
+          .lte('date', _dateKey(endDay));
+      if (response.isNotEmpty) return false;
+
+      final rangeEndExclusive = endDay.add(const Duration(days: 1));
+      final overlapping = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', _bookingBlockingStatuses)
+          .lt('start_at', rangeEndExclusive.toUtc().toIso8601String())
+          .gt('end_at', startDay.toUtc().toIso8601String())
+          .limit(1);
+      return overlapping.isEmpty;
     } catch (_) {
       return false;
     }
@@ -759,7 +779,7 @@ class VehicleService {
           .from('bookings')
           .select('vehicle_id')
           .inFilter('vehicle_id', vehicleIds)
-          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          .inFilter('status', _bookingBlockingStatuses)
           .lt('start_at', rangeEndExclusive.toUtc().toIso8601String())
           .gt('end_at', rangeStart.toUtc().toIso8601String());
 

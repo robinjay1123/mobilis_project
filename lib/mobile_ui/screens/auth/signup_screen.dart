@@ -28,6 +28,7 @@ class _SignupScreenState extends State<SignupScreen> {
   bool obscureConfirmPassword = true;
   bool isLoading = false;
   String? selectedRole; // 'renter' or 'partner'
+  bool _didApplyInitialRouteArgs = false;
 
   @override
   void initState() {
@@ -40,6 +41,21 @@ class _SignupScreenState extends State<SignupScreen> {
     passwordController = TextEditingController();
     confirmPasswordController = TextEditingController();
     // Don't load saved form data - sign-up should always start fresh
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didApplyInitialRouteArgs) return;
+    _didApplyInitialRouteArgs = true;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map && args['initialRole'] is String) {
+      final role = (args['initialRole'] as String).trim().toLowerCase();
+      if (['renter', 'partner', 'driver'].contains(role)) {
+        selectedRole = role;
+      }
+    }
   }
 
   /// Load previously saved signup form data
@@ -150,8 +166,9 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    if (passwordController.text.length < 6) {
-      _showErrorSnackBar('Password must be at least 6 characters long');
+    final passwordError = _validatePassword(passwordController.text);
+    if (passwordError != null) {
+      _showErrorSnackBar(passwordError);
       return;
     }
 
@@ -255,6 +272,22 @@ class _SignupScreenState extends State<SignupScreen> {
       r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
     );
     return emailRegex.hasMatch(email);
+  }
+
+  String? _validatePassword(String password) {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!RegExp(r'[A-Za-z]').hasMatch(password)) {
+      return 'Password must include at least one letter';
+    }
+    if (!RegExp(r'\d').hasMatch(password)) {
+      return 'Password must include at least one number';
+    }
+    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
+      return 'Password must include at least one special character';
+    }
+    return null;
   }
 
   Future<void> _getCurrentLocation() async {
@@ -740,7 +773,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Full Name
               CustomTextField(
-                label: 'Full Name',
+                label: 'Full Name *',
                 hintText: 'John Doe',
                 controller: fullNameController,
                 prefixIcon: const Icon(
@@ -752,7 +785,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Email
               CustomTextField(
-                label: 'Email Address',
+                label: 'Email Address *',
                 hintText: 'name@gmail.com',
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -765,7 +798,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Phone
               CustomTextField(
-                label: 'Phone Number',
+                label: 'Phone Number *',
                 hintText: '+63',
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
@@ -778,7 +811,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Location
               CustomTextField(
-                label: 'Location',
+                label: 'Location *',
                 hintText: 'City, Country',
                 controller: locationController,
                 prefixIcon: const Icon(
@@ -797,7 +830,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Home Address
               CustomTextField(
-                label: 'Home Address',
+                label: 'Home Address *',
                 hintText: 'House No., Street, Barangay, City, Country',
                 controller: addressController,
                 maxLines: 2,
@@ -821,7 +854,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Password
               CustomTextField(
-                label: 'Password',
+                label: 'Password *',
                 hintText: '••••••••',
                 controller: passwordController,
                 obscureText: obscurePassword,
@@ -845,7 +878,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
               // Confirm Password
               CustomTextField(
-                label: 'Confirm Password',
+                label: 'Confirm Password *',
                 hintText: '••••••••',
                 controller: confirmPasswordController,
                 obscureText: obscureConfirmPassword,

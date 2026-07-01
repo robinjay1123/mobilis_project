@@ -793,6 +793,7 @@ class DriverService {
               user?['verification_status'] ??
               user?['application_status'] ??
               'pending',
+          'application_status': user?['application_status'] ?? 'pending',
           'is_available': user?['is_available'] ?? false,
         };
       }
@@ -815,6 +816,10 @@ class DriverService {
             user?['verification_status'] ??
             user?['application_status'] ??
             'pending',
+        'application_status':
+            profile['application_status'] ??
+            user?['application_status'] ??
+            'pending',
         'is_available': user?['is_available'] ?? false,
       };
     } catch (e) {
@@ -825,6 +830,7 @@ class DriverService {
         'driver_tier': 'standard',
         'earnings': 0.0,
         'verification_status': 'pending',
+        'application_status': 'pending',
         'is_available': false,
       };
     }

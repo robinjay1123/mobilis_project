@@ -15,6 +15,11 @@ class BookingService {
   BookingService._internal();
 
   final supabase = Supabase.instance.client;
+  static const List<String> _bookingBlockingStatuses = [
+    'confirmed',
+    'active',
+    'ongoing',
+  ];
 
   // Get bookings for a partner (via their vehicles)
   // Note: vehicles use owner_id which references users.id
@@ -218,6 +223,14 @@ class BookingService {
         );
       }
 
+      if (renterSelfieUrl == null || renterSelfieUrl.trim().isEmpty) {
+        throw Exception('A clear renter selfie is required before booking');
+      }
+
+      if (renterValidIdUrl == null || renterValidIdUrl.trim().isEmpty) {
+        throw Exception('A valid ID photo is required before booking');
+      }
+
       final vehicleState = await supabase
           .from('vehicles')
           .select('is_available, is_posted, status')
@@ -237,7 +250,7 @@ class BookingService {
           .from('bookings')
           .select('id')
           .eq('vehicle_id', vehicleId)
-          .inFilter('status', ['pending', 'approved', 'confirmed', 'active'])
+          .inFilter('status', _bookingBlockingStatuses)
           // Half-open overlap rule:
           // overlap if new_start < existing_end AND new_end > existing_start
           .lt('start_at', endAt.toIso8601String())

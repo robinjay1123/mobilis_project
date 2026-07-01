@@ -1,5 +1,7 @@
 class PricingPolicy {
   static const double deliveryRatePerKm = 75;
+  static const double longBookingReservationRate = 0.20;
+  static const int longBookingReservationThresholdDays = 7;
 
   static const double minDailyRentalPrice = 500;
   static const double maxDailyRentalPrice = 25000;

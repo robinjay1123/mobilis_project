@@ -286,6 +286,27 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
     return true;
   }
 
+  void _startFreshVehicleApplication() {
+    brandController.clear();
+    modelController.clear();
+    yearController.clear();
+    plateNumberController.clear();
+    pricePerDayController.clear();
+    pricePerHourController.clear();
+    _orDocumentFile = null;
+    _crDocumentFile = null;
+    _vehiclePhotoFiles.clear();
+    selectedSeats = 5;
+    selectedFuelType = fuelTypeOptions.first;
+    selectedTransmission = transmissionOptions.first;
+    ownerIsDriver = false;
+    hasPendingApplication = false;
+    _latestApplicationStatus = '';
+    _latestApplicationReviewedAt = null;
+    _latestApplicationRejectionReason = null;
+    _currentStep = 1;
+  }
+
   void _continueApplication() {
     if (_currentStep == 0) {
       setState(() => _currentStep = 1);
@@ -1073,15 +1094,28 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () {
-                setState(() {
-                  hasPendingApplication = false;
-                  _latestApplicationStatus = '';
-                  _latestApplicationReviewedAt = null;
-                  _latestApplicationRejectionReason = null;
-                });
+                setState(_startFreshVehicleApplication);
               },
               icon: const Icon(Icons.refresh),
               label: const Text('Create New Application'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ],
+          if (isApproved) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(_startFreshVehicleApplication);
+              },
+              icon: const Icon(Icons.add_circle_outline),
+              label: const Text('Add Another Vehicle'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 56),
                 foregroundColor: AppColors.primary,

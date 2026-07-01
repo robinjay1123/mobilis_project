@@ -456,8 +456,8 @@ class AdminService {
             'fuel_type': application['fuel_type'] ?? 'Gasoline',
             'transmission': application['transmission'] ?? 'Manual',
             'owner_is_driver': application['owner_is_driver'] ?? false,
-            'is_available': application['is_available'] ?? false,
-            'status': 'pending',
+            'is_available': true,
+            'status': 'available',
             'created_at': DateTime.now().toIso8601String(),
           })
           .select('id')

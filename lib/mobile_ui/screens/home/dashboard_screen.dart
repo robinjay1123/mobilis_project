@@ -59,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoadingVehicles = false;
   bool _isLocatingNearbyVehicles = false;
   bool _hasShownVerificationPrompt = false;
+  bool _dimCustomerServiceFab = false;
   DateTime? _bookingFilterFrom;
   DateTime? _bookingFilterTo;
   double? _nearbyLatitude;
@@ -124,6 +125,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Auth / data helpers (stubs — keep your existing implementations)
   // ---------------------------------------------------------------------------
   void _checkAuth() {}
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    final shouldDim =
+        notification is OverscrollNotification ||
+        (notification.metrics.outOfRange &&
+            notification is! ScrollEndNotification);
+    if (_dimCustomerServiceFab != shouldDim) {
+      setState(() => _dimCustomerServiceFab = shouldDim);
+    }
+    if (notification is ScrollEndNotification && _dimCustomerServiceFab) {
+      setState(() => _dimCustomerServiceFab = false);
+    }
+    return false;
+  }
 
   Future<void> _loadUserData() async {
     try {
@@ -439,7 +454,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final newNotification =
                   payload.newRecord as Map<String, dynamic>?;
               if (newNotification != null && mounted) {
-                final title = newNotification['title']?.toString() ?? 'Notification';
+                final title =
+                    newNotification['title']?.toString() ?? 'Notification';
                 final message = newNotification['message']?.toString() ?? '';
                 setState(() {
                   _notifications.insert(0, newNotification);
@@ -2197,14 +2213,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           vehicle['owner_name']?.toString() ??
           vehicle['partner_name']?.toString() ??
           'Mobilis Partner';
-      final rating = (vehicle['rating'] as num?)?.toDouble() ?? 0.0;
+      final reviewCount = (vehicle['rating_count'] as num?)?.toInt() ?? 0;
+      final rating = reviewCount > 0
+          ? ((vehicle['rating'] as num?)?.toDouble() ?? 0.0)
+          : 0.0;
 
       final current = partnerMap[ownerName];
       if (current == null) {
         partnerMap[ownerName] = {
           'name': ownerName,
           'ratingTotal': rating,
-          'ratingCount': rating > 0 ? 1 : 0,
+          'ratingCount': reviewCount > 0 ? 1 : 0,
           'trips': 1,
           'image': Icons.person,
           'verified': true,
@@ -2212,7 +2231,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } else {
         current['ratingTotal'] = (current['ratingTotal'] as double) + rating;
         current['ratingCount'] =
-            (current['ratingCount'] as int) + (rating > 0 ? 1 : 0);
+            (current['ratingCount'] as int) + (reviewCount > 0 ? 1 : 0);
         current['trips'] = (current['trips'] as int) + 1;
       }
     }
@@ -2299,16 +2318,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
-      body: _buildTabContent(),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'customer_service_dashboard',
-        onPressed: _openCustomerServiceConversation,
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.black,
-        icon: const Icon(Icons.support_agent),
-        label: const Text(
-          'Customer Service',
-          style: TextStyle(fontWeight: FontWeight.w700),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: _buildTabContent(),
+      ),
+      floatingActionButton: AnimatedOpacity(
+        opacity: _dimCustomerServiceFab ? 0.5 : 1,
+        duration: const Duration(milliseconds: 140),
+        child: FloatingActionButton(
+          heroTag: 'customer_service_dashboard',
+          onPressed: _openCustomerServiceConversation,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          tooltip: 'Customer Service',
+          child: const Icon(Icons.support_agent),
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -2339,6 +2362,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
         onTap: (index) {
           setState(() {
+            if (index == 4 || selectedNavIndex == 4) {
+              selectedProfilePage = null;
+            }
             selectedNavIndex = index;
             selectedBookingIndex = null;
           });
@@ -2354,11 +2380,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         throw Exception('User not authenticated');
       }
 
-      final conversation = await ChatService().getOrCreateCustomerServiceConversation(
-        userId: user.id,
-        userName: userName,
-        userRole: 'renter',
-      );
+      final conversation = await ChatService()
+          .getOrCreateCustomerServiceConversation(
+            userId: user.id,
+            userName: userName,
+            userRole: 'renter',
+          );
 
       final conversationId = conversation['id']?.toString() ?? '';
       if (conversationId.isEmpty || !mounted) return;
@@ -3074,7 +3101,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final pricePerDay =
                           (car['price_per_day'] as num?)?.toDouble() ?? 0.0;
 
-                      final rating = (car['rating'] as num?)?.toDouble() ?? 4.5;
+                      final ratingCount =
+                          (car['rating_count'] as num?)?.toInt() ?? 0;
+                      final rating = ratingCount > 0
+                          ? ((car['rating'] as num?)?.toDouble() ?? 0.0)
+                          : 0.0;
                       final vehicleType = car['vehicle_type'] ?? 'Standard';
                       final color = car['color'] ?? 'Unknown';
                       final seats = car['seats'] ?? 5;

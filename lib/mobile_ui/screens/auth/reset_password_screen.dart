@@ -50,8 +50,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       return;
     }
 
-    if (newPasswordController.text.length < 6) {
-      _showErrorSnackBar('Password must be at least 6 characters');
+    final passwordError = _validatePassword(newPasswordController.text);
+    if (passwordError != null) {
+      _showErrorSnackBar(passwordError);
       return;
     }
 
@@ -125,6 +126,22 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
+  String? _validatePassword(String password) {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!RegExp(r'[A-Za-z]').hasMatch(password)) {
+      return 'Password must include at least one letter';
+    }
+    if (!RegExp(r'\d').hasMatch(password)) {
+      return 'Password must include at least one number';
+    }
+    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
+      return 'Password must include at least one special character';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -195,7 +212,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
               // New password field
               CustomTextField(
-                label: 'New Password',
+                label: 'New Password *',
                 hintText: '••••••••',
                 controller: newPasswordController,
                 obscureText: obscureNewPassword,
@@ -221,7 +238,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
               // Confirm password field
               CustomTextField(
-                label: 'Confirm Password',
+                label: 'Confirm Password *',
                 hintText: '••••••••',
                 controller: confirmPasswordController,
                 obscureText: obscureConfirmPassword,

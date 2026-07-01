@@ -114,9 +114,9 @@ class _IdentityVerificationFormScreenState
 
         if (status == 'verified') {
           setState(() {
-            _successMessage = 'Your verification has already been approved.';
+            _successMessage =
+                'Your account has been verified. You can continue using Mobilis.';
           });
-          _redirectVerifiedUsersHome();
         } else if (status == 'pending') {
           setState(() {
             _successMessage =
@@ -126,21 +126,10 @@ class _IdentityVerificationFormScreenState
       } else if (status == 'verified') {
         setState(() {
           _verificationStatus = status;
-          _successMessage = 'Your verification has already been approved.';
+          _successMessage =
+              'Your account has been verified. You can continue using Mobilis.';
         });
-        _redirectVerifiedUsersHome();
       }
-    }
-  }
-
-  void _redirectVerifiedUsersHome() {
-    if (widget.userRole == 'partner' ||
-        widget.userRole == 'driver' ||
-        widget.userRole == 'renter') {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _handleBackNavigation();
-      });
     }
   }
 
@@ -178,8 +167,16 @@ class _IdentityVerificationFormScreenState
       _showError('Please enter your location/address');
       return;
     }
-    if (_idNumberController.text.isEmpty) {
+    if (_idNumberController.text.trim().isEmpty) {
       _showError('Please enter your ID number');
+      return;
+    }
+    final idNumberError = _validateIdNumber(
+      _selectedIdType,
+      _idNumberController.text,
+    );
+    if (idNumberError != null) {
+      _showError(idNumberError);
       return;
     }
     if (_idFrontFile == null) {
@@ -312,6 +309,29 @@ class _IdentityVerificationFormScreenState
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
+  }
+
+  String? _validateIdNumber(String idType, String rawValue) {
+    final value = rawValue.trim();
+    final normalizedType = idType.toLowerCase();
+    if (normalizedType.contains('driver')) {
+      if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(value)) {
+        return "Driver's License Number must be 6-32 letters/numbers and may include hyphens";
+      }
+      return null;
+    }
+
+    if (normalizedType.contains('national')) {
+      if (!RegExp(r'^[A-Za-z0-9-]{8,32}$').hasMatch(value)) {
+        return 'National ID number must be 8-32 letters/numbers and may include hyphens';
+      }
+      return null;
+    }
+
+    if (value.length < 5 || value.length > 40) {
+      return 'ID number must be between 5 and 40 characters';
+    }
+    return null;
   }
 
   void _showCompletionDialog() {
@@ -601,9 +621,9 @@ class _IdentityVerificationFormScreenState
               inputTextColor: inputTextColor,
               hintTextColor: hintTextColor,
               borderColor: inputBorderColor,
-              label: 'ID Number *',
+              label: _idNumberLabel,
               controller: _idNumberController,
-              hint: 'Enter your ID number',
+              hint: _idNumberHint,
               icon: Icons.badge,
             ),
             const SizedBox(height: 16),
@@ -721,6 +741,22 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  String get _idNumberLabel {
+    final type = _selectedIdType.toLowerCase();
+    if (type.contains('driver')) return "Driver's License Number *";
+    if (type.contains('national')) return 'National ID Number *';
+    return 'ID Number *';
+  }
+
+  String get _idNumberHint {
+    final type = _selectedIdType.toLowerCase();
+    if (type.contains('driver')) {
+      return "Enter your driver's license number";
+    }
+    if (type.contains('national')) return 'Enter your National ID number';
+    return 'Enter your ID number';
+  }
+
   Widget _buildIdTypeDropdown(
     bool isDark,
     Color cardColor,
@@ -836,7 +872,10 @@ class _IdentityVerificationFormScreenState
                       onPressed: () =>
                           _pickVerificationPhoto(photoType, ImageSource.camera),
                       icon: const Icon(Icons.camera_alt),
-                      label: const Text('Retake'),
+                      label: const Text(
+                        'Retake',
+                        style: TextStyle(fontSize: 13),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
