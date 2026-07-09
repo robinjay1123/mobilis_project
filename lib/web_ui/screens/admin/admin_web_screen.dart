@@ -787,14 +787,53 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('user_verifications')
           .select('''
             *,
-            users:user_id (full_name, email, role, verification_status)
+            users:user_id (id, full_name, email, role, verification_status)
           ''')
           .order('created_at', ascending: false);
 
-      _verificationRecords = List<Map<String, dynamic>>.from(response);
+      final records = List<Map<String, dynamic>>.from(response);
+      for (final record in records) {
+        final user = record['users'] as Map<String, dynamic>?;
+        final role = user?['role']?.toString().trim().toLowerCase() ?? '';
+        final userId = record['user_id']?.toString() ?? user?['id']?.toString();
+        if (role == 'driver' && userId != null && userId.isNotEmpty) {
+          record['driver_signature_url'] = await _loadDriverSignatureUrl(
+            userId,
+          );
+        }
+      }
+
+      _verificationRecords = records;
     } catch (e) {
       debugPrint('Error loading applications: $e');
       _verificationRecords = [];
+    }
+  }
+
+  Future<String?> _loadDriverSignatureUrl(String userId) async {
+    try {
+      final driver = await _supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final driverId = driver?['id']?.toString();
+      if (driverId == null || driverId.isEmpty) return null;
+
+      final signature = await _supabase
+          .from('driver_documents')
+          .select('file_url')
+          .eq('driver_id', driverId)
+          .eq('document_type', 'digital_signature')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      final url = signature?['file_url']?.toString().trim();
+      return url == null || url.isEmpty ? null : url;
+    } catch (e) {
+      debugPrint('Unable to load driver signature: $e');
+      return null;
     }
   }
 
@@ -3993,6 +4032,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         : null;
     final faceSelfieUrl = record['face_selfie_url']?.toString().trim();
     final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim();
+    final driverSignatureUrl = record['driver_signature_url']
+        ?.toString()
+        .trim();
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -4218,6 +4260,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   _buildDocumentPreview(
                     title: 'Selfie Holding ID',
                     url: selfieWithIdUrl!,
+                    isDark: isDark,
+                  ),
+                if (driverSignatureUrl?.isNotEmpty == true)
+                  _buildDocumentPreview(
+                    title: 'Digital Signature',
+                    url: driverSignatureUrl!,
                     isDark: isDark,
                   ),
               ];

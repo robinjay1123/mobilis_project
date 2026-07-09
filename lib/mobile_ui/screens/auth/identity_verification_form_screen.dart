@@ -51,7 +51,7 @@ class _DriverSignaturePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DriverSignaturePainter oldDelegate) {
-    return oldDelegate.points != points;
+    return true;
   }
 }
 

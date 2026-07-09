@@ -4059,6 +4059,6 @@ class _SignaturePadPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SignaturePadPainter oldDelegate) {
-    return oldDelegate.points != points;
+    return true;
   }
 }
