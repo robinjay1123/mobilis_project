@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../../services/auth_service.dart';
@@ -27,12 +28,38 @@ class DriverHomeScreen extends StatefulWidget {
   State<DriverHomeScreen> createState() => _DriverHomeScreenState();
 }
 
+Future<String?> _loadDriverAvatarUrl(String? userId) async {
+  final metadata = AuthService().currentUser?.userMetadata ?? {};
+  final metadataUrl =
+      (metadata['avatar_url'] ?? metadata['profile_picture_url'] ?? '')
+          .toString()
+          .trim();
+  if (metadataUrl.isNotEmpty) return metadataUrl;
+
+  if (userId == null) return null;
+  try {
+    final row = await Supabase.instance.client
+        .from('users')
+        .select('avatar_url, profile_picture_url')
+        .eq('id', userId)
+        .maybeSingle();
+    final url = (row?['avatar_url'] ?? row?['profile_picture_url'])
+        ?.toString()
+        .trim();
+    return url == null || url.isEmpty ? null : url;
+  } catch (e) {
+    debugPrint('Driver avatar lookup skipped: $e');
+    return null;
+  }
+}
+
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<_NotificationsTabState> _notificationsKey =
       GlobalKey<_NotificationsTabState>();
   int _selectedTab = 0;
   bool _dimCustomerServiceFab = false;
+  DateTime? _lastBackPressedAt;
 
   @override
   void initState() {
@@ -124,104 +151,145 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: const Color(0xFF07111D),
-      drawer: _buildDriverDrawer(context),
-      appBar: AppBar(
-        elevation: 0,
-        toolbarHeight: _selectedTab == 0 ? 28 : kToolbarHeight,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        backgroundColor: _selectedTab == 0
-            ? const Color(0xFF07111D)
-            : AppColors.primary,
-        surfaceTintColor: Colors.transparent,
-        title: _selectedTab == 0
-            ? null
-            : Text(
-                _appBarTitle,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackPressed();
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: const Color(0xFF07111D),
+        drawer: _buildDriverDrawer(context),
+        appBar: AppBar(
+          elevation: 0,
+          toolbarHeight: _selectedTab == 0 ? 8 : kToolbarHeight,
+          centerTitle: true,
+          automaticallyImplyLeading: false,
+          backgroundColor: _selectedTab == 0
+              ? const Color(0xFF07111D)
+              : AppColors.primary,
+          surfaceTintColor: Colors.transparent,
+          title: _selectedTab == 0
+              ? null
+              : Text(
+                  _appBarTitle,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+          leading: _selectedTab == 0
+              ? null
+              : IconButton(
+                  onPressed: () => setState(() => _selectedTab = 0),
+                  icon: const Icon(Icons.arrow_back, color: Colors.black),
+                ),
+          actions: [
+            if (_selectedTab == 3)
+              TextButton(
+                onPressed: () =>
+                    _notificationsKey.currentState?.markAllAsRead(),
+                child: const Text(
+                  'Mark all read',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-        leading: _selectedTab == 0
-            ? null
-            : IconButton(
-                onPressed: () => setState(() => _selectedTab = 0),
-                icon: const Icon(Icons.arrow_back, color: Colors.black),
-              ),
-        actions: [
-          if (_selectedTab == 3)
-            TextButton(
-              onPressed: () => _notificationsKey.currentState?.markAllAsRead(),
-              child: const Text(
-                'Mark all read',
-                style: TextStyle(
+            if (_selectedTab == 4)
+              IconButton(
+                tooltip: 'Driver Ratings & Reviews',
+                onPressed: _openDriverRatings,
+                icon: const Icon(
+                  Icons.star_outline_rounded,
                   color: Colors.black,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
                 ),
               ),
-            ),
-          if (_selectedTab == 4)
-            IconButton(
-              tooltip: 'Driver Ratings & Reviews',
-              onPressed: _openDriverRatings,
-              icon: const Icon(Icons.star_outline_rounded, color: Colors.black),
-            ),
-        ],
-      ),
-      floatingActionButton: AnimatedOpacity(
-        opacity: _dimCustomerServiceFab ? 0.5 : 1,
-        duration: const Duration(milliseconds: 140),
-        child: FloatingActionButton(
-          heroTag: 'customer_service_driver',
-          onPressed: _openCustomerServiceConversation,
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.black,
-          tooltip: 'Customer Service',
-          child: const Icon(Icons.support_agent),
-        ),
-      ),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _handleScrollNotification,
-        child: _buildSelectedContent(),
-      ),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF07111D),
-          border: Border(top: BorderSide(color: Color(0xFF1B3047))),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _bottomNavIndex,
-          backgroundColor: const Color(0xFF07111D),
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: AppColors.primary,
-          unselectedItemColor: const Color(0xFF7E8CA3),
-          onTap: (index) => setState(() => _selectedTab = index),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month_outlined),
-              label: 'Bookings',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline),
-              label: 'Messages',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_outlined),
-              label: 'Notifications',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              label: 'Profile',
-            ),
           ],
         ),
+        floatingActionButton: AnimatedOpacity(
+          opacity: _dimCustomerServiceFab ? 0.5 : 1,
+          duration: const Duration(milliseconds: 140),
+          child: FloatingActionButton(
+            heroTag: 'customer_service_driver',
+            onPressed: _openCustomerServiceConversation,
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.black,
+            tooltip: 'Customer Service',
+            child: const Icon(Icons.support_agent),
+          ),
+        ),
+        body: NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: _buildSelectedContent(),
+        ),
+        bottomNavigationBar: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF07111D),
+            border: Border(top: BorderSide(color: Color(0xFF1B3047))),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _bottomNavIndex,
+            backgroundColor: const Color(0xFF07111D),
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: const Color(0xFF7E8CA3),
+            onTap: (index) => setState(() => _selectedTab = index),
+            items: const [
+              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.calendar_month_outlined),
+                label: 'Bookings',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.chat_bubble_outline),
+                label: 'Messages',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.notifications_outlined),
+                label: 'Notifications',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.person_outline),
+                label: 'Profile',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handleBackPressed() {
+    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    if (_selectedTab != 0) {
+      setState(() => _selectedTab = 0);
+      return;
+    }
+
+    final now = DateTime.now();
+    final shouldExit =
+        _lastBackPressedAt != null &&
+        now.difference(_lastBackPressedAt!) < const Duration(seconds: 2);
+
+    if (shouldExit) {
+      SystemNavigator.pop();
+      return;
+    }
+
+    _lastBackPressedAt = now;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Press back again to exit'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -318,15 +386,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                     alignment: Alignment.center,
-                    child: Text(
-                      displayName.isNotEmpty
-                          ? displayName[0].toUpperCase()
-                          : 'D',
-                      style: const TextStyle(
-                        color: Color(0xFF062A44),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    clipBehavior: Clip.antiAlias,
+                    child: FutureBuilder<String?>(
+                      future: _loadDriverAvatarUrl(user?.id),
+                      builder: (context, snapshot) {
+                        final avatarUrl = snapshot.data ?? '';
+                        if (avatarUrl.isNotEmpty) {
+                          return Image.network(
+                            avatarUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                            errorBuilder: (_, _, _) =>
+                                _DriverInitial(displayName: displayName),
+                          );
+                        }
+                        return _DriverInitial(displayName: displayName);
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -555,6 +631,27 @@ class _DriverDrawerItem extends StatelessWidget {
   }
 }
 
+class _DriverInitial extends StatelessWidget {
+  final String displayName;
+  final double fontSize;
+
+  const _DriverInitial({required this.displayName, this.fontSize = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
+        style: TextStyle(
+          color: const Color(0xFF062A44),
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
 // DASHBOARD TAB
 class _DashboardTab extends StatefulWidget {
   final VoidCallback onOpenMenu;
@@ -583,9 +680,11 @@ class __DashboardTabState extends State<_DashboardTab> {
   late Future<Map<String, dynamic>> driverStatsFuture;
   late Future<List<Map<String, dynamic>>> pendingOffersFuture;
   late Future<List<Map<String, dynamic>>> assignedBookingsFuture;
+  late Future<String?> avatarUrlFuture;
   String verificationStatus = 'pending';
   String certificationStatus = 'basic'; // 'basic', 'approved', 'certified'
   bool hasPendingVerification = false;
+  bool hasLoadedDriverStatus = false;
   bool dismissedVerificationBanner = false;
   int verificationSkipCount = 0; // Track how many times skipped
 
@@ -605,10 +704,12 @@ class __DashboardTabState extends State<_DashboardTab> {
       assignedBookingsFuture = driverService.getAssignedBookings(
         authService.currentUser!.id,
       );
+      avatarUrlFuture = _loadDriverAvatarUrl(authService.currentUser!.id);
     } else {
       driverStatsFuture = Future.value({});
       pendingOffersFuture = Future.value([]);
       assignedBookingsFuture = Future.value([]);
+      avatarUrlFuture = Future.value(null);
     }
   }
 
@@ -620,10 +721,14 @@ class __DashboardTabState extends State<_DashboardTab> {
         driverStatsFuture = Future.value({});
         pendingOffersFuture = Future.value([]);
         assignedBookingsFuture = Future.value([]);
+        avatarUrlFuture = Future.value(null);
+        hasLoadedDriverStatus = false;
       } else {
+        hasLoadedDriverStatus = false;
         driverStatsFuture = _loadDriverStats(driverService, userId);
         pendingOffersFuture = driverService.getPendingOffers(userId);
         assignedBookingsFuture = driverService.getAssignedBookings(userId);
+        avatarUrlFuture = _loadDriverAvatarUrl(userId);
       }
     });
   }
@@ -633,7 +738,7 @@ class __DashboardTabState extends State<_DashboardTab> {
     String userId,
   ) async {
     NotificationService()
-        .checkAndNotifyExpiringDocuments(daysThreshold: 30)
+        .checkAndNotifyExpiringDocuments(daysThreshold: 90)
         .catchError((error) {
           debugPrint('Driver expiry notification check skipped: $error');
           return 0;
@@ -670,6 +775,7 @@ class __DashboardTabState extends State<_DashboardTab> {
         verificationStatus = nextVerificationStatus;
         certificationStatus = nextCertificationStatus;
         hasPendingVerification = verificationRecordStatus == 'pending';
+        hasLoadedDriverStatus = true;
       });
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -928,22 +1034,29 @@ class __DashboardTabState extends State<_DashboardTab> {
         GestureDetector(
           onTap: widget.onOpenMenu,
           child: Container(
-            width: 62,
-            height: 62,
+            width: 54,
+            height: 54,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.primary, width: 3),
+              borderRadius: BorderRadius.circular(16),
               color: const Color(0xFFFFEDD6),
             ),
-            child: Center(
-              child: Text(
-                displayName.isNotEmpty ? displayName[0].toUpperCase() : 'D',
-                style: const TextStyle(
-                  color: Color(0xFF062A44),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+            clipBehavior: Clip.antiAlias,
+            child: FutureBuilder<String?>(
+              future: avatarUrlFuture,
+              builder: (context, snapshot) {
+                final avatarUrl = snapshot.data ?? '';
+                if (avatarUrl.isNotEmpty) {
+                  return Image.network(
+                    avatarUrl,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    errorBuilder: (_, _, _) =>
+                        _DriverInitial(displayName: displayName, fontSize: 24),
+                  );
+                }
+                return _DriverInitial(displayName: displayName, fontSize: 24);
+              },
             ),
           ),
         ),
@@ -1222,38 +1335,67 @@ class __DashboardTabState extends State<_DashboardTab> {
     );
   }
 
-  Widget _buildDriverApplicationCta() {
-    final title = _isCertifiedDriver
-        ? 'Set Your Availability'
-        : _isVerified
+  bool _isCertifiedFromStats(Map<String, dynamic> stats) {
+    final status = _normalizeStatus(
+      stats['application_status'] ??
+          stats['driver_application_status'] ??
+          stats['driver_tier'] ??
+          stats['tier'] ??
+          certificationStatus,
+      fallback: 'basic',
+    );
+
+    return status == 'approved' ||
+        status == 'certified' ||
+        status == 'verified';
+  }
+
+  bool _isVerifiedFromStats(Map<String, dynamic> stats) {
+    final status = _normalizeStatus(
+      stats['verification_status'] ??
+          stats['verification'] ??
+          verificationStatus,
+    );
+
+    return status == 'verified' ||
+        status == 'approved' ||
+        status == 'certified';
+  }
+
+  Widget _buildDriverApplicationCta(Map<String, dynamic> stats) {
+    final isCertified = _isCertifiedFromStats(stats);
+    final isVerified = _isVerifiedFromStats(stats);
+    final title = isCertified
+        ? 'Availability'
+        : isVerified
         ? 'Apply as a Driver'
         : 'Start Driver Application';
-    final subtitle = _isCertifiedDriver
-        ? 'Your certified driver application is approved. Turn availability on or update your driving schedule to receive offers.'
-        : _isVerified
+    final subtitle = isCertified
+        ? 'Set dates to receive trip offers.'
+        : isVerified
         ? 'Submit your driver requirements and documents for final review.'
         : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
-    final buttonLabel = _isCertifiedDriver ? 'Manage' : 'Apply';
+    final buttonLabel = isCertified ? 'Set' : 'Apply';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFF082E49),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.primary.withOpacity(0.35)),
       ),
       child: Row(
         children: [
           Container(
-            width: 52,
-            height: 52,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
-              _isCertifiedDriver
+              isCertified
                   ? Icons.handshake_outlined
                   : Icons.assignment_turned_in_outlined,
               color: AppColors.primary,
@@ -1268,17 +1410,17 @@ class __DashboardTabState extends State<_DashboardTab> {
                   title,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   subtitle,
                   style: const TextStyle(
                     color: AppColors.textSecondary,
-                    fontSize: 12,
-                    height: 1.35,
+                    fontSize: 11,
+                    height: 1.25,
                   ),
                 ),
               ],
@@ -1286,15 +1428,15 @@ class __DashboardTabState extends State<_DashboardTab> {
           ),
           const SizedBox(width: 10),
           ElevatedButton(
-            onPressed: _isCertifiedDriver
+            onPressed: isCertified
                 ? widget.onOpenAvailability
                 : widget.onOpenApplication,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
             child: Text(
@@ -1317,15 +1459,21 @@ class __DashboardTabState extends State<_DashboardTab> {
         future: driverStatsFuture,
         builder: (context, snapshot) {
           final stats = snapshot.data ?? {};
+          final statusLoaded =
+              snapshot.connectionState == ConnectionState.done &&
+              hasLoadedDriverStatus;
           return ListView(
-            padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
             children: [
               _buildHeader(stats),
               const SizedBox(height: 16),
               _buildStats(stats),
-              const SizedBox(height: 24),
-              _buildDriverApplicationCta(),
-              const SizedBox(height: 28),
+              if (statusLoaded) ...[
+                const SizedBox(height: 24),
+                _buildDriverApplicationCta(stats),
+                const SizedBox(height: 28),
+              ] else
+                const SizedBox(height: 24),
               Row(
                 children: [
                   const Expanded(
@@ -1411,7 +1559,7 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Color _getDriverBadgeColor() {
     if (_isCertifiedDriver) {
-      return const Color(0xFF6366F1); // Indigo for certified
+      return const Color.fromRGBO(16, 185, 129, 1); // Indigo for certified
     }
     if (_isVerified) {
       return AppColors.success;
@@ -2799,6 +2947,15 @@ class _NotificationsTabState extends State<_NotificationsTab> {
     final title = notification['title']?.toString() ?? 'Notification';
     final message = notification['message']?.toString() ?? '';
     final createdAt = notification['created_at']?.toString() ?? '';
+    final rawData = notification['data'];
+    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : {};
+    final isDriverLicenseRenewal =
+        data['event']?.toString() == 'driver_license_renewal_due' ||
+        data['document_type']?.toString() == 'driver_license';
+    final actionLabel =
+        data['action_label']?.toString().trim().isNotEmpty == true
+        ? data['action_label'].toString()
+        : 'Update';
 
     showModalBottomSheet<void>(
       context: context,
@@ -2867,6 +3024,35 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                   style: const TextStyle(
                     color: AppColors.textTertiary,
                     fontSize: 11,
+                  ),
+                ),
+              ],
+              if (isDriverLicenseRenewal) ...[
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(
+                        context,
+                        '/driver-identity-verification',
+                        arguments: {'mode': 'renewal'},
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    icon: const Icon(Icons.update_outlined),
+                    label: Text(
+                      actionLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ),
               ],
@@ -3442,11 +3628,6 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  bool get _hasTodaySelected {
-    final today = _dateOnly(DateTime.now());
-    return selectedDates.contains(today);
-  }
-
   @override
   void initState() {
     super.initState();
@@ -3504,8 +3685,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
     });
 
     try {
-      final effectiveAvailability = value && _hasTodaySelected;
-      await _driverService.setAvailability(userId, effectiveAvailability);
+      await _driverService.setAvailability(userId, value);
       await _driverService.replaceDateSchedule(
         driverId: userId,
         dates: value ? selectedDates : const [],
@@ -3516,9 +3696,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
         SnackBar(
           content: Text(
             value
-                ? effectiveAvailability
-                      ? 'You are now available for driver assignments today'
-                      : 'Schedule saved. You will show as available on the selected dates.'
+                ? 'Schedule saved. You will show as available on selected dates.'
                 : 'You are now unavailable for driver assignments',
           ),
           backgroundColor: AppColors.success,
@@ -3562,10 +3740,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
         dates: isAvailable ? selectedDates : const [],
         isAvailable: isAvailable,
       );
-      await _driverService.setAvailability(
-        userId,
-        isAvailable && _hasTodaySelected,
-      );
+      await _driverService.setAvailability(userId, isAvailable);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

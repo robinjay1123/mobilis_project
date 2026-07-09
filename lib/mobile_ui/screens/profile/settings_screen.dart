@@ -94,6 +94,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  bool get _canEditProfilePhoto {
+    final role = currentRole?.toLowerCase().trim();
+    return role != 'admin' && role != 'operator';
+  }
+
+  Future<void> _openProfilePictureUpload() async {
+    if (!_canEditProfilePhoto) return;
+    final updated = await Navigator.pushNamed(
+      context,
+      '/profile-picture-upload',
+    );
+    if (updated == true && mounted) {
+      _loadCurrentRole();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -638,29 +654,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(16),
-              image: avatarUrl.isNotEmpty
-                  ? DecorationImage(
-                      image: NetworkImage(avatarUrl),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: avatarUrl.isEmpty
-                ? Text(
-                    _initials(name),
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(16),
+                  image: avatarUrl.isNotEmpty
+                      ? DecorationImage(
+                          image: NetworkImage(avatarUrl),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
+                child: avatarUrl.isEmpty
+                    ? Text(
+                        _initials(name),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      )
+                    : null,
+              ),
+              if (_canEditProfilePhoto)
+                Positioned(
+                  right: -5,
+                  bottom: -5,
+                  child: InkWell(
+                    onTap: _openProfilePictureUpload,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: _cardColor(context),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.primary),
+                      ),
+                      child: const Icon(
+                        Icons.edit_outlined,
+                        color: AppColors.primary,
+                        size: 14,
+                      ),
                     ),
-                  )
-                : null,
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: 12),
           Expanded(

@@ -405,12 +405,12 @@ class BookingService {
 
       if (coTravelerSignatureText != null &&
           coTravelerSignatureText.trim().isNotEmpty) {
-        bookingPayload['co_traveler_signature_text'] =
-            coTravelerSignatureText.trim();
+        bookingPayload['co_traveler_signature_text'] = coTravelerSignatureText
+            .trim();
       }
 
-      bookingPayload['co_traveler_signature_url'] =
-          coTravelerSignatureUrl.trim();
+      bookingPayload['co_traveler_signature_url'] = coTravelerSignatureUrl
+          .trim();
       bookingPayload['co_traveler_valid_id_url'] = coTravelerValidIdUrl.trim();
       bookingPayload['co_traveler_selfie_url'] = coTravelerSelfieUrl.trim();
 
@@ -986,7 +986,7 @@ class BookingService {
       // Update booking with driver. If a partner assigns directly from a
       // pending request, make it visible as an approved assigned trip.
       final updatePayload = <String, dynamic>{
-        'driver_id': driverProfileId,
+        'driver_id': driverUserId,
         'with_driver': true,
         'driver_assigned_at': DateTime.now().toIso8601String(),
         if (currentStatus == 'pending') 'status': 'approved',
@@ -997,7 +997,7 @@ class BookingService {
       try {
         await supabase.from('driver_job_assignments').insert({
           'booking_id': bookingId,
-          'driver_id': driverProfileId,
+          'driver_id': driverUserId,
           'trip_fee': tripFee,
           'status': 'assigned',
           'assigned_at': DateTime.now().toIso8601String(),
@@ -1132,11 +1132,16 @@ class BookingService {
           .select('driver_id')
           .eq('date', today)
           .eq('is_available', true);
-      final availableTodayDriverIds =
-          List<Map<String, dynamic>>.from(todayScheduleResponse)
-              .map((row) => row['driver_id']?.toString())
-              .whereType<String>()
-              .toSet();
+      final anyScheduleResponse = await supabase
+          .from('driver_availability_schedule')
+          .select('driver_id')
+          .eq('is_available', true);
+      final availableTodayDriverIds = List<Map<String, dynamic>>.from(
+        todayScheduleResponse,
+      ).map((row) => row['driver_id']?.toString()).whereType<String>().toSet();
+      final scheduledDriverIds = List<Map<String, dynamic>>.from(
+        anyScheduleResponse,
+      ).map((row) => row['driver_id']?.toString()).whereType<String>().toSet();
 
       final response = await supabase
           .from('drivers')
@@ -1151,9 +1156,11 @@ class BookingService {
         final role = user['role']?.toString().trim().toLowerCase() ?? '';
         if (role.isNotEmpty && role != 'driver') return false;
 
-        final isAvailable =
-            user['is_available'] == true ||
-            availableTodayDriverIds.contains(driver['user_id']?.toString());
+        final driverUserId = driver['user_id']?.toString();
+        final hasDateSchedule = scheduledDriverIds.contains(driverUserId);
+        final isAvailable = hasDateSchedule
+            ? availableTodayDriverIds.contains(driverUserId)
+            : user['is_available'] == true;
         final isVerified =
             _isVerifiedDriverStatus(driver['verification_status']) ||
             _isVerifiedDriverStatus(user['verification_status']) ||
@@ -1203,13 +1210,9 @@ class BookingService {
           'Pickup updates are only allowed for with-driver bookings',
         );
       }
-      final currentDriverProfileId = currentUserId == null
-          ? null
-          : await _getDriverProfileIdForUser(currentUserId);
       if (currentUserId == null ||
           assignedDriverId == null ||
-          currentDriverProfileId == null ||
-          assignedDriverId != currentDriverProfileId) {
+          assignedDriverId != currentUserId) {
         throw Exception('Only the assigned driver can mark pickup time');
       }
 
@@ -1230,7 +1233,7 @@ class BookingService {
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('booking_id', bookingId)
-            .eq('driver_id', currentDriverProfileId);
+            .eq('driver_id', currentUserId);
       } catch (e) {
         debugPrint('Could not update assignment status to in_progress: $e');
       }
@@ -1279,13 +1282,9 @@ class BookingService {
           'Return updates are only allowed for with-driver bookings',
         );
       }
-      final currentDriverProfileId = currentUserId == null
-          ? null
-          : await _getDriverProfileIdForUser(currentUserId);
       if (currentUserId == null ||
           assignedDriverId == null ||
-          currentDriverProfileId == null ||
-          assignedDriverId != currentDriverProfileId) {
+          assignedDriverId != currentUserId) {
         throw Exception('Only the assigned driver can mark return time');
       }
 
@@ -1333,10 +1332,7 @@ class BookingService {
           })
           .eq('id', bookingId);
 
-      final driverId = booking['driver_id']?.toString();
-      final driverUserId = driverId == null || driverId.isEmpty
-          ? null
-          : await _getDriverUserIdForProfile(driverId);
+      final driverUserId = booking['driver_id']?.toString();
       if (driverUserId != null && driverUserId.isNotEmpty) {
         await supabase
             .from('users')
@@ -1352,7 +1348,7 @@ class BookingService {
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('booking_id', bookingId)
-            .eq('driver_id', currentDriverProfileId);
+            .eq('driver_id', currentUserId);
       } catch (e) {
         debugPrint('Could not update assignment status to completed: $e');
       }
@@ -1460,6 +1456,20 @@ class BookingService {
     return driver?['user_id']?.toString();
   }
 
+  Future<String?> _resolveDriverUserId(String driverIdOrUserId) async {
+    final byUserId = await supabase
+        .from('drivers')
+        .select('user_id')
+        .eq('user_id', driverIdOrUserId)
+        .maybeSingle();
+    final existingUserId = byUserId?['user_id']?.toString();
+    if (existingUserId != null && existingUserId.isNotEmpty) {
+      return existingUserId;
+    }
+
+    return _getDriverUserIdForProfile(driverIdOrUserId);
+  }
+
   bool _hasTripConfirmation(dynamic value) {
     final text = value?.toString().trim() ?? '';
     return text.isNotEmpty;
@@ -1553,7 +1563,7 @@ class BookingService {
     final driverId = booking['driver_id']?.toString();
     final driverUserId = driverId == null || driverId.isEmpty
         ? null
-        : await _getDriverUserIdForProfile(driverId);
+        : await _resolveDriverUserId(driverId);
     final currentUserId = supabase.auth.currentUser?.id;
     final participantIds = <String>{renterId};
     if (ownerId != null && ownerId.isNotEmpty) participantIds.add(ownerId);

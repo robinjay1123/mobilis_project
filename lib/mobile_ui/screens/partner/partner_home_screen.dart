@@ -53,6 +53,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   // Partner data
   String partnerName = 'Loading...';
+  String? partnerAvatarUrl;
   String verificationStatus = 'pending';
   String partnershipStatus = 'basic'; // 'basic', 'approved', 'certified'
   Map<String, dynamic>? partnerProfile;
@@ -203,6 +204,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         final ratingSummary = await TripRatingService().getRatingSummary(
           user.id,
         );
+        final avatarUrl = await _loadPartnerAvatarUrl(user);
         final restrictionState = await _restrictionService.getUserRestriction(
           user.id,
         );
@@ -214,6 +216,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         setState(() {
           partnerProfile = profile;
           partnerName = user.userMetadata?['full_name'] ?? 'Partner';
+          partnerAvatarUrl = avatarUrl;
           verificationStatus = _normalizeVerificationStatus(
             profile?['verification_status']?.toString(),
           );
@@ -245,6 +248,31 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         });
       }
     }
+  }
+
+  Future<String?> _loadPartnerAvatarUrl(User user) async {
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final metadataUrl =
+        (metadata['avatar_url'] ?? metadata['profile_picture_url'])
+            ?.toString()
+            .trim();
+    if (metadataUrl != null && metadataUrl.isNotEmpty) return metadataUrl;
+
+    try {
+      final row = await Supabase.instance.client
+          .from('users')
+          .select('avatar_url, profile_picture_url')
+          .eq('id', user.id)
+          .maybeSingle();
+      final url = (row?['avatar_url'] ?? row?['profile_picture_url'])
+          ?.toString()
+          .trim();
+      if (url != null && url.isNotEmpty) return url;
+    } catch (e) {
+      debugPrint('Partner avatar lookup skipped: $e');
+    }
+
+    return null;
   }
 
   /// 🔔 Set up real-time listener for new bookings
@@ -796,6 +824,47 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   // ===================== DRAWER =====================
+  Widget _buildPartnerAvatar({
+    required double size,
+    required double radius,
+    double fontSize = 20,
+  }) {
+    final avatarUrl = partnerAvatarUrl?.trim() ?? '';
+
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: avatarUrl.isNotEmpty
+          ? Image.network(
+              avatarUrl,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => _buildPartnerInitial(fontSize),
+            )
+          : _buildPartnerInitial(fontSize),
+    );
+  }
+
+  Widget _buildPartnerInitial(double fontSize) {
+    return Center(
+      child: Text(
+        partnerName.isNotEmpty ? partnerName[0].toUpperCase() : 'P',
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+          color: Colors.black,
+        ),
+      ),
+    );
+  }
+
   Widget _buildDrawer() {
     final user = AuthService().currentUser;
     final email = user?.email ?? 'partner account';
@@ -810,25 +879,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 20, 18, 16),
               child: Row(
                 children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      partnerName.isNotEmpty
-                          ? partnerName[0].toUpperCase()
-                          : 'P',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
+                  _buildPartnerAvatar(size: 46, radius: 14, fontSize: 18),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -1175,24 +1226,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         children: [
           GestureDetector(
             onTap: () => _scaffoldKey.currentState?.openDrawer(),
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Text(
-                  partnerName.isNotEmpty ? partnerName[0].toUpperCase() : 'P',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ),
+            child: _buildPartnerAvatar(size: 44, radius: 12, fontSize: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -4296,25 +4330,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       Stack(
                         clipBehavior: Clip.none,
                         children: [
-                          Container(
-                            width: 82,
-                            height: 82,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Center(
-                              child: Text(
-                                partnerName.isNotEmpty
-                                    ? partnerName[0].toUpperCase()
-                                    : 'P',
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.black,
-                                ),
-                              ),
-                            ),
+                          _buildPartnerAvatar(
+                            size: 82,
+                            radius: 24,
+                            fontSize: 32,
                           ),
                           Positioned(
                             right: -6,

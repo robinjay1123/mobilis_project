@@ -729,11 +729,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
 
       final operatorId = _supabase.auth.currentUser?.id;
+      final normalizedExistingDriverId = driverId == null
+          ? await _resolveDriverUserId(booking['driver_id'])
+          : null;
 
       await _supabase
           .from('bookings')
           .update({
             'status': 'confirmed',
+            'driver_id': normalizedExistingDriverId,
             if (operatorId != null) 'operator_id': operatorId,
             'approved_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
@@ -772,6 +776,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
+  Future<String?> _resolveDriverUserId(dynamic driverId) async {
+    final value = driverId?.toString().trim();
+    if (value == null || value.isEmpty) return null;
+
+    final byUserId = await _supabase
+        .from('drivers')
+        .select('user_id')
+        .eq('user_id', value)
+        .maybeSingle();
+    final existingUserId = byUserId?['user_id']?.toString();
+    if (existingUserId != null && existingUserId.isNotEmpty) {
+      return existingUserId;
+    }
+
+    final byProfileId = await _supabase
+        .from('drivers')
+        .select('user_id')
+        .eq('id', value)
+        .maybeSingle();
+    final profileUserId = byProfileId?['user_id']?.toString();
+    return profileUserId == null || profileUserId.isEmpty
+        ? null
+        : profileUserId;
+  }
+
   Future<void> _createBookingGroupChat(
     Map<String, dynamic> booking,
     String? driverId,
@@ -789,13 +818,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final participantIds = <String>{renterId, operatorId};
 
-      if (driverId != null) {
-        final driver = await _supabase
-            .from('drivers')
-            .select('user_id')
-            .eq('id', driverId)
-            .maybeSingle();
-        final driverUserId = driver?['user_id']?.toString();
+      final driverIdForChat =
+          driverId?.toString() ?? booking['driver_id']?.toString();
+      if (driverIdForChat != null && driverIdForChat.isNotEmpty) {
+        final driverUserId = await _resolveDriverUserId(driverIdForChat);
         if (driverUserId != null && driverUserId.isNotEmpty) {
           participantIds.add(driverUserId);
         }
@@ -3008,18 +3034,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 const SizedBox(height: 8),
                 ...evidence.map((item) {
                   final url = item.value.trim();
+                  final bucket = _storageBucketFromUrl(url);
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: OutlinedButton.icon(
                       onPressed: url.isEmpty
                           ? null
-                          : () => launchUrl(
-                              Uri.parse(url),
-                              mode: LaunchMode.externalApplication,
-                            ),
+                          : () => _openEvidenceUrl(url),
                       icon: const Icon(Icons.open_in_new, size: 16),
                       label: Text(
-                        url.isEmpty ? '${item.key}: missing' : item.key,
+                        url.isEmpty
+                            ? '${item.key}: missing'
+                            : bucket == null
+                            ? item.key
+                            : '${item.key} ($bucket)',
                       ),
                     ),
                   );
@@ -3035,6 +3063,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openEvidenceUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      _showErrorSnackBar('Invalid uploaded file link');
+      return;
+    }
+
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      _showErrorSnackBar(
+        'Could not open uploaded file. Check that the storage bucket exists and the file was uploaded.',
+      );
+    }
+  }
+
+  String? _storageBucketFromUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+
+    final segments = uri.pathSegments;
+    final publicIndex = segments.indexOf('public');
+    if (publicIndex >= 0 && publicIndex + 1 < segments.length) {
+      return segments[publicIndex + 1];
+    }
+
+    final signIndex = segments.indexOf('sign');
+    if (signIndex >= 0 && signIndex + 1 < segments.length) {
+      return segments[signIndex + 1];
+    }
+
+    return null;
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
   }
 

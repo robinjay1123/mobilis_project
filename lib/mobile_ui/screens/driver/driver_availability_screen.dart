@@ -50,8 +50,6 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
   DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 
-  bool get _hasTodaySelected => selectedDates.contains(_dateOnly(DateTime.now()));
-
   String _formatDate(DateTime date) {
     const months = [
       'Jan',
@@ -426,10 +424,7 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
         if (driverProfile != null) {
           // Set availability status
-          await driverService.setAvailability(
-            user.id,
-            isAvailable && _hasTodaySelected,
-          );
+          await driverService.setAvailability(user.id, isAvailable);
 
           // Prepare schedule data
           final daysData = selectedDays.join(',');

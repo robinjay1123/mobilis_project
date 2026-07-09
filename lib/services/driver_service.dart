@@ -444,7 +444,7 @@ class DriverService {
               )
             )
           ''')
-          .eq('driver_id', driverProfileId)
+          .eq('driver_id', userId)
           .inFilter('status', ['pending_offer', 'assigned'])
           .order('created_at', ascending: false);
 
@@ -1308,7 +1308,7 @@ class DriverService {
               phone
             )
           ''')
-          .eq('driver_id', driverProfileId)
+          .eq('driver_id', userId)
           .inFilter('status', ['confirmed', 'approved', 'active'])
           .order('start_date', ascending: true);
 

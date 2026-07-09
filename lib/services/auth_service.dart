@@ -234,7 +234,23 @@ class AuthService {
         };
       }
 
-      return Map<String, dynamic>.from(response);
+      final profile = Map<String, dynamic>.from(response);
+      final metadata = user.userMetadata ?? {};
+      final avatarUrl = profile['avatar_url']?.toString().trim();
+      final profilePictureUrl = profile['profile_picture_url']
+          ?.toString()
+          .trim();
+      profile['avatar_url'] = avatarUrl?.isNotEmpty == true
+          ? avatarUrl
+          : metadata['avatar_url'] ??
+                metadata['profile_picture_url'] ??
+                metadata['picture'];
+      profile['profile_picture_url'] = profilePictureUrl?.isNotEmpty == true
+          ? profilePictureUrl
+          : metadata['profile_picture_url'] ??
+                metadata['avatar_url'] ??
+                metadata['picture'];
+      return profile;
     } catch (e) {
       debugPrint('Error fetching current user profile: $e');
       return null;

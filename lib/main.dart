@@ -168,8 +168,15 @@ class _MyAppState extends State<MyApp> {
         '/id-verification': (context) => const IdentityVerificationFormScreen(),
         '/identity-verification-form': (context) =>
             const IdentityVerificationFormScreen(),
-        '/driver-identity-verification': (context) =>
-            const IdentityVerificationFormScreen(userRole: 'driver'),
+        '/driver-identity-verification': (context) {
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+          return IdentityVerificationFormScreen(
+            userRole: 'driver',
+            driverMode: args?['mode']?.toString(),
+          );
+        },
         '/dashboard': (context) {
           // Protect dashboard route - redirect to login if not authenticated
           final authService = AuthService();

@@ -1,10 +1,12 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
+
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
-import '../../../services/auth_service.dart';
 
 class ProfilePictureUploadScreen extends StatefulWidget {
   const ProfilePictureUploadScreen({super.key});
@@ -18,20 +20,134 @@ class _ProfilePictureUploadScreenState
     extends State<ProfilePictureUploadScreen> {
   File? _selectedPhoto;
   bool _isUploaded = false;
-  bool _isSkipping = false;
   bool _isSaving = false;
 
-  Future<void> _pickProfilePhoto() async {
+  Future<void> _pickProfilePhoto({
+    ImageSource source = ImageSource.gallery,
+  }) async {
     final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: 85,
       maxWidth: 1200,
     );
     if (picked == null || !mounted) return;
+
     setState(() {
       _selectedPhoto = File(picked.path);
       _isUploaded = true;
     });
+  }
+
+  Future<void> _showPhotoSourcePicker() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Update profile photo',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildSourceTile(
+                icon: Icons.photo_camera_outlined,
+                title: 'Take Photo',
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              const SizedBox(height: 10),
+              _buildSourceTile(
+                icon: Icons.photo_library_outlined,
+                title: 'Choose from Gallery',
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source != null) {
+      await _pickProfilePhoto(source: source);
+    }
+  }
+
+  String _safeExtensionForPath(String path) {
+    final rawExtension = path.split('.').last.toLowerCase().trim();
+    const allowed = {'jpg', 'jpeg', 'png', 'webp'};
+    return allowed.contains(rawExtension) ? rawExtension : 'jpg';
+  }
+
+  String _contentTypeForExtension(String extension) {
+    switch (extension) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<void> _syncProfilePhotoUrl({
+    required SupabaseClient supabase,
+    required User user,
+    required String publicUrl,
+  }) async {
+    var databaseUpdated = false;
+
+    try {
+      await supabase
+          .from('users')
+          .update({'avatar_url': publicUrl, 'profile_picture_url': publicUrl})
+          .eq('id', user.id);
+      databaseUpdated = true;
+    } catch (error) {
+      final message = error.toString().toLowerCase();
+      if (message.contains('avatar_url')) {
+        try {
+          await supabase
+              .from('users')
+              .update({'profile_picture_url': publicUrl})
+              .eq('id', user.id);
+          databaseUpdated = true;
+        } catch (fallbackError) {
+          final fallbackMessage = fallbackError.toString().toLowerCase();
+          if (!fallbackMessage.contains('profile_picture_url')) {
+            rethrow;
+          }
+        }
+      } else {
+        rethrow;
+      }
+    }
+
+    try {
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'avatar_url': publicUrl,
+            'profile_picture_url': publicUrl,
+          },
+        ),
+      );
+    } catch (_) {
+      if (!databaseUpdated) rethrow;
+    }
   }
 
   Future<void> _saveProfilePhoto() async {
@@ -41,24 +157,32 @@ class _ProfilePictureUploadScreenState
 
     setState(() => _isSaving = true);
     try {
-      final extension = file.path.split('.').last.toLowerCase();
-      final safeExtension = extension.isEmpty ? 'jpg' : extension;
+      final safeExtension = _safeExtensionForPath(file.path);
       final objectPath =
           'profile_pictures/${user.id}/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
       final supabase = Supabase.instance.client;
-      await supabase.storage.from('id_images').upload(
+
+      await supabase.storage
+          .from('id_images')
+          .upload(
             objectPath,
             file,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
-          );
-      final publicUrl = supabase.storage.from('id_images').getPublicUrl(
-            objectPath,
+            fileOptions: FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+              contentType: _contentTypeForExtension(safeExtension),
+            ),
           );
 
-      await supabase.from('users').update({
-        'avatar_url': publicUrl,
-        'profile_picture_url': publicUrl,
-      }).eq('id', user.id);
+      final publicUrl = supabase.storage
+          .from('id_images')
+          .getPublicUrl(objectPath);
+
+      await _syncProfilePhotoUrl(
+        supabase: supabase,
+        user: user,
+        publicUrl: publicUrl,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -81,297 +205,148 @@ class _ProfilePictureUploadScreenState
     }
   }
 
-  Future<void> _handleSkipVerification() async {
-    setState(() {
-      _isSkipping = true;
-    });
-
-    try {
-      final authService = AuthService();
-      // Mark user as having skipped verification
-      await authService.updateUserVerificationStatus(verified: false);
-
-      if (mounted) {
-        // Check user role and navigate accordingly
-        final role = await authService.getUserRole();
-        if (role == 'partner') {
-          Navigator.of(context).pushReplacementNamed('/owner-verification');
-        } else if (role == 'driver') {
-          Navigator.of(context).pushReplacementNamed('/driver-license-upload');
-        } else {
-          Navigator.of(context).pushReplacementNamed('/dashboard');
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSkipping = false;
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Back button
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: const Icon(
-                  Icons.arrow_back,
-                  color: AppColors.textSecondary,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: const Icon(
+                    Icons.arrow_back,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-
-              // Progress indicator
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: const LinearProgressIndicator(
-                        value: 0.75,
-                        minHeight: 4,
-                        backgroundColor: AppColors.borderColor,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          AppColors.primary,
-                        ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Profile Picture',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Upload or change the photo shown on your profile.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 36),
+                GestureDetector(
+                  onTap: _showPhotoSourcePicker,
+                  child: Container(
+                    height: 300,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: _isUploaded
+                            ? AppColors.success
+                            : AppColors.borderColor,
+                        width: 2,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Text(
-                    'Step 3 of 4',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-
-              // Title
-              const Text(
-                'Profile Picture',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Upload a clear photo of your face that matches your ID',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 48),
-
-              // Upload area
-              GestureDetector(
-                onTap: _pickProfilePhoto,
-                child: Container(
-                  height: 320,
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBgSecondary,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _isUploaded
-                          ? AppColors.success
-                          : AppColors.borderColor,
-                      style: BorderStyle.solid,
-                      width: 2,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_isUploaded)
-                        Column(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(26),
-                              child: Container(
-                                width: 120,
-                                height: 120,
-                                color: AppColors.primary,
-                                child: _selectedPhoto == null
-                                    ? const Icon(
-                                        Icons.person,
-                                        color: Colors.black,
-                                        size: 60,
-                                      )
-                                    : Image.file(
-                                        _selectedPhoto!,
-                                        fit: BoxFit.cover,
-                                      ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Photo Uploaded',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Clear, frontal photo captured',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: const Icon(
-                                Icons.camera_alt_outlined,
-                                color: AppColors.primary,
-                                size: 50,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Tap to upload photo',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Portrait orientation recommended',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Tips container
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.darkBgSecondary,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.borderColor),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Photo Tips',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildTip('✓ Face must be clearly visible'),
-                    _buildTip('✓ Good lighting'),
-                    _buildTip('✓ No sunglasses or hat'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 48),
-
-              // Continue button
-              Opacity(
-                opacity: _isUploaded ? 1.0 : 0.5,
-                child: CustomButton(
-                  label: _isSaving ? 'Saving...' : 'Save Profile Picture',
-                  onPressed: _isUploaded && !_isSaving
-                      ? _saveProfilePhoto
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Skip Verification button
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: _isSkipping ? null : _handleSkipVerification,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.borderColor),
-                    foregroundColor: AppColors.textSecondary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: _isSkipping
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              AppColors.textSecondary,
-                            ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(26),
+                          child: Container(
+                            width: 124,
+                            height: 124,
+                            color: AppColors.primary.withValues(alpha: 0.18),
+                            child: _selectedPhoto == null
+                                ? const Icon(
+                                    Icons.camera_alt_outlined,
+                                    color: AppColors.primary,
+                                    size: 52,
+                                  )
+                                : Image.file(
+                                    _selectedPhoto!,
+                                    fit: BoxFit.cover,
+                                  ),
                           ),
-                        )
-                      : const Text('Skip Verification'),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _isUploaded
+                              ? 'Photo selected'
+                              : 'Tap to upload photo',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Use camera or gallery',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 32),
+                Opacity(
+                  opacity: _isUploaded ? 1.0 : 0.5,
+                  child: CustomButton(
+                    label: _isSaving ? 'Saving...' : 'Save Profile Picture',
+                    onPressed: _isUploaded && !_isSaving
+                        ? _saveProfilePhoto
+                        : null,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildTip(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 12,
-          color: AppColors.textSecondary,
-          height: 1.4,
+  Widget _buildSourceTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.darkBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary),
+            const SizedBox(width: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ),
     );

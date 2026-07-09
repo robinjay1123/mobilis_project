@@ -15,12 +15,14 @@ class IdentityVerificationFormScreen extends StatefulWidget {
   final VoidCallback? onVerificationComplete;
   final bool isDarkMode;
   final String? userRole;
+  final String? driverMode;
 
   const IdentityVerificationFormScreen({
     super.key,
     this.onVerificationComplete,
     this.isDarkMode = true,
     this.userRole = 'renter',
+    this.driverMode,
   });
 
   @override
@@ -82,6 +84,9 @@ class _IdentityVerificationFormScreenState
   String? _successMessage;
   String? _verificationStatus;
   String _driverApplicationStatus = 'basic';
+  bool _showDriverApplicationForm = false;
+  bool _showDriverApplicationReview = false;
+  bool _isInitialLoading = true;
 
   // ID types dropdown
   final List<String> _idTypes = [
@@ -97,6 +102,7 @@ class _IdentityVerificationFormScreenState
   @override
   void initState() {
     super.initState();
+    _showDriverApplicationForm = widget.driverMode == 'renewal';
     _prefillUserDetails();
     _loadExistingVerification();
   }
@@ -174,6 +180,12 @@ class _IdentityVerificationFormScreenState
           if (expiryRaw != null && expiryRaw.isNotEmpty) {
             _driverLicenseExpiryDate = DateTime.tryParse(expiryRaw);
           }
+          final years = verification['driver_years_experience']?.toString();
+          if (years != null && years.isNotEmpty) {
+            _selectedYearsExperience = years;
+          }
+          _previousCompaniesController.text =
+              verification['driver_previous_companies']?.toString() ?? '';
           if (widget.userRole == 'driver') {
             _driverApplicationStatus = driverApplicationStatus ?? 'basic';
             _verificationStatus = _driverScreenStatusForApplication(
@@ -233,6 +245,10 @@ class _IdentityVerificationFormScreenState
         });
       }
     }
+
+    if (mounted) {
+      setState(() => _isInitialLoading = false);
+    }
   }
 
   String _normalizeDriverApplicationStatus(dynamic value) {
@@ -268,7 +284,7 @@ class _IdentityVerificationFormScreenState
   bool get _driverLicenseNeedsRenewal {
     final expiry = _driverLicenseExpiryDate;
     if (expiry == null) return false;
-    final renewalWindow = DateTime.now().add(const Duration(days: 30));
+    final renewalWindow = DateTime.now().add(const Duration(days: 90));
     return !expiry.isAfter(renewalWindow);
   }
 
@@ -924,18 +940,32 @@ class _IdentityVerificationFormScreenState
     final inputFillColor = isDark ? AppColors.darkCard : Colors.white;
 
     if (widget.userRole == 'driver') {
+      if (_isInitialLoading) {
+        return const Scaffold(
+          backgroundColor: AppColors.darkBg,
+          body: Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          ),
+        );
+      }
+
+      if (_showDriverApplicationForm) {
+        return _buildDriverApplicationScaffold(
+          isDark: isDark,
+          bgColor: bgColor,
+          textColor: textColor,
+          inputTextColor: inputTextColor,
+          hintTextColor: hintTextColor,
+          inputBorderColor: inputBorderColor,
+          inputFillColor: inputFillColor,
+        );
+      }
+
+      if (_showDriverApplicationReview) {
+        return _buildDriverApplicationReviewScaffold();
+      }
+
       if (_verificationStatus == 'verified') {
-        if (_driverLicenseNeedsRenewal) {
-          return _buildDriverApplicationScaffold(
-            isDark: isDark,
-            bgColor: bgColor,
-            textColor: textColor,
-            inputTextColor: inputTextColor,
-            hintTextColor: hintTextColor,
-            inputBorderColor: inputBorderColor,
-            inputFillColor: inputFillColor,
-          );
-        }
         return _buildDriverStatusScaffold(
           title: 'Documents Verified',
           subtitle:
@@ -1287,7 +1317,8 @@ class _IdentityVerificationFormScreenState
               ),
               const SizedBox(height: 16),
             ],
-            if (_driverLicenseNeedsRenewal) ...[
+            if (_driverLicenseNeedsRenewal ||
+                widget.driverMode == 'renewal') ...[
               _buildDriverNotice(
                 message:
                     "Your driver's license is expired or nearing expiry. Please renew your details and re-submit your driver application.",
@@ -1695,6 +1726,175 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  Widget _buildDriverApplicationReviewScaffold() {
+    final licenseExpiry = _driverLicenseExpiryDate == null
+        ? 'Not provided'
+        : _formatDriverLicenseExpiry();
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.darkBg,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+          onPressed: () {
+            setState(() => _showDriverApplicationReview = false);
+          },
+        ),
+        title: const Text(
+          'Application Review',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgSecondary,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.verified_outlined, color: AppColors.success),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'View-only approved application',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            _buildReviewSection(
+              title: 'Basic Information',
+              children: [
+                _buildReviewRow('Full Name', _nameController.text),
+                _buildReviewRow('Email', _emailController.text),
+                _buildReviewRow('Phone', _phoneController.text),
+                _buildReviewRow('Location', _locationController.text),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildReviewSection(
+              title: 'Professional Experience',
+              children: [
+                _buildReviewRow(
+                  'Years of Experience',
+                  _selectedYearsExperience == '1'
+                      ? '1 year'
+                      : '$_selectedYearsExperience years',
+                ),
+                _buildReviewRow(
+                  'Previous Companies',
+                  _previousCompaniesController.text.trim().isEmpty
+                      ? 'N/A'
+                      : _previousCompaniesController.text.trim(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildReviewSection(
+              title: 'License Details',
+              children: [
+                _buildReviewRow('ID Type', _selectedIdType),
+                _buildReviewRow('ID Number', _idNumberController.text),
+                _buildReviewRow('License Expiry', licenseExpiry),
+              ],
+            ),
+            const SizedBox(height: 22),
+            CustomButton(
+              label: 'Back to Status',
+              onPressed: () {
+                setState(() => _showDriverApplicationReview = false);
+              },
+              backgroundColor: AppColors.primary,
+              textColor: Colors.black,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReviewSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewRow(String label, String value) {
+    final cleanValue = value.trim().isEmpty ? 'Not provided' : value.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 122,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              cleanValue,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDriverStatusScaffold({
     required String title,
     required String subtitle,
@@ -1794,14 +1994,15 @@ class _IdentityVerificationFormScreenState
               complete: isVerified,
             ),
             const SizedBox(height: 20),
-            _buildDriverNotice(
-              message: isVerified
-                  ? 'Next Step: final driver partnership review.'
-                  : 'Next Step: admin review. This usually takes 2-4 hours.',
-              color: AppColors.primary,
-              icon: Icons.info_outline,
+            CustomButton(
+              label: 'Review your application',
+              onPressed: () {
+                setState(() => _showDriverApplicationReview = true);
+              },
+              backgroundColor: AppColors.darkBgSecondary,
+              textColor: AppColors.primary,
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 14),
             CustomButton(
               label: isVerified ? 'Continue to Dashboard' : 'Back to Dashboard',
               onPressed: _handleBackNavigation,

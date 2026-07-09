@@ -167,6 +167,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           (resp?['location'] ?? metadata['location'] ?? metadata['address'])
               ?.toString()
               .trim();
+      final avatarUrl =
+          (resp?['avatar_url'] ??
+                  resp?['profile_picture_url'] ??
+                  metadata['avatar_url'] ??
+                  metadata['profile_picture_url'] ??
+                  metadata['picture'])
+              ?.toString()
+              .trim();
 
       final hasSavedLocation = location != null && location.isNotEmpty;
 
@@ -178,9 +186,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           userLocation = (location != null && location.isNotEmpty)
               ? location
               : userLocation;
-          userAvatarUrl = (resp['avatar_url'] ?? resp['profile_picture_url'])
-              ?.toString()
-              .trim();
+          userAvatarUrl = avatarUrl != null && avatarUrl.isNotEmpty
+              ? avatarUrl
+              : userAvatarUrl;
           userVerified =
               resp['is_verified'] as bool? ??
               (resp['id_verified'] as bool?) ??
@@ -202,6 +210,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 : (user.email?.split('@').first ?? userName);
             if (location != null && location.isNotEmpty) {
               userLocation = location;
+            }
+            if (avatarUrl != null && avatarUrl.isNotEmpty) {
+              userAvatarUrl = avatarUrl;
             }
           });
         }

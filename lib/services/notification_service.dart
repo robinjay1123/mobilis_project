@@ -339,6 +339,8 @@ class NotificationService {
         'document_type': 'driver_license',
         'license_expiry': dateText,
         'days_until_expiry': daysUntilExpiry,
+        'action_label': 'Update',
+        'action_route': '/driver-identity-verification',
         'event': 'driver_license_renewal_due',
       },
     );
@@ -352,6 +354,8 @@ class NotificationService {
         'document_type': 'driver_license',
         'license_expiry': dateText,
         'days_until_expiry': daysUntilExpiry,
+        'action_label': 'Update',
+        'action_route': '/driver-identity-verification',
         'event': 'admin_driver_license_renewal_due',
       },
     );
@@ -747,7 +751,7 @@ class NotificationService {
   }
 
   /// Check and notify all users with expiring documents
-  Future<int> checkAndNotifyExpiringDocuments({int daysThreshold = 30}) async {
+  Future<int> checkAndNotifyExpiringDocuments({int daysThreshold = 90}) async {
     try {
       debugPrint(
         'Checking for expiring documents and creating notifications (threshold: $daysThreshold days)',
