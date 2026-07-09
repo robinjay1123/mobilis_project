@@ -779,9 +779,18 @@ class DriverService {
       final profile = await getDriverProfile(driverId);
       final user = await supabase
           .from('users')
-          .select('verification_status, application_status, is_available')
+          .select(
+            'id_verified, verification_status, application_status, is_available',
+          )
           .eq('id', driverId)
           .maybeSingle();
+      final userIsVerified = user?['id_verified'] == true;
+      final userVerificationStatus = userIsVerified
+          ? 'verified'
+          : (user?['verification_status'] ?? 'pending');
+      final userApplicationStatus = user?['application_status']
+          ?.toString()
+          .trim();
 
       if (profile == null) {
         return {
@@ -789,11 +798,11 @@ class DriverService {
           'rating': 0.0,
           'driver_tier': 'standard',
           'earnings': 0.0,
-          'verification_status':
-              user?['verification_status'] ??
-              user?['application_status'] ??
-              'pending',
-          'application_status': user?['application_status'] ?? 'pending',
+          'verification_status': userVerificationStatus,
+          'application_status':
+              userApplicationStatus == null || userApplicationStatus.isEmpty
+              ? 'basic'
+              : userApplicationStatus,
           'is_available': user?['is_available'] ?? false,
         };
       }
@@ -811,15 +820,16 @@ class DriverService {
         'rating': profile['rating'] ?? 0.0,
         'driver_tier': profile['driver_tier'] ?? 'standard',
         'earnings': earnings,
-        'verification_status':
-            profile['verification_status'] ??
-            user?['verification_status'] ??
-            user?['application_status'] ??
-            'pending',
+        'verification_status': userIsVerified
+            ? 'verified'
+            : (profile['verification_status'] ??
+                  user?['verification_status'] ??
+                  'pending'),
         'application_status':
             profile['application_status'] ??
-            user?['application_status'] ??
-            'pending',
+            (userApplicationStatus == null || userApplicationStatus.isEmpty
+                ? 'basic'
+                : userApplicationStatus),
         'is_available': user?['is_available'] ?? false,
       };
     } catch (e) {
@@ -830,7 +840,7 @@ class DriverService {
         'driver_tier': 'standard',
         'earnings': 0.0,
         'verification_status': 'pending',
-        'application_status': 'pending',
+        'application_status': 'basic',
         'is_available': false,
       };
     }
@@ -855,6 +865,42 @@ class DriverService {
     } catch (e) {
       debugPrint('Error fetching application status: $e');
       return null;
+    }
+  }
+
+  /// Mark the logged-in driver's certification application as submitted.
+  ///
+  /// Basic drivers can still be assigned to trips when their identity is
+  /// verified; this status only controls the Certified PSDC Driver application.
+  Future<void> markDriverApplicationSubmitted(String userId) async {
+    try {
+      debugPrint('Marking driver certification application pending: $userId');
+
+      await supabase
+          .from('users')
+          .update({'application_status': 'pending'})
+          .eq('id', userId);
+
+      final existingDriver = await getDriverProfile(userId);
+      if (existingDriver == null) {
+        await supabase.from('drivers').insert({
+          'user_id': userId,
+          'verification_status': 'pending',
+          'driver_tier': 'standard',
+        });
+      } else {
+        await updateDriverProfile(existingDriver['id'].toString(), {
+          'verification_status': 'pending',
+        });
+      }
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'Database error marking driver application pending: ${e.message}',
+      );
+      rethrow;
+    } catch (e) {
+      debugPrint('Error marking driver application pending: $e');
+      rethrow;
     }
   }
 

@@ -165,6 +165,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 ),
               ),
             ),
+          if (_selectedTab == 4)
+            IconButton(
+              tooltip: 'Driver Ratings & Reviews',
+              onPressed: _openDriverRatings,
+              icon: const Icon(Icons.star_outline_rounded, color: Colors.black),
+            ),
         ],
       ),
       floatingActionButton: AnimatedOpacity(
@@ -642,6 +648,7 @@ class __DashboardTabState extends State<_DashboardTab> {
           stats['driver_tier'] ??
           stats['tier'] ??
           'basic',
+      fallback: 'basic',
     );
 
     if (mounted) {
@@ -669,9 +676,9 @@ class __DashboardTabState extends State<_DashboardTab> {
     }
   }
 
-  String _normalizeStatus(dynamic value) {
+  String _normalizeStatus(dynamic value, {String fallback = 'pending'}) {
     final status = value?.toString().trim().toLowerCase() ?? '';
-    return status.isEmpty ? 'pending' : status;
+    return status.isEmpty || status == 'null' ? fallback : status;
   }
 
   bool get _isVerified {
@@ -3677,92 +3684,6 @@ class __ProfileTabState extends State<_ProfileTab> {
     }
   }
 
-  Widget _buildRatingSummaryCard(Map<String, dynamic> stats) {
-    final rating =
-        (stats['rating'] as num?)?.toDouble() ??
-        double.tryParse(stats['rating']?.toString() ?? '') ??
-        0.0;
-    final ratingCount =
-        int.tryParse(
-          (stats['rating_count'] ?? stats['total_ratings'] ?? 0).toString(),
-        ) ??
-        0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF071D31),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(Icons.star_rounded, color: AppColors.primary),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Driver Rating',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  ratingCount == 0
-                      ? 'No reviews yet'
-                      : '${rating.toStringAsFixed(1)} / 5.0',
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                Text(
-                  ratingCount == 0
-                      ? 'Ratings from renters will appear here.'
-                      : '$ratingCount total rating${ratingCount == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              final user = AuthService().currentUser;
-              if (user == null) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => RatingsReviewsScreen(
-                    userId: user.id,
-                    title: 'Driver Ratings & Reviews',
-                  ),
-                ),
-              );
-            },
-            child: const Text('View'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDriverInitial(String displayName) {
     return Center(
       child: Text(
@@ -3793,12 +3714,6 @@ class __ProfileTabState extends State<_ProfileTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          FutureBuilder<Map<String, dynamic>>(
-            future: _driverStatsFuture,
-            builder: (context, snapshot) =>
-                _buildRatingSummaryCard(snapshot.data ?? {}),
-          ),
-          const SizedBox(height: 16),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),

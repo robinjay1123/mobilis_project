@@ -46,6 +46,7 @@ class _IdentityVerificationFormScreenState
   String? _errorMessage;
   String? _successMessage;
   String? _verificationStatus;
+  String _driverApplicationStatus = 'basic';
 
   // ID types dropdown
   final List<String> _idTypes = [
@@ -119,6 +120,12 @@ class _IdentityVerificationFormScreenState
                 .toString()
                 .toLowerCase();
 
+      final driverApplicationStatus = widget.userRole == 'driver'
+          ? _normalizeDriverApplicationStatus(
+              await DriverService().getApplicationStatus(userId),
+            )
+          : null;
+
       if (!mounted) return;
 
       // Populate existing data if available
@@ -128,10 +135,29 @@ class _IdentityVerificationFormScreenState
           _locationController.text = verification['location'] ?? '';
           _idNumberController.text = verification['id_number'] ?? '';
           _selectedIdType = verification['id_type'] ?? 'National ID';
-          _verificationStatus = status;
+          if (widget.userRole == 'driver') {
+            _driverApplicationStatus = driverApplicationStatus ?? 'basic';
+            _verificationStatus = _driverScreenStatusForApplication(
+              _driverApplicationStatus,
+            );
+          } else {
+            _verificationStatus = status;
+          }
         });
 
-        if (status == 'verified') {
+        if (widget.userRole == 'driver') {
+          if (_driverApplicationStatus == 'certified') {
+            setState(() {
+              _successMessage =
+                  'Your certified driver application has been approved.';
+            });
+          } else if (_driverApplicationStatus == 'pending') {
+            setState(() {
+              _successMessage =
+                  'Your driver application is pending admin review. Please check back soon.';
+            });
+          }
+        } else if (status == 'verified') {
           setState(() {
             _successMessage =
                 'Your account has been verified. You can continue using Mobilis.';
@@ -142,6 +168,13 @@ class _IdentityVerificationFormScreenState
                 'Your verification is pending admin review. Please check back soon.';
           });
         }
+      } else if (widget.userRole == 'driver') {
+        setState(() {
+          _driverApplicationStatus = driverApplicationStatus ?? 'basic';
+          _verificationStatus = _driverScreenStatusForApplication(
+            _driverApplicationStatus,
+          );
+        });
       } else if (status == 'verified') {
         setState(() {
           _verificationStatus = status;
@@ -150,6 +183,35 @@ class _IdentityVerificationFormScreenState
         });
       }
     }
+  }
+
+  String _normalizeDriverApplicationStatus(dynamic value) {
+    final status = value?.toString().trim().toLowerCase() ?? '';
+    if (status.isEmpty ||
+        status == 'null' ||
+        status == 'basic' ||
+        status == 'skipped') {
+      return 'basic';
+    }
+    if (status == 'approved' || status == 'verified' || status == 'certified') {
+      return 'certified';
+    }
+    if (status == 'pending' ||
+        status == 'submitted' ||
+        status == 'in_review' ||
+        status == 'under_review') {
+      return 'pending';
+    }
+    if (status == 'rejected' || status == 'declined') {
+      return 'rejected';
+    }
+    return status;
+  }
+
+  String? _driverScreenStatusForApplication(String status) {
+    if (status == 'certified') return 'verified';
+    if (status == 'pending') return 'pending';
+    return null;
   }
 
   Future<void> _pickVerificationPhoto(
@@ -264,7 +326,15 @@ class _IdentityVerificationFormScreenState
       );
 
       if (result['success']) {
+        if (widget.userRole == 'driver') {
+          await DriverService().markDriverApplicationSubmitted(userId);
+        }
+
         setState(() {
+          if (widget.userRole == 'driver') {
+            _driverApplicationStatus = 'pending';
+            _verificationStatus = 'pending';
+          }
           _successMessage = result['message'];
           _isLoading = false;
         });
@@ -937,8 +1007,7 @@ class _IdentityVerificationFormScreenState
                 const SizedBox(height: 14),
                 _buildVerificationPhotoSection(
                   title: 'ID Back *',
-                  description:
-                      'Capture the back of the same ID clearly.',
+                  description: 'Capture the back of the same ID clearly.',
                   file: _idBackFile,
                   photoType: 'id_back',
                   icon: Icons.flip_to_back_outlined,
