@@ -1208,7 +1208,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         if (driverRow == null) {
           await _supabase.from('drivers').insert({
             'user_id': userId,
+            'license_number': 'PENDING',
+            'nbi_clearance_number': 'PENDING',
+            'license_verified': false,
+            'nbi_verified': false,
             'verification_status': 'pending',
+            'driver_tier': 'standard',
+            'rating': 0.0,
+            'total_trips': 0,
           });
         }
       }
@@ -4070,6 +4077,46 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 const SizedBox(width: 12),
                 FilledButton.icon(
                   onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        backgroundColor: isDark
+                            ? AppColors.darkBgSecondary
+                            : Colors.white,
+                        title: Text(
+                          'Approve Verification?',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        content: Text(
+                          'This will mark this user as verified and notify them.',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.grey.shade300
+                                : Colors.grey.shade700,
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Approve'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+
                     final adminId = _supabase.auth.currentUser?.id ?? '';
                     final result =
                         await VerificationService.approveVerification(

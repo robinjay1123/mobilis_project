@@ -476,7 +476,7 @@ class VerificationService {
     final driverStatus = _profileStatusFromVerificationStatus(status);
     final existingDriver = await supabase
         .from('drivers')
-        .select('id')
+        .select('id, license_number, nbi_clearance_number')
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -488,12 +488,27 @@ class VerificationService {
     if (existingDriver == null) {
       await supabase.from('drivers').insert({
         ...payload,
+        'license_number': 'PENDING',
+        'nbi_clearance_number': 'PENDING',
+        'license_verified': false,
+        'nbi_verified': false,
         'driver_tier': 'standard',
+        'rating': 0.0,
+        'total_trips': 0,
       });
     } else {
+      final updatePayload = <String, dynamic>{...payload};
+      if ((existingDriver['license_number']?.toString().trim() ?? '').isEmpty) {
+        updatePayload['license_number'] = 'PENDING';
+      }
+      if ((existingDriver['nbi_clearance_number']?.toString().trim() ?? '')
+          .isEmpty) {
+        updatePayload['nbi_clearance_number'] = 'PENDING';
+      }
+
       await supabase
           .from('drivers')
-          .update(payload)
+          .update(updatePayload)
           .eq('id', existingDriver['id']);
     }
   }

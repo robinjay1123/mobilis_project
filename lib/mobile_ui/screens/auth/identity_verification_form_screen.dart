@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
@@ -24,6 +28,33 @@ class IdentityVerificationFormScreen extends StatefulWidget {
       _IdentityVerificationFormScreenState();
 }
 
+class _DriverSignaturePainter extends CustomPainter {
+  final List<Offset?> points;
+
+  const _DriverSignaturePainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black87
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    for (var i = 0; i < points.length - 1; i++) {
+      final current = points[i];
+      final next = points[i + 1];
+      if (current == null || next == null) continue;
+      canvas.drawLine(current, next, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DriverSignaturePainter oldDelegate) {
+    return oldDelegate.points != points;
+  }
+}
+
 class _IdentityVerificationFormScreenState
     extends State<IdentityVerificationFormScreen> {
   // Form fields
@@ -40,6 +71,9 @@ class _IdentityVerificationFormScreenState
   File? _idBackFile;
   File? _faceSelfieFile;
   File? _selfieWithIdFile;
+  final GlobalKey _driverSignaturePadKey = GlobalKey();
+  final List<Offset?> _driverSignaturePoints = [];
+  Uint8List? _driverSignatureBytes;
 
   // UI State
   bool _isLoading = false;
@@ -238,6 +272,143 @@ class _IdentityVerificationFormScreenState
     });
   }
 
+  Future<Uint8List?> _captureSignatureBytes(GlobalKey key) async {
+    final boundary =
+        key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) return null;
+
+    final image = await boundary.toImage(pixelRatio: 3);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  Future<void> _openDriverSignatureDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            backgroundColor: AppColors.darkBgSecondary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text(
+              'Digital Signature',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Draw your signature inside the box below.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  RepaintBoundary(
+                    key: _driverSignaturePadKey,
+                    child: GestureDetector(
+                      onPanStart: (details) {
+                        setDialogState(() {
+                          _driverSignaturePoints.add(details.localPosition);
+                        });
+                      },
+                      onPanUpdate: (details) {
+                        setDialogState(() {
+                          _driverSignaturePoints.add(details.localPosition);
+                        });
+                      },
+                      onPanEnd: (_) {
+                        setDialogState(() {
+                          _driverSignaturePoints.add(null);
+                        });
+                      },
+                      child: Container(
+                        height: 190,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.primary),
+                        ),
+                        child: CustomPaint(
+                          painter: _DriverSignaturePainter(
+                            _driverSignaturePoints,
+                          ),
+                          child:
+                              _driverSignaturePoints.whereType<Offset>().isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'Sign here',
+                                    style: TextStyle(
+                                      color: Colors.black38,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                )
+                              : const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setDialogState(() {
+                    _driverSignaturePoints.clear();
+                    _driverSignatureBytes = null;
+                  });
+                  if (mounted) setState(() {});
+                },
+                child: const Text('Clear'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  if (_driverSignaturePoints.whereType<Offset>().length < 6) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please draw your signature first.'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                    return;
+                  }
+                  final bytes = await _captureSignatureBytes(
+                    _driverSignaturePadKey,
+                  );
+                  if (bytes == null || bytes.isEmpty) return;
+                  if (!mounted) return;
+                  setState(() => _driverSignatureBytes = bytes);
+                  Navigator.pop(dialogContext);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('Save Signature'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _submitVerification() async {
     // Validate form
     if (_nameController.text.isEmpty) {
@@ -274,6 +445,10 @@ class _IdentityVerificationFormScreenState
     }
     if (_selfieWithIdFile == null) {
       _showError('Please take a selfie while holding your ID');
+      return;
+    }
+    if (widget.userRole == 'driver' && _driverSignatureBytes == null) {
+      _showError('Please add your digital signature');
       return;
     }
 
@@ -328,6 +503,22 @@ class _IdentityVerificationFormScreenState
       if (result['success']) {
         if (widget.userRole == 'driver') {
           await DriverService().markDriverApplicationSubmitted(userId);
+          final driverProfile = await DriverService().getDriverProfile(userId);
+          if (driverProfile != null && _driverSignatureBytes != null) {
+            final signatureUrl = await DriverService()
+                .uploadBytesToDriverDocumentsBucket(
+                  userId: userId,
+                  bytes: _driverSignatureBytes!,
+                  documentType: 'digital_signature',
+                );
+            await DriverService().uploadDriverDocument(
+              driverId: driverProfile['id'].toString(),
+              documentType: 'digital_signature',
+              fileUrl: signatureUrl,
+              issueDate: DateTime.now(),
+              expiryDate: DateTime.now().add(const Duration(days: 3650)),
+            );
+          }
         }
 
         setState(() {
@@ -748,6 +939,7 @@ class _IdentityVerificationFormScreenState
               controller: _idNumberController,
               hint: _idNumberHint,
               icon: Icons.badge,
+              inputFormatters: _idNumberInputFormatters,
             ),
             const SizedBox(height: 16),
 
@@ -991,6 +1183,7 @@ class _IdentityVerificationFormScreenState
                   controller: _idNumberController,
                   hint: _idNumberHint,
                   icon: Icons.credit_card_outlined,
+                  inputFormatters: _idNumberInputFormatters,
                 ),
                 const SizedBox(height: 14),
                 _buildVerificationPhotoSection(
@@ -1041,6 +1234,8 @@ class _IdentityVerificationFormScreenState
                   hintTextColor: hintTextColor,
                   cameraOnly: true,
                 ),
+                const SizedBox(height: 14),
+                _buildDriverSignatureButton(),
               ],
             ),
             const SizedBox(height: 28),
@@ -1415,6 +1610,7 @@ class _IdentityVerificationFormScreenState
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
     bool readOnly = false,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1438,6 +1634,7 @@ class _IdentityVerificationFormScreenState
             controller: controller,
             keyboardType: keyboardType,
             readOnly: readOnly,
+            inputFormatters: inputFormatters,
             style: TextStyle(color: inputTextColor),
             decoration: InputDecoration(
               hintText: hint,
@@ -1469,6 +1666,86 @@ class _IdentityVerificationFormScreenState
     }
     if (type.contains('national')) return 'Enter your National ID number';
     return 'Enter your ID number';
+  }
+
+  List<TextInputFormatter> get _idNumberInputFormatters {
+    final type = _selectedIdType.toLowerCase();
+    if (type.contains('driver') || type.contains('national')) {
+      return [
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+        LengthLimitingTextInputFormatter(32),
+      ];
+    }
+    return [LengthLimitingTextInputFormatter(40)];
+  }
+
+  Widget _buildDriverSignatureButton() {
+    final hasSignature = _driverSignatureBytes != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: hasSignature ? AppColors.success : AppColors.borderColor,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: (hasSignature ? AppColors.success : AppColors.primary)
+                  .withOpacity(0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              hasSignature ? Icons.check_rounded : Icons.draw_outlined,
+              color: hasSignature ? AppColors.success : AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasSignature
+                      ? 'Digital signature added'
+                      : 'Digital signature *',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  'Tap the button to open the signature board.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: _openDriverSignatureDialog,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text(hasSignature ? 'Edit' : 'Add'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildIdTypeDropdown(
@@ -1510,6 +1787,7 @@ class _IdentityVerificationFormScreenState
             onChanged: (value) {
               setState(() {
                 _selectedIdType = value ?? 'National ID';
+                _idNumberController.clear();
               });
             },
             decoration: InputDecoration(

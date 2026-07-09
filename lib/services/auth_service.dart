@@ -247,7 +247,14 @@ class AuthService {
 
       await supabase.from('drivers').insert({
         'user_id': userId,
+        'license_number': 'PENDING',
+        'nbi_clearance_number': 'PENDING',
+        'license_verified': false,
+        'nbi_verified': false,
         'verification_status': 'pending',
+        'driver_tier': 'standard',
+        'rating': 0.0,
+        'total_trips': 0,
       });
     } on PostgrestException catch (e) {
       // Keep role switching working even when driver provisioning fails.
@@ -468,9 +475,8 @@ class AuthService {
       final user = currentUser;
       if (user == null) return false;
 
-      final verificationState = await VerificationService.getUserVerificationState(
-        user.id,
-      );
+      final verificationState =
+          await VerificationService.getUserVerificationState(user.id);
       final isVerified = verificationState['is_verified'] == true;
 
       final response = await supabase
@@ -480,8 +486,10 @@ class AuthService {
           .maybeSingle();
 
       final role = response?['role']?.toString().trim().toLowerCase();
-      final status =
-          response?['application_status']?.toString().trim().toLowerCase();
+      final status = response?['application_status']
+          ?.toString()
+          .trim()
+          .toLowerCase();
       final idVerified = response?['id_verified'] == true;
 
       if ((role == 'partner' || role == 'driver') &&
