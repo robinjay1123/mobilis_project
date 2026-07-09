@@ -1705,7 +1705,7 @@ class AdminService {
       final response = await supabase
           .from('driver_documents')
           .select(
-            '*, drivers(user_id, license_number, nbi_clearance_number, verification_status), users(full_name, email)',
+            '*, drivers(user_id, license_number, verification_status), users(full_name, email)',
           )
           .eq('id', documentId)
           .maybeSingle();

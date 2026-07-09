@@ -799,6 +799,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           record['driver_signature_url'] = await _loadDriverSignatureUrl(
             userId,
           );
+          record['driver_nbi_url'] = await _loadDriverNbiUrl(userId);
         }
       }
 
@@ -810,6 +811,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<String?> _loadDriverSignatureUrl(String userId) async {
+    return _loadDriverDocumentUrl(userId, const [
+      'digital_signature',
+      'signature',
+    ]);
+  }
+
+  Future<String?> _loadDriverNbiUrl(String userId) async {
+    return _loadDriverDocumentUrl(userId, const ['nbi_clearance', 'nbi']);
+  }
+
+  Future<String?> _loadDriverDocumentUrl(
+    String userId,
+    List<String> documentTypeKeywords,
+  ) async {
     try {
       final driver = await _supabase
           .from('drivers')
@@ -836,9 +851,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               .toLowerCase();
           final url = document['file_url']?.toString().trim();
           if (url == null || url.isEmpty) continue;
-          if (type == 'digital_signature' ||
-              type == 'signature' ||
-              (type?.contains('signature') ?? false)) {
+          if (type != null &&
+              documentTypeKeywords.any((keyword) => type.contains(keyword))) {
             return url;
           }
         }
@@ -846,7 +860,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       return null;
     } catch (e) {
-      debugPrint('Unable to load driver signature: $e');
+      debugPrint('Unable to load driver document: $e');
       return null;
     }
   }
@@ -1262,7 +1276,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           await _supabase.from('drivers').insert({
             'user_id': userId,
             'license_number': 'PENDING',
-            'nbi_clearance_number': 'PENDING',
             'license_verified': false,
             'nbi_verified': false,
             'verification_status': 'pending',
@@ -4054,6 +4067,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final driverSignatureUrl = record['driver_signature_url']
         ?.toString()
         .trim();
+    final driverNbiUrl = record['driver_nbi_url']?.toString().trim();
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -4287,6 +4301,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     url: driverSignatureUrl!,
                     isDark: isDark,
                   ),
+                if (driverNbiUrl?.isNotEmpty == true)
+                  _buildDocumentPreview(
+                    title: 'NBI Clearance',
+                    url: driverNbiUrl!,
+                    isDark: isDark,
+                  ),
               ];
 
               return Wrap(
@@ -4338,6 +4358,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       width: isNarrow ? constraints.maxWidth : 240,
                       child: _buildDetailCard(
                         'Digital Signature',
+                        'Not submitted',
+                        isDark,
+                      ),
+                    ),
+                  if (isDriverRecord &&
+                      (driverNbiUrl == null || driverNbiUrl.isEmpty))
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'NBI Clearance',
                         'Not submitted',
                         isDark,
                       ),

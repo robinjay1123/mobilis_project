@@ -285,6 +285,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           onOpenBookings: () => setState(() => _selectedTab = 1),
           onOpenMessages: () => setState(() => _selectedTab = 2),
           onOpenEarnings: () => setState(() => _selectedTab = 5),
+          onOpenAvailability: () => setState(() => _selectedTab = 6),
           onOpenApplication: _openDriverApplication,
           onOpenRatings: _openDriverRatings,
         );
@@ -559,6 +560,7 @@ class _DashboardTab extends StatefulWidget {
   final VoidCallback onOpenBookings;
   final VoidCallback onOpenMessages;
   final VoidCallback onOpenEarnings;
+  final VoidCallback onOpenAvailability;
   final VoidCallback onOpenApplication;
   final VoidCallback onOpenRatings;
 
@@ -567,6 +569,7 @@ class _DashboardTab extends StatefulWidget {
     required this.onOpenBookings,
     required this.onOpenMessages,
     required this.onOpenEarnings,
+    required this.onOpenAvailability,
     required this.onOpenApplication,
     required this.onOpenRatings,
   });
@@ -1190,9 +1193,13 @@ class __DashboardTabState extends State<_DashboardTab> {
           onTap: widget.onOpenBookings,
         ),
         _DriverQuickActionCard(
-          icon: Icons.assignment_turned_in_outlined,
-          label: 'Application',
-          onTap: widget.onOpenApplication,
+          icon: _isCertifiedDriver
+              ? Icons.handshake_outlined
+              : Icons.assignment_turned_in_outlined,
+          label: _isCertifiedDriver ? 'Availability' : 'Application',
+          onTap: _isCertifiedDriver
+              ? widget.onOpenAvailability
+              : widget.onOpenApplication,
         ),
         _DriverQuickActionCard(
           icon: Icons.payments,
@@ -1210,15 +1217,16 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   Widget _buildDriverApplicationCta() {
     final title = _isCertifiedDriver
-        ? 'Certified Driver Application'
+        ? 'Set Your Availability'
         : _isVerified
         ? 'Apply as a Driver'
         : 'Start Driver Application';
     final subtitle = _isCertifiedDriver
-        ? 'Your certified driver application is approved.'
+        ? 'Your certified driver application is approved. Turn availability on or update your driving schedule to receive offers.'
         : _isVerified
         ? 'Submit your driver requirements and documents for final review.'
         : 'Complete identity verification and submit the documents needed to become a Mobilis driver.';
+    final buttonLabel = _isCertifiedDriver ? 'Manage' : 'Apply';
 
     return Container(
       width: double.infinity,
@@ -1237,8 +1245,10 @@ class __DashboardTabState extends State<_DashboardTab> {
               color: AppColors.primary.withOpacity(0.18),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(
-              Icons.assignment_turned_in_outlined,
+            child: Icon(
+              _isCertifiedDriver
+                  ? Icons.handshake_outlined
+                  : Icons.assignment_turned_in_outlined,
               color: AppColors.primary,
             ),
           ),
@@ -1269,7 +1279,9 @@ class __DashboardTabState extends State<_DashboardTab> {
           ),
           const SizedBox(width: 10),
           ElevatedButton(
-            onPressed: widget.onOpenApplication,
+            onPressed: _isCertifiedDriver
+                ? widget.onOpenAvailability
+                : widget.onOpenApplication,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
@@ -1279,7 +1291,7 @@ class __DashboardTabState extends State<_DashboardTab> {
               ),
             ),
             child: Text(
-              _isCertifiedDriver ? 'View' : 'Apply',
+              buttonLabel,
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
           ),

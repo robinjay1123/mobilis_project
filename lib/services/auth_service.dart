@@ -248,7 +248,6 @@ class AuthService {
       await supabase.from('drivers').insert({
         'user_id': userId,
         'license_number': 'PENDING',
-        'nbi_clearance_number': 'PENDING',
         'license_verified': false,
         'nbi_verified': false,
         'verification_status': 'pending',

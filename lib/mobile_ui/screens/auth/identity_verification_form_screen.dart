@@ -71,6 +71,7 @@ class _IdentityVerificationFormScreenState
   File? _idBackFile;
   File? _faceSelfieFile;
   File? _selfieWithIdFile;
+  File? _nbiClearanceFile;
   final GlobalKey _driverSignaturePadKey = GlobalKey();
   final List<Offset?> _driverSignaturePoints = [];
   Uint8List? _driverSignatureBytes;
@@ -277,6 +278,9 @@ class _IdentityVerificationFormScreenState
         case 'selfie_with_id':
           _selfieWithIdFile = file;
           break;
+        case 'nbi_clearance':
+          _nbiClearanceFile = file;
+          break;
         default:
           _idFrontFile = file;
       }
@@ -459,6 +463,10 @@ class _IdentityVerificationFormScreenState
       _showError('Please take a selfie while holding your ID');
       return;
     }
+    if (widget.userRole == 'driver' && _nbiClearanceFile == null) {
+      _showError('Please upload or capture your NBI clearance');
+      return;
+    }
     if (widget.userRole == 'driver' && _driverSignatureBytes == null) {
       _showError('Please add your digital signature');
       return;
@@ -515,6 +523,18 @@ class _IdentityVerificationFormScreenState
           fileUrl: signatureUrl,
           issueDate: DateTime.now(),
           expiryDate: DateTime.now().add(const Duration(days: 3650)),
+        );
+        final nbiUrl = await _uploadVerificationImage(
+          userId,
+          _nbiClearanceFile!,
+          'nbi_clearance',
+        );
+        await DriverService().uploadDriverDocument(
+          driverId: driverProfile['id'].toString(),
+          documentType: 'nbi_clearance',
+          fileUrl: nbiUrl,
+          issueDate: DateTime.now(),
+          expiryDate: DateTime.now().add(const Duration(days: 365)),
         );
       }
 
@@ -1258,6 +1278,18 @@ class _IdentityVerificationFormScreenState
                   textColor: textColor,
                   hintTextColor: hintTextColor,
                   cameraOnly: true,
+                ),
+                const SizedBox(height: 14),
+                _buildVerificationPhotoSection(
+                  title: 'NBI Clearance *',
+                  description:
+                      'Upload or capture a clear photo of your NBI clearance document.',
+                  file: _nbiClearanceFile,
+                  photoType: 'nbi_clearance',
+                  icon: Icons.assignment_ind_outlined,
+                  cardColor: inputFillColor,
+                  textColor: textColor,
+                  hintTextColor: hintTextColor,
                 ),
                 const SizedBox(height: 14),
                 _buildDriverSignatureButton(),
