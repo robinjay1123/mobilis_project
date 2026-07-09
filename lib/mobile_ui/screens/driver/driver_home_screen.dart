@@ -1874,6 +1874,7 @@ class __JobsTabState extends State<_JobsTab> {
   static const List<String> _statusTabs = [
     'pending',
     'approved',
+    'ongoing',
     'completed',
     'cancelled',
   ];
@@ -1909,14 +1910,10 @@ class __JobsTabState extends State<_JobsTab> {
     if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status)) {
       return 'cancelled';
     }
-    if ([
-      'approved',
-      'confirmed',
-      'active',
-      'ongoing',
-      'picked_up',
-      'in_progress',
-    ].contains(status)) {
+    if (['active', 'ongoing', 'picked_up', 'in_progress'].contains(status)) {
+      return 'ongoing';
+    }
+    if (['approved', 'confirmed', 'assigned'].contains(status)) {
       return 'approved';
     }
     return 'pending';
@@ -1926,6 +1923,8 @@ class __JobsTabState extends State<_JobsTab> {
     switch (status) {
       case 'approved':
         return 'Approved';
+      case 'ongoing':
+        return 'Ongoing';
       case 'completed':
         return 'Completed';
       case 'cancelled':
@@ -1941,7 +1940,9 @@ class __JobsTabState extends State<_JobsTab> {
       child: Row(
         children: _statusTabs.map((status) {
           final selected = _selectedStatus == status;
-          final count = trips.where((trip) => _statusGroup(trip) == status).length;
+          final count = trips
+              .where((trip) => _statusGroup(trip) == status)
+              .length;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: InkWell(
@@ -2029,7 +2030,8 @@ class __JobsTabState extends State<_JobsTab> {
                   if (visibleTrips.isEmpty)
                     _DriverEmptyStateCard(
                       icon: Icons.inbox_outlined,
-                      title: 'No ${_statusLabel(_selectedStatus).toLowerCase()} trips',
+                      title:
+                          'No ${_statusLabel(_selectedStatus).toLowerCase()} trips',
                       message:
                           'Trips with this status will appear here once available.',
                     )
@@ -3650,10 +3652,10 @@ class __ProfileTabState extends State<_ProfileTab> {
     if (userId == null) return;
 
     try {
-      await Supabase.instance.client.from('users').update({
-        'avatar_url': null,
-        'profile_picture_url': null,
-      }).eq('id', userId);
+      await Supabase.instance.client
+          .from('users')
+          .update({'avatar_url': null, 'profile_picture_url': null})
+          .eq('id', userId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -3908,7 +3910,9 @@ class __ProfileTabState extends State<_ProfileTab> {
                           ),
                         ),
                         const _DriverProfileDivider(),
-                        const Expanded(child: _DriverProfileStat('Bookings', '0')),
+                        const Expanded(
+                          child: _DriverProfileStat('Bookings', '0'),
+                        ),
                         const _DriverProfileDivider(),
                         Expanded(
                           child: _DriverProfileStat(

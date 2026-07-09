@@ -810,9 +810,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               padding: const EdgeInsets.fromLTRB(20, 20, 18, 16),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 23,
-                    backgroundColor: AppColors.primary,
+                  Container(
+                    width: 46,
+                    height: 46,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     child: Text(
                       partnerName.isNotEmpty
                           ? partnerName[0].toUpperCase()
@@ -1608,13 +1613,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   void _contactSupport() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Support has been notified. Please wait for a follow-up.',
-        ),
-      ),
-    );
+    _openCustomerServiceConversation();
   }
 
   Future<void> _maybeShowRestrictionNotification() async {
@@ -3149,9 +3148,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: const Color(0xFFE8E0C0),
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8E0C0),
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 child: Text(
                   _initialsForName(renterName),
                   style: const TextStyle(
@@ -3567,67 +3571,80 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         driverId == null &&
         (status == 'pending' || status == 'approved' || status == 'confirmed');
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).brightness == Brightness.dark
-          ? AppColors.darkBgSecondary
-          : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => BookingDetailModal(
-        booking: booking,
-        vehicle: vehicle,
-        renter: renter,
-        onApprove: () => _handleBookingApproval(context, booking),
-        onReject: () => _handleBookingRejection(context, booking),
-        onAssignDriver: canAssignDriver
-            ? () => _showDriverAssignmentModal(context, booking)
-            : null,
-        onReviewDocs: () => _showPartnerBookingSafetyReview(booking),
-        onBeforeInspection:
-            status == 'approved' || status == 'confirmed' || status == 'active'
-            ? () => _showPartnerInspectionDialog(
-                booking,
-                inspectionType: 'before',
-              )
-            : null,
-        onAfterInspection: status == 'active' || status == 'completed'
-            ? () =>
-                  _showPartnerInspectionDialog(booking, inspectionType: 'after')
-            : null,
-        onRateTrip: status == 'completed'
-            ? () async {
-                try {
-                  await BookingService().confirmSuccessfulTrip(
-                    bookingId: booking['id'].toString(),
-                    actorRole: 'partner',
-                  );
-                  if (!mounted) return;
-                  Navigator.of(parentContext).push(
-                    MaterialPageRoute(
-                      builder: (_) => TripRatingFlowScreen(
-                        bookingId: booking['id'].toString(),
-                        reviewerRole: 'partner',
-                        subtitle:
-                            'Leave ratings for the renter, operator, and driver if applicable.',
-                      ),
-                    ),
-                  );
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(parentContext).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        e.toString().replaceFirst('Exception: ', ''),
-                      ),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
-                }
-              }
-            : null,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (pageContext) => Scaffold(
+          backgroundColor: AppColors.darkBg,
+          appBar: AppBar(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.black,
+            elevation: 0,
+            title: const Text(
+              'Booking Details',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+          ),
+          body: SafeArea(
+            child: BookingDetailModal(
+              booking: booking,
+              vehicle: vehicle,
+              renter: renter,
+              showHeader: false,
+              onApprove: () => _handleBookingApproval(pageContext, booking),
+              onReject: () => _handleBookingRejection(pageContext, booking),
+              onAssignDriver: canAssignDriver
+                  ? () => _showDriverAssignmentModal(pageContext, booking)
+                  : null,
+              onReviewDocs: () => _showPartnerBookingSafetyReview(booking),
+              onBeforeInspection:
+                  status == 'approved' ||
+                      status == 'confirmed' ||
+                      status == 'active'
+                  ? () => _showPartnerInspectionDialog(
+                      booking,
+                      inspectionType: 'before',
+                    )
+                  : null,
+              onAfterInspection: status == 'active' || status == 'completed'
+                  ? () => _showPartnerInspectionDialog(
+                      booking,
+                      inspectionType: 'after',
+                    )
+                  : null,
+              onRateTrip: status == 'completed'
+                  ? () async {
+                      try {
+                        await BookingService().confirmSuccessfulTrip(
+                          bookingId: booking['id'].toString(),
+                          actorRole: 'partner',
+                        );
+                        if (!mounted) return;
+                        Navigator.of(parentContext).push(
+                          MaterialPageRoute(
+                            builder: (_) => TripRatingFlowScreen(
+                              bookingId: booking['id'].toString(),
+                              reviewerRole: 'partner',
+                              subtitle:
+                                  'Leave ratings for the renter, operator, and driver if applicable.',
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(parentContext).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              e.toString().replaceFirst('Exception: ', ''),
+                            ),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -3902,6 +3919,26 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
 
     if (shouldSave != true) {
+      fuelController.dispose();
+      mileageController.dispose();
+      cleanlinessController.dispose();
+      scratchesController.dispose();
+      dentsController.dispose();
+      damagesController.dispose();
+      remarksController.dispose();
+      return;
+    }
+
+    final missingRequiredFields =
+        fuelController.text.trim().isEmpty ||
+        mileageController.text.trim().isEmpty ||
+        cleanlinessController.text.trim().isEmpty;
+    if (missingRequiredFields || selectedEvidence.isEmpty) {
+      _showErrorSnackBar(
+        selectedEvidence.isEmpty
+            ? 'Please attach at least one checklist photo or video'
+            : 'Please complete fuel level, mileage, and cleanliness',
+      );
       fuelController.dispose();
       mileageController.dispose();
       cleanlinessController.dispose();
@@ -4644,6 +4681,7 @@ class BookingDetailModal extends StatelessWidget {
   final VoidCallback? onBeforeInspection;
   final VoidCallback? onAfterInspection;
   final VoidCallback? onRateTrip;
+  final bool showHeader;
 
   const BookingDetailModal({
     super.key,
@@ -4657,6 +4695,7 @@ class BookingDetailModal extends StatelessWidget {
     this.onBeforeInspection,
     this.onAfterInspection,
     this.onRateTrip,
+    this.showHeader = true,
   });
 
   @override
@@ -4668,33 +4707,34 @@ class BookingDetailModal extends StatelessWidget {
     final driverId = booking['driver_id'];
     final status = (booking['status'] as String? ?? 'pending').toLowerCase();
 
-    return DraggableScrollableSheet(
-      expand: false,
-      builder: (context, scrollController) => SingleChildScrollView(
+    Widget detailContent({ScrollController? scrollController}) {
+      return SingleChildScrollView(
         controller: scrollController,
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Booking Details',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+            if (showHeader) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Booking Details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
-                ),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // Vehicle Info
             if (vehicle != null) ...[
@@ -5064,7 +5104,17 @@ class BookingDetailModal extends StatelessWidget {
             ],
           ],
         ),
-      ),
+      );
+    }
+
+    if (!showHeader) {
+      return detailContent();
+    }
+
+    return DraggableScrollableSheet(
+      expand: false,
+      builder: (context, scrollController) =>
+          detailContent(scrollController: scrollController),
     );
   }
 }

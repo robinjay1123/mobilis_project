@@ -77,9 +77,14 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                     ),
                   ),
                 ),
-                CircleAvatar(
-                  radius: 19,
-                  backgroundColor: AppColors.primary,
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
                   child: Text(
                     _initials(widget.partnerName),
                     style: const TextStyle(

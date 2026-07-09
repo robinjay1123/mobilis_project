@@ -638,12 +638,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.18),
-            backgroundImage: avatarUrl.isNotEmpty
-                ? NetworkImage(avatarUrl)
-                : null,
+          Container(
+            width: 56,
+            height: 56,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(16),
+              image: avatarUrl.isNotEmpty
+                  ? DecorationImage(
+                      image: NetworkImage(avatarUrl),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
             child: avatarUrl.isEmpty
                 ? Text(
                     _initials(name),

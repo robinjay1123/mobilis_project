@@ -3678,8 +3678,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           children: [
                             Row(
                               children: [
-                                CircleAvatar(
-                                  backgroundColor: AppColors.primary,
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                   child: Icon(
                                     partner['image'] as IconData? ??
                                         Icons.person,
@@ -4932,6 +4938,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _RenterBookingDetailsPage(
+          booking: booking,
+          isApprovedTrip: isApprovedTrip,
+          isCompletedTrip: isCompletedTrip,
+          pendingRoles: pendingRoles,
+          paymentTypeLabel: _bookingPaymentTypeLabel(booking),
+          amountPaidLabel: _bookingAmountPaidLabel(booking),
+          onTrack: booking['rawStatus'] == 'active'
+              ? () => _openBookingTracking(booking)
+              : null,
+          onMessage: _canOpenBookingConversation(booking)
+              ? () => _openBookingConversation(booking)
+              : null,
+          onCancel: _isCancellableStatusForUi(booking)
+              ? () => _handleBookingCancellation(booking)
+              : null,
+          onExtend: isApprovedTrip ? () => _checkForExtendTrip(booking) : null,
+          onSuccessfulTrip: isApprovedTrip || isCompletedTrip
+              ? () => _handleSuccessfulTripFromDetails(
+                  booking: booking,
+                  isCompletedTrip: isCompletedTrip,
+                  renterCanConfirm: renterCanConfirm,
+                  renterConfirmed: renterConfirmed,
+                  pendingRoles: pendingRoles,
+                )
+              : null,
+        ),
+      ),
+    );
+    return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.darkBgSecondary,
@@ -5441,7 +5480,103 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _handleSuccessfulTripFromDetails({
+    required Map<String, dynamic> booking,
+    required bool isCompletedTrip,
+    required bool renterCanConfirm,
+    required bool renterConfirmed,
+    required List<String> pendingRoles,
+  }) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    if (!isCompletedTrip) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This trip is still ongoing. You can confirm it after the return is completed.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (!renterCanConfirm) {
+      if (renterConfirmed) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => TripRatingFlowScreen(
+              bookingId: bookingId,
+              reviewerRole: 'renter',
+              subtitle:
+                  'Leave ratings for the people involved in this completed trip.',
+            ),
+          ),
+        );
+        return;
+      }
+      final waitingFor = pendingRoles.isEmpty
+          ? 'the other trip participants'
+          : _formatRoleList(pendingRoles);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You can finish this trip once $waitingFor confirm it as successful.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await BookingService().confirmSuccessfulTrip(
+        bookingId: bookingId,
+        actorRole: 'renter',
+      );
+      if (!mounted) return;
+      await _loadBookings();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => TripRatingFlowScreen(
+            bookingId: bookingId,
+            reviewerRole: 'renter',
+            subtitle:
+                'Leave ratings for the people involved in this completed trip.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   void _showPendingBookingDetails(Map<String, dynamic> booking) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _RenterBookingDetailsPage(
+          booking: booking,
+          isApprovedTrip: false,
+          isCompletedTrip: false,
+          pendingRoles: const [],
+          paymentTypeLabel: _bookingPaymentTypeLabel(booking),
+          amountPaidLabel: _bookingAmountPaidLabel(booking),
+          onCancel: _isCancellableStatusForUi(booking)
+              ? () => _handleBookingCancellation(booking)
+              : null,
+        ),
+      ),
+    );
+    return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.darkBgSecondary,
@@ -7034,6 +7169,384 @@ class _AgreementNote extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RenterBookingDetailsPage extends StatelessWidget {
+  final Map<String, dynamic> booking;
+  final bool isApprovedTrip;
+  final bool isCompletedTrip;
+  final List<String> pendingRoles;
+  final String paymentTypeLabel;
+  final String amountPaidLabel;
+  final VoidCallback? onTrack;
+  final VoidCallback? onMessage;
+  final VoidCallback? onCancel;
+  final VoidCallback? onExtend;
+  final VoidCallback? onSuccessfulTrip;
+
+  const _RenterBookingDetailsPage({
+    required this.booking,
+    required this.isApprovedTrip,
+    required this.isCompletedTrip,
+    required this.pendingRoles,
+    required this.paymentTypeLabel,
+    required this.amountPaidLabel,
+    this.onTrack,
+    this.onMessage,
+    this.onCancel,
+    this.onExtend,
+    this.onSuccessfulTrip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = booking['status']?.toString() ?? 'Pending';
+    final days = (booking['days'] as num?)?.toInt() ?? 1;
+    final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
+
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.black,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Booking Details',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildVehicleSummary(status),
+              const SizedBox(height: 16),
+              if (onTrack != null) ...[
+                _buildPrimaryButton(
+                  icon: Icons.near_me_outlined,
+                  label: 'Track Ongoing Trip',
+                  onPressed: onTrack!,
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (pendingRoles.isNotEmpty) ...[
+                _buildNotice(
+                  'Waiting for ${pendingRoles.join(', ')} to confirm this trip before final rating.',
+                ),
+                const SizedBox(height: 12),
+              ],
+              _buildSection(
+                title: 'Trip Timeline',
+                children: [
+                  _detailRow(
+                    Icons.calendar_today_outlined,
+                    'Pickup',
+                    '${booking['startDate'] ?? 'N/A'} ${booking['startTime'] ?? ''}',
+                  ),
+                  _detailRow(
+                    Icons.event_available_outlined,
+                    'Drop-off',
+                    '${booking['endDate'] ?? 'N/A'} ${booking['endTime'] ?? ''}',
+                  ),
+                  _detailRow(
+                    Icons.location_on_outlined,
+                    'Pickup Location',
+                    booking['pickupLocation']?.toString() ?? 'Not specified',
+                  ),
+                  _detailRow(
+                    Icons.flag_outlined,
+                    'Drop-off Location',
+                    booking['dropoffLocation']?.toString() ?? 'Not specified',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildSection(
+                title: 'Payment Summary',
+                children: [
+                  _detailRow(Icons.timer_outlined, 'Duration', '$days day(s)'),
+                  _detailRow(
+                    Icons.receipt_long_outlined,
+                    'Payment Type',
+                    paymentTypeLabel,
+                  ),
+                  _detailRow(
+                    Icons.payments_outlined,
+                    'Amount Paid',
+                    amountPaidLabel,
+                  ),
+                  _detailRow(
+                    Icons.account_balance_wallet_outlined,
+                    'Total Cost',
+                    'PHP ${totalCost.toStringAsFixed(0)}',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (onSuccessfulTrip != null)
+                _buildPrimaryButton(
+                  icon: isCompletedTrip
+                      ? Icons.star_rate_rounded
+                      : Icons.hourglass_bottom_rounded,
+                  label: isCompletedTrip ? 'Successful Trip' : 'Trip Ongoing',
+                  onPressed: onSuccessfulTrip!,
+                ),
+              if (onSuccessfulTrip != null) const SizedBox(height: 12),
+              if (onExtend != null)
+                _buildSecondaryButton(
+                  icon: Icons.more_time,
+                  label: 'Check for Extend Trip',
+                  onPressed: onExtend!,
+                ),
+              if (onExtend != null) const SizedBox(height: 12),
+              if (onMessage != null)
+                _buildSecondaryButton(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Open Conversation',
+                  onPressed: onMessage!,
+                ),
+              if (onMessage != null) const SizedBox(height: 12),
+              if (onCancel != null)
+                _buildDangerButton(
+                  icon: Icons.cancel_outlined,
+                  label: booking['statusGroup'] == 'Pending'
+                      ? 'Cancel Request'
+                      : 'Cancel Booking',
+                  onPressed: onCancel!,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleSummary(String status) {
+    final imageUrl = booking['imageUrl']?.toString();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppColors.darkBgTertiary,
+              borderRadius: BorderRadius.circular(16),
+              image: imageUrl == null || imageUrl.isEmpty
+                  ? null
+                  : DecorationImage(
+                      image: NetworkImage(imageUrl),
+                      fit: BoxFit.cover,
+                    ),
+            ),
+            child: imageUrl == null || imageUrl.isEmpty
+                ? const Icon(
+                    Icons.directions_car,
+                    color: AppColors.textSecondary,
+                  )
+                : null,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  booking['carName']?.toString() ?? 'Vehicle',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  booking['rentalPartner']?.toString() ?? 'Mobilis',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: StatusBadge(status: status),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppColors.primary, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotice(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecondaryButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDangerButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.error,
+          side: const BorderSide(color: AppColors.error),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
     );
   }
 }

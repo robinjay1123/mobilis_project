@@ -82,12 +82,20 @@ class AdminUserCard extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: AppColors.primary.withOpacity(0.2),
-                    backgroundImage: avatarUrl != null
-                        ? NetworkImage(avatarUrl!)
-                        : null,
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(14),
+                      image: avatarUrl != null
+                          ? DecorationImage(
+                              image: NetworkImage(avatarUrl!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    alignment: Alignment.center,
                     child: avatarUrl == null
                         ? Text(
                             name.isNotEmpty ? name[0].toUpperCase() : '?',

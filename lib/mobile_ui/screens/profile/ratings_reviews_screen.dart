@@ -174,8 +174,14 @@ class _RatingsReviewsScreenState extends State<RatingsReviewsScreen> {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: AppColors.primary.withValues(alpha: 0.18),
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Text(
                   reviewerName.isNotEmpty ? reviewerName[0].toUpperCase() : 'R',
                   style: const TextStyle(

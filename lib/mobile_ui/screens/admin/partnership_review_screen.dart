@@ -112,12 +112,22 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
                     ),
                     child: Column(
                       children: [
-                        CircleAvatar(
-                          radius: 48,
-                          backgroundColor: AppColors.primary.withOpacity(0.2),
-                          backgroundImage: widget.partner['avatar_url'] != null
-                              ? NetworkImage(widget.partner['avatar_url'])
-                              : null,
+                        Container(
+                          width: 96,
+                          height: 96,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(24),
+                            image: widget.partner['avatar_url'] != null
+                                ? DecorationImage(
+                                    image: NetworkImage(
+                                      widget.partner['avatar_url'],
+                                    ),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          alignment: Alignment.center,
                           child: widget.partner['avatar_url'] == null
                               ? Text(
                                   name.isNotEmpty ? name[0].toUpperCase() : '?',

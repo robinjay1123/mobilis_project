@@ -430,12 +430,20 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       ),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 44,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.16),
-            backgroundImage: avatarUrl.isNotEmpty
-                ? NetworkImage(avatarUrl)
-                : null,
+          Container(
+            width: 88,
+            height: 88,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(24),
+              image: avatarUrl.isNotEmpty
+                  ? DecorationImage(
+                      image: NetworkImage(avatarUrl),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
             child: avatarUrl.isEmpty
                 ? Text(
                     name.isNotEmpty ? name[0].toUpperCase() : 'U',

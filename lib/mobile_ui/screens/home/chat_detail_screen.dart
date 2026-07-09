@@ -1003,12 +1003,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.primary.withValues(alpha: 0.18),
-                backgroundImage: avatar.isNotEmpty
-                    ? NetworkImage(avatar)
-                    : null,
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                  image: avatar.isNotEmpty
+                      ? DecorationImage(
+                          image: NetworkImage(avatar),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
                 child: avatar.isEmpty
                     ? Text(
                         _initials(name),
@@ -1147,14 +1155,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    CircleAvatar(
-                      radius: 34,
-                      backgroundColor: AppColors.primary.withValues(
-                        alpha: 0.18,
+                    Container(
+                      width: 68,
+                      height: 68,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(18),
+                        image: avatar.isNotEmpty
+                            ? DecorationImage(
+                                image: NetworkImage(avatar),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
                       ),
-                      backgroundImage: avatar.isNotEmpty
-                          ? NetworkImage(avatar)
-                          : null,
                       child: avatar.isEmpty
                           ? Text(
                               _initials(name),

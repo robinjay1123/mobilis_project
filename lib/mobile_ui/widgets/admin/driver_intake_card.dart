@@ -68,12 +68,20 @@ class DriverIntakeCard extends StatelessWidget {
           // Header with avatar and tier
           Row(
             children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: AppColors.primary.withOpacity(0.2),
-                backgroundImage: avatarUrl != null
-                    ? NetworkImage(avatarUrl!)
-                    : null,
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(16),
+                  image: avatarUrl != null
+                      ? DecorationImage(
+                          image: NetworkImage(avatarUrl!),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
+                alignment: Alignment.center,
                 child: avatarUrl == null
                     ? Text(
                         name.isNotEmpty ? name[0].toUpperCase() : '?',

@@ -138,12 +138,20 @@ class AdminDrawer extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: AppColors.primary.withOpacity(0.2),
-                    backgroundImage: avatarUrl != null
-                        ? NetworkImage(avatarUrl!)
-                        : null,
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      image: avatarUrl != null
+                          ? DecorationImage(
+                              image: NetworkImage(avatarUrl!),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                    ),
+                    alignment: Alignment.center,
                     child: avatarUrl == null
                         ? Text(
                             adminName.isNotEmpty
