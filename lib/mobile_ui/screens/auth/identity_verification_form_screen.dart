@@ -156,7 +156,7 @@ class _IdentityVerificationFormScreenState
 
       final driverApplicationStatus = widget.userRole == 'driver'
           ? _normalizeDriverApplicationStatus(
-              await DriverService().getApplicationStatus(userId),
+              await DriverService().getCertificationApplicationStatus(userId),
             )
           : null;
 
@@ -189,6 +189,17 @@ class _IdentityVerificationFormScreenState
             setState(() {
               _successMessage =
                   'Your driver application is pending admin review. Please check back soon.';
+            });
+          } else if (_driverApplicationStatus == 'rejected') {
+            setState(() {
+              _successMessage = null;
+              _errorMessage =
+                  'Your previous driver application was rejected. You may update your details and submit again.';
+            });
+          } else {
+            setState(() {
+              _successMessage = null;
+              _errorMessage = null;
             });
           }
         } else if (status == 'verified') {
@@ -245,6 +256,7 @@ class _IdentityVerificationFormScreenState
   String? _driverScreenStatusForApplication(String status) {
     if (status == 'certified') return 'verified';
     if (status == 'pending') return 'pending';
+    if (status == 'rejected') return 'rejected';
     return null;
   }
 
@@ -847,13 +859,26 @@ class _IdentityVerificationFormScreenState
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
+                  color:
+                      (_verificationStatus == 'rejected'
+                              ? AppColors.warning
+                              : AppColors.error)
+                          .withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.error),
+                  border: Border.all(
+                    color: _verificationStatus == 'rejected'
+                        ? AppColors.warning
+                        : AppColors.error,
+                  ),
                 ),
                 child: Text(
                   _errorMessage!,
-                  style: const TextStyle(color: AppColors.error, fontSize: 14),
+                  style: TextStyle(
+                    color: _verificationStatus == 'rejected'
+                        ? AppColors.warning
+                        : AppColors.error,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             if (_errorMessage != null) const SizedBox(height: 16),

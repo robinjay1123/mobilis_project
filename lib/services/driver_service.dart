@@ -869,6 +869,68 @@ class DriverService {
     }
   }
 
+  /// Resolve the driver's certification application status across the records
+  /// that can be updated by different admin/review flows.
+  Future<String> getCertificationApplicationStatus(String userId) async {
+    try {
+      final user = await supabase
+          .from('users')
+          .select('application_status')
+          .eq('id', userId)
+          .maybeSingle();
+      final driver = await supabase
+          .from('drivers')
+          .select('verification_status')
+          .eq('user_id', userId)
+          .maybeSingle();
+      final verification = await supabase
+          .from('user_verifications')
+          .select('verification_status')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      final userStatus =
+          user?['application_status']?.toString().trim().toLowerCase() ?? '';
+      final driverStatus =
+          driver?['verification_status']?.toString().trim().toLowerCase() ?? '';
+      final verificationStatus =
+          verification?['verification_status']
+              ?.toString()
+              .trim()
+              .toLowerCase() ??
+          '';
+
+      if ([userStatus].any(
+        (status) =>
+            status == 'approved' ||
+            status == 'verified' ||
+            status == 'certified',
+      )) {
+        return 'certified';
+      }
+      if ([
+        userStatus,
+        driverStatus,
+        verificationStatus,
+      ].any((status) => status == 'rejected' || status == 'declined')) {
+        return 'rejected';
+      }
+      if ([userStatus].any(
+        (status) =>
+            status == 'pending' ||
+            status == 'submitted' ||
+            status == 'in_review' ||
+            status == 'under_review',
+      )) {
+        return 'pending';
+      }
+      return 'basic';
+    } catch (e) {
+      debugPrint('Error resolving driver certification status: $e');
+      return 'basic';
+    }
+  }
+
   /// Mark the logged-in driver's certification application as submitted.
   ///
   /// Basic drivers can still be assigned to trips when their identity is
@@ -966,6 +1028,13 @@ class DriverService {
           .from('users')
           .update({'application_status': 'rejected'})
           .eq('id', driverId);
+
+      final driverProfile = await getDriverProfile(driverId);
+      if (driverProfile != null) {
+        await updateDriverProfile(driverProfile['id'].toString(), {
+          'verification_status': 'rejected',
+        });
+      }
 
       debugPrint('Driver application rejected');
     } on PostgrestException catch (e) {
