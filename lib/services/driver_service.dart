@@ -8,6 +8,12 @@ import 'user_restriction_service.dart';
 
 class DriverService {
   static final DriverService _instance = DriverService._internal();
+  static String get placeholderLicenseExpiry => DateTime.now()
+      .add(const Duration(days: 365))
+      .toIso8601String()
+      .split('T')[0];
+  static String placeholderLicenseNumber(String userId) =>
+      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
 
   factory DriverService() {
     return _instance;
@@ -948,7 +954,8 @@ class DriverService {
       if (existingDriver == null) {
         await supabase.from('drivers').insert({
           'user_id': userId,
-          'license_number': 'PENDING',
+          'license_number': placeholderLicenseNumber(userId),
+          'license_expiry': placeholderLicenseExpiry,
           'license_verified': false,
           'nbi_verified': false,
           'verification_status': 'pending',

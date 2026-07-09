@@ -18,6 +18,13 @@ class AdminHomeScreen extends StatefulWidget {
 }
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
+  static String get _placeholderLicenseExpiry => DateTime.now()
+      .add(const Duration(days: 365))
+      .toIso8601String()
+      .split('T')[0];
+  static String _placeholderLicenseNumber(String userId) =>
+      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
+
   int _currentIndex = 0;
   bool _isLoading = true;
 
@@ -215,7 +222,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         if (driverRow == null) {
           await _supabase.from('drivers').insert({
             'user_id': userId,
-            'license_number': 'PENDING',
+            'license_number': _placeholderLicenseNumber(userId),
+            'license_expiry': _placeholderLicenseExpiry,
             'license_verified': false,
             'nbi_verified': false,
             'verification_status': 'pending',

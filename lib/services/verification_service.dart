@@ -9,6 +9,12 @@ class VerificationService {
   static final supabase = Supabase.instance.client;
   static final imagePicker = ImagePicker();
   static const String _idImagesBucket = 'id_images';
+  static String get _placeholderLicenseExpiry => DateTime.now()
+      .add(const Duration(days: 365))
+      .toIso8601String()
+      .split('T')[0];
+  static String _placeholderLicenseNumber(String userId) =>
+      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
 
   static bool isVerifiedStatus(dynamic status) {
     final normalized = status?.toString().trim().toLowerCase() ?? '';
@@ -488,7 +494,8 @@ class VerificationService {
     if (existingDriver == null) {
       await supabase.from('drivers').insert({
         ...payload,
-        'license_number': 'PENDING',
+        'license_number': _placeholderLicenseNumber(userId),
+        'license_expiry': _placeholderLicenseExpiry,
         'license_verified': false,
         'nbi_verified': false,
         'driver_tier': 'standard',
@@ -498,7 +505,7 @@ class VerificationService {
     } else {
       final updatePayload = <String, dynamic>{...payload};
       if ((existingDriver['license_number']?.toString().trim() ?? '').isEmpty) {
-        updatePayload['license_number'] = 'PENDING';
+        updatePayload['license_number'] = _placeholderLicenseNumber(userId);
       }
 
       await supabase

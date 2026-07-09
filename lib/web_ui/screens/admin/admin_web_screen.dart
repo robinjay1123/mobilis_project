@@ -31,6 +31,13 @@ class AdminWebScreen extends StatefulWidget {
 }
 
 class _AdminWebScreenState extends State<AdminWebScreen> {
+  static String get _placeholderLicenseExpiry => DateTime.now()
+      .add(const Duration(days: 365))
+      .toIso8601String()
+      .split('T')[0];
+  static String _placeholderLicenseNumber(String userId) =>
+      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
+
   int _selectedIndex = 0;
   bool _isLoading = true;
   bool _sidebarExpanded = true;
@@ -1275,7 +1282,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         if (driverRow == null) {
           await _supabase.from('drivers').insert({
             'user_id': userId,
-            'license_number': 'PENDING',
+            'license_number': _placeholderLicenseNumber(userId),
+            'license_expiry': _placeholderLicenseExpiry,
             'license_verified': false,
             'nbi_verified': false,
             'verification_status': 'pending',

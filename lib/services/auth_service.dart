@@ -6,6 +6,12 @@ import 'verification_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
+  static String get _placeholderLicenseExpiry => DateTime.now()
+      .add(const Duration(days: 365))
+      .toIso8601String()
+      .split('T')[0];
+  static String _placeholderLicenseNumber(String userId) =>
+      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
 
   factory AuthService() {
     return _instance;
@@ -247,7 +253,8 @@ class AuthService {
 
       await supabase.from('drivers').insert({
         'user_id': userId,
-        'license_number': 'PENDING',
+        'license_number': _placeholderLicenseNumber(userId),
+        'license_expiry': _placeholderLicenseExpiry,
         'license_verified': false,
         'nbi_verified': false,
         'verification_status': 'pending',
