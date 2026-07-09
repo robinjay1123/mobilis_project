@@ -4082,6 +4082,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final driverPreviousCompanies = record['driver_previous_companies']
         ?.toString()
         .trim();
+    final driverLicenseExpiry = record['driver_license_expiry']
+        ?.toString()
+        .trim();
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -4393,6 +4396,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       child: _buildDetailCard(
                         'Driving Experience',
                         '$driverYearsExperience year${driverYearsExperience == '1' ? '' : 's'}',
+                        isDark,
+                      ),
+                    ),
+                  if (isDriverRecord && driverLicenseExpiry?.isNotEmpty == true)
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        "License Expiry",
+                        _formatDate(driverLicenseExpiry),
                         isDark,
                       ),
                     ),

@@ -305,6 +305,63 @@ class DriverService {
     }
   }
 
+  /// Replace a driver's date-based availability schedule.
+  Future<void> replaceDateSchedule({
+    required String driverId,
+    required Iterable<DateTime> dates,
+    String? startTime,
+    String? endTime,
+    bool isAvailable = true,
+  }) async {
+    try {
+      debugPrint('Replacing date schedule for driver: $driverId');
+
+      await supabase
+          .from('driver_availability_schedule')
+          .delete()
+          .eq('driver_id', driverId)
+          .not('date', 'is', null);
+
+      final rows = dates
+          .map((date) => DateTime(date.year, date.month, date.day))
+          .toSet()
+          .map(
+            (date) => {
+              'driver_id': driverId,
+              'date': date.toIso8601String().split('T')[0],
+              'day_of_week': _dayName(date.weekday),
+              'start_time': startTime ?? '08:00',
+              'end_time': endTime ?? '20:00',
+              'is_available': isAvailable,
+            },
+          )
+          .toList();
+
+      if (rows.isNotEmpty) {
+        await supabase.from('driver_availability_schedule').insert(rows);
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('Database error replacing date schedule: ${e.message}');
+      rethrow;
+    } catch (e) {
+      debugPrint('Unexpected error replacing date schedule: $e');
+      rethrow;
+    }
+  }
+
+  String _dayName(int weekday) {
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return days[weekday - 1];
+  }
+
   // ==================== JOB ASSIGNMENTS ====================
 
   /// Create job assignment (offer)
@@ -798,6 +855,18 @@ class DriverService {
       final userApplicationStatus = user?['application_status']
           ?.toString()
           .trim();
+      final driverVerificationStatus = profile?['verification_status']
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      final normalizedUserApplicationStatus = userApplicationStatus
+          ?.toLowerCase();
+      final derivedApplicationStatus = driverVerificationStatus == 'approved'
+          ? 'approved'
+          : (normalizedUserApplicationStatus == null ||
+                normalizedUserApplicationStatus.isEmpty)
+          ? 'basic'
+          : normalizedUserApplicationStatus;
 
       if (profile == null) {
         return {
@@ -806,10 +875,7 @@ class DriverService {
           'driver_tier': 'standard',
           'earnings': 0.0,
           'verification_status': userVerificationStatus,
-          'application_status':
-              userApplicationStatus == null || userApplicationStatus.isEmpty
-              ? 'basic'
-              : userApplicationStatus,
+          'application_status': derivedApplicationStatus,
           'is_available': user?['is_available'] ?? false,
         };
       }
@@ -832,11 +898,7 @@ class DriverService {
             : (profile['verification_status'] ??
                   user?['verification_status'] ??
                   'pending'),
-        'application_status':
-            profile['application_status'] ??
-            (userApplicationStatus == null || userApplicationStatus.isEmpty
-                ? 'basic'
-                : userApplicationStatus),
+        'application_status': derivedApplicationStatus,
         'is_available': user?['is_available'] ?? false,
       };
     } catch (e) {
@@ -912,6 +974,9 @@ class DriverService {
             status == 'verified' ||
             status == 'certified',
       )) {
+        return 'certified';
+      }
+      if (driverStatus == 'approved' || verificationStatus == 'verified') {
         return 'certified';
       }
       if ([

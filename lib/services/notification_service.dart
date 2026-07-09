@@ -259,6 +259,106 @@ class NotificationService {
     );
   }
 
+  Future<bool> notifyDriverApplicationSubmitted({
+    required String driverId,
+  }) async {
+    final driverNotified = await _safeCreate(
+      userId: driverId,
+      title: 'Driver Application Submitted',
+      message:
+          'Your driver application has been submitted and is now under admin review.',
+      type: 'application',
+      data: {
+        'status': 'pending',
+        'role': 'driver',
+        'event': 'driver_application_submitted',
+      },
+    );
+
+    await _notifyAdmins(
+      title: 'New Driver Application',
+      message: 'A driver submitted an application for review.',
+      type: 'application',
+      data: {
+        'driver_id': driverId,
+        'status': 'pending',
+        'role': 'driver',
+        'event': 'admin_driver_application_submitted',
+      },
+    );
+
+    return driverNotified;
+  }
+
+  Future<bool> notifyDriverApplicationRejected({
+    required String driverId,
+    required String reason,
+  }) {
+    return _safeCreate(
+      userId: driverId,
+      title: 'Driver Application Rejected',
+      message: 'Your driver application was rejected. Reason: $reason',
+      type: 'application',
+      data: {
+        'status': 'rejected',
+        'role': 'driver',
+        'reason': reason,
+        'event': 'driver_application_rejected',
+      },
+    );
+  }
+
+  Future<bool> notifyDriverLicenseRenewalDue({
+    required String driverId,
+    required DateTime licenseExpiry,
+    required int daysUntilExpiry,
+  }) async {
+    if (await _hasDocumentExpiryNotificationToday(
+      userId: driverId,
+      documentType: 'driver_license',
+    )) {
+      return false;
+    }
+
+    final dateText = licenseExpiry.toIso8601String().split('T').first;
+    final title = daysUntilExpiry < 0
+        ? 'Driver License Expired'
+        : daysUntilExpiry == 0
+        ? 'Driver License Expires Today'
+        : 'Driver License Renewal Needed';
+    final message = daysUntilExpiry < 0
+        ? 'Your driver license expired on $dateText. Please renew and re-apply.'
+        : 'Your driver license expires on $dateText. Please prepare renewal and re-application.';
+
+    final driverNotified = await _safeCreate(
+      userId: driverId,
+      title: title,
+      message: message,
+      type: 'document_expiry',
+      data: {
+        'document_type': 'driver_license',
+        'license_expiry': dateText,
+        'days_until_expiry': daysUntilExpiry,
+        'event': 'driver_license_renewal_due',
+      },
+    );
+
+    await _notifyAdmins(
+      title: title,
+      message: 'Driver $driverId: $message',
+      type: 'document_expiry',
+      data: {
+        'driver_id': driverId,
+        'document_type': 'driver_license',
+        'license_expiry': dateText,
+        'days_until_expiry': daysUntilExpiry,
+        'event': 'admin_driver_license_renewal_due',
+      },
+    );
+
+    return driverNotified;
+  }
+
   Future<bool> notifyPartnerApplicationApproved({
     required String partnerId,
     String? applicationId,
@@ -406,6 +506,88 @@ class NotificationService {
     }
   }
 
+  Future<List<String>> _adminUserIds() async {
+    try {
+      final admins = await supabase.from('users').select('id, role').inFilter(
+        'role',
+        ['admin', 'super_admin'],
+      );
+      return List<Map<String, dynamic>>.from(admins)
+          .map((admin) => admin['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('Admin notification lookup skipped: $e');
+      return [];
+    }
+  }
+
+  Future<int> _notifyAdmins({
+    required String title,
+    required String message,
+    required String type,
+    Map<String, dynamic>? data,
+  }) async {
+    final ids = await _adminUserIds();
+    if (ids.isEmpty) return 0;
+
+    final nowIso = DateTime.now().toIso8601String();
+    final rows = ids
+        .map(
+          (id) => {
+            'user_id': id,
+            'title': title,
+            'message': message,
+            'type': type,
+            'data': data,
+            'is_read': false,
+            'created_at': nowIso,
+          },
+        )
+        .toList();
+
+    try {
+      await supabase.from('notifications').insert(rows);
+      await _queuePushForUsers(
+        userIds: ids,
+        title: title,
+        message: message,
+        type: type,
+        data: data,
+      );
+      return rows.length;
+    } catch (e) {
+      debugPrint('Admin notification skipped: $e');
+      return 0;
+    }
+  }
+
+  Future<bool> _hasDocumentExpiryNotificationToday({
+    required String userId,
+    required String documentType,
+  }) async {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    try {
+      final existingToday = await supabase
+          .from('notifications')
+          .select('id, data, created_at')
+          .eq('user_id', userId)
+          .eq('type', 'document_expiry')
+          .gte('created_at', todayStart.toIso8601String());
+      return List<Map<String, dynamic>>.from(existingToday).any((item) {
+        final data = item['data'];
+        final existingType = data is Map
+            ? data['document_type']?.toString()
+            : '';
+        return existingType == documentType;
+      });
+    } catch (e) {
+      debugPrint('Document expiry duplicate check skipped: $e');
+      return false;
+    }
+  }
+
   Future<bool> _safeCreate({
     required String userId,
     required String title,
@@ -522,10 +704,16 @@ class NotificationService {
             'Your $documentType expires in $daysUntilExpiry days. Renew before it expires.';
       }
 
+      final alreadyNotified = await _hasDocumentExpiryNotificationToday(
+        userId: userId,
+        documentType: documentType,
+      );
+      if (alreadyNotified) return false;
+
       await supabase.from('notifications').insert({
         'user_id': userId,
         'title': title,
-        'body': body,
+        'message': body,
         'type': 'document_expiry',
         'data': {
           'document_type': documentType,
@@ -535,6 +723,18 @@ class NotificationService {
         'created_at': DateTime.now().toIso8601String(),
         'is_read': false,
       });
+
+      await _queuePushForUsers(
+        userIds: [userId],
+        title: title,
+        message: body,
+        type: 'document_expiry',
+        data: {
+          'document_type': documentType,
+          'document_id': documentId,
+          'days_until_expiry': daysUntilExpiry,
+        },
+      );
 
       return true;
     } on PostgrestException catch (e) {
@@ -556,6 +756,31 @@ class NotificationService {
       int notificationsCreated = 0;
       final now = DateTime.now();
       final thresholdDate = now.add(Duration(days: daysThreshold));
+
+      // Check driver profile license expiry from the certification application.
+      final drivers = await supabase
+          .from('drivers')
+          .select('id, user_id, license_expiry, license_number')
+          .not('license_expiry', 'is', null)
+          .lte(
+            'license_expiry',
+            thresholdDate.toIso8601String().split('T').first,
+          );
+
+      for (final driver in List<Map<String, dynamic>>.from(drivers)) {
+        final userId = driver['user_id']?.toString() ?? '';
+        final expiryRaw = driver['license_expiry']?.toString() ?? '';
+        final expiryDate = DateTime.tryParse(expiryRaw);
+        if (userId.isEmpty || expiryDate == null) continue;
+
+        final daysUntilExpiry = expiryDate.difference(now).inDays;
+        final created = await notifyDriverLicenseRenewalDue(
+          driverId: userId,
+          licenseExpiry: expiryDate,
+          daysUntilExpiry: daysUntilExpiry,
+        );
+        if (created) notificationsCreated++;
+      }
 
       // Check driver licenses
       final driverDocs = await supabase

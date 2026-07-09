@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/connectivity_service.dart';
@@ -22,6 +23,7 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
   // Availability settings
   bool isAvailable = true;
   Set<String> selectedDays = {};
+  Set<DateTime> selectedDates = {};
   List<String> daysOfWeek = [
     'Monday',
     'Tuesday',
@@ -44,6 +46,44 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
     // Default to all days available
     selectedDays = daysOfWeek.toSet();
+  }
+
+  DateTime _dateOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+  bool get _hasTodaySelected => selectedDates.contains(_dateOnly(DateTime.now()));
+
+  String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  String _timeForDatabase(String value, String fallback) {
+    final raw = value.trim();
+    if (raw.isEmpty) return fallback;
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+      caseSensitive: false,
+    ).firstMatch(raw);
+    if (match == null) return raw;
+    var hour = int.parse(match.group(1)!);
+    final minute = match.group(2)!;
+    final period = match.group(3)!.toUpperCase();
+    if (period == 'PM' && hour < 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+    return '${hour.toString().padLeft(2, '0')}:$minute';
   }
 
   @override
@@ -99,6 +139,245 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
     }
   }
 
+  Future<void> _pickAvailabilityDate() async {
+    final now = DateTime.now();
+    final firstDate = DateTime(now.year, now.month, now.day);
+    final lastDate = firstDate.add(const Duration(days: 180));
+    final pickedDates = await showDialog<Set<DateTime>>(
+      context: context,
+      builder: (dialogContext) {
+        var focusedDay = selectedDates.isNotEmpty ? selectedDates.last : now;
+        final tempDates = selectedDates.map(_dateOnly).toSet();
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              backgroundColor: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0B1826),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: AppColors.borderColor),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: const Icon(
+                              Icons.calendar_month,
+                              color: Colors.black,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Pick Available Dates',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  '${tempDates.length} selected',
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF07111D),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: TableCalendar(
+                              firstDay: firstDate,
+                              lastDay: lastDate,
+                              focusedDay: focusedDay,
+                              calendarFormat: CalendarFormat.month,
+                              rowHeight: 44,
+                              availableCalendarFormats: const {
+                                CalendarFormat.month: 'Month',
+                              },
+                              selectedDayPredicate: (day) =>
+                                  tempDates.contains(_dateOnly(day)),
+                              onDaySelected: (selectedDay, newFocusedDay) {
+                                final normalized = _dateOnly(selectedDay);
+                                setDialogState(() {
+                                  focusedDay = newFocusedDay;
+                                  if (tempDates.contains(normalized)) {
+                                    tempDates.remove(normalized);
+                                  } else {
+                                    tempDates.add(normalized);
+                                  }
+                                });
+                              },
+                              onPageChanged: (newFocusedDay) {
+                                focusedDay = newFocusedDay;
+                              },
+                              headerStyle: const HeaderStyle(
+                                titleCentered: true,
+                                formatButtonVisible: false,
+                                titleTextStyle: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                                leftChevronIcon: Icon(
+                                  Icons.chevron_left,
+                                  color: AppColors.primary,
+                                ),
+                                rightChevronIcon: Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              daysOfWeekStyle: const DaysOfWeekStyle(
+                                weekdayStyle: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                weekendStyle: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              calendarStyle: CalendarStyle(
+                                cellMargin: const EdgeInsets.all(5),
+                                defaultTextStyle: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                weekendTextStyle: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                outsideTextStyle: TextStyle(
+                                  color: AppColors.textSecondary.withValues(
+                                    alpha: 0.35,
+                                  ),
+                                ),
+                                todayDecoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  border: Border.all(color: AppColors.primary),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                todayTextStyle: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                                selectedDecoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                selectedTextStyle: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () => setDialogState(tempDates.clear),
+                            child: const Text('Clear'),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                side: const BorderSide(
+                                  color: AppColors.borderColor,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, tempDates),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                              child: Text('Apply (${tempDates.length})'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (pickedDates == null) return;
+    setState(() {
+      selectedDates
+        ..clear()
+        ..addAll(pickedDates);
+    });
+  }
+
+  void _removeAvailabilityDate(DateTime date) {
+    setState(() => selectedDates.remove(_dateOnly(date)));
+  }
+
   bool _validateInputs() {
     if (selectedDays.isEmpty) {
       _showErrorSnackBar('Please select at least one preferred working day');
@@ -107,6 +386,11 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
     if (preferredAreasController.text.trim().isEmpty) {
       _showErrorSnackBar('Please enter your preferred areas');
+      return false;
+    }
+
+    if (isAvailable && selectedDates.isEmpty) {
+      _showErrorSnackBar('Please select at least one available work date');
       return false;
     }
 
@@ -142,7 +426,10 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
 
         if (driverProfile != null) {
           // Set availability status
-          await driverService.setAvailability(user.id, isAvailable);
+          await driverService.setAvailability(
+            user.id,
+            isAvailable && _hasTodaySelected,
+          );
 
           // Prepare schedule data
           final daysData = selectedDays.join(',');
@@ -152,20 +439,26 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
             'preferred_days':
                 daysData, // Store as comma-separated values or JSON
             'preferred_areas': preferredAreasController.text.trim(),
-            'is_available': isAvailable,
           });
+
+          await driverService.replaceDateSchedule(
+            driverId: user.id,
+            dates: isAvailable ? selectedDates : const [],
+            startTime: _timeForDatabase(workStartTimeController.text, '08:00'),
+            endTime: _timeForDatabase(workEndTimeController.text, '20:00'),
+            isAvailable: isAvailable,
+          );
 
           // Add schedule entries for each selected day
           for (String day in selectedDays) {
             await driverService.addScheduleEntry(
-              driverId: driverProfile['id'],
+              driverId: user.id,
               dayOfWeek: day,
-              startTime: workStartTimeController.text.isNotEmpty
-                  ? workStartTimeController.text
-                  : '08:00',
-              endTime: workEndTimeController.text.isNotEmpty
-                  ? workEndTimeController.text
-                  : '20:00',
+              startTime: _timeForDatabase(
+                workStartTimeController.text,
+                '08:00',
+              ),
+              endTime: _timeForDatabase(workEndTimeController.text, '20:00'),
             );
           }
 
@@ -381,6 +674,93 @@ class _DriverAvailabilityScreenState extends State<DriverAvailabilityScreen> {
                   ),
                 );
               }),
+            ),
+            const SizedBox(height: 32),
+
+            // Exact Available Dates
+            Text(
+              'Work Schedule Dates',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Pick the exact dates you want to be available. You will only show as available on those dates.',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey : Colors.grey.shade600,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkCard : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: isLoading ? null : _pickAvailabilityDate,
+                      icon: const Icon(Icons.calendar_month),
+                      label: const Text('Pick Available Dates'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (selectedDates.isEmpty)
+                    const Center(
+                      child: Text(
+                        'No dates selected yet.',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: (selectedDates.toList()..sort())
+                          .map(
+                            (date) => InputChip(
+                              label: Text(_formatDate(date)),
+                              onDeleted: isLoading
+                                  ? null
+                                  : () => _removeAvailabilityDate(date),
+                              deleteIcon: const Icon(Icons.close, size: 16),
+                              backgroundColor: AppColors.primary.withOpacity(
+                                0.16,
+                              ),
+                              labelStyle: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              side: const BorderSide(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 32),
 

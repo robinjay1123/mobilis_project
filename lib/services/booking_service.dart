@@ -1126,6 +1126,18 @@ class BookingService {
 
   Future<List<Map<String, dynamic>>> getAvailableVerifiedDrivers() async {
     try {
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final todayScheduleResponse = await supabase
+          .from('driver_availability_schedule')
+          .select('driver_id')
+          .eq('date', today)
+          .eq('is_available', true);
+      final availableTodayDriverIds =
+          List<Map<String, dynamic>>.from(todayScheduleResponse)
+              .map((row) => row['driver_id']?.toString())
+              .whereType<String>()
+              .toSet();
+
       final response = await supabase
           .from('drivers')
           .select(
@@ -1139,7 +1151,9 @@ class BookingService {
         final role = user['role']?.toString().trim().toLowerCase() ?? '';
         if (role.isNotEmpty && role != 'driver') return false;
 
-        final isAvailable = user['is_available'] == true;
+        final isAvailable =
+            user['is_available'] == true ||
+            availableTodayDriverIds.contains(driver['user_id']?.toString());
         final isVerified =
             _isVerifiedDriverStatus(driver['verification_status']) ||
             _isVerifiedDriverStatus(user['verification_status']) ||

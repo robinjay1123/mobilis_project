@@ -66,6 +66,7 @@ class _IdentityVerificationFormScreenState
   final _previousCompaniesController = TextEditingController();
   String _selectedIdType = 'National ID';
   String _selectedYearsExperience = '0';
+  DateTime? _driverLicenseExpiryDate;
   File? _idFrontFile;
   File? _idBackFile;
   File? _faceSelfieFile;
@@ -169,6 +170,10 @@ class _IdentityVerificationFormScreenState
           _locationController.text = verification['location'] ?? '';
           _idNumberController.text = verification['id_number'] ?? '';
           _selectedIdType = verification['id_type'] ?? 'National ID';
+          final expiryRaw = verification['driver_license_expiry']?.toString();
+          if (expiryRaw != null && expiryRaw.isNotEmpty) {
+            _driverLicenseExpiryDate = DateTime.tryParse(expiryRaw);
+          }
           if (widget.userRole == 'driver') {
             _driverApplicationStatus = driverApplicationStatus ?? 'basic';
             _verificationStatus = _driverScreenStatusForApplication(
@@ -258,6 +263,13 @@ class _IdentityVerificationFormScreenState
     if (status == 'pending') return 'pending';
     if (status == 'rejected') return 'rejected';
     return null;
+  }
+
+  bool get _driverLicenseNeedsRenewal {
+    final expiry = _driverLicenseExpiryDate;
+    if (expiry == null) return false;
+    final renewalWindow = DateTime.now().add(const Duration(days: 30));
+    return !expiry.isAfter(renewalWindow);
   }
 
   Future<void> _pickVerificationPhoto(
@@ -446,6 +458,15 @@ class _IdentityVerificationFormScreenState
       _showError(idNumberError);
       return;
     }
+    if (widget.userRole == 'driver' && _driverLicenseExpiryDate == null) {
+      _showError("Please select your driver's license expiration date");
+      return;
+    }
+    if (widget.userRole == 'driver' &&
+        !_driverLicenseExpiryDate!.isAfter(DateTime.now())) {
+      _showError("Driver's license expiration date must be in the future");
+      return;
+    }
     if (_idFrontFile == null) {
       _showError('Please capture or upload the front of your ID');
       return;
@@ -510,6 +531,14 @@ class _IdentityVerificationFormScreenState
         if (driverProfile == null) {
           throw Exception('Driver profile could not be created');
         }
+        await DriverService()
+            .updateDriverProfile(driverProfile['id'].toString(), {
+              'license_number': _idNumberController.text.trim(),
+              'license_expiry': _driverLicenseExpiryDate!
+                  .toIso8601String()
+                  .split('T')
+                  .first,
+            });
         final signatureUrl = await DriverService()
             .uploadBytesToDriverDocumentsBucket(
               userId: userId,
@@ -541,6 +570,7 @@ class _IdentityVerificationFormScreenState
       final result = await VerificationService.submitVerificationWithDetails(
         userId: userId,
         fullName: _nameController.text.trim(),
+        phone: _phoneController.text.trim(),
         location: _locationController.text.trim(),
         idType: _selectedIdType,
         idNumber: _idNumberController.text.trim(),
@@ -554,6 +584,9 @@ class _IdentityVerificationFormScreenState
             : null,
         driverPreviousCompanies: widget.userRole == 'driver'
             ? _previousCompaniesController.text.trim()
+            : null,
+        driverLicenseExpiry: widget.userRole == 'driver'
+            ? _driverLicenseExpiryDate
             : null,
       );
 
@@ -674,6 +707,125 @@ class _IdentityVerificationFormScreenState
     return null;
   }
 
+  String _formatDriverLicenseExpiry() {
+    final date = _driverLicenseExpiryDate;
+    if (date == null) return "Select driver's license expiration date";
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Future<void> _pickDriverLicenseExpiry() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          _driverLicenseExpiryDate ?? now.add(const Duration(days: 365)),
+      firstDate: now.add(const Duration(days: 1)),
+      lastDate: DateTime(now.year + 15, now.month, now.day),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.black,
+              surface: AppColors.darkBgSecondary,
+              onSurface: AppColors.textPrimary,
+            ),
+            dialogTheme: const DialogThemeData(
+              backgroundColor: AppColors.darkBgSecondary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked == null) return;
+    setState(() => _driverLicenseExpiryDate = picked);
+  }
+
+  Widget _buildDriverLicenseExpiryField({
+    required Color textColor,
+    required Color inputFillColor,
+    required Color inputBorderColor,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "Driver's License Expiration Date *",
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: _pickDriverLicenseExpiry,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+            decoration: BoxDecoration(
+              color: inputFillColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: inputBorderColor),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.event_available_outlined,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _formatDriverLicenseExpiry(),
+                    style: TextStyle(
+                      color: _driverLicenseExpiryDate == null
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
+                      fontWeight: _driverLicenseExpiryDate == null
+                          ? FontWeight.w500
+                          : FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.calendar_month_outlined,
+                  color: AppColors.textSecondary,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'We use this to notify you and the admin when renewal is needed.',
+          style: TextStyle(
+            color: AppColors.textTertiary,
+            fontSize: 11,
+            height: 1.3,
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showCompletionDialog() {
     showDialog(
       context: context,
@@ -773,6 +925,17 @@ class _IdentityVerificationFormScreenState
 
     if (widget.userRole == 'driver') {
       if (_verificationStatus == 'verified') {
+        if (_driverLicenseNeedsRenewal) {
+          return _buildDriverApplicationScaffold(
+            isDark: isDark,
+            bgColor: bgColor,
+            textColor: textColor,
+            inputTextColor: inputTextColor,
+            hintTextColor: hintTextColor,
+            inputBorderColor: inputBorderColor,
+            inputFillColor: inputFillColor,
+          );
+        }
         return _buildDriverStatusScaffold(
           title: 'Documents Verified',
           subtitle:
@@ -1124,6 +1287,15 @@ class _IdentityVerificationFormScreenState
               ),
               const SizedBox(height: 16),
             ],
+            if (_driverLicenseNeedsRenewal) ...[
+              _buildDriverNotice(
+                message:
+                    "Your driver's license is expired or nearing expiry. Please renew your details and re-submit your driver application.",
+                color: AppColors.primary,
+                icon: Icons.update_outlined,
+              ),
+              const SizedBox(height: 16),
+            ],
             _buildDriverStepSection(
               step: 1,
               title: 'Basic Information',
@@ -1250,6 +1422,12 @@ class _IdentityVerificationFormScreenState
                   hint: _idNumberHint,
                   icon: Icons.credit_card_outlined,
                   inputFormatters: _idNumberInputFormatters,
+                ),
+                const SizedBox(height: 14),
+                _buildDriverLicenseExpiryField(
+                  textColor: textColor,
+                  inputFillColor: inputFillColor,
+                  inputBorderColor: inputBorderColor,
                 ),
                 const SizedBox(height: 14),
                 _buildVerificationPhotoSection(

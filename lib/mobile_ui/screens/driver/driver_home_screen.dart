@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/driver_service.dart';
@@ -631,6 +632,12 @@ class __DashboardTabState extends State<_DashboardTab> {
     DriverService driverService,
     String userId,
   ) async {
+    NotificationService()
+        .checkAndNotifyExpiringDocuments(daysThreshold: 30)
+        .catchError((error) {
+          debugPrint('Driver expiry notification check skipped: $error');
+          return 0;
+        });
     final stats = await driverService.getDriverStats(userId);
     final verification = await VerificationService.getUserVerification(userId);
     final verificationRecordStatus =
@@ -645,12 +652,16 @@ class __DashboardTabState extends State<_DashboardTab> {
                 stats['verification'] ??
                 'pending'),
     );
+    final certificationApplicationStatus = await driverService
+        .getCertificationApplicationStatus(userId);
     final nextCertificationStatus = _normalizeStatus(
-      stats['application_status'] ??
-          stats['driver_application_status'] ??
-          stats['driver_tier'] ??
-          stats['tier'] ??
-          'basic',
+      certificationApplicationStatus.isNotEmpty
+          ? certificationApplicationStatus
+          : (stats['application_status'] ??
+                stats['driver_application_status'] ??
+                stats['driver_tier'] ??
+                stats['tier'] ??
+                'basic'),
       fallback: 'basic',
     );
 
@@ -1193,13 +1204,9 @@ class __DashboardTabState extends State<_DashboardTab> {
           onTap: widget.onOpenBookings,
         ),
         _DriverQuickActionCard(
-          icon: _isCertifiedDriver
-              ? Icons.handshake_outlined
-              : Icons.assignment_turned_in_outlined,
-          label: _isCertifiedDriver ? 'Availability' : 'Application',
-          onTap: _isCertifiedDriver
-              ? widget.onOpenAvailability
-              : widget.onOpenApplication,
+          icon: Icons.assignment_turned_in_outlined,
+          label: 'Application',
+          onTap: widget.onOpenApplication,
         ),
         _DriverQuickActionCard(
           icon: Icons.payments,
@@ -3412,6 +3419,33 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
   bool isAvailable = false;
   bool isLoading = true;
   bool isSaving = false;
+  final Set<DateTime> selectedDates = {};
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  String _formatDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  bool get _hasTodaySelected {
+    final today = _dateOnly(DateTime.now());
+    return selectedDates.contains(today);
+  }
 
   @override
   void initState() {
@@ -3430,9 +3464,18 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
 
     try {
       final stats = await _driverService.getDriverStats(userId);
+      final schedule = await _driverService.getSchedule(userId);
+      final dates = schedule
+          .map((row) => DateTime.tryParse(row['date']?.toString() ?? ''))
+          .whereType<DateTime>()
+          .map(_dateOnly)
+          .toSet();
       if (!mounted) return;
       setState(() {
         isAvailable = stats['is_available'] == true;
+        selectedDates
+          ..clear()
+          ..addAll(dates);
         isLoading = false;
       });
     } catch (_) {
@@ -3444,6 +3487,15 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
   Future<void> _toggleAvailability(bool value) async {
     final userId = AuthService().currentUser?.id;
     if (userId == null || isSaving) return;
+    if (value && selectedDates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pick at least one available date first.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
 
     final previous = isAvailable;
     setState(() {
@@ -3452,13 +3504,21 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
     });
 
     try {
-      await _driverService.setAvailability(userId, value);
+      final effectiveAvailability = value && _hasTodaySelected;
+      await _driverService.setAvailability(userId, effectiveAvailability);
+      await _driverService.replaceDateSchedule(
+        driverId: userId,
+        dates: value ? selectedDates : const [],
+        isAvailable: value,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             value
-                ? 'You are now available for driver assignments'
+                ? effectiveAvailability
+                      ? 'You are now available for driver assignments today'
+                      : 'Schedule saved. You will show as available on the selected dates.'
                 : 'You are now unavailable for driver assignments',
           ),
           backgroundColor: AppColors.success,
@@ -3480,6 +3540,289 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
         setState(() => isSaving = false);
       }
     }
+  }
+
+  Future<void> _saveSelectedDates() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null || isSaving) return;
+    if (isAvailable && selectedDates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pick at least one available date first.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+    try {
+      await _driverService.replaceDateSchedule(
+        driverId: userId,
+        dates: isAvailable ? selectedDates : const [],
+        isAvailable: isAvailable,
+      );
+      await _driverService.setAvailability(
+        userId,
+        isAvailable && _hasTodaySelected,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Availability dates saved'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save availability dates: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
+  Future<void> _pickAvailabilityDate() async {
+    final now = DateTime.now();
+    final firstDate = DateTime(now.year, now.month, now.day);
+    final lastDate = firstDate.add(const Duration(days: 180));
+    final pickedDates = await showDialog<Set<DateTime>>(
+      context: context,
+      builder: (dialogContext) {
+        var focusedDay = selectedDates.isNotEmpty ? selectedDates.last : now;
+        final tempDates = selectedDates.map(_dateOnly).toSet();
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
+              backgroundColor: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0B1826),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: AppColors.borderColor),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: const Icon(
+                              Icons.calendar_month,
+                              color: Colors.black,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Pick Available Dates',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  '${tempDates.length} selected',
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF07111D),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: TableCalendar(
+                              firstDay: firstDate,
+                              lastDay: lastDate,
+                              focusedDay: focusedDay,
+                              calendarFormat: CalendarFormat.month,
+                              rowHeight: 44,
+                              availableCalendarFormats: const {
+                                CalendarFormat.month: 'Month',
+                              },
+                              selectedDayPredicate: (day) =>
+                                  tempDates.contains(_dateOnly(day)),
+                              onDaySelected: (selectedDay, newFocusedDay) {
+                                final normalized = _dateOnly(selectedDay);
+                                setDialogState(() {
+                                  focusedDay = newFocusedDay;
+                                  if (tempDates.contains(normalized)) {
+                                    tempDates.remove(normalized);
+                                  } else {
+                                    tempDates.add(normalized);
+                                  }
+                                });
+                              },
+                              onPageChanged: (newFocusedDay) {
+                                focusedDay = newFocusedDay;
+                              },
+                              headerStyle: const HeaderStyle(
+                                titleCentered: true,
+                                formatButtonVisible: false,
+                                titleTextStyle: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                                leftChevronIcon: Icon(
+                                  Icons.chevron_left,
+                                  color: AppColors.primary,
+                                ),
+                                rightChevronIcon: Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              daysOfWeekStyle: const DaysOfWeekStyle(
+                                weekdayStyle: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                weekendStyle: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              calendarStyle: CalendarStyle(
+                                cellMargin: const EdgeInsets.all(5),
+                                defaultTextStyle: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                weekendTextStyle: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                outsideTextStyle: TextStyle(
+                                  color: AppColors.textSecondary.withValues(
+                                    alpha: 0.35,
+                                  ),
+                                ),
+                                todayDecoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  border: Border.all(color: AppColors.primary),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                todayTextStyle: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                                selectedDecoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.35,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                selectedTextStyle: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () => setDialogState(tempDates.clear),
+                            child: const Text('Clear'),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                side: const BorderSide(
+                                  color: AppColors.borderColor,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, tempDates),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 13,
+                                ),
+                              ),
+                              child: Text('Apply (${tempDates.length})'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (pickedDates == null) return;
+    setState(() {
+      selectedDates
+        ..clear()
+        ..addAll(pickedDates);
+    });
+  }
+
+  void _removeAvailabilityDate(DateTime date) {
+    setState(() => selectedDates.remove(_dateOnly(date)));
   }
 
   @override
@@ -3601,14 +3944,106 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
                 color: isDark ? AppColors.borderColor : Colors.grey.shade300,
               ),
             ),
-            child: Center(
-              child: Text(
-                'Your schedule will appear here',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.grey : Colors.grey.shade600,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Available Dates',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: isSaving ? null : _pickAvailabilityDate,
+                      icon: const Icon(Icons.calendar_month, size: 18),
+                      label: const Text('Pick Dates'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  isAvailable
+                      ? 'You will only show as available on the selected dates.'
+                      : 'Pick dates first, then turn availability on.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (selectedDates.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF07111D),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: const Text(
+                      'No dates selected yet.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: (selectedDates.toList()..sort())
+                        .map(
+                          (date) => InputChip(
+                            label: Text(_formatDate(date)),
+                            onDeleted: isSaving
+                                ? null
+                                : () => _removeAvailabilityDate(date),
+                            deleteIcon: const Icon(Icons.close, size: 16),
+                            backgroundColor: AppColors.primary.withOpacity(
+                              0.16,
+                            ),
+                            labelStyle: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            side: const BorderSide(color: AppColors.primary),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: isSaving ? null : _saveSelectedDates,
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Save Selected Dates'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

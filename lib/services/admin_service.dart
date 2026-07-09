@@ -1836,18 +1836,24 @@ class AdminService {
           })
           .eq('id', driverId);
 
-      // Also update users table application_status
-      await supabase
-          .from('users')
-          .update({'application_status': 'approved'})
-          .eq('id', driverId);
-
       final driverProfile = await supabase
           .from('drivers')
           .select('user_id')
           .eq('id', driverId)
           .maybeSingle();
       final driverUserId = driverProfile?['user_id']?.toString();
+
+      // Also update users table application_status.
+      await supabase
+          .from('users')
+          .update({'application_status': 'approved'})
+          .eq(
+            'id',
+            driverUserId != null && driverUserId.isNotEmpty
+                ? driverUserId
+                : driverId,
+          );
+
       await NotificationService().notifyVerificationApproved(
         userId: driverUserId != null && driverUserId.isNotEmpty
             ? driverUserId

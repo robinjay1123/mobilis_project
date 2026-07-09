@@ -275,6 +275,7 @@ class VerificationService {
             .update({
               'id_verified': true,
               'verification_status': 'verified',
+              if (role == 'driver') 'application_status': 'approved',
               if (role == 'driver') 'is_available': true,
               if (fullName.isNotEmpty) 'full_name': fullName,
             })
@@ -311,6 +312,12 @@ class VerificationService {
             role: userRecord?['role']?.toString() ?? 'account',
             verificationId: response['id']?.toString(),
           );
+          if ((userRecord?['role']?.toString().toLowerCase() ?? '') ==
+              'driver') {
+            await NotificationService().notifyDriverApplicationApproved(
+              driverId: userId,
+            );
+          }
         }
       } catch (notificationError) {
         debugPrint(
@@ -385,6 +392,18 @@ class VerificationService {
 
       try {
         if (userId != null && userId.isNotEmpty) {
+          final userRecord = await supabase
+              .from('users')
+              .select('role')
+              .eq('id', userId)
+              .maybeSingle();
+          if ((userRecord?['role']?.toString().toLowerCase() ?? '') ==
+              'driver') {
+            await NotificationService().notifyDriverApplicationRejected(
+              driverId: userId,
+              reason: rejectionReason,
+            );
+          }
           await NotificationService().createNotification(
             userId: userId,
             title: 'Verification Rejected',
@@ -524,6 +543,7 @@ class VerificationService {
   static Future<Map<String, dynamic>> submitVerificationWithDetails({
     required String userId,
     required String fullName,
+    String? phone,
     required String location,
     required String idType,
     required String idNumber,
@@ -534,6 +554,7 @@ class VerificationService {
     required String selfieWithIdUrl,
     String? driverYearsExperience,
     String? driverPreviousCompanies,
+    DateTime? driverLicenseExpiry,
   }) async {
     try {
       debugPrint('Submitting verification with details for user: $userId');
@@ -542,6 +563,11 @@ class VerificationService {
           'driver_years_experience': driverYearsExperience!.trim(),
         if (driverPreviousCompanies?.trim().isNotEmpty == true)
           'driver_previous_companies': driverPreviousCompanies!.trim(),
+        if (driverLicenseExpiry != null)
+          'driver_license_expiry': driverLicenseExpiry
+              .toIso8601String()
+              .split('T')
+              .first,
       };
 
       final userProfile = await supabase
@@ -563,25 +589,23 @@ class VerificationService {
               'Verification was automatically rejected because this account matches a permanently blocked user.',
         );
 
-        final rejected = await _upsertVerificationRecord(
-          {
-            'user_id': userId,
-            'full_name': fullName,
-            'location': location,
-            'id_type': idType,
-            'id_number': idNumber,
-            'id_document_url': idDocumentUrl,
-            'id_front_url': idFrontUrl,
-            'id_back_url': idBackUrl,
-            'face_selfie_url': faceSelfieUrl,
-            'selfie_with_id_url': selfieWithIdUrl,
-            'verification_status': 'rejected',
-            'rejection_reason':
-                'Automatically rejected because this identity matches a permanently blocked user.',
-            'created_at': DateTime.now().toIso8601String(),
-          },
-          driverDetailsPayload,
-        );
+        final rejected = await _upsertVerificationRecord({
+          'user_id': userId,
+          'full_name': fullName,
+          'location': location,
+          if (phone?.trim().isNotEmpty == true) 'phone': phone!.trim(),
+          'id_type': idType,
+          'id_number': idNumber,
+          'id_document_url': idDocumentUrl,
+          'id_front_url': idFrontUrl,
+          'id_back_url': idBackUrl,
+          'face_selfie_url': faceSelfieUrl,
+          'selfie_with_id_url': selfieWithIdUrl,
+          'verification_status': 'rejected',
+          'rejection_reason':
+              'Automatically rejected because this identity matches a permanently blocked user.',
+          'created_at': DateTime.now().toIso8601String(),
+        }, driverDetailsPayload);
 
         return {
           'success': false,
@@ -591,23 +615,33 @@ class VerificationService {
         };
       }
 
-      final response = await _upsertVerificationRecord(
-        {
-          'user_id': userId,
-          'full_name': fullName,
-          'location': location,
-          'id_type': idType,
-          'id_number': idNumber,
-          'id_document_url': idDocumentUrl,
-          'id_front_url': idFrontUrl,
-          'id_back_url': idBackUrl,
-          'face_selfie_url': faceSelfieUrl,
-          'selfie_with_id_url': selfieWithIdUrl,
-          'verification_status': 'pending',
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        driverDetailsPayload,
-      );
+      final response = await _upsertVerificationRecord({
+        'user_id': userId,
+        'full_name': fullName,
+        'location': location,
+        if (phone?.trim().isNotEmpty == true) 'phone': phone!.trim(),
+        'id_type': idType,
+        'id_number': idNumber,
+        'id_document_url': idDocumentUrl,
+        'id_front_url': idFrontUrl,
+        'id_back_url': idBackUrl,
+        'face_selfie_url': faceSelfieUrl,
+        'selfie_with_id_url': selfieWithIdUrl,
+        'verification_status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+      }, driverDetailsPayload);
+
+      if (driverDetailsPayload.isNotEmpty) {
+        try {
+          await NotificationService().notifyDriverApplicationSubmitted(
+            driverId: userId,
+          );
+        } catch (notificationError) {
+          debugPrint(
+            'Failed to create driver application submitted notification: $notificationError',
+          );
+        }
+      }
 
       debugPrint('Verification submitted with details successfully');
       return {
