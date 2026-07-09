@@ -497,6 +497,26 @@ class _IdentityVerificationFormScreenState
         _selfieWithIdFile!,
         'selfie_with_id',
       );
+      if (widget.userRole == 'driver') {
+        await DriverService().markDriverApplicationSubmitted(userId);
+        final driverProfile = await DriverService().getDriverProfile(userId);
+        if (driverProfile == null) {
+          throw Exception('Driver profile could not be created');
+        }
+        final signatureUrl = await DriverService()
+            .uploadBytesToDriverDocumentsBucket(
+              userId: userId,
+              bytes: _driverSignatureBytes!,
+              documentType: 'digital_signature',
+            );
+        await DriverService().uploadDriverDocument(
+          driverId: driverProfile['id'].toString(),
+          documentType: 'digital_signature',
+          fileUrl: signatureUrl,
+          issueDate: DateTime.now(),
+          expiryDate: DateTime.now().add(const Duration(days: 3650)),
+        );
+      }
 
       // Submit verification with all form data
       final result = await VerificationService.submitVerificationWithDetails(
@@ -513,26 +533,6 @@ class _IdentityVerificationFormScreenState
       );
 
       if (result['success']) {
-        if (widget.userRole == 'driver') {
-          await DriverService().markDriverApplicationSubmitted(userId);
-          final driverProfile = await DriverService().getDriverProfile(userId);
-          if (driverProfile != null && _driverSignatureBytes != null) {
-            final signatureUrl = await DriverService()
-                .uploadBytesToDriverDocumentsBucket(
-                  userId: userId,
-                  bytes: _driverSignatureBytes!,
-                  documentType: 'digital_signature',
-                );
-            await DriverService().uploadDriverDocument(
-              driverId: driverProfile['id'].toString(),
-              documentType: 'digital_signature',
-              fileUrl: signatureUrl,
-              issueDate: DateTime.now(),
-              expiryDate: DateTime.now().add(const Duration(days: 3650)),
-            );
-          }
-        }
-
         setState(() {
           if (widget.userRole == 'driver') {
             _driverApplicationStatus = 'pending';

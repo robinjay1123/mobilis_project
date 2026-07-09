@@ -794,9 +794,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final records = List<Map<String, dynamic>>.from(response);
       for (final record in records) {
         final user = record['users'] as Map<String, dynamic>?;
-        final role = user?['role']?.toString().trim().toLowerCase() ?? '';
         final userId = record['user_id']?.toString() ?? user?['id']?.toString();
-        if (role == 'driver' && userId != null && userId.isNotEmpty) {
+        if (userId != null && userId.isNotEmpty) {
           record['driver_signature_url'] = await _loadDriverSignatureUrl(
             userId,
           );
@@ -818,19 +817,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .eq('user_id', userId)
           .maybeSingle();
       final driverId = driver?['id']?.toString();
-      if (driverId == null || driverId.isEmpty) return null;
+      final driverIds = <String>[
+        if (driverId != null && driverId.isNotEmpty) driverId,
+        userId,
+      ];
 
-      final signature = await _supabase
-          .from('driver_documents')
-          .select('file_url')
-          .eq('driver_id', driverId)
-          .eq('document_type', 'digital_signature')
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+      for (final id in driverIds) {
+        final documents = await _supabase
+            .from('driver_documents')
+            .select('document_type, file_url, created_at')
+            .eq('driver_id', id)
+            .order('created_at', ascending: false);
 
-      final url = signature?['file_url']?.toString().trim();
-      return url == null || url.isEmpty ? null : url;
+        for (final document in List<Map<String, dynamic>>.from(documents)) {
+          final type = document['document_type']
+              ?.toString()
+              .trim()
+              .toLowerCase();
+          final url = document['file_url']?.toString().trim();
+          if (url == null || url.isEmpty) continue;
+          if (type == 'digital_signature' ||
+              type == 'signature' ||
+              (type?.contains('signature') ?? false)) {
+            return url;
+          }
+        }
+      }
+
+      return null;
     } catch (e) {
       debugPrint('Unable to load driver signature: $e');
       return null;
@@ -4012,6 +4026,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildVerificationCard(Map<String, dynamic> record, bool isDark) {
     final user = record['users'] as Map<String, dynamic>?;
+    final role = user?['role']?.toString().trim().toLowerCase() ?? '';
+    final isDriverRecord =
+        role == 'driver' ||
+        (record['id_type']?.toString().toLowerCase().contains('driver') ??
+            false);
     final submittedName = (record['full_name'] as String?)?.trim();
     final idParts = (record['id_document_url'] as String? ?? '').split('|');
     final legacyIdUrls = idParts
@@ -4312,6 +4331,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       isDark,
                     ),
                   ),
+                  if (isDriverRecord &&
+                      (driverSignatureUrl == null ||
+                          driverSignatureUrl.isEmpty))
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'Digital Signature',
+                        'Not submitted',
+                        isDark,
+                      ),
+                    ),
                   if ((record['location'] as String?)?.trim().isNotEmpty ==
                       true)
                     SizedBox(
