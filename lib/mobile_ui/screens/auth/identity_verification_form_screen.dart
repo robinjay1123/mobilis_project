@@ -63,10 +63,9 @@ class _IdentityVerificationFormScreenState
   final _phoneController = TextEditingController();
   final _locationController = TextEditingController();
   final _idNumberController = TextEditingController();
-  final _yearsExperienceController = TextEditingController();
   final _previousCompaniesController = TextEditingController();
   String _selectedIdType = 'National ID';
-  String _preferredVehicleType = 'Sedan';
+  String _selectedYearsExperience = '0';
   File? _idFrontFile;
   File? _idBackFile;
   File? _faceSelfieFile;
@@ -550,6 +549,12 @@ class _IdentityVerificationFormScreenState
         idBackUrl: idBackUrl,
         faceSelfieUrl: faceSelfieUrl,
         selfieWithIdUrl: selfieWithIdUrl,
+        driverYearsExperience: widget.userRole == 'driver'
+            ? _selectedYearsExperience
+            : null,
+        driverPreviousCompanies: widget.userRole == 'driver'
+            ? _previousCompaniesController.text.trim()
+            : null,
       );
 
       if (result['success']) {
@@ -627,15 +632,38 @@ class _IdentityVerificationFormScreenState
     final value = rawValue.trim();
     final normalizedType = idType.toLowerCase();
     if (normalizedType.contains('driver')) {
-      if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(value)) {
-        return "Driver's License Number must be 6-32 letters/numbers and may include hyphens";
+      if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(value)) {
+        return "Driver's License Number must be 6-13 letters/numbers and may include hyphens";
       }
       return null;
     }
 
     if (normalizedType.contains('national')) {
-      if (!RegExp(r'^[A-Za-z0-9-]{8,32}$').hasMatch(value)) {
-        return 'National ID number must be 8-32 letters/numbers and may include hyphens';
+      final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digitsOnly.length != 12) {
+        return 'National ID number must contain exactly 12 digits';
+      }
+      return null;
+    }
+
+    if (normalizedType.contains('passport')) {
+      if (!RegExp(r'^[A-Za-z0-9]{7,9}$').hasMatch(value)) {
+        return 'Passport number must be 7-9 letters/numbers';
+      }
+      return null;
+    }
+
+    if (normalizedType.contains('tin')) {
+      final digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digitsOnly.length != 9 && digitsOnly.length != 12) {
+        return 'TIN must contain 9 or 12 digits';
+      }
+      return null;
+    }
+
+    if (normalizedType.contains('senior') || normalizedType.contains('pwd')) {
+      if (!RegExp(r'^[A-Za-z0-9-]{6,20}$').hasMatch(value)) {
+        return 'ID number must be 6-20 letters/numbers and may include hyphens';
       }
       return null;
     }
@@ -1163,18 +1191,13 @@ class _IdentityVerificationFormScreenState
               title: 'Professional Experience',
               icon: Icons.work_outline,
               children: [
-                _buildFormField(
+                _buildYearsExperienceDropdown(
                   isDark,
                   inputFillColor,
                   textColor,
                   inputTextColor: inputTextColor,
                   hintTextColor: hintTextColor,
                   borderColor: inputBorderColor,
-                  label: 'Years of Driving Experience',
-                  controller: _yearsExperienceController,
-                  hint: 'e.g. 5',
-                  icon: Icons.timeline_outlined,
-                  keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 14),
                 _buildFormField(
@@ -1186,20 +1209,18 @@ class _IdentityVerificationFormScreenState
                   borderColor: inputBorderColor,
                   label: 'Previous Companies / Platforms',
                   controller: _previousCompaniesController,
-                  hint: 'List your transport experience',
+                  hint: 'Type N/A if no previous experience',
                   icon: Icons.business_center_outlined,
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  'Preferred Vehicle Type',
+                const SizedBox(height: 8),
+                const Text(
+                  'Note: If you have no transport company/platform experience, put N/A.',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
+                    color: AppColors.textTertiary,
+                    fontSize: 11,
+                    height: 1.35,
                   ),
                 ),
-                const SizedBox(height: 10),
-                _buildPreferredVehicleTypes(),
               ],
             ),
             const SizedBox(height: 26),
@@ -1394,63 +1415,73 @@ class _IdentityVerificationFormScreenState
     );
   }
 
-  Widget _buildPreferredVehicleTypes() {
-    const options = [
-      (label: 'Sedan', icon: Icons.directions_car_outlined),
-      (label: 'SUV', icon: Icons.airport_shuttle_outlined),
-      (label: 'Luxury', icon: Icons.workspace_premium_outlined),
-    ];
+  Widget _buildYearsExperienceDropdown(
+    bool isDark,
+    Color inputFillColor,
+    Color textColor, {
+    required Color inputTextColor,
+    required Color hintTextColor,
+    required Color borderColor,
+  }) {
+    const options = ['0', '1', '2', '3', '4', '5', '6-9', '10+'];
 
-    return Row(
-      children: options.map((option) {
-        final selected = _preferredVehicleType == option.label;
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: () => setState(() => _preferredVehicleType = option.label),
-              child: Container(
-                height: 88,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? AppColors.primary.withOpacity(0.14)
-                      : AppColors.darkCard,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: selected ? AppColors.primary : AppColors.borderColor,
-                    width: selected ? 2 : 1,
+    String labelForYears(String years) {
+      if (years == '0') return 'No professional driving experience yet';
+      if (years == '1') return '1 year';
+      return '$years years';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Years of Driving Experience',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: textColor,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: inputFillColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor),
+          ),
+          child: DropdownButtonFormField<String>(
+            value: _selectedYearsExperience,
+            items: options
+                .map(
+                  (years) => DropdownMenuItem(
+                    value: years,
+                    child: Text(labelForYears(years)),
                   ),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      option.icon,
-                      color: selected
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
-                      size: 24,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      option.label,
-                      style: TextStyle(
-                        color: selected
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() => _selectedYearsExperience = value);
+            },
+            decoration: InputDecoration(
+              prefixIcon: const Icon(
+                Icons.timeline_outlined,
+                color: AppColors.primary,
+              ),
+              hintText: 'Select years of experience',
+              hintStyle: TextStyle(color: hintTextColor),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 16,
               ),
             ),
+            style: TextStyle(color: inputTextColor),
+            dropdownColor: inputFillColor,
+            iconEnabledColor: inputTextColor,
           ),
-        );
-      }).toList(),
+        ),
+      ],
     );
   }
 
@@ -1719,18 +1750,44 @@ class _IdentityVerificationFormScreenState
   String get _idNumberHint {
     final type = _selectedIdType.toLowerCase();
     if (type.contains('driver')) {
-      return "Enter your driver's license number";
+      return 'e.g. A12-34-567890';
     }
-    if (type.contains('national')) return 'Enter your National ID number';
+    if (type.contains('national')) return '12-digit PhilSys number';
+    if (type.contains('passport')) return '7-9 character passport number';
+    if (type.contains('tin')) return '9 or 12 digit TIN';
     return 'Enter your ID number';
   }
 
   List<TextInputFormatter> get _idNumberInputFormatters {
     final type = _selectedIdType.toLowerCase();
-    if (type.contains('driver') || type.contains('national')) {
+    if (type.contains('driver')) {
       return [
         FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-        LengthLimitingTextInputFormatter(32),
+        LengthLimitingTextInputFormatter(13),
+      ];
+    }
+    if (type.contains('national')) {
+      return [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+        LengthLimitingTextInputFormatter(14),
+      ];
+    }
+    if (type.contains('passport')) {
+      return [
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+        LengthLimitingTextInputFormatter(9),
+      ];
+    }
+    if (type.contains('tin')) {
+      return [
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+        LengthLimitingTextInputFormatter(15),
+      ];
+    }
+    if (type.contains('senior') || type.contains('pwd')) {
+      return [
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
+        LengthLimitingTextInputFormatter(20),
       ];
     }
     return [LengthLimitingTextInputFormatter(40)];
@@ -1914,8 +1971,10 @@ class _IdentityVerificationFormScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 10,
                   children: [
                     ElevatedButton.icon(
                       onPressed: () =>
@@ -1928,6 +1987,10 @@ class _IdentityVerificationFormScreenState
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
                       ),
                     ),
                     if (!cameraOnly)
@@ -1941,6 +2004,10 @@ class _IdentityVerificationFormScreenState
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                   ],
@@ -1966,8 +2033,10 @@ class _IdentityVerificationFormScreenState
                   style: TextStyle(fontSize: 13, color: hintTextColor),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 10,
                   children: [
                     ElevatedButton.icon(
                       onPressed: () =>
@@ -1977,6 +2046,10 @@ class _IdentityVerificationFormScreenState
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
                       ),
                     ),
                     if (!cameraOnly)
@@ -1990,6 +2063,10 @@ class _IdentityVerificationFormScreenState
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                   ],
@@ -2006,7 +2083,6 @@ class _IdentityVerificationFormScreenState
     _phoneController.dispose();
     _locationController.dispose();
     _idNumberController.dispose();
-    _yearsExperienceController.dispose();
     _previousCompaniesController.dispose();
     super.dispose();
   }

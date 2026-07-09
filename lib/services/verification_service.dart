@@ -525,9 +525,17 @@ class VerificationService {
     required String idBackUrl,
     required String faceSelfieUrl,
     required String selfieWithIdUrl,
+    String? driverYearsExperience,
+    String? driverPreviousCompanies,
   }) async {
     try {
       debugPrint('Submitting verification with details for user: $userId');
+      final driverDetailsPayload = <String, dynamic>{
+        if (driverYearsExperience?.trim().isNotEmpty == true)
+          'driver_years_experience': driverYearsExperience!.trim(),
+        if (driverPreviousCompanies?.trim().isNotEmpty == true)
+          'driver_previous_companies': driverPreviousCompanies!.trim(),
+      };
 
       final userProfile = await supabase
           .from('users')
@@ -548,38 +556,8 @@ class VerificationService {
               'Verification was automatically rejected because this account matches a permanently blocked user.',
         );
 
-        final rejected = await supabase
-            .from('user_verifications')
-            .upsert({
-              'user_id': userId,
-              'full_name': fullName,
-              'location': location,
-              'id_type': idType,
-              'id_number': idNumber,
-              'id_document_url': idDocumentUrl,
-              'id_front_url': idFrontUrl,
-              'id_back_url': idBackUrl,
-              'face_selfie_url': faceSelfieUrl,
-              'selfie_with_id_url': selfieWithIdUrl,
-              'verification_status': 'rejected',
-              'rejection_reason':
-                  'Automatically rejected because this identity matches a permanently blocked user.',
-              'created_at': DateTime.now().toIso8601String(),
-            }, onConflict: 'user_id')
-            .select()
-            .single();
-
-        return {
-          'success': false,
-          'message':
-              'Verification was automatically rejected because this identity matches a blocked user record.',
-          'data': rejected,
-        };
-      }
-
-      final response = await supabase
-          .from('user_verifications')
-          .upsert({
+        final rejected = await _upsertVerificationRecord(
+          {
             'user_id': userId,
             'full_name': fullName,
             'location': location,
@@ -590,11 +568,39 @@ class VerificationService {
             'id_back_url': idBackUrl,
             'face_selfie_url': faceSelfieUrl,
             'selfie_with_id_url': selfieWithIdUrl,
-            'verification_status': 'pending',
+            'verification_status': 'rejected',
+            'rejection_reason':
+                'Automatically rejected because this identity matches a permanently blocked user.',
             'created_at': DateTime.now().toIso8601String(),
-          }, onConflict: 'user_id')
-          .select()
-          .single();
+          },
+          driverDetailsPayload,
+        );
+
+        return {
+          'success': false,
+          'message':
+              'Verification was automatically rejected because this identity matches a blocked user record.',
+          'data': rejected,
+        };
+      }
+
+      final response = await _upsertVerificationRecord(
+        {
+          'user_id': userId,
+          'full_name': fullName,
+          'location': location,
+          'id_type': idType,
+          'id_number': idNumber,
+          'id_document_url': idDocumentUrl,
+          'id_front_url': idFrontUrl,
+          'id_back_url': idBackUrl,
+          'face_selfie_url': faceSelfieUrl,
+          'selfie_with_id_url': selfieWithIdUrl,
+          'verification_status': 'pending',
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        driverDetailsPayload,
+      );
 
       debugPrint('Verification submitted with details successfully');
       return {
@@ -616,6 +622,33 @@ class VerificationService {
         'message': 'Failed to submit verification: $e',
         'data': null,
       };
+    }
+  }
+
+  static Future<Map<String, dynamic>> _upsertVerificationRecord(
+    Map<String, dynamic> basePayload,
+    Map<String, dynamic> optionalPayload,
+  ) async {
+    final payload = {...basePayload, ...optionalPayload};
+    try {
+      return await supabase
+          .from('user_verifications')
+          .upsert(payload, onConflict: 'user_id')
+          .select()
+          .single();
+    } on PostgrestException catch (e) {
+      final missingOptionalColumn =
+          e.code == '42703' && optionalPayload.keys.any(e.message.contains);
+      if (!missingOptionalColumn || optionalPayload.isEmpty) rethrow;
+
+      debugPrint(
+        'Driver application detail columns are not available yet; retrying verification without optional details.',
+      );
+      return await supabase
+          .from('user_verifications')
+          .upsert(basePayload, onConflict: 'user_id')
+          .select()
+          .single();
     }
   }
 }

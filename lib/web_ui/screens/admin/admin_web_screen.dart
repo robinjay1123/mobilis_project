@@ -4068,6 +4068,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ?.toString()
         .trim();
     final driverNbiUrl = record['driver_nbi_url']?.toString().trim();
+    final driverYearsExperience = record['driver_years_experience']
+        ?.toString()
+        .trim();
+    final driverPreviousCompanies = record['driver_previous_companies']
+        ?.toString()
+        .trim();
     final status = (record['verification_status'] as String? ?? 'pending')
         .toLowerCase();
 
@@ -4369,6 +4375,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       child: _buildDetailCard(
                         'NBI Clearance',
                         'Not submitted',
+                        isDark,
+                      ),
+                    ),
+                  if (isDriverRecord &&
+                      driverYearsExperience?.isNotEmpty == true)
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'Driving Experience',
+                        '$driverYearsExperience year${driverYearsExperience == '1' ? '' : 's'}',
+                        isDark,
+                      ),
+                    ),
+                  if (isDriverRecord &&
+                      driverPreviousCompanies?.isNotEmpty == true)
+                    SizedBox(
+                      width: isNarrow ? constraints.maxWidth : 240,
+                      child: _buildDetailCard(
+                        'Previous Companies',
+                        driverPreviousCompanies!,
                         isDark,
                       ),
                     ),
