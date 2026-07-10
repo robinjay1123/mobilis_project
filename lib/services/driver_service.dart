@@ -463,13 +463,73 @@ class DriverService {
     try {
       debugPrint('Accepting job offer: $jobAssignmentId');
 
+      final currentUserId = supabase.auth.currentUser?.id;
+      if (currentUserId == null) {
+        throw Exception('Driver is not authenticated');
+      }
+      final assignment = await supabase
+          .from('driver_job_assignments')
+          .select('''
+            id,
+            booking_id,
+            driver_id,
+            status,
+            bookings:booking_id (
+              id,
+              driver_id,
+              operator_id,
+              renter_id,
+              status
+            )
+          ''')
+          .eq('id', jobAssignmentId)
+          .maybeSingle();
+      if (assignment == null) throw Exception('Job offer not found');
+      if (assignment['driver_id']?.toString() != currentUserId) {
+        throw Exception('This job offer belongs to another driver');
+      }
+      final assignmentStatus =
+          assignment['status']?.toString().trim().toLowerCase() ?? '';
+      if (!{'pending_offer', 'assigned'}.contains(assignmentStatus)) {
+        throw Exception('This job offer has already been answered');
+      }
+
+      final booking = assignment['bookings'] as Map<String, dynamic>?;
+      final bookingId = assignment['booking_id']?.toString() ?? '';
+      if (bookingId.isEmpty || booking == null) {
+        throw Exception('The booking for this offer is unavailable');
+      }
+      if (booking['driver_id']?.toString() != currentUserId) {
+        throw Exception('The operator has already selected another driver');
+      }
+
+      final now = DateTime.now().toIso8601String();
+
       await supabase
           .from('driver_job_assignments')
           .update({
             'status': 'accepted',
-            'replied_at': DateTime.now().toIso8601String(),
+            'replied_at': now,
+            'updated_at': now,
           })
           .eq('id', jobAssignmentId);
+
+      final driverUser = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', currentUserId)
+          .maybeSingle();
+      final driverName =
+          driverUser?['full_name']?.toString().trim().isNotEmpty == true
+          ? driverUser!['full_name'].toString().trim()
+          : 'The selected driver';
+      await NotificationService().notifyOperatorDriverResponse(
+        bookingId: bookingId,
+        driverId: currentUserId,
+        driverName: driverName,
+        accepted: true,
+        operatorId: booking['operator_id']?.toString(),
+      );
 
       debugPrint('Job offer accepted');
     } on PostgrestException catch (e) {
@@ -486,13 +546,85 @@ class DriverService {
     try {
       debugPrint('Declining job offer: $jobAssignmentId');
 
+      final currentUserId = supabase.auth.currentUser?.id;
+      if (currentUserId == null) {
+        throw Exception('Driver is not authenticated');
+      }
+      final assignment = await supabase
+          .from('driver_job_assignments')
+          .select('''
+            id,
+            booking_id,
+            driver_id,
+            status,
+            bookings:booking_id (
+              id,
+              driver_id,
+              operator_id,
+              renter_id,
+              status
+            )
+          ''')
+          .eq('id', jobAssignmentId)
+          .maybeSingle();
+      if (assignment == null) throw Exception('Job offer not found');
+      if (assignment['driver_id']?.toString() != currentUserId) {
+        throw Exception('This job offer belongs to another driver');
+      }
+      final assignmentStatus =
+          assignment['status']?.toString().trim().toLowerCase() ?? '';
+      if (!{'pending_offer', 'assigned'}.contains(assignmentStatus)) {
+        throw Exception('This job offer has already been answered');
+      }
+
+      final booking = assignment['bookings'] as Map<String, dynamic>?;
+      final bookingId = assignment['booking_id']?.toString() ?? '';
+      final now = DateTime.now().toIso8601String();
+
       await supabase
           .from('driver_job_assignments')
           .update({
             'status': 'rejected',
-            'replied_at': DateTime.now().toIso8601String(),
+            'replied_at': now,
+            'updated_at': now,
           })
           .eq('id', jobAssignmentId);
+
+      if (bookingId.isNotEmpty) {
+        await supabase
+            .from('bookings')
+            .update({
+              'driver_id': null,
+              'driver_assigned_at': null,
+              'status': 'pending',
+              'updated_at': now,
+            })
+            .eq('id', bookingId)
+            .eq('driver_id', currentUserId);
+      }
+      await supabase
+          .from('users')
+          .update({'is_available': true})
+          .eq('id', currentUserId);
+
+      final driverUser = await supabase
+          .from('users')
+          .select('full_name')
+          .eq('id', currentUserId)
+          .maybeSingle();
+      final driverName =
+          driverUser?['full_name']?.toString().trim().isNotEmpty == true
+          ? driverUser!['full_name'].toString().trim()
+          : 'The selected driver';
+      if (bookingId.isNotEmpty) {
+        await NotificationService().notifyOperatorDriverResponse(
+          bookingId: bookingId,
+          driverId: currentUserId,
+          driverName: driverName,
+          accepted: false,
+          operatorId: booking?['operator_id']?.toString(),
+        );
+      }
 
       debugPrint('Job offer declined');
     } on PostgrestException catch (e) {

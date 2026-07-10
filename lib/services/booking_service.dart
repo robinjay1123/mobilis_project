@@ -426,14 +426,20 @@ class BookingService {
           final createdBooking = await getBookingById(bookingId) ?? response;
           final vehicle = createdBooking['vehicles'] as Map<String, dynamic>?;
           final vehicleTitle = _vehicleTitle(vehicle);
-          await _ensureBookingGroupChatAndSummary(
-            booking: createdBooking,
+          final renter = createdBooking['users'] as Map<String, dynamic>?;
+          final renterName =
+              renter?['full_name']?.toString().trim().isNotEmpty == true
+              ? renter!['full_name'].toString().trim()
+              : 'A renter';
+          await NotificationService().notifyOperatorsNewBooking(
+            bookingId: bookingId,
             vehicleTitle: vehicleTitle,
-            summaryTitle: 'Booking Request Created',
+            renterName: renterName,
+            withDriver: withDriver,
           );
         }
       } catch (e) {
-        debugPrint('Booking created but conversation setup failed: $e');
+        debugPrint('Booking created but operator notification failed: $e');
       }
 
       debugPrint('Booking created successfully');
@@ -599,15 +605,13 @@ class BookingService {
         }
       }
 
-      // Create booking group chat + summary once booking is accepted.
-      if ((status == 'confirmed' || status == 'approved') &&
-          booking['conversation_created'] != true) {
+      // Create the group conversation only after final confirmation.
+      if (status == 'confirmed' && booking['conversation_created'] != true) {
         try {
           await _ensureBookingGroupChatAndSummary(
             booking: booking,
             vehicleTitle: vehicleTitle,
-            summaryTitle:
-                'Booking ${status == 'approved' ? 'Approved' : 'Confirmed'}',
+            summaryTitle: 'Booking Confirmed',
           );
         } catch (e) {
           debugPrint('Error creating booking group chat summary: $e');
@@ -907,6 +911,20 @@ class BookingService {
           })
           .eq('id', bookingId);
 
+      final assignedDriverId = booking['driver_id']?.toString();
+      if (assignedDriverId != null && assignedDriverId.isNotEmpty) {
+        final now = DateTime.now().toIso8601String();
+        await supabase
+            .from('driver_job_assignments')
+            .update({'status': 'cancelled', 'updated_at': now})
+            .eq('booking_id', bookingId)
+            .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
+        await supabase
+            .from('users')
+            .update({'is_available': true})
+            .eq('id', assignedDriverId);
+      }
+
       debugPrint('Booking rejected');
 
       // ✅ Send notification to renter when booking is rejected
@@ -983,28 +1001,53 @@ class BookingService {
       final currentStatus =
           booking['status']?.toString().trim().toLowerCase() ?? '';
 
-      // Update booking with driver. If a partner assigns directly from a
-      // pending request, make it visible as an approved assigned trip.
-      final updatePayload = <String, dynamic>{
-        'driver_id': driverUserId,
-        'with_driver': true,
-        'driver_assigned_at': DateTime.now().toIso8601String(),
-        if (currentStatus == 'pending') 'status': 'approved',
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+      if (!{'pending', 'approved'}.contains(currentStatus)) {
+        throw Exception(
+          'A driver can only be selected before the booking is finalized',
+        );
+      }
+
+      final now = DateTime.now().toIso8601String();
+      await supabase
+          .from('driver_job_assignments')
+          .update({'status': 'superseded', 'updated_at': now})
+          .eq('booking_id', bookingId)
+          .inFilter('status', ['pending_offer', 'assigned']);
+
+      final assignment = await supabase
+          .from('driver_job_assignments')
+          .insert({
+            'booking_id': bookingId,
+            'driver_id': driverUserId,
+            'trip_fee': tripFee,
+            'status': 'pending_offer',
+            'offered_at': now,
+            'created_at': now,
+            'updated_at': now,
+          })
+          .select('id')
+          .single();
+      final assignmentId = assignment['id']?.toString();
 
       try {
-        await supabase.from('driver_job_assignments').insert({
-          'booking_id': bookingId,
-          'driver_id': driverUserId,
-          'trip_fee': tripFee,
-          'status': 'assigned',
-          'assigned_at': DateTime.now().toIso8601String(),
-          'created_at': DateTime.now().toIso8601String(),
-        });
-      } catch (e) {
-        debugPrint('Driver assignment job record skipped: $e');
+        await supabase
+            .from('bookings')
+            .update({
+              'driver_id': driverUserId,
+              'with_driver': true,
+              'status': 'pending',
+              'driver_assigned_at': now,
+              'updated_at': now,
+            })
+            .eq('id', bookingId);
+      } catch (_) {
+        if (assignmentId != null && assignmentId.isNotEmpty) {
+          await supabase
+              .from('driver_job_assignments')
+              .update({'status': 'cancelled', 'updated_at': now})
+              .eq('id', assignmentId);
+        }
+        rethrow;
       }
 
       await supabase
@@ -1012,42 +1055,7 @@ class BookingService {
           .update({'is_available': false})
           .eq('id', driverUserId);
 
-      try {
-        final currentUserId = supabase.auth.currentUser?.id;
-        await ChatService().addParticipantsToBookingConversation(
-          bookingId: bookingId,
-          participantIds: [
-            driverUserId,
-            if (currentUserId != null && currentUserId.isNotEmpty)
-              currentUserId,
-          ],
-        );
-
-        final bookingAfterAssign = await getBookingById(bookingId);
-        if (bookingAfterAssign != null) {
-          final chatSenderId =
-              currentUserId ??
-              bookingAfterAssign['renter_id']?.toString() ??
-              driverUserId;
-          final renter = bookingAfterAssign['users'] as Map<String, dynamic>?;
-          final renterName = renter?['full_name']?.toString() ?? 'Renter';
-          final driverName = driver['full_name']?.toString() ?? 'Driver';
-          final driverMessage =
-              'Driver assigned: $driverName\n'
-              'Renter: $renterName (${bookingAfterAssign['renter_id'] ?? 'n/a'})\n'
-              'Pickup: ${bookingAfterAssign['pickup_location'] ?? 'N/A'}\n'
-              'Drop-off: ${bookingAfterAssign['dropoff_location'] ?? 'N/A'}';
-          await _sendBookingGroupMessage(
-            bookingId: bookingId,
-            senderId: chatSenderId,
-            content: driverMessage,
-          );
-        }
-      } catch (e) {
-        debugPrint('Could not add driver to group chat: $e');
-      }
-
-      debugPrint('Driver assigned to booking');
+      debugPrint('Driver job offer created for booking');
 
       // ✅ Send notification to renter about driver assignment
       try {
@@ -1056,13 +1064,14 @@ class BookingService {
         if (renterId != null && renterId.isNotEmpty) {
           await NotificationService().createNotification(
             userId: renterId,
-            title: 'Driver Assigned',
-            message: '$driverName has been assigned as your driver.',
+            title: 'Driver Selection in Progress',
+            message:
+                '$driverName was selected and is reviewing the job offer. Your booking is not finalized yet.',
             type: 'booking',
             data: {
               'booking_id': bookingId,
               'driver_id': driverUserId,
-              'event': 'driver_assigned_to_booking',
+              'event': 'driver_offer_sent',
             },
           );
         }
@@ -1105,14 +1114,149 @@ class BookingService {
     }
   }
 
+  /// Finalize a booking after the selected driver accepts the job offer.
+  Future<Map<String, dynamic>> finalizeBooking({
+    required String bookingId,
+    required String operatorId,
+  }) async {
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final currentStatus =
+        booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (!{'pending', 'approved', 'confirmed'}.contains(currentStatus)) {
+      throw Exception('This booking cannot be finalized from its current state');
+    }
+
+    final withDriver = booking['with_driver'] == true;
+    final driverId = booking['driver_id']?.toString().trim() ?? '';
+    Map<String, dynamic>? acceptedAssignment;
+    if (withDriver) {
+      if (driverId.isEmpty) {
+        throw Exception('Select a driver before finalizing this booking');
+      }
+
+      final assignmentRows = await supabase
+          .from('driver_job_assignments')
+          .select('id, status, driver_id, replied_at')
+          .eq('booking_id', bookingId)
+          .eq('driver_id', driverId)
+          .order('created_at', ascending: false)
+          .limit(1);
+      if (assignmentRows.isNotEmpty) {
+        acceptedAssignment = Map<String, dynamic>.from(assignmentRows.first);
+      }
+      final responseStatus = acceptedAssignment?['status']
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      if (responseStatus != 'accepted' && responseStatus != 'confirmed') {
+        throw Exception('Wait for the selected driver to accept the job first');
+      }
+    }
+
+    final now = DateTime.now().toIso8601String();
+    if (currentStatus != 'confirmed') {
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'confirmed',
+            'operator_id': operatorId,
+            'approved_at': now,
+            'updated_at': now,
+          })
+          .eq('id', bookingId);
+    } else if (booking['operator_id']?.toString() != operatorId) {
+      await supabase
+          .from('bookings')
+          .update({'operator_id': operatorId, 'updated_at': now})
+          .eq('id', bookingId);
+    }
+
+    if (acceptedAssignment != null) {
+      await supabase
+          .from('driver_job_assignments')
+          .update({'status': 'confirmed', 'updated_at': now})
+          .eq('id', acceptedAssignment['id']);
+    }
+
+    final finalized = await getBookingById(bookingId);
+    if (finalized == null) {
+      throw Exception('Booking finalized but could not be reloaded');
+    }
+    final vehicle = finalized['vehicles'] as Map<String, dynamic>?;
+    final vehicleTitle = _vehicleTitle(vehicle);
+    await _ensureBookingGroupChatAndSummary(
+      booking: finalized,
+      vehicleTitle: vehicleTitle,
+      summaryTitle: 'Booking Confirmed',
+    );
+
+    final renterId = finalized['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      await NotificationService().notifyBookingFinalized(
+        userId: renterId,
+        bookingId: bookingId,
+        vehicleTitle: vehicleTitle,
+        role: 'renter',
+      );
+    }
+    if (driverId.isNotEmpty) {
+      await NotificationService().notifyBookingFinalized(
+        userId: driverId,
+        bookingId: bookingId,
+        vehicleTitle: vehicleTitle,
+        role: 'driver',
+      );
+    }
+    final ownerId = vehicle?['owner_id']?.toString();
+    if (ownerId != null &&
+        ownerId.isNotEmpty &&
+        ownerId != operatorId &&
+        ownerId != renterId) {
+      await NotificationService().notifyBookingFinalized(
+        userId: ownerId,
+        bookingId: bookingId,
+        vehicleTitle: vehicleTitle,
+        role: 'partner',
+      );
+    }
+
+    return finalized;
+  }
+
   /// Unassign driver from booking
   Future<void> unassignDriver(String bookingId) async {
     try {
       debugPrint('Unassigning driver from booking: $bookingId');
+      final booking = await supabase
+          .from('bookings')
+          .select('driver_id')
+          .eq('id', bookingId)
+          .maybeSingle();
+      final driverId = booking?['driver_id']?.toString();
+      final now = DateTime.now().toIso8601String();
       await supabase
           .from('bookings')
-          .update({'driver_id': null, 'driver_assigned_at': null})
+          .update({
+            'driver_id': null,
+            'driver_assigned_at': null,
+            'status': 'pending',
+            'updated_at': now,
+          })
           .eq('id', bookingId);
+
+      await supabase
+          .from('driver_job_assignments')
+          .update({'status': 'cancelled', 'updated_at': now})
+          .eq('booking_id', bookingId)
+          .inFilter('status', ['pending_offer', 'assigned', 'accepted']);
+      if (driverId != null && driverId.isNotEmpty) {
+        await supabase
+            .from('users')
+            .update({'is_available': true})
+            .eq('id', driverId);
+      }
 
       debugPrint('Driver unassigned from booking');
     } on PostgrestException catch (e) {

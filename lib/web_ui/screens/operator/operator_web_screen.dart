@@ -63,6 +63,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
+  Timer? _bookingFlowRefreshDebounce;
+  RealtimeChannel? _bookingFlowChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
 
@@ -96,6 +98,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     super.initState();
     _loadDashboardData();
     _loadConversations();
+    _setupBookingFlowListener();
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
@@ -105,6 +108,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
+    _bookingFlowRefreshDebounce?.cancel();
+    _bookingFlowChannel?.unsubscribe();
     _brandController.dispose();
     _modelController.dispose();
     _yearController.dispose();
@@ -122,6 +127,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _transmissionController.dispose();
     _messageController.dispose();
     super.dispose();
+  }
+
+  void _setupBookingFlowListener() {
+    final channelName =
+        'operator-booking-flow-${_supabase.auth.currentUser?.id ?? 'guest'}';
+    _bookingFlowChannel = _supabase.realtime.channel(channelName);
+    void refreshFlow(PostgresChangePayload payload) {
+      if (!mounted) return;
+      _bookingFlowRefreshDebounce?.cancel();
+      _bookingFlowRefreshDebounce = Timer(
+        const Duration(milliseconds: 350),
+        () {
+          _loadDashboardData();
+          _loadConversations();
+        },
+      );
+    }
+
+    _bookingFlowChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          callback: refreshFlow,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_job_assignments',
+          callback: refreshFlow,
+        )
+        .subscribe();
   }
 
   Future<void> _getCurrentVehicleLocation({
@@ -484,6 +521,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   full_name,
                   email
                 )
+              ),
+              job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
+                id,
+                driver_id,
+                status,
+                offered_at,
+                replied_at,
+                created_at,
+                updated_at
               )
             ''')
           .order('created_at', ascending: false)
@@ -682,6 +728,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
       _loadDashboardData();
+      _loadConversations();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -729,44 +776,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }
 
       final operatorId = _supabase.auth.currentUser?.id;
-      final normalizedExistingDriverId = driverId == null
-          ? await _resolveDriverUserId(booking['driver_id'])
-          : null;
-
-      await _supabase
-          .from('bookings')
-          .update({
-            'status': 'confirmed',
-            'driver_id': normalizedExistingDriverId,
-            if (operatorId != null) 'operator_id': operatorId,
-            'approved_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', bookingId);
+      if (operatorId == null || operatorId.isEmpty) {
+        throw Exception('Operator is not authenticated');
+      }
 
       final bookingService = BookingService();
 
       if (driverId != null) {
+        await _supabase
+            .from('bookings')
+            .update({
+              'operator_id': operatorId,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', bookingId);
         await bookingService.assignDriver(bookingId, driverId, 0.0);
-      }
-
-      try {
-        await _createBookingGroupChat(booking, driverId);
-      } catch (e) {
-        debugPrint('Error creating group chat: $e');
-        // Don't fail the booking approval if chat creation fails
+      } else {
+        await bookingService.finalizeBooking(
+          bookingId: bookingId,
+          operatorId: operatorId,
+        );
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Booking confirmed successfully'),
+          SnackBar(
+            content: Text(
+              driverId != null
+                  ? 'Driver job offer sent. Waiting for a response.'
+                  : 'Booking finalized and conversation created.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
       }
 
       _loadDashboardData();
+      _loadConversations();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -799,6 +845,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return profileUserId == null || profileUserId.isEmpty
         ? null
         : profileUserId;
+  }
+
+  Map<String, dynamic>? _latestDriverAssignment(
+    Map<String, dynamic> booking,
+  ) {
+    final rawAssignments = booking['job_assignments'];
+    if (rawAssignments is! List || rawAssignments.isEmpty) return null;
+    final assignments = rawAssignments
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    if (assignments.isEmpty) return null;
+    assignments.sort((a, b) {
+      final aDate = DateTime.tryParse(
+        (a['created_at'] ?? a['offered_at'])?.toString() ?? '',
+      );
+      final bDate = DateTime.tryParse(
+        (b['created_at'] ?? b['offered_at'])?.toString() ?? '',
+      );
+      return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+    });
+    return assignments.first;
   }
 
   Future<void> _createBookingGroupChat(
@@ -970,12 +1038,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Approve Booking'),
+              title: Text(
+                withDriver ? 'Select Driver' : 'Finalize Booking',
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Are you sure you want to approve this booking?'),
+                  Text(
+                    withDriver
+                        ? 'Choose a driver. The booking will remain pending until the driver accepts and you finalize it.'
+                        : 'Finalize this booking and create its conversation?',
+                  ),
                   if (withDriver) ...[
                     const SizedBox(height: 16),
                     const Text('Select Driver:'),
@@ -1041,7 +1115,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     _approveBooking(booking, driverId: selectedDriverId);
                     Navigator.pop(context);
                   },
-                  child: const Text('Approve'),
+                  child: Text(withDriver ? 'Send Job Offer' : 'Finalize'),
                 ),
               ],
             );
@@ -2210,6 +2284,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final driver = booking['driver'] as Map<String, dynamic>?;
                 final driverUser = driver?['user'] as Map<String, dynamic>?;
                 final withDriver = _bookingNeedsDriver(booking['with_driver']);
+                final latestAssignment = _latestDriverAssignment(booking);
+                final assignmentStatus = latestAssignment?['status']
+                    ?.toString()
+                    .trim()
+                    .toLowerCase();
+                final waitingForDriver =
+                    assignmentStatus == 'pending_offer' ||
+                    assignmentStatus == 'assigned';
+                final driverAccepted = assignmentStatus == 'accepted';
+                final driverDeclined = assignmentStatus == 'rejected';
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
                 final canTrack = _canTrackBooking(booking);
@@ -2529,6 +2613,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       if (statusLower == 'pending') ...[
                         const SizedBox(height: 12),
                         _buildBookingPaymentDetails(booking, isDark),
+                        if (withDriver && assignmentStatus != null) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: driverAccepted
+                                  ? Colors.green.withOpacity(0.12)
+                                  : driverDeclined
+                                  ? Colors.red.withOpacity(0.12)
+                                  : AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: driverAccepted
+                                    ? Colors.green
+                                    : driverDeclined
+                                    ? Colors.red
+                                    : AppColors.primary,
+                              ),
+                            ),
+                            child: Text(
+                              driverAccepted
+                                  ? 'Driver accepted. Finalize the booking to create the conversation.'
+                                  : driverDeclined
+                                  ? 'Driver declined. Select another available driver.'
+                                  : 'Waiting for the selected driver to accept or decline.',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                       const SizedBox(height: 16),
                       // Status and actions
@@ -2544,12 +2665,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                if (statusLower == 'pending')
+                                if (statusLower == 'pending' &&
+                                    (!withDriver || driverAccepted))
                                   ElevatedButton.icon(
-                                    onPressed: () =>
-                                        _showApproveDialog(booking),
+                                    onPressed: () => _approveBooking(booking),
                                     icon: const Icon(Icons.check, size: 16),
-                                    label: const Text('Confirm'),
+                                    label: const Text('Finalize'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.green,
                                       foregroundColor: Colors.white,
@@ -2558,6 +2679,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         vertical: 8,
                                       ),
                                     ),
+                                  ),
+                                if (statusLower == 'pending' &&
+                                    withDriver &&
+                                    !driverAccepted &&
+                                    !waitingForDriver)
+                                  ElevatedButton.icon(
+                                    onPressed: () =>
+                                        _showApproveDialog(booking),
+                                    icon: const Icon(
+                                      Icons.person_search,
+                                      size: 16,
+                                    ),
+                                    label: Text(
+                                      driverDeclined
+                                          ? 'Select Another Driver'
+                                          : 'Select Driver',
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if (statusLower == 'pending' &&
+                                    withDriver &&
+                                    waitingForDriver)
+                                  OutlinedButton.icon(
+                                    onPressed: null,
+                                    icon: const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    label: const Text('Waiting for Driver'),
                                   ),
                                 if (statusLower == 'pending')
                                   OutlinedButton.icon(

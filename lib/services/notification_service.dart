@@ -223,9 +223,9 @@ class NotificationService {
   }) {
     return _safeCreate(
       userId: driverId,
-      title: 'New Driver Job Assigned',
+      title: 'New Driver Job Offer',
       message:
-          'You have a new assigned booking. Renter: $renterName${renterPhone != null && renterPhone.trim().isNotEmpty ? " - ${renterPhone.trim()}" : ""}',
+          'Review this booking and accept or decline it. Renter: $renterName${renterPhone != null && renterPhone.trim().isNotEmpty ? " - ${renterPhone.trim()}" : ""}',
       type: 'driver_assignment',
       data: {
         'booking_id': bookingId,
@@ -239,7 +239,92 @@ class NotificationService {
         if (startAt != null) 'start_at': startAt,
         if (endAt != null) 'end_at': endAt,
         if (tripFee != null) 'trip_fee': tripFee,
-        'event': 'driver_job_assigned',
+        'event': 'driver_job_offered',
+      },
+    );
+  }
+
+  Future<int> notifyOperatorsNewBooking({
+    required String bookingId,
+    required String vehicleTitle,
+    required String renterName,
+    required bool withDriver,
+  }) {
+    return _notifyRoles(
+      roles: const ['operator'],
+      title: 'New Booking Request',
+      message:
+          '$renterName requested $vehicleTitle${withDriver ? ' with a driver' : ''}. Review the booking to continue.',
+      type: 'booking',
+      data: {
+        'booking_id': bookingId,
+        'status': 'pending',
+        'with_driver': withDriver,
+        'event': 'operator_new_booking_request',
+      },
+    );
+  }
+
+  Future<int> notifyOperatorDriverResponse({
+    required String bookingId,
+    required String driverId,
+    required String driverName,
+    required bool accepted,
+    String? operatorId,
+  }) async {
+    final title = accepted ? 'Driver Accepted Job' : 'Driver Declined Job';
+    final message = accepted
+        ? '$driverName accepted the booking. You can now finalize it.'
+        : '$driverName declined the booking. Please select another available driver.';
+    final data = <String, dynamic>{
+      'booking_id': bookingId,
+      'driver_id': driverId,
+      'status': accepted ? 'accepted' : 'rejected',
+      'requires_driver_reselection': !accepted,
+      'event': accepted
+          ? 'operator_driver_job_accepted'
+          : 'operator_driver_job_declined',
+    };
+
+    if (operatorId != null && operatorId.trim().isNotEmpty) {
+      await createNotification(
+        userId: operatorId.trim(),
+        title: title,
+        message: message,
+        type: 'driver_assignment',
+        data: data,
+      );
+      return 1;
+    }
+
+    return _notifyRoles(
+      roles: const ['operator'],
+      title: title,
+      message: message,
+      type: 'driver_assignment',
+      data: data,
+    );
+  }
+
+  Future<bool> notifyBookingFinalized({
+    required String userId,
+    required String bookingId,
+    required String vehicleTitle,
+    required String role,
+  }) {
+    final isDriver = role.trim().toLowerCase() == 'driver';
+    return _safeCreate(
+      userId: userId,
+      title: 'Booking Finalized',
+      message: isDriver
+          ? 'Your accepted job for $vehicleTitle is finalized. The booking conversation is now available.'
+          : 'Your booking for $vehicleTitle is confirmed. The booking conversation is now available.',
+      type: 'booking',
+      data: {
+        'booking_id': bookingId,
+        'status': 'confirmed',
+        'role': role,
+        'event': 'booking_finalized',
       },
     );
   }
@@ -562,6 +647,54 @@ class NotificationService {
       return rows.length;
     } catch (e) {
       debugPrint('Admin notification skipped: $e');
+      return 0;
+    }
+  }
+
+  Future<int> _notifyRoles({
+    required List<String> roles,
+    required String title,
+    required String message,
+    required String type,
+    Map<String, dynamic>? data,
+  }) async {
+    try {
+      final response = await supabase
+          .from('users')
+          .select('id')
+          .inFilter('role', roles);
+      final ids = List<Map<String, dynamic>>.from(response)
+          .map((user) => user['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList();
+      if (ids.isEmpty) return 0;
+
+      final nowIso = DateTime.now().toIso8601String();
+      final rows = ids
+          .map(
+            (id) => {
+              'user_id': id,
+              'title': title,
+              'message': message,
+              'type': type,
+              'data': data,
+              'is_read': false,
+              'created_at': nowIso,
+            },
+          )
+          .toList();
+      await supabase.from('notifications').insert(rows);
+      await _queuePushForUsers(
+        userIds: ids,
+        title: title,
+        message: message,
+        type: type,
+        data: data,
+      );
+      return rows.length;
+    } catch (e) {
+      debugPrint('Role notification skipped: $e');
       return 0;
     }
   }
