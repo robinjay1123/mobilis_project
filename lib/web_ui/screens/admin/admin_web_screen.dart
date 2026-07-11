@@ -20,6 +20,7 @@ import '../../../services/admin_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
+import '../../theme/web_portal_theme.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -1496,20 +1497,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBg : const Color(0xFFF5F5F5),
-      body: Row(
-        children: [
-          _buildSidebar(isDark),
-          Expanded(
-            child: Column(
-              children: [
-                _buildTopBar(isDark),
-                Expanded(child: _buildContent(isDark)),
-              ],
+    return Theme(
+      data: WebPortalTheme.resolve(context, isDark: isDark),
+      child: Scaffold(
+        body: Row(
+          children: [
+            _buildSidebar(isDark),
+            Expanded(
+              child: Column(
+                children: [
+                  _buildTopBar(isDark),
+                  Expanded(child: _buildContent(isDark)),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1588,7 +1591,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1a1a2e), Color(0xFF16213e)],
+          colors: [Color(0xFF062A44), Color(0xFF071D31)],
         ),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20),
@@ -1751,9 +1754,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           height: 46,
           padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
           decoration: BoxDecoration(
-            gradient: isSelected
-                ? const LinearGradient(colors: [Colors.red, Colors.deepOrange])
-                : null,
+            color: isSelected ? AppColors.primary : null,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -1763,7 +1764,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             children: [
               Icon(
                 icon,
-                color: isSelected ? Colors.white : Colors.white60,
+                color: isSelected ? Colors.black : Colors.white60,
                 size: 22,
               ),
               if (_sidebarExpanded) ...[
@@ -1772,7 +1773,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: isSelected ? Colors.white : Colors.white70,
+                      color: isSelected ? Colors.black : Colors.white70,
                       fontWeight: isSelected
                           ? FontWeight.w600
                           : FontWeight.normal,
@@ -1787,14 +1788,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? Colors.white.withOpacity(0.2)
+                          ? Colors.black.withOpacity(0.14)
                           : Colors.red,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       badge.toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: isSelected ? Colors.black : Colors.white,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1857,10 +1858,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Colors.red, Colors.deepOrange],
-                ),
-                borderRadius: BorderRadius.circular(25),
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
@@ -1876,11 +1875,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   const Text(
                     'Admin',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: Colors.black,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const Icon(Icons.arrow_drop_down, color: Colors.white),
+                  const Icon(Icons.arrow_drop_down, color: Colors.black),
                 ],
               ),
             ),
@@ -1921,12 +1920,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   ) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        constraints: const BoxConstraints(minHeight: 46),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.3)),
         ),
         child: Row(
@@ -1954,14 +1954,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Colors.red, Colors.deepOrange],
+                colors: [Color(0xFFFFD600), Color(0xFFFFC400)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.red.withOpacity(0.3),
+                  color: AppColors.primary.withOpacity(0.22),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -1975,13 +1975,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     children: [
                       const Text(
                         'Total Revenue',
-                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                        style: TextStyle(color: Colors.black54, fontSize: 14),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'PHP ${_totalRevenue.toStringAsFixed(2)}',
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Colors.black,
                           fontSize: 36,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1990,7 +1990,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       Text(
                         'From $_totalBookings total bookings',
                         style: const TextStyle(
-                          color: Colors.white60,
+                          color: Colors.black54,
                           fontSize: 13,
                         ),
                       ),

@@ -10,6 +10,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../theme/web_portal_theme.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
@@ -1174,20 +1175,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isCompact = screenWidth < 1200;
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.darkBg : const Color(0xFFF5F5F5),
-      body: Row(
-        children: [
-          _buildSidebar(isDark, isCompact),
-          Expanded(
-            child: Column(
-              children: [
-                _buildTopBar(isDark),
-                Expanded(child: _buildContent(isDark)),
-              ],
+    return Theme(
+      data: WebPortalTheme.resolve(context, isDark: isDark),
+      child: Scaffold(
+        body: Row(
+          children: [
+            _buildSidebar(isDark, isCompact),
+            Expanded(
+              child: Column(
+                children: [
+                  _buildTopBar(isDark),
+                  Expanded(child: _buildContent(isDark)),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1428,6 +1431,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const Spacer(),
           IconButton(
+            tooltip: isDark ? 'Use light theme' : 'Use dark theme',
+            onPressed: () => widget.onThemeToggle?.call(!isDark),
+            icon: Icon(
+              isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
             onPressed: _loadDashboardData,
             icon: Icon(
               Icons.refresh,
@@ -1441,9 +1453,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             },
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppColors.primary,
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
                   child: const Icon(
                     Icons.person,
                     color: Colors.black,

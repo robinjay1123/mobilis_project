@@ -16,7 +16,7 @@ import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
-import '../profile/emergency_contact_screen.dart';
+import '../profile/unified_profile_screen.dart';
 
 class DriverHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -32,14 +32,26 @@ class DriverHomeScreen extends StatefulWidget {
   State<DriverHomeScreen> createState() => _DriverHomeScreenState();
 }
 
-Future<String?> _loadDriverAvatarUrl(String? userId) async {
-  final metadata = AuthService().currentUser?.userMetadata ?? {};
-  final metadataUrl =
-      (metadata['avatar_url'] ?? metadata['profile_picture_url'] ?? '')
-          .toString()
-          .trim();
-  if (metadataUrl.isNotEmpty) return metadataUrl;
+bool _driverIsDark(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark;
 
+Color _driverPageColor(BuildContext context) =>
+    _driverIsDark(context) ? const Color(0xFF07111D) : const Color(0xFFF4F7FB);
+
+Color _driverCardColor(BuildContext context) =>
+    _driverIsDark(context) ? const Color(0xFF0C1B2A) : Colors.white;
+
+Color _driverBorderColor(BuildContext context) =>
+    _driverIsDark(context) ? const Color(0xFF173651) : const Color(0xFFD8E0EA);
+
+Color _driverPrimaryText(BuildContext context) =>
+    _driverIsDark(context) ? AppColors.textPrimary : AppColors.lightTextPrimary;
+
+Color _driverSecondaryText(BuildContext context) => _driverIsDark(context)
+    ? const Color(0xFF9DAEC4)
+    : AppColors.lightTextSecondary;
+
+Future<String?> _loadDriverAvatarUrl(String? userId) async {
   if (userId == null) return null;
   try {
     final row = await Supabase.instance.client
@@ -53,8 +65,14 @@ Future<String?> _loadDriverAvatarUrl(String? userId) async {
     return url == null || url.isEmpty ? null : url;
   } catch (e) {
     debugPrint('Driver avatar lookup skipped: $e');
-    return null;
   }
+
+  final metadata = AuthService().currentUser?.userMetadata ?? {};
+  final metadataUrl =
+      (metadata['avatar_url'] ?? metadata['profile_picture_url'] ?? '')
+          .toString()
+          .trim();
+  return metadataUrl.isEmpty ? null : metadataUrl;
 }
 
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
@@ -98,6 +116,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         arguments: {'mode': 'logout'},
       );
     }
+  }
+
+  void _refreshDriverAvatar() {
+    setState(() {
+      _drawerAvatarFuture = _loadDriverAvatarUrl(AuthService().currentUser?.id);
+    });
   }
 
   Future<void> _openCustomerServiceConversation() async {
@@ -167,7 +191,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       },
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: const Color(0xFF07111D),
+        backgroundColor: _driverPageColor(context),
         drawer: _buildDriverDrawer(context),
         appBar: AppBar(
           elevation: 0,
@@ -175,7 +199,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           centerTitle: true,
           automaticallyImplyLeading: false,
           backgroundColor: _selectedTab == 0
-              ? const Color(0xFF07111D)
+              ? _driverPageColor(context)
               : AppColors.primary,
           surfaceTintColor: Colors.transparent,
           title: _selectedTab == 0
@@ -316,6 +340,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           onThemeToggle: widget.onThemeToggle,
           isDarkMode: widget.isDarkMode,
           onLogout: _handleLogout,
+          onOpenSupport: _openCustomerServiceConversation,
+          onProfileUpdated: _refreshDriverAvatar,
         );
       case 5:
         return const _EarningsTab();
@@ -335,6 +361,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Widget _buildDriverDrawer(BuildContext context) {
+    final isDark = _driverIsDark(context);
     final user = AuthService().currentUser;
     final displayName =
         user?.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
@@ -343,7 +370,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final email = user?.email ?? 'driver account';
 
     return Drawer(
-      backgroundColor: const Color(0xFF062A44),
+      backgroundColor: isDark ? const Color(0xFF062A44) : Colors.white,
       child: SafeArea(
         child: Column(
           children: [
@@ -388,8 +415,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
+                          style: TextStyle(
+                            color: _driverPrimaryText(context),
                             fontSize: 15,
                             fontWeight: FontWeight.w900,
                           ),
@@ -399,8 +426,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           email,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF9DB2C8),
+                          style: TextStyle(
+                            color: _driverSecondaryText(context),
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
@@ -471,17 +498,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.dark_mode,
-                            color: Color(0xFFD9E7FF),
+                            color: _driverSecondaryText(context),
                             size: 20,
                           ),
                           const SizedBox(width: 14),
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'Dark Mode',
                               style: TextStyle(
-                                color: Color(0xFFD9E7FF),
+                                color: _driverPrimaryText(context),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -514,12 +541,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         );
                       },
                     ),
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: 24,
                         vertical: 12,
                       ),
-                      child: Divider(color: Color(0xFF1B4A67)),
+                      child: Divider(color: _driverBorderColor(context)),
                     ),
                     _DriverDrawerItem(
                       icon: Icons.settings,
@@ -571,7 +598,7 @@ class _DriverDrawerItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final itemColor =
-        color ?? (selected ? Colors.black : const Color(0xFFD9E7FF));
+        color ?? (selected ? Colors.black : _driverPrimaryText(context));
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: InkWell(
@@ -1094,8 +1121,8 @@ class __DashboardTabState extends State<_DashboardTab> {
                 displayName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
+                style: TextStyle(
+                  color: _driverPrimaryText(context),
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
                 ),
@@ -1183,14 +1210,14 @@ class __DashboardTabState extends State<_DashboardTab> {
             width: double.infinity,
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: const Color(0xFF0C1B2A),
+              color: _driverCardColor(context),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: const Color(0xFF173651)),
+              border: Border.all(color: _driverBorderColor(context)),
             ),
-            child: const Text(
+            child: Text(
               'No active booking yet. New assigned trips will appear here.',
               style: TextStyle(
-                color: Color(0xFF9DAEC4),
+                color: _driverSecondaryText(context),
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1200,9 +1227,9 @@ class __DashboardTabState extends State<_DashboardTab> {
         return Container(
           padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
-            color: const Color(0xFF061B31),
+            color: _driverCardColor(context),
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: const Color(0xFF063D67)),
+            border: Border.all(color: _driverBorderColor(context)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1476,10 +1503,11 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   @override
   Widget build(BuildContext context) {
+    final secondaryText = _driverSecondaryText(context);
     return RefreshIndicator(
       onRefresh: () async => _refreshDriverData(),
       color: AppColors.primary,
-      backgroundColor: const Color(0xFF0C1B2A),
+      backgroundColor: _driverCardColor(context),
       child: FutureBuilder<Map<String, dynamic>>(
         future: driverStatsFuture,
         builder: (context, snapshot) {
@@ -1507,10 +1535,10 @@ class __DashboardTabState extends State<_DashboardTab> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'JOB REQUESTS',
                         style: TextStyle(
-                          color: Color(0xFFAAB7C8),
+                          color: secondaryText,
                           fontSize: 14,
                           letterSpacing: 2,
                           fontWeight: FontWeight.w900,
@@ -1530,11 +1558,11 @@ class __DashboardTabState extends State<_DashboardTab> {
               ),
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'ACTIVE BOOKING',
                       style: TextStyle(
-                        color: Color(0xFFAAB7C8),
+                        color: secondaryText,
                         fontSize: 14,
                         letterSpacing: 2,
                         fontWeight: FontWeight.w900,
@@ -1583,10 +1611,10 @@ class __DashboardTabState extends State<_DashboardTab> {
               const SizedBox(height: 18),
               _buildActiveBookingSection(),
               const SizedBox(height: 34),
-              const Text(
+              Text(
                 'QUICK ACTIONS',
                 style: TextStyle(
-                  color: Color(0xFFAAB7C8),
+                  color: secondaryText,
                   fontSize: 14,
                   letterSpacing: 2,
                   fontWeight: FontWeight.w900,
@@ -1643,9 +1671,9 @@ class _DriverMetricCard extends StatelessWidget {
       height: 88,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1B2A),
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF1B3047), width: 1.5),
+        border: Border.all(color: _driverBorderColor(context), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1654,8 +1682,8 @@ class _DriverMetricCard extends StatelessWidget {
             label.toUpperCase(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF9DAEC4),
+            style: TextStyle(
+              color: _driverSecondaryText(context),
               fontSize: 9,
               fontWeight: FontWeight.w900,
             ),
@@ -1668,8 +1696,8 @@ class _DriverMetricCard extends StatelessWidget {
               child: Text(
                 value,
                 maxLines: 1,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
+                style: TextStyle(
+                  color: _driverPrimaryText(context),
                   fontSize: 17,
                   fontWeight: FontWeight.w900,
                 ),
@@ -1712,8 +1740,8 @@ class _DriverInfoLine extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
+            style: TextStyle(
+              color: _driverPrimaryText(context),
               fontSize: 17,
               fontWeight: FontWeight.w700,
             ),
@@ -1743,9 +1771,9 @@ class _DriverQuickActionCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
-          color: const Color(0xFF0C1B2A),
+          color: _driverCardColor(context),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFF1B3047), width: 1.5),
+          border: Border.all(color: _driverBorderColor(context), width: 1.5),
         ),
         child: Row(
           children: [
@@ -1753,7 +1781,9 @@ class _DriverQuickActionCard extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: const Color(0xFF071A2C),
+                color: _driverIsDark(context)
+                    ? const Color(0xFF071A2C)
+                    : const Color(0xFFFFF6CC),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: AppColors.primary, size: 24),
@@ -1764,8 +1794,8 @@ class _DriverQuickActionCard extends StatelessWidget {
                 label,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
+                style: TextStyle(
+                  color: _driverPrimaryText(context),
                   fontSize: 11,
                   height: 1.1,
                   fontWeight: FontWeight.w900,
@@ -1790,9 +1820,9 @@ class _DriverLoadingCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1B2A),
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFF173651)),
+        border: Border.all(color: _driverBorderColor(context)),
       ),
       child: Row(
         children: [
@@ -1807,8 +1837,8 @@ class _DriverLoadingCard extends StatelessWidget {
           const SizedBox(width: 14),
           Text(
             label,
-            style: const TextStyle(
-              color: Color(0xFF9DAEC4),
+            style: TextStyle(
+              color: _driverSecondaryText(context),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1836,9 +1866,9 @@ class _DriverTabHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF102033),
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFF1F3A55)),
+        border: Border.all(color: _driverBorderColor(context)),
       ),
       child: Row(
         children: [
@@ -1858,8 +1888,8 @@ class _DriverTabHeader extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: _driverPrimaryText(context),
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1869,8 +1899,8 @@ class _DriverTabHeader extends StatelessWidget {
                   subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF9DAEC4),
+                  style: TextStyle(
+                    color: _driverSecondaryText(context),
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2199,6 +2229,7 @@ class __JobsTabState extends State<_JobsTab> {
   }
 
   Widget _buildStatusTabs(List<Map<String, dynamic>> trips) {
+    final isDark = _driverIsDark(context);
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -2217,10 +2248,16 @@ class __JobsTabState extends State<_JobsTab> {
                 width: status == 'cancelled' ? 108 : 96,
                 padding: const EdgeInsets.symmetric(vertical: 11),
                 decoration: BoxDecoration(
-                  color: selected ? AppColors.primary : AppColors.darkBg,
+                  color: selected
+                      ? AppColors.primary
+                      : (isDark ? AppColors.darkBg : Colors.white),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: selected ? AppColors.primary : AppColors.borderColor,
+                    color: selected
+                        ? AppColors.primary
+                        : (isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor),
                   ),
                 ),
                 child: Text(
@@ -2229,7 +2266,11 @@ class __JobsTabState extends State<_JobsTab> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: selected ? Colors.black : AppColors.textSecondary,
+                    color: selected
+                        ? Colors.black
+                        : (isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary),
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
                   ),
@@ -2247,7 +2288,7 @@ class __JobsTabState extends State<_JobsTab> {
     return RefreshIndicator(
       onRefresh: _refreshJobs,
       color: AppColors.primary,
-      backgroundColor: AppColors.darkBgSecondary,
+      backgroundColor: _driverCardColor(context),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
@@ -3058,7 +3099,7 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
     return RefreshIndicator(
       onRefresh: _refresh,
       color: AppColors.primary,
-      backgroundColor: AppColors.darkBgSecondary,
+      backgroundColor: _driverCardColor(context),
       child: FutureBuilder<List<Map<String, dynamic>>>(
         future: _conversationsFuture,
         builder: (context, snapshot) {
@@ -3178,106 +3219,119 @@ class _NotificationsTabState extends State<_NotificationsTab> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: AppColors.borderColor),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.notifications_active_outlined,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
+      builder: (context) {
+        final isDark = _driverIsDark(context);
+        return Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isDark
+                  ? AppColors.borderColor
+                  : AppColors.lightBorderColor,
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.notifications_active_outlined,
+                        color: AppColors.primary,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          color: isDark
+                              ? AppColors.textPrimary
+                              : AppColors.lightTextPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.close,
+                        color: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  message.isEmpty ? 'No message content.' : message,
+                  style: TextStyle(
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
+                    fontSize: 13,
+                    height: 1.45,
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close,
-                      color: AppColors.textSecondary,
+                ),
+                if (createdAt.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    createdAt,
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 11,
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                message.isEmpty ? 'No message content.' : message,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                  height: 1.45,
-                ),
-              ),
-              if (createdAt.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(
-                  createdAt,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-              if (isDriverLicenseRenewal) ...[
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(
-                        context,
-                        '/driver-identity-verification',
-                        arguments: {'mode': 'renewal'},
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                if (isDriverLicenseRenewal) ...[
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(
+                          context,
+                          '/driver-identity-verification',
+                          arguments: {'mode': 'renewal'},
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      icon: const Icon(Icons.update_outlined),
+                      label: Text(
+                        actionLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
-                    icon: const Icon(Icons.update_outlined),
-                    label: Text(
-                      actionLabel,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -4450,11 +4504,15 @@ class _ProfileTab extends StatefulWidget {
   final Function(bool)? onThemeToggle;
   final bool isDarkMode;
   final VoidCallback onLogout;
+  final VoidCallback onOpenSupport;
+  final VoidCallback onProfileUpdated;
 
   const _ProfileTab({
     required this.onThemeToggle,
     required this.isDarkMode,
     required this.onLogout,
+    required this.onOpenSupport,
+    required this.onProfileUpdated,
   });
 
   @override
@@ -4463,7 +4521,6 @@ class _ProfileTab extends StatefulWidget {
 
 class __ProfileTabState extends State<_ProfileTab> {
   late Future<Map<String, dynamic>> _driverStatsFuture;
-  late Future<String?> _avatarUrlFuture;
 
   @override
   void initState() {
@@ -4474,54 +4531,6 @@ class __ProfileTabState extends State<_ProfileTab> {
         : DriverService()
               .getDriverStats(userId)
               .catchError((_) => <String, dynamic>{});
-    _avatarUrlFuture = _loadAvatarUrl(userId);
-  }
-
-  Future<String?> _loadAvatarUrl(String? userId) async {
-    if (userId == null) return null;
-    try {
-      final row = await Supabase.instance.client
-          .from('users')
-          .select('avatar_url, profile_picture_url')
-          .eq('id', userId)
-          .maybeSingle();
-      final url = (row?['avatar_url'] ?? row?['profile_picture_url'])
-          ?.toString()
-          .trim();
-      return url == null || url.isEmpty ? null : url;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _removeProfilePicture() async {
-    final userId = AuthService().currentUser?.id;
-    if (userId == null) return;
-
-    try {
-      await Supabase.instance.client
-          .from('users')
-          .update({'avatar_url': null, 'profile_picture_url': null})
-          .eq('id', userId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile picture removed'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      setState(() {
-        _avatarUrlFuture = Future.value(null);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to remove profile picture: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
   }
 
   Widget _buildDriverInitial(String displayName) {
@@ -4539,234 +4548,59 @@ class __ProfileTabState extends State<_ProfileTab> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final authService = AuthService();
-    final user = authService.currentUser;
-    final displayName =
-        user?.userMetadata?['full_name']?.toString().trim().isNotEmpty == true
-        ? user!.userMetadata!['full_name'].toString().trim()
-        : user?.email?.split('@').first ?? 'Driver';
-    final phone = user?.userMetadata?['phone']?.toString() ?? 'Not set';
-    final location = user?.userMetadata?['location']?.toString() ?? 'Not set';
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _driverStatsFuture,
+      builder: (context, snapshot) {
+        final stats = snapshot.data ?? {};
+        final totalTrips =
+            int.tryParse(
+              (stats['total_trips'] ?? stats['trips'] ?? 0).toString(),
+            ) ??
+            0;
+        final assignments =
+            int.tryParse(
+              (stats['assignments'] ?? stats['bookings'] ?? 0).toString(),
+            ) ??
+            0;
+        final rating =
+            (stats['rating'] as num?)?.toDouble() ??
+            double.tryParse(stats['rating']?.toString() ?? '') ??
+            0.0;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.darkBgSecondary,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.borderColor),
+        return UnifiedProfileScreen(
+          role: 'driver',
+          isDarkMode: widget.isDarkMode,
+          onThemeToggle: widget.onThemeToggle,
+          onLogout: widget.onLogout,
+          onOpenSupport: widget.onOpenSupport,
+          onOpenVerification: () =>
+              Navigator.pushNamed(context, '/driver-identity-verification'),
+          onProfileUpdated: widget.onProfileUpdated,
+          stats: [
+            ProfileStatItem(label: 'Trips', value: totalTrips.toString()),
+            ProfileStatItem(
+              label: 'Assignments',
+              value: assignments.toString(),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      width: 86,
-                      height: 86,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      alignment: Alignment.center,
-                      clipBehavior: Clip.antiAlias,
-                      child: FutureBuilder<String?>(
-                        future: _avatarUrlFuture,
-                        builder: (context, snapshot) {
-                          final avatarUrl = snapshot.data ?? '';
-                          if (avatarUrl.isNotEmpty) {
-                            return OptimizedNetworkImage(
-                              imageUrl: avatarUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                              errorWidget: _buildDriverInitial(displayName),
-                            );
-                          }
-                          return _buildDriverInitial(displayName);
-                        },
-                      ),
+            ProfileStatItem(
+              label: 'Rating',
+              value: rating <= 0 ? '0.0' : rating.toStringAsFixed(1),
+              onTap: () {
+                final userId = AuthService().currentUser?.id;
+                if (userId == null) return;
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => RatingsReviewsScreen(
+                      userId: userId,
+                      title: 'Driver Ratings & Reviews',
                     ),
-                    Positioned(
-                      right: -6,
-                      bottom: -6,
-                      child: InkWell(
-                        onTap: () async {
-                          final updated = await Navigator.pushNamed(
-                            context,
-                            '/profile-picture-upload',
-                          );
-                          if (updated == true && context.mounted) {
-                            setState(() {
-                              _avatarUrlFuture = _loadAvatarUrl(
-                                AuthService().currentUser?.id,
-                              );
-                            });
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBg,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.primary),
-                          ),
-                          child: const Icon(
-                            Icons.edit_outlined,
-                            color: AppColors.primary,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
                   ),
-                ),
-                const SizedBox(height: 18),
-                FutureBuilder<Map<String, dynamic>>(
-                  future: _driverStatsFuture,
-                  builder: (context, snapshot) {
-                    final stats = snapshot.data ?? {};
-                    final totalTrips =
-                        int.tryParse(
-                          (stats['total_trips'] ?? stats['trips'] ?? 0)
-                              .toString(),
-                        ) ??
-                        0;
-                    final rating =
-                        (stats['rating'] as num?)?.toDouble() ??
-                        double.tryParse(stats['rating']?.toString() ?? '') ??
-                        0.0;
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: _DriverProfileStat(
-                            'Trips',
-                            totalTrips.toString(),
-                          ),
-                        ),
-                        const _DriverProfileDivider(),
-                        const Expanded(
-                          child: _DriverProfileStat('Bookings', '0'),
-                        ),
-                        const _DriverProfileDivider(),
-                        Expanded(
-                          child: _DriverProfileStat(
-                            'Rating',
-                            rating <= 0 ? '0.0' : rating.toStringAsFixed(1),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 18),
-                _InfoRow(
-                  label: 'Email',
-                  value: user?.email ?? 'N/A',
-                  isDark: isDark,
-                ),
-                const SizedBox(height: 12),
-                _InfoRow(label: 'Phone', value: phone, isDark: isDark),
-                const SizedBox(height: 12),
-                _InfoRow(label: 'Location', value: location, isDark: isDark),
-              ],
+                );
+              },
             ),
-          ),
-          const SizedBox(height: 20),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Settings',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _SettingTile(
-            icon: isDark ? Icons.light_mode : Icons.dark_mode,
-            label: 'Appearance',
-            value: isDark ? 'Dark Mode' : 'Light Mode',
-            onTap: () => widget.onThemeToggle?.call(!isDark),
-            isDark: true,
-          ),
-          _SettingTile(
-            icon: Icons.verified_user_outlined,
-            label: 'Verification',
-            value: '',
-            onTap: () =>
-                Navigator.pushNamed(context, '/driver-identity-verification'),
-            isDark: true,
-          ),
-          _SettingTile(
-            icon: Icons.star_outline_rounded,
-            label: 'Ratings & Reviews',
-            value: '',
-            onTap: () {
-              if (user == null) return;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => RatingsReviewsScreen(
-                    userId: user.id,
-                    title: 'Driver Ratings & Reviews',
-                  ),
-                ),
-              );
-            },
-            isDark: true,
-          ),
-          _SettingTile(
-            icon: Icons.no_photography_outlined,
-            label: 'Remove Profile Picture',
-            value: '',
-            onTap: _removeProfilePicture,
-            isDark: true,
-          ),
-          _SettingTile(
-            icon: Icons.health_and_safety_outlined,
-            label: 'Emergency Contact',
-            value: '',
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EmergencyContactScreen(isDarkMode: isDark),
-                ),
-              );
-            },
-            isDark: true,
-          ),
-          _SettingTile(
-            icon: Icons.logout,
-            label: 'Logout',
-            value: '',
-            onTap: widget.onLogout,
-            isDark: true,
-            textColor: Colors.red,
-            isLast: true,
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }

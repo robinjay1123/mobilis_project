@@ -29,6 +29,7 @@ import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../profile/unified_profile_screen.dart';
 import '../partner/partner_tracking_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -4254,277 +4255,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return _buildFavoriteVehiclesPage();
     }
 
-    return Column(
-      children: [
-        _buildCenteredTabHeader(
-          'Profile',
-          trailing: IconButton(
-            onPressed: () => setState(() => selectedProfilePage = 'favorites'),
-            icon: const Icon(
-              Icons.favorite_border,
-              color: Colors.black,
-              size: 22,
-            ),
-          ),
+    return UnifiedProfileScreen(
+      role: 'renter',
+      isDarkMode: widget.isDarkMode,
+      onThemeToggle: widget.onThemeToggle,
+      onProfileUpdated: _loadUserData,
+      onOpenSupport: _openCustomerServiceConversation,
+      onOpenVerification: () =>
+          setState(() => selectedProfilePage = 'verification'),
+      stats: [
+        ProfileStatItem(
+          label: 'Trips',
+          value: '$_totalTrips',
+          onTap: () => setState(() => selectedNavIndex = 1),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Avatar + name
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(26),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child:
-                                userAvatarUrl != null &&
-                                    userAvatarUrl!.isNotEmpty
-                                ? OptimizedNetworkImage(
-                                    imageUrl: userAvatarUrl!,
-                                    fit: BoxFit.cover,
-                                    width: 100,
-                                    height: 100,
-                                    errorWidget: const Icon(
-                                      Icons.person,
-                                      color: Colors.black,
-                                      size: 50,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.person,
-                                    color: Colors.black,
-                                    size: 50,
-                                  ),
-                          ),
-                          Positioned(
-                            bottom: -4,
-                            right: -4,
-                            child: InkWell(
-                              onTap: () async {
-                                final updated = await Navigator.pushNamed(
-                                  context,
-                                  '/profile-picture-upload',
-                                );
-                                if (updated == true && mounted) {
-                                  _loadUserData();
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                width: 28,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  color: AppColors.darkBg,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AppColors.primary),
-                                ),
-                                child: const Icon(
-                                  Icons.edit_outlined,
-                                  color: AppColors.primary,
-                                  size: 16,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: userVerified
-                              ? AppColors.success.withOpacity(0.2)
-                              : AppColors.warning.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          userVerified ? 'Verified Renter' : 'Basic Renter',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: userVerified
-                                ? AppColors.success
-                                : AppColors.warning,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Member since $_userCreatedYear',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textTertiary,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBgSecondary,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.borderColor),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              '$_totalTrips',
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'TOTAL TRIPS',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Menu
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildProfileMenuOption(
-                        Icons.calendar_today,
-                        'My Bookings',
-                        onTap: () => setState(() => selectedNavIndex = 1),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.favorite_border,
-                        'Liked Cars',
-                        badgeCount: _favoriteVehicleIds.length,
-                        onTap: () =>
-                            setState(() => selectedProfilePage = 'favorites'),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.chat_bubble_outline,
-                        'Messages',
-                        badgeCount: _totalUnreadMessages(),
-                        onTap: () => setState(() => selectedNavIndex = 2),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.payment,
-                        'Payment Methods',
-                        onTap: () =>
-                            setState(() => selectedProfilePage = 'payment'),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.verified_user,
-                        'Verification Documents',
-                        onTap: () => setState(
-                          () => selectedProfilePage = 'verification',
-                        ),
-                      ),
-                      _buildProfileMenuOption(
-                        Icons.settings,
-                        'Settings',
-                        onTap: () =>
-                            setState(() => selectedProfilePage = 'settings'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Log Out
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final confirmed = await showDialog<bool>(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text('Log Out'),
-                            content: const Text(
-                              'Are you sure you want to log out?',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text('Cancel'),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text(
-                                  'Log Out',
-                                  style: TextStyle(color: Colors.red),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        if (confirmed == true) {
-                          if (mounted) {
-                            Navigator.of(context).pushNamedAndRemoveUntil(
-                              '/auth-processing',
-                              (route) => false,
-                              arguments: {'mode': 'logout'},
-                            );
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.error,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'Log Out',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
+        ProfileStatItem(
+          label: 'Loyalty',
+          value: userVerified ? 'Verified' : 'Basic',
         ),
+        const ProfileStatItem(label: 'Rating', value: '0.0'),
       ],
     );
   }

@@ -22,6 +22,7 @@ import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../profile/unified_profile_screen.dart';
 import 'partner_tracking_screen.dart';
 import 'partner_revenue_screen.dart';
 
@@ -255,13 +256,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Future<String?> _loadPartnerAvatarUrl(User user) async {
-    final metadata = user.userMetadata ?? const <String, dynamic>{};
-    final metadataUrl =
-        (metadata['avatar_url'] ?? metadata['profile_picture_url'])
-            ?.toString()
-            .trim();
-    if (metadataUrl != null && metadataUrl.isNotEmpty) return metadataUrl;
-
     try {
       final row = await Supabase.instance.client
           .from('users')
@@ -275,6 +269,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     } catch (e) {
       debugPrint('Partner avatar lookup skipped: $e');
     }
+
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final metadataUrl =
+        (metadata['avatar_url'] ?? metadata['profile_picture_url'])
+            ?.toString()
+            .trim();
+    if (metadataUrl != null && metadataUrl.isNotEmpty) return metadataUrl;
 
     return null;
   }
@@ -4191,174 +4192,30 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   // ===================== PROFILE TAB =====================
   Widget _buildProfileTab() {
-    return Column(
-      children: [
-        _buildCenteredTabHeader(
-          'Profile',
-          trailing: IconButton(
-            onPressed: _showRatesReviewsDialog,
-            icon: const Icon(
-              Icons.star_outline_rounded,
-              color: Colors.black,
-              size: 22,
-            ),
-          ),
+    return UnifiedProfileScreen(
+      role: 'partner',
+      isDarkMode: widget.isDarkMode,
+      onThemeToggle: widget.onThemeToggle,
+      onLogout: _handleLogout,
+      onOpenSupport: _openCustomerServiceConversation,
+      onOpenVerification: () =>
+          Navigator.pushNamed(context, '/owner-verification'),
+      onProfileUpdated: _loadPartnerData,
+      stats: [
+        ProfileStatItem(
+          label: 'Rentals',
+          value: activeVehicles.toString(),
+          onTap: () => setState(() => selectedNavIndex = 2),
         ),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                // Profile Card
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBgSecondary,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.borderColor),
-                  ),
-                  child: Column(
-                    children: [
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          _buildPartnerAvatar(
-                            size: 82,
-                            radius: 24,
-                            fontSize: 32,
-                          ),
-                          Positioned(
-                            right: -6,
-                            bottom: -6,
-                            child: InkWell(
-                              onTap: () async {
-                                final updated = await Navigator.pushNamed(
-                                  context,
-                                  '/profile-picture-upload',
-                                );
-                                if (updated == true && mounted) {
-                                  _loadPartnerData();
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.darkBg,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AppColors.primary),
-                                ),
-                                child: const Icon(
-                                  Icons.edit_outlined,
-                                  color: AppColors.primary,
-                                  size: 16,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        partnerName,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _isPartnerVerified ? Icons.verified : Icons.pending,
-                            color: _isPartnerVerified
-                                ? AppColors.success
-                                : AppColors.warning,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _getPartnerBadge(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _getPartnerBadgeColor(),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildProfileStat(
-                              'Vehicles',
-                              activeVehicles.toString(),
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: AppColors.borderColor,
-                          ),
-                          Expanded(
-                            child: _buildProfileStat(
-                              'Bookings',
-                              bookingCounts['total']?.toString() ?? '0',
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: AppColors.borderColor,
-                          ),
-                          Expanded(
-                            child: _buildProfileStat(
-                              'Rating',
-                              ratingCount > 0
-                                  ? rating.toStringAsFixed(1)
-                                  : '0.0',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Menu Items
-                _buildProfileMenuItem(
-                  Icons.person_outline,
-                  'Edit Profile',
-                  onTap: _showEditPartnerProfileDialog,
-                ),
-                _buildProfileMenuItem(
-                  Icons.security,
-                  'Verification',
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/owner-verification'),
-                ),
-                _buildProfileMenuItem(
-                  Icons.account_balance_wallet,
-                  'Payment Settings',
-                  onTap: _openRevenuePayoutScreen,
-                ),
-                _buildProfileMenuItem(
-                  Icons.help_outline,
-                  'Help & Support',
-                  onTap: _openCustomerServiceConversation,
-                ),
-                _buildProfileMenuItem(
-                  Icons.logout,
-                  'Logout',
-                  iconColor: AppColors.error,
-                  onTap: _handleLogout,
-                ),
-              ],
-            ),
-          ),
+        ProfileStatItem(
+          label: 'Bookings',
+          value: bookingCounts['total']?.toString() ?? '0',
+          onTap: () => setState(() => selectedNavIndex = 1),
+        ),
+        ProfileStatItem(
+          label: 'Rating',
+          value: ratingCount > 0 ? rating.toStringAsFixed(1) : '0.0',
+          onTap: _showRatesReviewsDialog,
         ),
       ],
     );

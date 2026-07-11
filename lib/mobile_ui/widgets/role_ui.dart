@@ -55,13 +55,16 @@ class RoleTabHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFF102033),
+        color: isDark ? const Color(0xFF102033) : Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFF1F3A55)),
+        border: Border.all(
+          color: isDark ? const Color(0xFF1F3A55) : const Color(0xFFD8E0EA),
+        ),
       ),
       child: Row(
         children: [
@@ -83,8 +86,10 @@ class RoleTabHeader extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: isDark
+                        ? AppColors.textPrimary
+                        : AppColors.lightTextPrimary,
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
@@ -94,8 +99,10 @@ class RoleTabHeader extends StatelessWidget {
                   subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF9DAEC4),
+                  style: TextStyle(
+                    color: isDark
+                        ? const Color(0xFF9DAEC4)
+                        : AppColors.lightTextSecondary,
                     fontSize: 12,
                     height: 1.35,
                     fontWeight: FontWeight.w600,
@@ -145,13 +152,16 @@ class RoleEmptyStateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A3548),
+        color: isDark ? const Color(0xFF2A3548) : Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
       ),
       child: Column(
         children: [
@@ -168,8 +178,10 @@ class RoleEmptyStateCard extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
+            style: TextStyle(
+              color: isDark
+                  ? AppColors.textPrimary
+                  : AppColors.lightTextPrimary,
               fontSize: 17,
               fontWeight: FontWeight.w900,
             ),
@@ -178,8 +190,10 @@ class RoleEmptyStateCard extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              color: isDark
+                  ? AppColors.textSecondary
+                  : AppColors.lightTextSecondary,
               fontSize: 13,
               height: 1.4,
             ),
@@ -202,10 +216,13 @@ class RoleBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final background = isDark ? const Color(0xFF07111D) : Colors.white;
+    final border = isDark ? const Color(0xFF1B3047) : const Color(0xFFD8E0EA);
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF07111D),
-        border: Border(top: BorderSide(color: Color(0xFF1B3047))),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border(top: BorderSide(color: border)),
       ),
       child: BottomNavigationBar(
         currentIndex: currentIndex < 0
@@ -213,10 +230,12 @@ class RoleBottomNavigation extends StatelessWidget {
             : currentIndex > 4
             ? 4
             : currentIndex,
-        backgroundColor: const Color(0xFF07111D),
+        backgroundColor: background,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.primary,
-        unselectedItemColor: const Color(0xFF7E8CA3),
+        unselectedItemColor: isDark
+            ? const Color(0xFF7E8CA3)
+            : AppColors.lightTextSecondary,
         selectedFontSize: 12,
         unselectedFontSize: 11,
         onTap: onTap,
