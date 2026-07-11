@@ -11,7 +11,9 @@ import 'notification_permission_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await PushNotificationService().ensureInitialized();
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp();
+  }
 }
 
 class PushNotificationService {
@@ -46,6 +48,11 @@ class PushNotificationService {
     FirebaseMessaging.instance.onTokenRefresh.listen(_saveTokenForCurrentUser);
 
     await syncTokenForCurrentUser();
+
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      _handleNotificationTap(initialMessage);
+    }
   }
 
   Future<void> syncTokenForCurrentUser() async {
@@ -61,6 +68,9 @@ class PushNotificationService {
         userId: currentUser.id,
         token: token,
         role: await AuthService().getUserRole(),
+      );
+      debugPrint(
+        'Push token registered for ${currentUser.id}: ${_maskedToken(token)}',
       );
     } catch (e) {
       debugPrint('Push token sync failed: $e');
@@ -107,16 +117,31 @@ class PushNotificationService {
     );
 
     await _localNotifications.initialize(settings);
+
+    const channel = AndroidNotificationChannel(
+      'mobilis_general',
+      'Mobilis Notifications',
+      description: 'Booking, account, message, and trip notifications',
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+    );
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
   }
 
   Future<void> _requestPermissions() async {
     try {
-      await FirebaseMessaging.instance.requestPermission(
+      final settings = await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
         sound: true,
         provisional: false,
       );
+      debugPrint('FCM permission status: ${settings.authorizationStatus}');
     } catch (e) {
       debugPrint('FCM permission request failed: $e');
     }
@@ -250,5 +275,10 @@ class PushNotificationService {
       default:
         return 'other';
     }
+  }
+
+  String _maskedToken(String token) {
+    if (token.length <= 16) return 'registered';
+    return '${token.substring(0, 8)}...${token.substring(token.length - 8)}';
   }
 }

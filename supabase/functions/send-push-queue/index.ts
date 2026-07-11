@@ -22,10 +22,20 @@ const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const configuredProjectId = Deno.env.get('FCM_PROJECT_ID') ?? '';
 const firebaseServiceAccountJson =
   Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON') ?? '';
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
 
 const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-Deno.serve(async () => {
+Deno.serve(async (request) => {
+  if (request.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   if (!supabaseUrl || !serviceRoleKey) {
     return jsonResponse(
       { error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' },
@@ -114,6 +124,26 @@ Deno.serve(async () => {
               notification: {
                 title: row.title,
                 body: row.message,
+              },
+              android: {
+                priority: 'high',
+                notification: {
+                  channel_id: 'mobilis_general',
+                  sound: 'default',
+                  default_vibrate_timings: true,
+                  visibility: 'PUBLIC',
+                },
+              },
+              apns: {
+                headers: {
+                  'apns-priority': '10',
+                },
+                payload: {
+                  aps: {
+                    sound: 'default',
+                    badge: 1,
+                  },
+                },
               },
               data: normalizePayload(row),
             },
@@ -297,6 +327,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json',
+      ...corsHeaders,
     },
   });
 }

@@ -262,9 +262,14 @@ class BookingService {
         );
       }
 
+      final cleanDestination = dropoffLocation?.trim() ?? '';
+      if (cleanDestination.isEmpty) {
+        throw Exception('Please select a trip destination before booking');
+      }
+
       final vehicleState = await supabase
           .from('vehicles')
-          .select('is_available, is_posted, status')
+          .select('id,owner_role,plate_number,is_available,is_posted,status')
           .eq('id', vehicleId)
           .maybeSingle();
       final vehicleStatus =
@@ -275,6 +280,33 @@ class BookingService {
           !{'inactive', 'archived', 'deleted'}.contains(vehicleStatus);
       if (!vehicleCanBeBooked) {
         throw Exception('This vehicle is currently unavailable for booking');
+      }
+
+      if (vehicleState?['owner_role']?.toString().toLowerCase() == 'partner') {
+        var approvedApplications = await supabase
+            .from('partner_vehicle_applications')
+            .select('id')
+            .eq('created_vehicle_id', vehicleId)
+            .or('application_status.eq.approved,status.eq.approved')
+            .limit(1);
+
+        if (approvedApplications.isEmpty) {
+          final plateNumber = vehicleState?['plate_number']?.toString().trim();
+          if (plateNumber != null && plateNumber.isNotEmpty) {
+            approvedApplications = await supabase
+                .from('partner_vehicle_applications')
+                .select('id')
+                .eq('plate_number', plateNumber)
+                .or('application_status.eq.approved,status.eq.approved')
+                .limit(1);
+          }
+        }
+
+        if (approvedApplications.isEmpty) {
+          throw Exception(
+            'This partner vehicle is not approved for rental anymore',
+          );
+        }
       }
 
       final overlappingBookings = await supabase
@@ -317,7 +349,7 @@ class BookingService {
         'delivery_fee': deliveryFee ?? 0,
         'with_driver': withDriver,
         'pickup_location': pickupLocation,
-        'dropoff_location': dropoffLocation,
+        'dropoff_location': cleanDestination,
         'status': 'pending',
         'created_at': DateTime.now().toIso8601String(),
       };
@@ -1125,7 +1157,9 @@ class BookingService {
     final currentStatus =
         booking['status']?.toString().trim().toLowerCase() ?? '';
     if (!{'pending', 'approved', 'confirmed'}.contains(currentStatus)) {
-      throw Exception('This booking cannot be finalized from its current state');
+      throw Exception(
+        'This booking cannot be finalized from its current state',
+      );
     }
 
     final withDriver = booking['with_driver'] == true;
@@ -1290,7 +1324,7 @@ class BookingService {
       final response = await supabase
           .from('drivers')
           .select(
-            'id, user_id, verification_status, driver_tier, users!drivers_user_id_fkey(id, full_name, email, role, is_available, id_verified, verification_status)',
+            'id, user_id, verification_status, driver_tier, users!drivers_user_id_fkey(id, full_name, email, role, is_available, id_verified, verification_status, application_status)',
           );
 
       final drivers = List<Map<String, dynamic>>.from(response).where((driver) {
@@ -1309,8 +1343,11 @@ class BookingService {
             _isVerifiedDriverStatus(driver['verification_status']) ||
             _isVerifiedDriverStatus(user['verification_status']) ||
             user['id_verified'] == true;
+        final isCertified =
+            user['application_status']?.toString().trim().toLowerCase() ==
+            'approved';
 
-        return isAvailable && isVerified;
+        return isAvailable && isVerified && isCertified;
       }).toList();
 
       drivers.sort((a, b) {

@@ -573,7 +573,12 @@ class NotificationService {
           .eq('is_active', true);
 
       final tokenRows = List<Map<String, dynamic>>.from(tokens);
-      if (tokenRows.isEmpty) return;
+      if (tokenRows.isEmpty) {
+        debugPrint(
+          'Push delivery skipped: no active device token for ${cleanIds.join(', ')}',
+        );
+        return;
+      }
 
       final queueRows = tokenRows
           .map(
@@ -590,8 +595,18 @@ class NotificationService {
           .toList();
 
       await supabase.from('push_notification_queue').insert(queueRows);
+
+      final response = await supabase.functions.invoke('send-push-queue');
+      if (response.status < 200 || response.status >= 300) {
+        throw StateError(
+          'Push sender returned HTTP ${response.status}: ${response.data}',
+        );
+      }
+      debugPrint(
+        'Push sender processed queued notification(s): ${response.data}',
+      );
     } catch (e) {
-      debugPrint('Push queue insert skipped: $e');
+      debugPrint('Push delivery failed after creating in-app notification: $e');
     }
   }
 

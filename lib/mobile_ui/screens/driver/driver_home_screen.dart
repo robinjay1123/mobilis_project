@@ -12,6 +12,7 @@ import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/role_ui.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/emergency_contact_screen.dart';
@@ -225,38 +226,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           onNotification: _handleScrollNotification,
           child: _buildSelectedContent(),
         ),
-        bottomNavigationBar: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF07111D),
-            border: Border(top: BorderSide(color: Color(0xFF1B3047))),
-          ),
-          child: BottomNavigationBar(
-            currentIndex: _bottomNavIndex,
-            backgroundColor: const Color(0xFF07111D),
-            type: BottomNavigationBarType.fixed,
-            selectedItemColor: AppColors.primary,
-            unselectedItemColor: const Color(0xFF7E8CA3),
-            onTap: (index) => setState(() => _selectedTab = index),
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.calendar_month_outlined),
-                label: 'Bookings',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.chat_bubble_outline),
-                label: 'Messages',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.notifications_outlined),
-                label: 'Notifications',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                label: 'Profile',
-              ),
-            ],
-          ),
+        bottomNavigationBar: RoleBottomNavigation(
+          currentIndex: _bottomNavIndex,
+          onTap: (index) => setState(() => _selectedTab = index),
         ),
       ),
     );
@@ -2277,7 +2249,7 @@ class __JobsTabState extends State<_JobsTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
         children: [
-          const _DriverTabHeader(
+          const RoleTabHeader(
             title: 'Assigned Trips',
             subtitle: 'Accepted trips, pickups, returns, and tracking controls',
             icon: Icons.calendar_month_outlined,
@@ -2302,7 +2274,7 @@ class __JobsTabState extends State<_JobsTab> {
                   children: [
                     _buildStatusTabs(trips),
                     const SizedBox(height: 14),
-                    const _DriverEmptyStateCard(
+                    const RoleEmptyStateCard(
                       icon: Icons.route_outlined,
                       title: 'No assigned trips yet',
                       message:
@@ -2317,7 +2289,7 @@ class __JobsTabState extends State<_JobsTab> {
                   _buildStatusTabs(trips),
                   const SizedBox(height: 14),
                   if (visibleTrips.isEmpty)
-                    _DriverEmptyStateCard(
+                    RoleEmptyStateCard(
                       icon: Icons.inbox_outlined,
                       title:
                           'No ${_statusLabel(_selectedStatus).toLowerCase()} trips',
@@ -3106,7 +3078,7 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
             children: [
-              _DriverTabHeader(
+              RoleTabHeader(
                 title: 'Messages',
                 subtitle: 'Booking conversations and customer service',
                 icon: Icons.chat_bubble_outline,
@@ -3114,7 +3086,7 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
               ),
               const SizedBox(height: 18),
               if (conversations.isEmpty)
-                const _DriverEmptyStateCard(
+                const RoleEmptyStateCard(
                   icon: Icons.chat_bubble_outline,
                   title: 'No messages yet',
                   message:
@@ -3327,13 +3299,13 @@ class _NotificationsTabState extends State<_NotificationsTab> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: const [
-                _DriverTabHeader(
+                RoleTabHeader(
                   title: 'Notifications',
                   subtitle: 'Driver updates, approvals, and trip reminders',
                   icon: Icons.notifications_outlined,
                 ),
                 SizedBox(height: 18),
-                _DriverEmptyStateCard(
+                RoleEmptyStateCard(
                   icon: Icons.notifications_none_outlined,
                   title: 'No notifications yet',
                   message:
@@ -3347,7 +3319,7 @@ class _NotificationsTabState extends State<_NotificationsTab> {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
             children: [
-              _DriverTabHeader(
+              RoleTabHeader(
                 title: 'Notifications',
                 subtitle: 'Driver updates, approvals, and trip reminders',
                 icon: Icons.notifications_outlined,

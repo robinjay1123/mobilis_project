@@ -174,18 +174,13 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
       return;
     }
 
-    if (passwordController.text.isEmpty) {
-      _showErrorSnackBar('Please enter a password');
-      return;
-    }
-
-    if (passwordController.text.length < 6) {
-      _showErrorSnackBar('Password must be at least 6 characters');
+    if (!_passwordMeetsRequirements(passwordController.text)) {
+      setState(() {});
       return;
     }
 
     if (passwordController.text != confirmPasswordController.text) {
-      _showErrorSnackBar('Passwords do not match');
+      setState(() {});
       return;
     }
 
@@ -329,6 +324,29 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
     );
   }
 
+  bool _passwordMeetsRequirements(String password) =>
+      password.length >= 8 &&
+      RegExp(r'[A-Z]').hasMatch(password) &&
+      RegExp(r'[^A-Za-z0-9]').hasMatch(password);
+
+  Widget _buildPasswordRequirement(String label, bool isMet) {
+    final color = isMet ? AppColors.success : AppColors.textTertiary;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Icon(
+            isMet ? Icons.check_circle : Icons.radio_button_unchecked,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
@@ -336,11 +354,13 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
     TextInputType keyboardType = TextInputType.text,
     bool obscureText = false,
     Widget? suffixIcon,
+    ValueChanged<String>? onChanged,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
+      onChanged: onChanged,
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         hintText: hintText,
@@ -805,6 +825,21 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                               });
                             },
                           ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        _buildPasswordRequirement(
+                          'At least 8 characters',
+                          passwordController.text.length >= 8,
+                        ),
+                        _buildPasswordRequirement(
+                          'At least 1 special character',
+                          RegExp(
+                            r'[^A-Za-z0-9]',
+                          ).hasMatch(passwordController.text),
+                        ),
+                        _buildPasswordRequirement(
+                          'At least 1 uppercase letter',
+                          RegExp(r'[A-Z]').hasMatch(passwordController.text),
                         ),
                         const SizedBox(height: 20),
 
@@ -830,7 +865,14 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                               });
                             },
                           ),
+                          onChanged: (_) => setState(() {}),
                         ),
+                        if (confirmPasswordController.text.isNotEmpty)
+                          _buildPasswordRequirement(
+                            'Passwords match',
+                            passwordController.text ==
+                                confirmPasswordController.text,
+                          ),
                         const SizedBox(height: 20),
 
                         // Terms agreement

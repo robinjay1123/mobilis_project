@@ -2139,6 +2139,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
   }
 
   bool _isPostedVehicle(Map<String, dynamic> application) {
+    if (_applicationStatus(application) != 'approved') return false;
+
     if (_truthy(application['is_available']) ||
         _truthy(application['is_posted'])) {
       return true;

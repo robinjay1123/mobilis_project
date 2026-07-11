@@ -1085,6 +1085,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         throw Exception('Partner profile could not be resolved');
       }
 
+      final createdVehicle = await _supabase
+          .from('vehicles')
+          .insert({
+            'owner_id': partnerId,
+            'owner_role': 'partner',
+            'vehicle_name':
+                '${application['brand'] ?? ''} ${application['model'] ?? ''}'
+                    .trim(),
+            'brand': application['brand'],
+            'model': application['model'],
+            'year': application['year'],
+            'plate_number': application['plate_number'],
+            'seats': application['seats'] ?? 5,
+            'price_per_day': application['price_per_day'] ?? 0,
+            'price_per_hour': application['price_per_hour'] ?? 0,
+            'fuel_type': application['fuel_type'] ?? 'Gasoline',
+            'transmission': application['transmission'] ?? 'Manual',
+            'owner_is_driver': application['owner_is_driver'] ?? false,
+            'is_available': true,
+            'is_posted': true,
+            'status': 'available',
+            'created_at': DateTime.now().toIso8601String(),
+          })
+          .select('id')
+          .single();
+      final vehicleId = createdVehicle['id'];
+
       final createdPartnerVehicle = await _supabase
           .from('partner_vehicles')
           .insert({
@@ -1100,6 +1127,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'transmission': application['transmission'] ?? 'Manual',
             'owner_is_driver': application['owner_is_driver'] ?? false,
             'is_available': true,
+            'vehicle_id': vehicleId,
             'status': 'available',
             'created_at': DateTime.now().toIso8601String(),
           })
@@ -1130,6 +1158,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               List.generate(photoUrls.length, (index) {
                 return {
                   'partner_vehicle_id': partnerVehicleId,
+                  'vehicle_id': vehicleId,
                   'image_url': photoUrls[index],
                   'display_order': index,
                 };
@@ -1168,7 +1197,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'reviewed_at': DateTime.now().toIso8601String(),
             'verified_by': _supabase.auth.currentUser?.id,
             'partner_vehicle_id': partnerVehicleId,
-            'created_vehicle_id': null,
+            'created_vehicle_id': vehicleId,
             'rejection_reason': null,
           })
           .eq('id', appId);
@@ -1206,6 +1235,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         throw Exception('Invalid application payload');
       }
 
+      final currentApplication = await _supabase
+          .from('partner_vehicle_applications')
+          .select('partner_vehicle_id,created_vehicle_id,plate_number')
+          .eq('id', appId)
+          .single();
+
       await _supabase
           .from('partner_vehicle_applications')
           .update({
@@ -1215,8 +1250,48 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'verified_at': DateTime.now().toIso8601String(),
             'verified_by': _supabase.auth.currentUser?.id,
             'rejection_reason': 'Rejected by admin',
+            'is_available': false,
           })
           .eq('id', appId);
+
+      final partnerVehicleId = currentApplication['partner_vehicle_id']
+          ?.toString();
+      if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+        await _supabase
+            .from('partner_vehicles')
+            .update({'status': 'disabled', 'is_available': false})
+            .eq('id', partnerVehicleId);
+      }
+
+      final createdVehicleId = currentApplication['created_vehicle_id']
+          ?.toString();
+      if (createdVehicleId != null && createdVehicleId.isNotEmpty) {
+        await _supabase
+            .from('vehicles')
+            .update({
+              'status': 'inactive',
+              'is_available': false,
+              'is_posted': false,
+            })
+            .eq('id', createdVehicleId);
+      }
+
+      final plateNumber = currentApplication['plate_number']?.toString().trim();
+      if (plateNumber != null && plateNumber.isNotEmpty) {
+        await _supabase
+            .from('vehicles')
+            .update({
+              'status': 'inactive',
+              'is_available': false,
+              'is_posted': false,
+            })
+            .eq('owner_role', 'partner')
+            .eq('plate_number', plateNumber);
+        await _supabase
+            .from('partner_vehicles')
+            .update({'status': 'disabled', 'is_available': false})
+            .eq('plate_number', plateNumber);
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

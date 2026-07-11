@@ -1,8 +1,7 @@
-import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -21,6 +20,7 @@ import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
 import '../profile/emergency_contact_screen.dart';
+import 'signature_capture_screen.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../../utils/web_html.dart' as html;
@@ -55,7 +55,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   List<Map<String, dynamic>> _myBookings = [];
   bool _withDriver = false;
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
-  TimeOfDay _returnTime = const TimeOfDay(hour: 6, minute: 0);
+  TimeOfDay _returnTime = const TimeOfDay(hour: 18, minute: 0);
   String? _acceptedTermsSnapshot;
   Map<String, dynamic>? _defaultEmergencyContact;
   bool _isLoadingEmergencyContact = false;
@@ -81,10 +81,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       TextEditingController();
   final TextEditingController _coTravelerLicenseController =
       TextEditingController();
-  final GlobalKey _signaturePadKey = GlobalKey();
-  final List<Offset?> _signaturePoints = [];
-  final GlobalKey _coTravelerSignaturePadKey = GlobalKey();
-  final List<Offset?> _coTravelerSignaturePoints = [];
+  Uint8List? _signatureBytes;
+  Uint8List? _coTravelerSignatureBytes;
   XFile? _validIdPhoto;
   XFile? _selfiePhoto;
   XFile? _coTravelerValidIdPhoto;
@@ -232,14 +230,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     });
   }
 
-  Future<Uint8List?> _captureSignatureBytes(GlobalKey key) async {
-    final boundary =
-        key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null) return null;
-
-    final image = await boundary.toImage(pixelRatio: 3);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    return byteData?.buffer.asUint8List();
+  Future<void> _openSignatureCapture({required bool coTraveler}) async {
+    final currentBytes = coTraveler
+        ? _coTravelerSignatureBytes
+        : _signatureBytes;
+    final result = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => SignatureCaptureScreen(
+          title: coTraveler ? 'Co-traveler Signature' : 'Renter Signature',
+          initialSignature: currentBytes,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      if (coTraveler) {
+        _coTravelerSignatureBytes = result;
+      } else {
+        _signatureBytes = result;
+      }
+    });
   }
 
   bool _isValidPhilippinePhone(String value) {
@@ -418,6 +428,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         availableCalendarFormats: const {
                           CalendarFormat.month: 'Month',
                         },
+                        enabledDayPredicate: (day) =>
+                            !bookedDays.contains(_dateOnly(day)) &&
+                            !_dateOnly(day).isBefore(_dateOnly(firstDate)),
                         onRangeSelected: (start, end, focused) {
                           final startDay = start == null
                               ? null
@@ -499,13 +512,32 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             focusedDay = focused;
                           });
                         },
-                        onDayLongPressed: (selectedDay, focused) {
+                        onDayLongPressed: (selectedDay, focused) async {
                           final selectedDate = _dateOnly(selectedDay);
-                          if (myBookedDays.contains(selectedDate)) {
-                            _showBookedDateDetails(
-                              selectedDate,
-                              myBookedDetails,
+                          if (bookedDays.contains(selectedDate)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'This vehicle has no selectable time slots on that date.',
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
                             );
+                            return;
+                          }
+                          final picked = await _pickAvailableTimeSlot(
+                            date: selectedDate,
+                            selectingEnd: false,
+                          );
+                          if (picked != null) {
+                            setDialogState(() {
+                              rangeStart = selectedDate;
+                              rangeEnd = selectedDate;
+                              focusedDay = focused;
+                            });
+                            if (mounted) {
+                              setState(() => _startTime = picked);
+                            }
                           }
                         },
                         headerStyle: const HeaderStyle(
@@ -1058,8 +1090,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Future<void> _selectTime({required bool isStartTime}) async {
-    final initial = isStartTime ? _startTime : _returnTime;
-    final picked = await showTimePicker(context: context, initialTime: initial);
+    final date = isStartTime ? _selectedStartDate : _selectedEndDate;
+    if (date == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select the booking dates first.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+    final picked = await _pickAvailableTimeSlot(
+      date: date,
+      selectingEnd: !isStartTime,
+      rentalStart: isStartTime ? null : _startAtLocal,
+    );
     if (picked == null) return;
     setState(() {
       if (isStartTime) {
@@ -1068,6 +1113,99 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _returnTime = picked;
       }
     });
+  }
+
+  Future<TimeOfDay?> _pickAvailableTimeSlot({
+    required DateTime date,
+    required bool selectingEnd,
+    DateTime? rentalStart,
+  }) async {
+    final slots = await VehicleService().getAvailableTimeSlots(
+      vehicleId: widget.vehicleId,
+      date: date,
+      rentalStart: rentalStart,
+      selectingEnd: selectingEnd,
+    );
+    if (!mounted) return null;
+    if (slots.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            selectingEnd
+                ? 'No available return times for the selected rental range.'
+                : 'No available time slots for this vehicle on this date.',
+          ),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return null;
+    }
+
+    return showModalBottomSheet<TimeOfDay>(
+      context: context,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                selectingEnd
+                    ? 'Available Return Times'
+                    : 'Available Start Times',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${_formatDate(date)} - ${_vehicle?['brand'] ?? ''} ${_vehicle?['model'] ?? ''}',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: slots.map((slot) {
+                      final time = TimeOfDay.fromDateTime(slot);
+                      return ActionChip(
+                        avatar: const Icon(
+                          Icons.schedule,
+                          size: 17,
+                          color: AppColors.primary,
+                        ),
+                        label: Text(
+                          MaterialLocalizations.of(
+                            context,
+                          ).formatTimeOfDay(time),
+                        ),
+                        onPressed: () => Navigator.pop(sheetContext, time),
+                        backgroundColor: AppColors.darkBgTertiary,
+                        side: const BorderSide(color: AppColors.borderColor),
+                        labelStyle: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _refreshDeliveryEstimate() async {
@@ -1233,6 +1371,50 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
+    final availableStartSlots = await VehicleService().getAvailableTimeSlots(
+      vehicleId: widget.vehicleId,
+      date: startAtLocal,
+    );
+    final availableEndSlots = await VehicleService().getAvailableTimeSlots(
+      vehicleId: widget.vehicleId,
+      date: endAtLocal,
+      rentalStart: startAtLocal,
+      selectingEnd: true,
+    );
+    if (!mounted) return;
+    final startIsAvailable = availableStartSlots.any(
+      (slot) =>
+          slot.hour == startAtLocal.hour && slot.minute == startAtLocal.minute,
+    );
+    final endIsAvailable = availableEndSlots.any(
+      (slot) =>
+          slot.hour == endAtLocal.hour && slot.minute == endAtLocal.minute,
+    );
+    if (!startIsAvailable || !endIsAvailable) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The selected date or time is unavailable. Choose an available time slot.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    if (_dropoffProvince == null ||
+        _dropoffCity == null ||
+        _dropoffBarangay == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select the complete trip destination.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     if (_withDriver && _deliveryDistanceKm == null) {
       await _refreshDeliveryEstimate();
       if (_deliveryDistanceKm == null) {
@@ -1261,7 +1443,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (_signaturePoints.whereType<Offset>().length < 6) {
+    if (_signatureBytes == null || _signatureBytes!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please draw your digital signature.'),
@@ -1312,7 +1494,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (_coTravelerSignaturePoints.whereType<Offset>().length < 6) {
+    if (_coTravelerSignatureBytes == null ||
+        _coTravelerSignatureBytes!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please draw the co-traveler digital signature.'),
@@ -1392,29 +1575,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
 
       final evidenceService = BookingEvidenceService();
-      final signatureBytes = await _captureSignatureBytes(_signaturePadKey);
-      if (signatureBytes == null || signatureBytes.isEmpty) {
-        throw Exception(
-          'Could not save the digital signature. Please redraw it.',
-        );
-      }
       final signatureUrl = await evidenceService.uploadEvidenceBytes(
         userId: currentUser.id,
-        bytes: signatureBytes,
+        bytes: _signatureBytes!,
         evidenceType: 'signature',
       );
-      final coTravelerSignatureBytes = await _captureSignatureBytes(
-        _coTravelerSignaturePadKey,
-      );
-      if (coTravelerSignatureBytes == null ||
-          coTravelerSignatureBytes.isEmpty) {
-        throw Exception(
-          'Could not save the co-traveler signature. Please redraw it.',
-        );
-      }
       final coTravelerSignatureUrl = await evidenceService.uploadEvidenceBytes(
         userId: currentUser.id,
-        bytes: coTravelerSignatureBytes,
+        bytes: _coTravelerSignatureBytes!,
         evidenceType: 'co_traveler_signature',
       );
       final validIdUrl = await evidenceService.uploadEvidenceFile(
@@ -2688,11 +2856,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 _pickupBarangay = null;
                                 _pickupFreetext = null;
                                 _pickupFreetextController.clear();
-                                _dropoffProvince = null;
-                                _dropoffCity = null;
-                                _dropoffBarangay = null;
-                                _dropoffFreetext = null;
-                                _dropoffFreetextController.clear();
                                 _deliveryDistanceKm = null;
                               }
                             });
@@ -2703,7 +2866,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ),
                   ),
 
-                  // Location selection (only show if driver is enabled)
+                  // Driver delivery requires a pickup. Every rental still
+                  // records its own trip destination below.
                   if (_withDriver) ...[
                     const SizedBox(height: 24),
                     const Text(
@@ -2760,60 +2924,69 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         _refreshDeliveryEstimate();
                       },
                     ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Drop-off Location',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildLocationDropdowns(
-                      isPickup: false,
-                      province: _dropoffProvince,
-                      city: _dropoffCity,
-                      barangay: _dropoffBarangay,
-                      freetext: _dropoffFreetext,
-                      freetextController: _dropoffFreetextController,
-                      onProvinceChanged: (value) {
-                        setState(() {
-                          _dropoffProvince = value;
-                          _dropoffCity = null;
-                          _dropoffBarangay = null;
-                          _deliveryDistanceKm = null;
-                        });
-                        _refreshDeliveryEstimate();
-                      },
-                      onCityChanged: (value) {
-                        setState(() {
-                          _dropoffCity = value;
-                          _dropoffBarangay = null;
-                          _deliveryDistanceKm = null;
-                        });
-                        _refreshDeliveryEstimate();
-                      },
-                      onBarangayChanged: (value) {
-                        setState(() {
-                          _dropoffBarangay = value;
-                          _deliveryDistanceKm = null;
-                        });
-                        _refreshDeliveryEstimate();
-                      },
-                      onFreetextChanged: (value) {
-                        final cleanValue = value?.trim();
-                        setState(() {
-                          _dropoffFreetext =
-                              cleanValue == null || cleanValue.isEmpty
-                              ? null
-                              : value;
-                          _deliveryDistanceKm = null;
-                        });
-                        _refreshDeliveryEstimate();
-                      },
-                    ),
                   ],
+
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Trip Destination',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Required for route planning and trip records.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLocationDropdowns(
+                    isPickup: false,
+                    province: _dropoffProvince,
+                    city: _dropoffCity,
+                    barangay: _dropoffBarangay,
+                    freetext: _dropoffFreetext,
+                    freetextController: _dropoffFreetextController,
+                    onProvinceChanged: (value) {
+                      setState(() {
+                        _dropoffProvince = value;
+                        _dropoffCity = null;
+                        _dropoffBarangay = null;
+                        _deliveryDistanceKm = null;
+                      });
+                      _refreshDeliveryEstimate();
+                    },
+                    onCityChanged: (value) {
+                      setState(() {
+                        _dropoffCity = value;
+                        _dropoffBarangay = null;
+                        _deliveryDistanceKm = null;
+                      });
+                      _refreshDeliveryEstimate();
+                    },
+                    onBarangayChanged: (value) {
+                      setState(() {
+                        _dropoffBarangay = value;
+                        _deliveryDistanceKm = null;
+                      });
+                      _refreshDeliveryEstimate();
+                    },
+                    onFreetextChanged: (value) {
+                      final cleanValue = value?.trim();
+                      setState(() {
+                        _dropoffFreetext =
+                            cleanValue == null || cleanValue.isEmpty
+                            ? null
+                            : value;
+                        _deliveryDistanceKm = null;
+                      });
+                      _refreshDeliveryEstimate();
+                    },
+                  ),
 
                   const SizedBox(height: 24),
                   _buildDeliverySafetyNote(),
@@ -3323,10 +3496,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             style: TextStyle(color: AppColors.textSecondary, height: 1.4),
           ),
           const SizedBox(height: 16),
-          _buildSignaturePad(
-            key: _signaturePadKey,
-            points: _signaturePoints,
+          _buildSignatureCaptureButton(
+            signatureBytes: _signatureBytes,
             label: 'Digital signature *',
+            onTap: () => _openSignatureCapture(coTraveler: false),
           ),
           const SizedBox(height: 12),
           Row(
@@ -3391,10 +3564,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildSignaturePad(
-            key: _coTravelerSignaturePadKey,
-            points: _coTravelerSignaturePoints,
+          _buildSignatureCaptureButton(
+            signatureBytes: _coTravelerSignatureBytes,
             label: 'Co-traveler digital signature *',
+            onTap: () => _openSignatureCapture(coTraveler: true),
           ),
           const SizedBox(height: 12),
           Row(
@@ -3433,78 +3606,73 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Widget _buildSignaturePad({
-    required GlobalKey key,
-    required List<Offset?> points,
+  Widget _buildSignatureCaptureButton({
+    required Uint8List? signatureBytes,
     required String label,
+    required VoidCallback onTap,
   }) {
-    final hasSignature = points.whereType<Offset>().isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    final hasSignature = signatureBytes != null && signatureBytes.isNotEmpty;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgTertiary,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasSignature ? AppColors.success : AppColors.borderColor,
+          ),
+        ),
+        child: Row(
           children: [
-            const Icon(Icons.draw_outlined, color: AppColors.primary),
-            const SizedBox(width: 10),
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: hasSignature ? Colors.white : AppColors.darkBgSecondary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: hasSignature
+                  ? Image.memory(signatureBytes, fit: BoxFit.contain)
+                  : const Icon(Icons.draw_outlined, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasSignature
+                        ? 'Signature saved. Tap to edit.'
+                        : 'Tap to open the full-screen signature page.',
+                    style: TextStyle(
+                      color: hasSignature
+                          ? AppColors.success
+                          : AppColors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ),
             ),
-            TextButton.icon(
-              onPressed: hasSignature
-                  ? () => setState(() => points.clear())
-                  : null,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('Clear'),
+            Icon(
+              hasSignature ? Icons.edit_outlined : Icons.chevron_right,
+              color: hasSignature ? AppColors.success : AppColors.primary,
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        RepaintBoundary(
-          key: key,
-          child: GestureDetector(
-            onPanStart: (details) {
-              setState(() => points.add(details.localPosition));
-            },
-            onPanUpdate: (details) {
-              setState(() => points.add(details.localPosition));
-            },
-            onPanEnd: (_) => setState(() => points.add(null)),
-            child: Container(
-              height: 150,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: hasSignature
-                      ? AppColors.primary
-                      : AppColors.borderColor,
-                ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(13),
-                child: CustomPaint(
-                  painter: _SignaturePadPainter(points),
-                  child: Center(
-                    child: hasSignature
-                        ? const SizedBox.shrink()
-                        : const Text(
-                            'Draw signature here',
-                            style: TextStyle(color: Colors.black38),
-                          ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -3628,9 +3796,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   String _getDropoffLocation() {
-    if (!_withDriver) {
-      return PhilippineLocations.psdc_garage;
-    }
     if (_dropoffBarangay != null &&
         _dropoffCity != null &&
         _dropoffProvince != null) {
@@ -4033,32 +4198,5 @@ class _CalendarLegendDot extends StatelessWidget {
         Text(label, style: TextStyle(fontSize: 12, color: textColor)),
       ],
     );
-  }
-}
-
-class _SignaturePadPainter extends CustomPainter {
-  final List<Offset?> points;
-
-  const _SignaturePadPainter(this.points);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black87
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    for (var i = 0; i < points.length - 1; i++) {
-      final current = points[i];
-      final next = points[i + 1];
-      if (current == null || next == null) continue;
-      canvas.drawLine(current, next, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SignaturePadPainter oldDelegate) {
-    return true;
   }
 }

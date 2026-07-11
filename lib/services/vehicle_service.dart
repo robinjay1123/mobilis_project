@@ -12,7 +12,7 @@ class VehicleService {
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'rating';
+      'owner_role,rating';
   static const List<String> _bookingBlockingStatuses = [
     'confirmed',
     'active',
@@ -111,6 +111,69 @@ class VehicleService {
     if (v['is_available'] == false) return false;
     final status = (v['status'] ?? '').toString().toLowerCase();
     return status != 'inactive' && status != 'archived' && status != 'deleted';
+  }
+
+  Future<Map<String, Set<String>>> _getApprovedPartnerVehicleLinks() async {
+    try {
+      final response = await supabase
+          .from('partner_vehicle_applications')
+          .select(
+            'partner_vehicle_id,created_vehicle_id,plate_number,status,application_status',
+          );
+      final partnerVehicleIds = <String>{};
+      final vehicleIds = <String>{};
+      final plateNumbers = <String>{};
+
+      for (final raw in List<Map<String, dynamic>>.from(response)) {
+        final status = (raw['application_status'] ?? raw['status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (status != 'approved') continue;
+
+        final partnerVehicleId = raw['partner_vehicle_id']?.toString().trim();
+        final vehicleId = raw['created_vehicle_id']?.toString().trim();
+        final plateNumber = raw['plate_number']
+            ?.toString()
+            .trim()
+            .toUpperCase();
+        if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+          partnerVehicleIds.add(partnerVehicleId);
+        }
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          vehicleIds.add(vehicleId);
+        }
+        if (plateNumber != null && plateNumber.isNotEmpty) {
+          plateNumbers.add(plateNumber);
+        }
+      }
+
+      return {
+        'partner_vehicle_ids': partnerVehicleIds,
+        'vehicle_ids': vehicleIds,
+        'plate_numbers': plateNumbers,
+      };
+    } catch (e) {
+      debugPrint('Unable to verify partner vehicle approvals: $e');
+      return {
+        'partner_vehicle_ids': <String>{},
+        'vehicle_ids': <String>{},
+        'plate_numbers': <String>{},
+      };
+    }
+  }
+
+  bool _hasApprovedPartnerApplication(
+    Map<String, dynamic> vehicle,
+    Map<String, Set<String>> approvedLinks, {
+    required bool legacyPartnerVehicle,
+  }) {
+    final id = vehicle['id']?.toString().trim() ?? '';
+    final plate =
+        vehicle['plate_number']?.toString().trim().toUpperCase() ?? '';
+    final idKey = legacyPartnerVehicle ? 'partner_vehicle_ids' : 'vehicle_ids';
+    return approvedLinks[idKey]!.contains(id) ||
+        (plate.isNotEmpty && approvedLinks['plate_numbers']!.contains(plate));
   }
 
   // ---------------------------------------------------------------------------
@@ -257,7 +320,9 @@ class VehicleService {
     return normalized;
   }
 
-  Future<List<Map<String, dynamic>>> _getAvailablePartnerVehicles() async {
+  Future<List<Map<String, dynamic>>> _getAvailablePartnerVehicles(
+    Map<String, Set<String>> approvedLinks,
+  ) async {
     try {
       List response;
       try {
@@ -284,10 +349,16 @@ class VehicleService {
           .map(Map<String, dynamic>.from)
           .where((vehicle) {
             final status = (vehicle['status'] ?? '').toString().toLowerCase();
-            return status != 'rejected' &&
-                status != 'declined' &&
-                status != 'archived' &&
-                status != 'deleted';
+            final canonicalVehicleId = vehicle['vehicle_id']?.toString().trim();
+            return status == 'available' &&
+                vehicle['is_available'] == true &&
+                canonicalVehicleId != null &&
+                canonicalVehicleId.isNotEmpty &&
+                _hasApprovedPartnerApplication(
+                  vehicle,
+                  approvedLinks,
+                  legacyPartnerVehicle: true,
+                );
           })
           .toList();
 
@@ -306,7 +377,11 @@ class VehicleService {
             : imagesByPartnerVehicleId[id] ?? <Map<String, dynamic>>[];
       }
 
-      return partnerVehicles.map(_normalizePartnerVehicleRecord).toList();
+      return partnerVehicles.map((vehicle) {
+        final normalized = _normalizePartnerVehicleRecord(vehicle);
+        normalized['id'] = vehicle['vehicle_id'];
+        return normalized;
+      }).toList();
     } catch (e) {
       debugPrint('getAvailablePartnerVehicles error: $e');
       return [];
@@ -394,6 +469,7 @@ class VehicleService {
     debugPrint('getAvailableVehicles: category=$category');
 
     try {
+      final approvedPartnerLinks = await _getApprovedPartnerVehicleLinks();
       final response = await supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -419,11 +495,30 @@ class VehicleService {
         }
       }
 
-      final normalized = _normalizeList(
-        vehicles,
-      ).where(_isVisibleForRent).toList();
-      final partnerVehicles = await _getAvailablePartnerVehicles();
-      final allVehicles = [...normalized, ...partnerVehicles];
+      final normalized = _normalizeList(vehicles).where((vehicle) {
+        if (!_isVisibleForRent(vehicle)) return false;
+        if (vehicle['owner_role']?.toString().toLowerCase() != 'partner') {
+          return true;
+        }
+        return _hasApprovedPartnerApplication(
+          vehicle,
+          approvedPartnerLinks,
+          legacyPartnerVehicle: false,
+        );
+      }).toList();
+      final partnerVehicles = await _getAvailablePartnerVehicles(
+        approvedPartnerLinks,
+      );
+      final allVehicles = <Map<String, dynamic>>[];
+      final seenVehicleKeys = <String>{};
+      for (final vehicle in [...normalized, ...partnerVehicles]) {
+        final plate = vehicle['plate_number']?.toString().trim().toUpperCase();
+        final id = vehicle['id']?.toString().trim() ?? '';
+        final key = plate != null && plate.isNotEmpty
+            ? 'plate:$plate'
+            : 'id:$id';
+        if (seenVehicleKeys.add(key)) allVehicles.add(vehicle);
+      }
 
       final categoryFiltered = category == null || category.isEmpty
           ? allVehicles
@@ -461,6 +556,7 @@ class VehicleService {
     String? category,
   }) async {
     try {
+      final approvedPartnerLinks = await _getApprovedPartnerVehicleLinks();
       var query = supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -500,9 +596,17 @@ class VehicleService {
         }
       }
 
-      final normalized = _normalizeList(
-        vehicles,
-      ).where(_isVisibleForRent).toList();
+      final normalized = _normalizeList(vehicles).where((vehicle) {
+        if (!_isVisibleForRent(vehicle)) return false;
+        if (vehicle['owner_role']?.toString().toLowerCase() != 'partner') {
+          return true;
+        }
+        return _hasApprovedPartnerApplication(
+          vehicle,
+          approvedPartnerLinks,
+          legacyPartnerVehicle: false,
+        );
+      }).toList();
 
       final categoryFiltered = category == null || category.isEmpty
           ? normalized
@@ -546,15 +650,55 @@ class VehicleService {
   Future<List<DateTime>> getUnavailableDates(String vehicleId) async {
     try {
       final availability = await getVehicleAvailability(vehicleId);
-      final unavailableDates = availability
+      final explicitlyUnavailableDates = availability
           .where((r) => r['is_available'] == false)
           .map((r) => DateTime.parse(r['date'] as String))
           .toList();
-
-      final bookedDates = await getBookedDates(vehicleId);
       final byDay = <String, DateTime>{};
-      for (final date in [...unavailableDates, ...bookedDates]) {
+      for (final date in explicitlyUnavailableDates) {
         byDay[_dateKey(date)] = DateTime(date.year, date.month, date.day);
+      }
+
+      final response = await supabase
+          .from('bookings')
+          .select('start_at,end_at,start_date,end_date')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', _bookingBlockingStatuses);
+      final intervalsByDay = <String, List<(DateTime, DateTime)>>{};
+      for (final row in List<Map<String, dynamic>>.from(response)) {
+        final start = DateTime.tryParse(
+          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
+        )?.toLocal();
+        final end = DateTime.tryParse(
+          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
+        )?.toLocal();
+        if (start == null || end == null) continue;
+
+        var current = _dateOnly(start);
+        final last = _dateOnly(end);
+        while (!current.isAfter(last)) {
+          intervalsByDay.putIfAbsent(_dateKey(current), () => []).add((
+            start,
+            end,
+          ));
+          current = current.add(const Duration(days: 1));
+        }
+      }
+
+      for (final entry in intervalsByDay.entries) {
+        if (byDay.containsKey(entry.key)) continue;
+        final day = DateTime.parse(entry.key);
+        final allSlotsBooked = List.generate(17, (index) => 6 + index).every((
+          hour,
+        ) {
+          final slotStart = DateTime(day.year, day.month, day.day, hour);
+          final slotEnd = slotStart.add(const Duration(hours: 1));
+          return entry.value.any(
+            (interval) =>
+                slotStart.isBefore(interval.$2) && slotEnd.isAfter(interval.$1),
+          );
+        });
+        if (allSlotsBooked) byDay[entry.key] = day;
       }
       return byDay.values.toList()..sort();
     } catch (e) {
@@ -591,6 +735,90 @@ class VehicleService {
       return dates.values.toList()..sort();
     } catch (e) {
       debugPrint('getBookedDates error: $e');
+      return [];
+    }
+  }
+
+  Future<List<DateTime>> getAvailableTimeSlots({
+    required String vehicleId,
+    required DateTime date,
+    DateTime? rentalStart,
+    bool selectingEnd = false,
+    int firstHour = 6,
+    int lastHour = 22,
+  }) async {
+    final day = DateTime(date.year, date.month, date.day);
+    final windowStart = rentalStart ?? day;
+    final windowEnd = day.add(const Duration(days: 1));
+    if (selectingEnd && rentalStart == null) return [];
+    if (selectingEnd && !day.isAfter(_dateOnly(rentalStart!))) {
+      if (day.isBefore(_dateOnly(rentalStart))) return [];
+    }
+
+    try {
+      final availabilityRows = await supabase
+          .from('vehicle_availability')
+          .select('date,is_available')
+          .eq('vehicle_id', vehicleId)
+          .eq('is_available', false)
+          .gte('date', _dateKey(windowStart))
+          .lte('date', _dateKey(day));
+      final unavailableDays = List<Map<String, dynamic>>.from(
+        availabilityRows,
+      ).map((row) => row['date']?.toString()).whereType<String>().toSet();
+
+      final bookingRows = await supabase
+          .from('bookings')
+          .select('start_at,end_at,start_date,end_date')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', _bookingBlockingStatuses)
+          .lt('start_at', windowEnd.toUtc().toIso8601String())
+          .gt('end_at', windowStart.toUtc().toIso8601String());
+      final bookedIntervals = <(DateTime, DateTime)>[];
+      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final start = DateTime.tryParse(
+          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
+        )?.toLocal();
+        final end = DateTime.tryParse(
+          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
+        )?.toLocal();
+        if (start != null && end != null) bookedIntervals.add((start, end));
+      }
+
+      bool rangeHasUnavailableDay(DateTime start, DateTime end) {
+        var current = _dateOnly(start);
+        final last = _dateOnly(end);
+        while (!current.isAfter(last)) {
+          if (unavailableDays.contains(_dateKey(current))) return true;
+          current = current.add(const Duration(days: 1));
+        }
+        return false;
+      }
+
+      bool overlapsBooking(DateTime start, DateTime end) {
+        return bookedIntervals.any(
+          (interval) => start.isBefore(interval.$2) && end.isAfter(interval.$1),
+        );
+      }
+
+      final now = DateTime.now();
+      final slots = <DateTime>[];
+      final initialHour = selectingEnd ? firstHour + 1 : firstHour;
+      for (var hour = initialHour; hour <= lastHour; hour++) {
+        final candidate = DateTime(day.year, day.month, day.day, hour);
+        final intervalStart = selectingEnd ? rentalStart! : candidate;
+        final intervalEnd = selectingEnd
+            ? candidate
+            : candidate.add(const Duration(hours: 1));
+        if (!intervalEnd.isAfter(intervalStart)) continue;
+        if (!selectingEnd && !candidate.isAfter(now)) continue;
+        if (rangeHasUnavailableDay(intervalStart, intervalEnd)) continue;
+        if (overlapsBooking(intervalStart, intervalEnd)) continue;
+        slots.add(candidate);
+      }
+      return slots;
+    } catch (e) {
+      debugPrint('getAvailableTimeSlots error: $e');
       return [];
     }
   }
@@ -800,6 +1028,9 @@ class VehicleService {
 
   String _dateKey(DateTime date) =>
       '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
   // ---------------------------------------------------------------------------
   // VEHICLE CRUD

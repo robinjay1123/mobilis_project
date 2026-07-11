@@ -45,14 +45,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
 
     // Validate inputs
-    if (newPasswordController.text.isEmpty) {
-      _showErrorSnackBar('Please enter a new password');
-      return;
-    }
-
-    final passwordError = _validatePassword(newPasswordController.text);
-    if (passwordError != null) {
-      _showErrorSnackBar(passwordError);
+    if (!_passwordMeetsRequirements(newPasswordController.text)) {
+      setState(() {});
       return;
     }
 
@@ -62,7 +56,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
 
     if (newPasswordController.text != confirmPasswordController.text) {
-      _showErrorSnackBar('Passwords do not match');
+      setState(() {});
       return;
     }
 
@@ -126,21 +120,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  String? _validatePassword(String password) {
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters long';
-    }
-    if (!RegExp(r'[A-Za-z]').hasMatch(password)) {
-      return 'Password must include at least one letter';
-    }
-    if (!RegExp(r'\d').hasMatch(password)) {
-      return 'Password must include at least one number';
-    }
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
-      return 'Password must include at least one special character';
-    }
-    return null;
-  }
+  bool _passwordMeetsRequirements(String password) =>
+      password.length >= 8 &&
+      RegExp(r'[A-Z]').hasMatch(password) &&
+      RegExp(r'[^A-Za-z0-9]').hasMatch(password);
 
   @override
   Widget build(BuildContext context) {
@@ -233,6 +216,23 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     });
                   },
                 ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 10),
+
+              _buildRequirement(
+                'At least 8 characters',
+                newPasswordController.text.length >= 8,
+              ),
+              const SizedBox(height: 6),
+              _buildRequirement(
+                'At least 1 special character',
+                RegExp(r'[^A-Za-z0-9]').hasMatch(newPasswordController.text),
+              ),
+              const SizedBox(height: 6),
+              _buildRequirement(
+                'At least 1 uppercase letter',
+                RegExp(r'[A-Z]').hasMatch(newPasswordController.text),
               ),
               const SizedBox(height: 20),
 
@@ -259,37 +259,15 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     });
                   },
                 ),
+                onChanged: (_) => setState(() {}),
               ),
-              const SizedBox(height: 32),
-
-              // Password requirements
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                  borderRadius: BorderRadius.circular(8),
+              if (confirmPasswordController.text.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildRequirement(
+                  'Passwords match',
+                  newPasswordController.text == confirmPasswordController.text,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Password Requirements:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildRequirement('At least 6 characters long'),
-                    const SizedBox(height: 6),
-                    _buildRequirement('Use a mix of letters and numbers'),
-                    const SizedBox(height: 6),
-                    _buildRequirement('Avoid using easily guessable words'),
-                  ],
-                ),
-              ),
+              ],
               const SizedBox(height: 32),
 
               // Update password button
@@ -306,23 +284,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     );
   }
 
-  Widget _buildRequirement(String text) {
+  Widget _buildRequirement(String text, bool isMet) {
+    final color = isMet ? AppColors.success : AppColors.textTertiary;
     return Row(
       children: [
-        const Icon(
-          Icons.check_circle_outline,
+        Icon(
+          isMet ? Icons.check_circle : Icons.radio_button_unchecked,
           size: 16,
-          color: AppColors.primary,
+          color: color,
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-          ),
+          child: Text(text, style: TextStyle(fontSize: 12, color: color)),
         ),
       ],
     );

@@ -18,6 +18,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
+import '../../widgets/role_ui.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import 'partner_tracking_screen.dart';
@@ -589,44 +590,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             child: const Icon(Icons.support_agent),
           ),
         ),
-        bottomNavigationBar: Container(
-          decoration: const BoxDecoration(
-            color: AppColors.darkBgSecondary,
-            border: Border(top: BorderSide(color: AppColors.borderColor)),
-          ),
-          child: BottomNavigationBar(
-            currentIndex: selectedNavIndex,
-            backgroundColor: AppColors.darkBgSecondary,
-            type: BottomNavigationBarType.fixed,
-            selectedItemColor: AppColors.primary,
-            unselectedItemColor: AppColors.textSecondary,
-            selectedFontSize: 12,
-            unselectedFontSize: 11,
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.calendar_month_outlined),
-                label: 'Bookings',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.chat_bubble_outline),
-                label: 'Messages',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.notifications_outlined),
-                label: 'Notifications',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                label: 'Profile',
-              ),
-            ],
-            onTap: (index) {
-              setState(() {
-                selectedNavIndex = index;
-              });
-            },
-          ),
+        bottomNavigationBar: RoleBottomNavigation(
+          currentIndex: selectedNavIndex,
+          onTap: (index) => setState(() => selectedNavIndex = index),
         ),
       ),
     );
@@ -662,32 +628,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildCenteredTabHeader(String title, {Widget? trailing}) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.primary,
-      padding: EdgeInsets.fromLTRB(
-        16,
-        MediaQuery.of(context).padding.top + 12,
-        16,
-        12,
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.black,
-            ),
-          ),
-          if (trailing != null)
-            Align(alignment: Alignment.centerRight, child: trailing),
-        ],
-      ),
-    );
+    return RolePageHeader(title: title, trailing: trailing);
   }
 
   Scaffold _buildRestrictedScaffold() {
@@ -2814,46 +2755,56 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               : null,
         ),
         Expanded(
-          child: notifications.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.notifications_none,
-                        size: 64,
-                        color: AppColors.textTertiary,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'No notifications yet',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: notifications.length,
-                  itemBuilder: (context, index) {
-                    final notif = notifications[index];
-                    return NotificationItem(
-                      icon: _getNotificationIcon(notif['type']),
-                      title: notif['title'] ?? 'Notification',
-                      message: notif['message'] ?? '',
-                      timestamp: _formatTime(notif['created_at']),
-                      iconColor: _getNotificationColor(notif['type']),
-                      onTap: () async {
-                        final notificationService = NotificationService();
-                        await notificationService.markAsRead(notif['id']);
-                        _loadPartnerData();
-                      },
-                    );
-                  },
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+                child: RoleTabHeader(
+                  title: 'Notifications',
+                  subtitle: 'Fleet updates, booking activity, and reminders',
+                  icon: Icons.notifications_outlined,
+                  badge:
+                      '${notifications.where((item) => item['is_read'] != true).length} unread',
                 ),
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: notifications.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        children: const [
+                          RoleEmptyStateCard(
+                            icon: Icons.notifications_none,
+                            title: 'No notifications yet',
+                            message:
+                                'Fleet updates, booking requests, and reminders will appear here.',
+                          ),
+                        ],
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: notifications.length,
+                        itemBuilder: (context, index) {
+                          final notif = notifications[index];
+                          return NotificationItem(
+                            icon: _getNotificationIcon(notif['type']),
+                            title: notif['title'] ?? 'Notification',
+                            message: notif['message'] ?? '',
+                            timestamp: _formatTime(notif['created_at']),
+                            iconColor: _getNotificationColor(notif['type']),
+                            onTap: () async {
+                              final notificationService =
+                                  NotificationService();
+                              await notificationService.markAsRead(notif['id']);
+                              _loadPartnerData();
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -2865,64 +2816,72 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       children: [
         _buildCenteredTabHeader('Messages'),
         Expanded(
-          child: conversations.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline,
-                        size: 64,
-                        color: AppColors.textTertiary,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'No messages yet',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: conversations.length,
-                  itemBuilder: (context, index) {
-                    final conv = conversations[index];
-                    final isCustomerService = conv['bookings'] is! Map;
-                    final messages = conv['messages'] as List<dynamic>? ?? [];
-                    final lastMessage = messages.isNotEmpty
-                        ? messages.last['content'] ?? ''
-                        : 'No messages';
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 18, 18, 0),
+                child: RoleTabHeader(
+                  title: 'Messages',
+                  subtitle: 'Renter conversations and customer service',
+                  icon: Icons.chat_bubble_outline,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: conversations.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        children: const [
+                          RoleEmptyStateCard(
+                            icon: Icons.chat_bubble_outline,
+                            title: 'No messages yet',
+                            message:
+                                'Renter booking chats and customer service conversations will appear here.',
+                          ),
+                        ],
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: conversations.length,
+                        itemBuilder: (context, index) {
+                          final conv = conversations[index];
+                          final isCustomerService = conv['bookings'] is! Map;
+                          final messages =
+                              conv['messages'] as List<dynamic>? ?? [];
+                          final lastMessage = messages.isNotEmpty
+                              ? messages.last['content'] ?? ''
+                              : 'No messages';
 
-                    return ConversationTile(
-                      senderName: isCustomerService
-                          ? 'Customer Service'
-                          : 'Renter',
-                      lastMessage: lastMessage,
-                      timestamp: _formatTime(conv['updated_at']),
-                      unreadCount: 0,
-                      onTap: () {
-                        final conversationId = conv['id'];
-                        Navigator.of(context).pushNamed(
-                          '/chat-detail',
-                          arguments: {
-                            'conversationId': conversationId,
-                            'recipientName': isCustomerService
+                          return ConversationTile(
+                            senderName: isCustomerService
                                 ? 'Customer Service'
                                 : 'Renter',
-                            'recipientAvatar': '',
-                            'isDarkMode': true,
-                            'isCustomerService': isCustomerService,
-                            'userRole': 'partner',
-                          },
-                        );
-                      },
-                    );
-                  },
-                ),
+                            lastMessage: lastMessage,
+                            timestamp: _formatTime(conv['updated_at']),
+                            unreadCount: 0,
+                            onTap: () {
+                              final conversationId = conv['id'];
+                              Navigator.of(context).pushNamed(
+                                '/chat-detail',
+                                arguments: {
+                                  'conversationId': conversationId,
+                                  'recipientName': isCustomerService
+                                      ? 'Customer Service'
+                                      : 'Renter',
+                                  'recipientAvatar': '',
+                                  'isDarkMode': true,
+                                  'isCustomerService': isCustomerService,
+                                  'userRole': 'partner',
+                                },
+                              );
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -2933,6 +2892,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Column(
       children: [
         _buildCenteredTabHeader('My Bookings'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+          child: RoleTabHeader(
+            title: 'Rental Bookings',
+            subtitle: 'Requests, active rentals, completed trips, and tracking',
+            icon: Icons.calendar_month_outlined,
+            badge: '${bookings.length} total',
+          ),
+        ),
+        const SizedBox(height: 14),
         Expanded(
           child: DefaultTabController(
             length: 4,
@@ -2997,33 +2966,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.72,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.calendar_today_outlined,
-                    size: 56,
-                    color: AppColors.textTertiary,
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    'No ${_bookingTabLabel(tabKey).toLowerCase()} bookings',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Pull down to refresh',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                ],
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: RoleEmptyStateCard(
+                  icon: Icons.calendar_today_outlined,
+                  title:
+                      'No ${_bookingTabLabel(tabKey).toLowerCase()} bookings',
+                  message:
+                      'Booking requests and rental updates will appear here. Pull down to refresh.',
+                ),
               ),
             ),
           ),

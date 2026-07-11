@@ -489,7 +489,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
       debugPrint('═══════════════════════════════════════════════════════════');
       if (!mounted) return;
 
-      if (state.event == AuthChangeEvent.signedIn &&
+      if ((state.event == AuthChangeEvent.signedIn ||
+              state.event == AuthChangeEvent.initialSession ||
+              state.event == AuthChangeEvent.tokenRefreshed) &&
           state.session?.user != null) {
         debugPrint('✅ SignedIn event triggered - will sync route in 500ms');
         await Future.delayed(

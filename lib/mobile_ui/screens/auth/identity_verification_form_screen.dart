@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/verification_service.dart';
@@ -10,6 +8,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
+import '../vehicle/signature_capture_screen.dart';
 
 class IdentityVerificationFormScreen extends StatefulWidget {
   final VoidCallback? onVerificationComplete;
@@ -30,33 +29,6 @@ class IdentityVerificationFormScreen extends StatefulWidget {
       _IdentityVerificationFormScreenState();
 }
 
-class _DriverSignaturePainter extends CustomPainter {
-  final List<Offset?> points;
-
-  const _DriverSignaturePainter(this.points);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black87
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    for (var i = 0; i < points.length - 1; i++) {
-      final current = points[i];
-      final next = points[i + 1];
-      if (current == null || next == null) continue;
-      canvas.drawLine(current, next, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DriverSignaturePainter oldDelegate) {
-    return true;
-  }
-}
-
 class _IdentityVerificationFormScreenState
     extends State<IdentityVerificationFormScreen> {
   // Form fields
@@ -74,8 +46,6 @@ class _IdentityVerificationFormScreenState
   File? _faceSelfieFile;
   File? _selfieWithIdFile;
   File? _nbiClearanceFile;
-  final GlobalKey _driverSignaturePadKey = GlobalKey();
-  final List<Offset?> _driverSignaturePoints = [];
   Uint8List? _driverSignatureBytes;
 
   // UI State
@@ -315,141 +285,17 @@ class _IdentityVerificationFormScreenState
     });
   }
 
-  Future<Uint8List?> _captureSignatureBytes(GlobalKey key) async {
-    final boundary =
-        key.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null) return null;
-
-    final image = await boundary.toImage(pixelRatio: 3);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    return byteData?.buffer.asUint8List();
-  }
-
   Future<void> _openDriverSignatureDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            backgroundColor: AppColors.darkBgSecondary,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: const Text(
-              'Digital Signature',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            content: SizedBox(
-              width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Draw your signature inside the box below.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  RepaintBoundary(
-                    key: _driverSignaturePadKey,
-                    child: GestureDetector(
-                      onPanStart: (details) {
-                        setDialogState(() {
-                          _driverSignaturePoints.add(details.localPosition);
-                        });
-                      },
-                      onPanUpdate: (details) {
-                        setDialogState(() {
-                          _driverSignaturePoints.add(details.localPosition);
-                        });
-                      },
-                      onPanEnd: (_) {
-                        setDialogState(() {
-                          _driverSignaturePoints.add(null);
-                        });
-                      },
-                      child: Container(
-                        height: 190,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.primary),
-                        ),
-                        child: CustomPaint(
-                          painter: _DriverSignaturePainter(
-                            _driverSignaturePoints,
-                          ),
-                          child:
-                              _driverSignaturePoints.whereType<Offset>().isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    'Sign here',
-                                    style: TextStyle(
-                                      color: Colors.black38,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                )
-                              : const SizedBox.expand(),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  setDialogState(() {
-                    _driverSignaturePoints.clear();
-                    _driverSignatureBytes = null;
-                  });
-                  if (mounted) setState(() {});
-                },
-                child: const Text('Clear'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  if (_driverSignaturePoints.whereType<Offset>().length < 6) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please draw your signature first.'),
-                        backgroundColor: AppColors.error,
-                      ),
-                    );
-                    return;
-                  }
-                  final bytes = await _captureSignatureBytes(
-                    _driverSignaturePadKey,
-                  );
-                  if (bytes == null || bytes.isEmpty) return;
-                  if (!mounted) return;
-                  setState(() => _driverSignatureBytes = bytes);
-                  Navigator.pop(dialogContext);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.black,
-                ),
-                child: const Text('Save Signature'),
-              ),
-            ],
-          ),
-        );
-      },
+    final bytes = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => SignatureCaptureScreen(
+          title: 'Driver Signature',
+          initialSignature: _driverSignatureBytes,
+        ),
+      ),
     );
+    if (bytes == null || !mounted) return;
+    setState(() => _driverSignatureBytes = bytes);
   }
 
   Future<void> _submitVerification() async {

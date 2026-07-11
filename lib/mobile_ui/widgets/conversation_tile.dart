@@ -22,11 +22,11 @@ class ConversationTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFF2A3548),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.borderColor),
         ),
         child: Row(
@@ -36,9 +36,9 @@ class ConversationTile extends StatelessWidget {
               height: 48,
               decoration: BoxDecoration(
                 color: AppColors.primary,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.person, color: Colors.black),
+              child: const Icon(Icons.chat_bubble_outline, color: Colors.black),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -48,8 +48,8 @@ class ConversationTile extends StatelessWidget {
                   Text(
                     senderName,
                     style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
                       color: AppColors.textPrimary,
                     ),
                   ),
@@ -59,7 +59,7 @@ class ConversationTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       color: AppColors.textSecondary,
                     ),
                   ),

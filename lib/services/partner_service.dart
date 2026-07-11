@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import 'admin_service.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -105,13 +106,69 @@ class PartnerService {
           .order('created_at', ascending: false);
 
       debugPrint('Fetched ${response.length} vehicle applications');
-      return List<Map<String, dynamic>>.from(
+      final applications = List<Map<String, dynamic>>.from(
         response.map((app) {
           final map = Map<String, dynamic>.from(app);
           map['status'] = map['application_status'] ?? map['status'];
           return map;
         }),
       );
+
+      final partnerVehicleIds = applications
+          .map((app) => app['partner_vehicle_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      final partnerVehiclesById = <String, Map<String, dynamic>>{};
+      if (partnerVehicleIds.isNotEmpty) {
+        final partnerVehicles = await supabase
+            .from('partner_vehicles')
+            .select('id,vehicle_id,is_available,status')
+            .inFilter('id', partnerVehicleIds);
+        for (final vehicle in List<Map<String, dynamic>>.from(
+          partnerVehicles,
+        )) {
+          partnerVehiclesById[vehicle['id'].toString()] = vehicle;
+        }
+      }
+
+      final canonicalVehicleIds = applications
+          .map((app) => app['created_vehicle_id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      for (final vehicle in partnerVehiclesById.values) {
+        final id = vehicle['vehicle_id']?.toString();
+        if (id != null && id.isNotEmpty) canonicalVehicleIds.add(id);
+      }
+
+      final vehiclesById = <String, Map<String, dynamic>>{};
+      if (canonicalVehicleIds.isNotEmpty) {
+        final vehicles = await supabase
+            .from('vehicles')
+            .select('id,is_posted,is_available,status')
+            .inFilter('id', canonicalVehicleIds.toList());
+        for (final vehicle in List<Map<String, dynamic>>.from(vehicles)) {
+          vehiclesById[vehicle['id'].toString()] = vehicle;
+        }
+      }
+
+      for (final application in applications) {
+        final partnerVehicle =
+            partnerVehiclesById[application['partner_vehicle_id']?.toString()];
+        final canonicalId =
+            application['created_vehicle_id']?.toString() ??
+            partnerVehicle?['vehicle_id']?.toString();
+        final vehicle = vehiclesById[canonicalId];
+        application['vehicle_status'] =
+            vehicle?['status'] ?? partnerVehicle?['status'];
+        application['is_available'] =
+            vehicle?['is_available'] ??
+            partnerVehicle?['is_available'] ??
+            false;
+        application['is_posted'] = vehicle?['is_posted'] ?? false;
+        application['created_vehicle_id'] ??= canonicalId;
+      }
+
+      return applications;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching applications: ${e.message}');
       rethrow;
@@ -128,22 +185,16 @@ class PartnerService {
   ) async {
     try {
       debugPrint('Fetching $status applications for partner: $partnerId');
-
-      final response = await supabase
-          .from('partner_vehicle_applications')
-          .select()
-          .eq('partner_id', partnerId)
-          .eq('application_status', status)
-          .order('created_at', ascending: false);
-
-      debugPrint('Fetched ${response.length} $status applications');
-      return List<Map<String, dynamic>>.from(
-        response.map((app) {
-          final map = Map<String, dynamic>.from(app);
-          map['status'] = map['application_status'] ?? map['status'];
-          return map;
-        }),
-      );
+      final applications = await getVehicleApplications(partnerId);
+      final expectedStatus = status.trim().toLowerCase();
+      return applications.where((application) {
+        final currentStatus =
+            (application['application_status'] ?? application['status'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+        return currentStatus == expectedStatus;
+      }).toList();
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching applications: ${e.message}');
       rethrow;
@@ -624,38 +675,7 @@ class PartnerService {
     String applicationId,
     String notes,
   ) async {
-    try {
-      debugPrint('Approving vehicle application: $applicationId');
-      await supabase
-          .from('partner_vehicle_applications')
-          .update({'application_status': 'approved'})
-          .eq('id', applicationId);
-
-      final application = await supabase
-          .from('partner_vehicle_applications')
-          .select('partner_id, brand, model, year')
-          .eq('id', applicationId)
-          .maybeSingle();
-      final partnerId = application?['partner_id']?.toString();
-      if (partnerId != null && partnerId.isNotEmpty) {
-        final vehicleTitle =
-            '${application?['brand'] ?? ''} ${application?['model'] ?? ''}'
-                .trim();
-        await NotificationService().notifyPartnerApplicationApproved(
-          partnerId: partnerId,
-          applicationId: applicationId,
-          vehicleTitle: vehicleTitle.isEmpty ? null : vehicleTitle,
-        );
-      }
-
-      debugPrint('Vehicle application approved');
-    } on PostgrestException catch (e) {
-      debugPrint('Database error approving vehicle application: ${e.message}');
-      rethrow;
-    } catch (e) {
-      debugPrint('Error approving vehicle application: $e');
-      rethrow;
-    }
+    await AdminService().approveVehicleApplication(applicationId, notes);
   }
 
   /// Reject vehicle application (called by admin)
@@ -663,24 +683,7 @@ class PartnerService {
     String applicationId,
     String reason,
   ) async {
-    try {
-      debugPrint('Rejecting vehicle application: $applicationId');
-      await supabase
-          .from('partner_vehicle_applications')
-          .update({
-            'application_status': 'rejected',
-            'rejection_reason': reason,
-          })
-          .eq('id', applicationId);
-
-      debugPrint('Vehicle application rejected');
-    } on PostgrestException catch (e) {
-      debugPrint('Database error rejecting vehicle application: ${e.message}');
-      rethrow;
-    } catch (e) {
-      debugPrint('Error rejecting vehicle application: $e');
-      rethrow;
-    }
+    await AdminService().rejectVehicleApplication(applicationId, reason);
   }
 
   // ================== VEHICLE EXPIRY VALIDATION ==================

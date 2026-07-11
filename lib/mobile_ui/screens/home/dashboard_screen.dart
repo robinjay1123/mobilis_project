@@ -23,6 +23,7 @@ import '../../widgets/status_badge.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
+import '../../widgets/role_ui.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
@@ -374,6 +375,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (e) {
       debugPrint('⚠️ Error loading notifications: $e');
     }
+  }
+
+  Future<void> _markAllNotificationsRead() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+    await NotificationService().markAllAsRead(userId);
+    await _loadNotifications();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('All notifications marked as read')),
+    );
   }
 
   Future<void> _loadConversations() async {
@@ -2347,7 +2359,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (!didPop) _handleBackPressed();
       },
       child: Scaffold(
-        backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+        backgroundColor: selectedNavIndex == 0
+            ? (isDark ? AppColors.darkBg : AppColors.lightBg)
+            : AppColors.darkBg,
         body: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: _buildTabContent(),
@@ -2364,32 +2378,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: const Icon(Icons.support_agent),
           ),
         ),
-        bottomNavigationBar: BottomNavigationBar(
+        bottomNavigationBar: RoleBottomNavigation(
           currentIndex: selectedNavIndex,
-          backgroundColor: isDark
-              ? AppColors.darkBgSecondary
-              : AppColors.lightBgSecondary,
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: AppColors.primary,
-          unselectedItemColor: isDark
-              ? AppColors.textSecondary
-              : AppColors.lightTextSecondary,
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today),
-              label: 'Bookings',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline),
-              label: 'Messages',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.notifications),
-              label: 'Notifications',
-            ),
-            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-          ],
           onTap: (index) {
             setState(() {
               if (index == 4 || selectedNavIndex == 4) {
@@ -2439,32 +2429,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildCenteredTabHeader(String title, {Widget? trailing}) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.primary,
-      padding: EdgeInsets.fromLTRB(
-        16,
-        MediaQuery.of(context).padding.top + 12,
-        16,
-        12,
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.black,
-            ),
-          ),
-          if (trailing != null)
-            Align(alignment: Alignment.centerRight, child: trailing),
-        ],
-      ),
-    );
+    return RolePageHeader(title: title, trailing: trailing);
   }
 
   Future<void> _openCustomerServiceConversation() async {
@@ -3794,6 +3759,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       children: [
         _buildCenteredTabHeader('My Bookings'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+          child: RoleTabHeader(
+            title: 'Rental Bookings',
+            subtitle: 'Requests, ongoing rentals, completed trips, and tracking',
+            icon: Icons.calendar_month_outlined,
+            badge: '${uiBookings.length} total',
+          ),
+        ),
+        const SizedBox(height: 14),
         Expanded(
           child: DefaultTabController(
             length: 4,
@@ -3858,31 +3833,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Center(
             child: SizedBox(
               height: MediaQuery.of(context).size.height * 0.7,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 48,
-                    color: AppColors.textTertiary,
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(
+                  child: RoleEmptyStateCard(
+                    icon: Icons.calendar_today_outlined,
+                    title: 'No bookings found',
+                    message:
+                        'Your rental requests and active trips will appear here. Pull down to refresh.',
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No bookings found',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Pull down to refresh',
-                    style: TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -3966,7 +3926,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Column(
       children: [
-        _buildCenteredTabHeader('Notifications'),
+        _buildCenteredTabHeader(
+          'Notifications',
+          trailing: _notifications.isEmpty
+              ? null
+              : TextButton(
+                  onPressed: _markAllNotificationsRead,
+                  child: const Text(
+                    'Mark all read',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadNotifications,
@@ -3976,51 +3951,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  RoleTabHeader(
+                    title: 'Notifications',
+                    subtitle: 'Booking updates, approvals, and trip reminders',
+                    icon: Icons.notifications_outlined,
+                    badge:
+                        '${_notifications.where((item) => item['is_read'] != true).length} unread',
+                  ),
+                  const SizedBox(height: 18),
                   // Empty State
                   if (notificationItems.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(32),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkBgSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.borderColor),
-                      ),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.notifications_none,
-                              color: AppColors.primary,
-                              size: 32,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No Notifications Yet',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'You\'ll receive notifications about bookings, messages, and updates here',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
+                    const RoleEmptyStateCard(
+                      icon: Icons.notifications_none,
+                      title: 'No notifications yet',
+                      message:
+                          'Booking updates, approvals, and trip reminders will appear here.',
                     )
                   else
                     Column(
@@ -4029,10 +3974,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         (index) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
-                              color: AppColors.darkBgSecondary,
-                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xFF2A3548),
+                              borderRadius: BorderRadius.circular(20),
                               border: Border.all(color: AppColors.borderColor),
                             ),
                             child: Row(
@@ -4145,51 +4090,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                RoleTabHeader(
+                  title: 'Messages',
+                  subtitle: 'Booking conversations and customer service',
+                  icon: Icons.chat_bubble_outline,
+                  badge: unreadCount > 0 ? '$unreadCount unread' : null,
+                ),
+                const SizedBox(height: 18),
                 // Empty State
                 if (conversations.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.chat_bubble_outline,
-                            color: AppColors.primary,
-                            size: 32,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'No Conversations Yet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Start by booking a car or get in touch with owners',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+                  const RoleEmptyStateCard(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'No messages yet',
+                    message:
+                        'Booking group chats and customer service conversations will appear here.',
                   )
                 else
                   // Conversations List
@@ -4201,10 +4115,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: GestureDetector(
                           onTap: () => _openConversation(conversations[index]),
                           child: Container(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
-                              color: AppColors.darkBgSecondary,
-                              borderRadius: BorderRadius.circular(12),
+                              color: const Color(0xFF2A3548),
+                              borderRadius: BorderRadius.circular(20),
                               border: Border.all(color: AppColors.borderColor),
                             ),
                             child: Row(
