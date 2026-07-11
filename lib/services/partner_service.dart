@@ -4,6 +4,7 @@ import 'dart:io';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'admin_service.dart';
+import 'image_optimization_service.dart';
 
 class PartnerService {
   static final PartnerService _instance = PartnerService._internal();
@@ -586,19 +587,29 @@ class PartnerService {
     required File file,
     required String documentType,
   }) async {
-    final bytes = await file.readAsBytes();
+    final originalBytes = await file.readAsBytes();
     final extension = file.path.contains('.')
         ? file.path.split('.').last.toLowerCase()
         : 'jpg';
     final objectPath =
         '$partnerId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: objectPath,
+      preset: documentType == 'vehicle_photo'
+          ? UploadImagePreset.standard
+          : UploadImagePreset.sensitiveDocument,
+    );
 
     await supabase.storage
         .from('partner_documents')
         .uploadBinary(
           objectPath,
           bytes,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
         );
 
     return supabase.storage.from('partner_documents').getPublicUrl(objectPath);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class VehicleRegistrationUploadScreen extends StatefulWidget {
   const VehicleRegistrationUploadScreen({super.key});
@@ -214,14 +215,12 @@ class _VehicleRegistrationUploadScreenState
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(11),
-                        child: Image.network(
-                          imagePath,
+                        child: OptimizedNetworkImage(
+                          imageUrl: imagePath,
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return _buildUploadedPlaceholder();
-                          },
+                          errorWidget: _buildUploadedPlaceholder(),
                         ),
                       ),
                       Positioned(

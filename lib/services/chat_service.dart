@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import 'image_optimization_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -155,7 +156,9 @@ class ChatService {
 
     final adminId = response?['id']?.toString().trim() ?? '';
     if (adminId.isEmpty) {
-      throw Exception('No support or admin account is available for customer service');
+      throw Exception(
+        'No support or admin account is available for customer service',
+      );
     }
     return adminId;
   }
@@ -321,9 +324,21 @@ class ChatService {
     final objectPath =
         '$senderId/${DateTime.now().millisecondsSinceEpoch}_$safeFileName';
 
+    final originalBytes = await file.readAsBytes();
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: safeFileName,
+    );
     await supabase.storage
         .from('chat_attachments')
-        .upload(objectPath, file, fileOptions: const FileOptions(upsert: true));
+        .uploadBinary(
+          objectPath,
+          bytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
+        );
 
     return supabase.storage.from('chat_attachments').getPublicUrl(objectPath);
   }

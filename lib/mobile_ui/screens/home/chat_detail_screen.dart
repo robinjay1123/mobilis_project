@@ -9,6 +9,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/user_restriction_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/restriction_ui.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class _SupportFaq {
   final String question;
@@ -1413,7 +1414,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   borderRadius: BorderRadius.circular(14),
                   image: avatar.isNotEmpty
                       ? DecorationImage(
-                          image: NetworkImage(avatar),
+                          image: OptimizedNetworkImageProvider(avatar),
                           fit: BoxFit.cover,
                         )
                       : null,
@@ -1565,7 +1566,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         borderRadius: BorderRadius.circular(18),
                         image: avatar.isNotEmpty
                             ? DecorationImage(
-                                image: NetworkImage(avatar),
+                                image: OptimizedNetworkImageProvider(avatar),
                                 fit: BoxFit.cover,
                               )
                             : null,

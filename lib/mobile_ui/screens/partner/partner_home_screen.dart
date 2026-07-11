@@ -19,6 +19,7 @@ import '../../widgets/conversation_tile.dart';
 import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/role_ui.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import 'partner_tracking_screen.dart';
@@ -852,12 +853,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         borderRadius: BorderRadius.circular(radius),
       ),
       child: avatarUrl.isNotEmpty
-          ? Image.network(
-              avatarUrl,
+          ? OptimizedNetworkImage(
+              imageUrl: avatarUrl,
               width: double.infinity,
               height: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => _buildPartnerInitial(fontSize),
+              errorWidget: _buildPartnerInitial(fontSize),
             )
           : _buildPartnerInitial(fontSize),
     );
@@ -2346,11 +2347,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 fit: StackFit.expand,
                 children: [
                   if (imageUrl != null)
-                    Image.network(
-                      imageUrl,
+                    OptimizedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          _buildBookingImageFallback(),
+                      errorWidget: _buildBookingImageFallback(),
                     )
                   else
                     _buildBookingImageFallback(),
@@ -2794,8 +2794,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             timestamp: _formatTime(notif['created_at']),
                             iconColor: _getNotificationColor(notif['type']),
                             onTap: () async {
-                              final notificationService =
-                                  NotificationService();
+                              final notificationService = NotificationService();
                               await notificationService.markAsRead(notif['id']);
                               _loadPartnerData();
                             },

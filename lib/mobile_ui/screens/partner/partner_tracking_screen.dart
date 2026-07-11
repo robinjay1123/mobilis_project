@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/tracking_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../home/chat_detail_screen.dart';
 
 class PartnerTrackingScreen extends StatefulWidget {
@@ -96,15 +97,13 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
         bookingMap?['dropoff_location']?.toString() ??
         booking['dropoff_location']?.toString() ??
         'Destination unavailable';
-    final vehicleName = [
-      vehicle?['vehicle_name'],
-      vehicle?['brand'],
-      vehicle?['model'],
-    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(
-      ' ',
-    );
+    final vehicleName =
+        [vehicle?['vehicle_name'], vehicle?['brand'], vehicle?['model']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
     final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
-    final renterName = renter?['full_name']?.toString().trim().isNotEmpty == true
+    final renterName =
+        renter?['full_name']?.toString().trim().isNotEmpty == true
         ? renter!['full_name'].toString().trim()
         : widget.recipientName;
     final trackingStatus = tracking == null
@@ -284,10 +283,11 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
       return Stack(
         fit: StackFit.expand,
         children: [
-          Image.network(
-            staticMapUrl,
+          OptimizedNetworkImage(
+            imageUrl: staticMapUrl,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _buildMapFallback(destination),
+            errorWidget: _buildMapFallback(destination),
+            isThumbnail: false,
           ),
           Container(
             decoration: const BoxDecoration(
@@ -674,7 +674,16 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
 
   String _headingLabel(double headingDegrees) {
     if (headingDegrees.isNaN) return 'Unknown';
-    const directions = ['North', 'NE', 'East', 'SE', 'South', 'SW', 'West', 'NW'];
+    const directions = [
+      'North',
+      'NE',
+      'East',
+      'SE',
+      'South',
+      'SW',
+      'West',
+      'NW',
+    ];
     final index = (((headingDegrees % 360) / 45).round()) % directions.length;
     return directions[index];
   }

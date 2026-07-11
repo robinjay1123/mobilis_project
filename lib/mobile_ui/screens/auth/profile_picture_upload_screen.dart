@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../services/image_optimization_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 
@@ -161,14 +162,19 @@ class _ProfilePictureUploadScreenState
       final objectPath =
           'profile_pictures/${user.id}/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
       final supabase = Supabase.instance.client;
+      final bytes = await ImageOptimizationService.optimizeForUpload(
+        await file.readAsBytes(),
+        fileName: objectPath,
+        preset: UploadImagePreset.profile,
+      );
 
       await supabase.storage
           .from('id_images')
-          .upload(
+          .uploadBinary(
             objectPath,
-            file,
+            bytes,
             fileOptions: FileOptions(
-              cacheControl: '3600',
+              cacheControl: '31536000',
               upsert: true,
               contentType: _contentTypeForExtension(safeExtension),
             ),

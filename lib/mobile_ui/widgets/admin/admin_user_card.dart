@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../optimized_network_image.dart';
 
 class AdminUserCard extends StatelessWidget {
   final String name;
@@ -90,7 +91,7 @@ class AdminUserCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                       image: avatarUrl != null
                           ? DecorationImage(
-                              image: NetworkImage(avatarUrl!),
+                              image: OptimizedNetworkImageProvider(avatarUrl!),
                               fit: BoxFit.cover,
                             )
                           : null,

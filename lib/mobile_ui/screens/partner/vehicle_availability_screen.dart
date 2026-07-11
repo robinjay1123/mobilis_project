@@ -8,6 +8,7 @@ import '../../../services/partner_service.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class VehicleAvailabilityScreen extends StatefulWidget {
   const VehicleAvailabilityScreen({super.key});
@@ -1033,10 +1034,10 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
               width: double.infinity,
               height: 145,
               child: photoUrl != null && photoUrl.isNotEmpty
-                  ? Image.network(
-                      photoUrl,
+                  ? OptimizedNetworkImage(
+                      imageUrl: photoUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => _buildPostedImageFallback(),
+                      errorWidget: _buildPostedImageFallback(),
                     )
                   : _buildPostedImageFallback(),
             ),
@@ -1552,21 +1553,19 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                                               child: Container(
                                                 width: 220,
                                                 color: AppColors.darkBg,
-                                                child: Image.network(
-                                                  url,
+                                                child: OptimizedNetworkImage(
+                                                  imageUrl: url,
                                                   fit: BoxFit.cover,
-                                                  errorBuilder: (_, _, _) =>
-                                                      Container(
-                                                        color: AppColors.darkBg,
-                                                        alignment:
-                                                            Alignment.center,
-                                                        child: const Icon(
-                                                          Icons
-                                                              .image_not_supported_outlined,
-                                                          color: AppColors
-                                                              .textSecondary,
-                                                        ),
-                                                      ),
+                                                  errorWidget: Container(
+                                                    color: AppColors.darkBg,
+                                                    alignment: Alignment.center,
+                                                    child: const Icon(
+                                                      Icons
+                                                          .image_not_supported_outlined,
+                                                      color: AppColors
+                                                          .textSecondary,
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                             ),
@@ -2304,10 +2303,10 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   child: Container(
                                     color: AppColors.darkBg,
-                                    child: Image.network(
-                                      url,
+                                    child: OptimizedNetworkImage(
+                                      imageUrl: url,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, _, _) => Container(
+                                      errorWidget: Container(
                                         color: AppColors.darkBg,
                                         alignment: Alignment.center,
                                         child: const Icon(

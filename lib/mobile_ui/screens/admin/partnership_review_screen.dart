@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class PartnershipReviewScreen extends StatefulWidget {
   final Map<String, dynamic> partner;
@@ -120,7 +121,7 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
                             borderRadius: BorderRadius.circular(24),
                             image: widget.partner['avatar_url'] != null
                                 ? DecorationImage(
-                                    image: NetworkImage(
+                                    image: OptimizedNetworkImageProvider(
                                       widget.partner['avatar_url'],
                                     ),
                                     fit: BoxFit.cover,
@@ -621,12 +622,10 @@ class _PartnershipReviewScreenState extends State<PartnershipReviewScreen> {
                   ? AppColors.darkBgSecondary
                   : AppColors.lightBgTertiary,
               child: vehicle['image_url'] != null
-                  ? Image.network(
-                      vehicle['image_url'],
+                  ? OptimizedNetworkImage(
+                      imageUrl: vehicle['image_url'],
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildVehiclePlaceholder(isDark);
-                      },
+                      errorWidget: _buildVehiclePlaceholder(isDark),
                     )
                   : _buildVehiclePlaceholder(isDark),
             ),

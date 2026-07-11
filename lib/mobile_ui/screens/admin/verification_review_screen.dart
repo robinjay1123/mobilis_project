@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../../widgets/custom_button.dart';
 
 class AdminVerificationHubScreen extends StatefulWidget {
@@ -669,25 +670,12 @@ class _AdminVerificationDetailScreenState
               bottomLeft: Radius.circular(12),
               bottomRight: Radius.circular(12),
             ),
-            child: Image.network(
-              imageUrl,
+            child: OnDemandNetworkImage(
+              imageUrl: imageUrl,
               height: 200,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  height: 200,
-                  color: isDark ? AppColors.darkBgSecondary : Colors.grey[200],
-                  child: Center(
-                    child: Icon(
-                      Icons.image_not_supported,
-                      color: isDark
-                          ? AppColors.textTertiary
-                          : AppColors.lightTextTertiary,
-                    ),
-                  ),
-                );
-              },
+              label: 'Tap to load verification photo',
             ),
           ),
         ],

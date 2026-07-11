@@ -10,6 +10,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_evidence_service.dart';
@@ -67,10 +68,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   String? _pickupCity;
   String? _pickupBarangay;
   String? _pickupFreetext;
+  _BookingLocationPin? _pickupMapPin;
   String? _dropoffProvince;
   String? _dropoffCity;
   String? _dropoffBarangay;
   String? _dropoffFreetext;
+  _BookingLocationPin? _dropoffMapPin;
   final TextEditingController _pickupFreetextController =
       TextEditingController();
   final TextEditingController _dropoffFreetextController =
@@ -1225,19 +1228,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     });
 
     try {
-      final pickupPlaces = await locationFromAddress(pickup);
-      final dropoffPlaces = await locationFromAddress(dropoff);
-      if (pickupPlaces.isEmpty || dropoffPlaces.isEmpty) {
-        throw Exception('Location could not be resolved');
-      }
-
-      final pickupPlace = pickupPlaces.first;
-      final dropoffPlace = dropoffPlaces.first;
+      final pickupPosition =
+          _pickupMapPin ??
+          await _resolveLocationPin(
+            address: pickup,
+            fallbackLabel: 'Pickup location',
+          );
+      final dropoffPosition =
+          _dropoffMapPin ??
+          await _resolveLocationPin(
+            address: dropoff,
+            fallbackLabel: 'Trip destination',
+          );
       final meters = Geolocator.distanceBetween(
-        pickupPlace.latitude,
-        pickupPlace.longitude,
-        dropoffPlace.latitude,
-        dropoffPlace.longitude,
+        pickupPosition.latitude,
+        pickupPosition.longitude,
+        dropoffPosition.latitude,
+        dropoffPosition.longitude,
       );
 
       if (!mounted) return;
@@ -2224,11 +2231,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 children: [
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(10),
-                                    child: Image.network(
-                                      settings.qrUrl,
+                                    child: OptimizedNetworkImage(
+                                      imageUrl: settings.qrUrl,
                                       height: 220,
                                       fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => const Icon(
+                                      isThumbnail: false,
+                                      errorWidget: const Icon(
                                         Icons.broken_image_outlined,
                                         color: AppColors.error,
                                         size: 72,
@@ -2545,10 +2553,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ],
             flexibleSpace: FlexibleSpaceBar(
               background: imageUrl != null
-                  ? Image.network(
-                      imageUrl,
+                  ? OptimizedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildPlaceholderImage(),
+                      isThumbnail: false,
+                      errorWidget: _buildPlaceholderImage(),
                     )
                   : _buildPlaceholderImage(),
             ),
@@ -2855,6 +2864,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 _pickupCity = null;
                                 _pickupBarangay = null;
                                 _pickupFreetext = null;
+                                _pickupMapPin = null;
                                 _pickupFreetextController.clear();
                                 _deliveryDistanceKm = null;
                               }
@@ -2893,6 +2903,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           _pickupProvince = value;
                           _pickupCity = null;
                           _pickupBarangay = null;
+                          _pickupMapPin = null;
                           _deliveryDistanceKm = null;
                         });
                         _refreshDeliveryEstimate();
@@ -2901,6 +2912,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         setState(() {
                           _pickupCity = value;
                           _pickupBarangay = null;
+                          _pickupMapPin = null;
                           _deliveryDistanceKm = null;
                         });
                         _refreshDeliveryEstimate();
@@ -2908,6 +2920,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       onBarangayChanged: (value) {
                         setState(() {
                           _pickupBarangay = value;
+                          _pickupMapPin = null;
                           _deliveryDistanceKm = null;
                         });
                         _refreshDeliveryEstimate();
@@ -2919,10 +2932,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               cleanValue == null || cleanValue.isEmpty
                               ? null
                               : value;
+                          _pickupMapPin = null;
                           _deliveryDistanceKm = null;
                         });
                         _refreshDeliveryEstimate();
                       },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildLocationMapCard(
+                      title: 'Delivery pickup pin',
+                      pin: _pickupMapPin,
+                      fallbackAddress: _getPickupLocation(),
+                      actionLabel: _pickupMapPin == null
+                          ? 'Pin delivery location'
+                          : 'Change delivery pin',
+                      onTap: () => _openLocationPicker(isPickup: true),
                     ),
                   ],
 
@@ -2956,6 +2980,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         _dropoffProvince = value;
                         _dropoffCity = null;
                         _dropoffBarangay = null;
+                        _dropoffMapPin = null;
                         _deliveryDistanceKm = null;
                       });
                       _refreshDeliveryEstimate();
@@ -2964,6 +2989,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       setState(() {
                         _dropoffCity = value;
                         _dropoffBarangay = null;
+                        _dropoffMapPin = null;
                         _deliveryDistanceKm = null;
                       });
                       _refreshDeliveryEstimate();
@@ -2971,6 +2997,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     onBarangayChanged: (value) {
                       setState(() {
                         _dropoffBarangay = value;
+                        _dropoffMapPin = null;
                         _deliveryDistanceKm = null;
                       });
                       _refreshDeliveryEstimate();
@@ -2982,10 +3009,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             cleanValue == null || cleanValue.isEmpty
                             ? null
                             : value;
+                        _dropoffMapPin = null;
                         _deliveryDistanceKm = null;
                       });
                       _refreshDeliveryEstimate();
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLocationMapCard(
+                    title: 'Destination pin',
+                    pin: _dropoffMapPin,
+                    fallbackAddress: _getDropoffLocation(),
+                    actionLabel: _dropoffMapPin == null
+                        ? 'Pin trip destination'
+                        : 'Change destination pin',
+                    onTap: () => _openLocationPicker(isPickup: false),
                   ),
 
                   const SizedBox(height: 24),
@@ -3782,6 +3820,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (!_withDriver) {
       return PhilippineLocations.psdc_garage;
     }
+    if (_pickupMapPin != null) {
+      return _pickupMapPin!.address;
+    }
     if (_pickupBarangay != null &&
         _pickupCity != null &&
         _pickupProvince != null) {
@@ -3796,6 +3837,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   String _getDropoffLocation() {
+    if (_dropoffMapPin != null) {
+      return _dropoffMapPin!.address;
+    }
     if (_dropoffBarangay != null &&
         _dropoffCity != null &&
         _dropoffProvince != null) {
@@ -3815,6 +3859,236 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return selectedLocation;
     }
     return '$cleanLandmark, $selectedLocation';
+  }
+
+  Future<_BookingLocationPin> _resolveLocationPin({
+    required String address,
+    required String fallbackLabel,
+  }) async {
+    final places = await locationFromAddress(address);
+    if (places.isEmpty) {
+      throw Exception('$fallbackLabel could not be resolved');
+    }
+    final place = places.first;
+    final resolvedAddress = await _resolveCompleteAddress(
+      place.latitude,
+      place.longitude,
+      fallbackAddress: address,
+    );
+    return _BookingLocationPin(
+      address: resolvedAddress,
+      latitude: place.latitude,
+      longitude: place.longitude,
+    );
+  }
+
+  Future<String> _resolveCompleteAddress(
+    double latitude,
+    double longitude, {
+    required String fallbackAddress,
+  }) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (placemarks.isEmpty) return fallbackAddress;
+      final place = placemarks.first;
+      final parts = [
+        place.name,
+        place.street,
+        place.subLocality,
+        place.locality,
+        place.subAdministrativeArea,
+        place.administrativeArea,
+        place.country,
+      ];
+      final address = parts
+          .whereType<String>()
+          .map((part) => part.trim())
+          .where((part) => part.isNotEmpty)
+          .toSet()
+          .join(', ');
+      return address.isEmpty ? fallbackAddress : address;
+    } catch (_) {
+      return fallbackAddress;
+    }
+  }
+
+  Future<void> _openLocationPicker({required bool isPickup}) async {
+    final initialAddress = isPickup
+        ? _getPickupLocation()
+        : _getDropoffLocation();
+    final initialPin = isPickup ? _pickupMapPin : _dropoffMapPin;
+    final selectedPin = await showModalBottomSheet<_BookingLocationPin>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _LocationPinPickerSheet(
+        title: isPickup ? 'Pin delivery pickup' : 'Pin trip destination',
+        initialAddress: initialAddress,
+        initialPin: initialPin,
+        resolveFromAddress: (address) => _resolveLocationPin(
+          address: address,
+          fallbackLabel: isPickup ? 'Pickup location' : 'Trip destination',
+        ),
+        resolveAddress: _resolveCompleteAddress,
+        buildMapUrl: _buildStaticBookingMapUrl,
+      ),
+    );
+
+    if (selectedPin == null || !mounted) return;
+    setState(() {
+      if (isPickup) {
+        _pickupMapPin = selectedPin;
+        _pickupFreetext = selectedPin.address;
+        _pickupFreetextController.text = selectedPin.address;
+      } else {
+        _dropoffMapPin = selectedPin;
+        _dropoffFreetext = selectedPin.address;
+        _dropoffFreetextController.text = selectedPin.address;
+      }
+      _deliveryDistanceKm = null;
+    });
+    await _refreshDeliveryEstimate();
+  }
+
+  String? _buildStaticBookingMapUrl(_BookingLocationPin? pin) {
+    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    if (token.isEmpty || pin == null) return null;
+    final lat = pin.latitude;
+    final lng = pin.longitude;
+    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/'
+        'pin-s+facc15($lng,$lat)/$lng,$lat,15/720x360'
+        '?access_token=$token';
+  }
+
+  Widget _buildLocationMapCard({
+    required String title,
+    required _BookingLocationPin? pin,
+    required String fallbackAddress,
+    required String actionLabel,
+    required VoidCallback onTap,
+  }) {
+    final cleanAddress = pin?.address.trim().isNotEmpty == true
+        ? pin!.address
+        : fallbackAddress;
+    final mapUrl = _buildStaticBookingMapUrl(pin);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: pin == null ? AppColors.borderColor : AppColors.primary,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (mapUrl != null)
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(14),
+              ),
+              child: OptimizedNetworkImage(
+                imageUrl: mapUrl,
+                height: 140,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                isThumbnail: true,
+              ),
+            )
+          else
+            Container(
+              height: 128,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.darkBgTertiary,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(14),
+                ),
+              ),
+              child: Center(
+                child: Icon(
+                  pin == null ? Icons.add_location_alt_outlined : Icons.place,
+                  color: AppColors.primary,
+                  size: 42,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  pin == null ? 'No exact map pin selected yet.' : cleanAddress,
+                  style: TextStyle(
+                    color: pin == null
+                        ? AppColors.textSecondary
+                        : AppColors.textPrimary,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                if (pin != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${pin.latitude.toStringAsFixed(5)}, ${pin.longitude.toStringAsFixed(5)}',
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: onTap,
+                    icon: const Icon(Icons.map_outlined, size: 18),
+                    label: Text(actionLabel),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _useCurrentPickupLocation() async {
@@ -3859,13 +4133,31 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
 
       if (!mounted) return;
+      final fullAddress = await _resolveCompleteAddress(
+        position.latitude,
+        position.longitude,
+        fallbackAddress: PhilippineLocations.formatLocation(
+          match.barangay,
+          match.city,
+          match.province,
+        ),
+      );
+      if (!mounted) return;
       setState(() {
         _pickupProvince = match.province;
         _pickupCity = match.city;
         _pickupBarangay = match.barangay;
+        _pickupMapPin = _BookingLocationPin(
+          address: fullAddress,
+          latitude: position.latitude,
+          longitude: position.longitude,
+        );
+        _pickupFreetext = fullAddress;
+        _pickupFreetextController.text = fullAddress;
         _deliveryDistanceKm = null;
       });
       await _refreshDeliveryEstimate();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -4171,6 +4463,365 @@ class _ResolvedPickupLocation {
     required this.city,
     required this.barangay,
   });
+}
+
+class _BookingLocationPin {
+  final String address;
+  final double latitude;
+  final double longitude;
+
+  const _BookingLocationPin({
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+  });
+}
+
+class _LocationPinPickerSheet extends StatefulWidget {
+  final String title;
+  final String initialAddress;
+  final _BookingLocationPin? initialPin;
+  final Future<_BookingLocationPin> Function(String address) resolveFromAddress;
+  final Future<String> Function(
+    double latitude,
+    double longitude, {
+    required String fallbackAddress,
+  })
+  resolveAddress;
+  final String? Function(_BookingLocationPin? pin) buildMapUrl;
+
+  const _LocationPinPickerSheet({
+    required this.title,
+    required this.initialAddress,
+    required this.initialPin,
+    required this.resolveFromAddress,
+    required this.resolveAddress,
+    required this.buildMapUrl,
+  });
+
+  @override
+  State<_LocationPinPickerSheet> createState() =>
+      _LocationPinPickerSheetState();
+}
+
+class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
+  late final TextEditingController _searchController;
+  _BookingLocationPin? _selectedPin;
+  bool _isResolving = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPin = widget.initialPin;
+    _searchController = TextEditingController(text: widget.initialAddress);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _searchAddress() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty || _isResolving) return;
+    setState(() {
+      _isResolving = true;
+      _errorMessage = null;
+    });
+    try {
+      final pin = await widget.resolveFromAddress(query);
+      if (!mounted) return;
+      setState(() {
+        _selectedPin = pin;
+        _searchController.text = pin.address;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isResolving = false);
+      }
+    }
+  }
+
+  Future<void> _useCurrentLocation() async {
+    if (_isResolving) return;
+    setState(() {
+      _isResolving = true;
+      _errorMessage = null;
+    });
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Please turn on location services first.');
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission is required to pin this.');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission is permanently denied. Enable it in settings.',
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final address = await widget.resolveAddress(
+        position.latitude,
+        position.longitude,
+        fallbackAddress: 'Pinned location',
+      );
+      final pin = _BookingLocationPin(
+        address: address,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedPin = pin;
+        _searchController.text = address;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isResolving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final mapUrl = widget.buildMapUrl(_selectedPin);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borderColor,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                widget.title,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Search an address or use your current location to set the exact pin.',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _searchController,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _searchAddress(),
+                style: const TextStyle(color: AppColors.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Search complete address',
+                  hintStyle: const TextStyle(color: AppColors.textTertiary),
+                  prefixIcon: const Icon(
+                    Icons.search,
+                    color: AppColors.textSecondary,
+                  ),
+                  suffixIcon: IconButton(
+                    onPressed: _isResolving ? null : _searchAddress,
+                    icon: _isResolving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.my_location_outlined),
+                    color: AppColors.primary,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.darkBgTertiary,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isResolving ? null : _useCurrentLocation,
+                  icon: const Icon(Icons.gps_fixed_outlined, size: 18),
+                  label: const Text('Use current location'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: AppColors.error, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  height: 190,
+                  width: double.infinity,
+                  color: AppColors.darkBgTertiary,
+                  child: mapUrl == null
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _selectedPin == null
+                                    ? Icons.map_outlined
+                                    : Icons.location_pin,
+                                color: AppColors.primary,
+                                size: 44,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _selectedPin == null
+                                    ? 'Search to preview the map pin'
+                                    : 'Map preview needs MAPBOX_ACCESS_TOKEN',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : OptimizedNetworkImage(
+                          imageUrl: mapUrl,
+                          width: double.infinity,
+                          height: 190,
+                          fit: BoxFit.cover,
+                          isThumbnail: true,
+                        ),
+                ),
+              ),
+              if (_selectedPin != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.primary),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.location_on,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedPin!.address,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_selectedPin!.latitude.toStringAsFixed(5)}, ${_selectedPin!.longitude.toStringAsFixed(5)}',
+                              style: const TextStyle(
+                                color: AppColors.textTertiary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _selectedPin == null
+                      ? null
+                      : () => Navigator.pop(context, _selectedPin),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('Use this location'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.darkBg,
+                    disabledBackgroundColor: AppColors.darkBgTertiary,
+                    disabledForegroundColor: AppColors.textTertiary,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _CalendarLegendDot extends StatelessWidget {

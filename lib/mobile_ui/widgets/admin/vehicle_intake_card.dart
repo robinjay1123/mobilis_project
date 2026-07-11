@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../optimized_network_image.dart';
 
 class VehicleIntakeCard extends StatelessWidget {
   final String brand;
@@ -118,12 +119,10 @@ class VehicleIntakeCard extends StatelessWidget {
                       ? AppColors.darkBgSecondary
                       : AppColors.lightBgTertiary,
                   child: imageUrl != null
-                      ? Image.network(
-                          imageUrl!,
+                      ? OptimizedNetworkImage(
+                          imageUrl: imageUrl!,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return _buildVehiclePlaceholder(isDark);
-                          },
+                          errorWidget: _buildVehiclePlaceholder(isDark),
                         )
                       : _buildVehiclePlaceholder(isDark),
                 ),
@@ -315,15 +314,10 @@ class VehicleIntakeCard extends StatelessWidget {
                         color: isDark
                             ? AppColors.darkBgSecondary
                             : AppColors.lightBgTertiary,
-                        child: Image.network(
-                          documentUrls![index],
+                        child: OnDemandNetworkImage(
+                          imageUrl: documentUrls![index],
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(
-                              Icons.image_outlined,
-                              color: AppColors.textTertiary,
-                            );
-                          },
+                          label: 'Tap to load document',
                         ),
                       ),
                     ),

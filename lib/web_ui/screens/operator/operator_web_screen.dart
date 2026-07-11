@@ -10,11 +10,13 @@ import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
+import '../../../services/image_optimization_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -91,6 +93,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _selectedConversationId = '';
   String _selectedStatus = 'active';
   List<XFile> _selectedImages = [];
+  final Map<String, Future<Uint8List>> _selectedImageBytes = {};
   bool _isSubmittingVehicle = false;
 
   @override
@@ -847,9 +850,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : profileUserId;
   }
 
-  Map<String, dynamic>? _latestDriverAssignment(
-    Map<String, dynamic> booking,
-  ) {
+  Map<String, dynamic>? _latestDriverAssignment(Map<String, dynamic> booking) {
     final rawAssignments = booking['job_assignments'];
     if (rawAssignments is! List || rawAssignments.isEmpty) return null;
     final assignments = rawAssignments
@@ -1038,9 +1039,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text(
-                withDriver ? 'Select Driver' : 'Finalize Booking',
-              ),
+              title: Text(withDriver ? 'Select Driver' : 'Finalize Booking'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1766,10 +1765,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                         ),
                       )
-                    : Image.network(
-                        mapUrl,
+                    : OptimizedNetworkImage(
+                        imageUrl: mapUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Center(
+                        isThumbnail: false,
+                        errorWidget: Center(
                           child: Text(
                             'Mapbox map failed to load',
                             style: TextStyle(
@@ -2360,19 +2360,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             child: vehicle?['image_url'] != null
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(
-                                      vehicle!['image_url'],
+                                    child: OptimizedNetworkImage(
+                                      imageUrl: vehicle!['image_url'],
                                       fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              Center(
-                                                child: Icon(
-                                                  Icons.directions_car,
-                                                  color: isDark
-                                                      ? Colors.grey[600]
-                                                      : Colors.grey.shade400,
-                                                ),
-                                              ),
+                                      errorWidget: Center(
+                                        child: Icon(
+                                          Icons.directions_car,
+                                          color: isDark
+                                              ? Colors.grey[600]
+                                              : Colors.grey.shade400,
+                                        ),
+                                      ),
                                     ),
                                   )
                                 : Center(
@@ -3006,17 +3004,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    proofUrl,
+                  child: OnDemandNetworkImage(
+                    imageUrl: proofUrl,
                     width: 72,
                     height: 72,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 72,
-                      height: 72,
-                      color: isDark ? Colors.black26 : Colors.grey.shade200,
-                      child: const Icon(Icons.broken_image_outlined),
-                    ),
+                    label: 'Load',
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -3100,10 +3093,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 Flexible(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      proofUrl,
+                    child: OptimizedNetworkImage(
+                      imageUrl: proofUrl,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Padding(
+                      isThumbnail: false,
+                      errorWidget: const Padding(
                         padding: EdgeInsets.all(40),
                         child: Icon(Icons.broken_image_outlined, size: 72),
                       ),
@@ -3728,7 +3722,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     BorderRadius? borderRadius,
   }) {
     return FutureBuilder<Uint8List>(
-      future: imageFile.readAsBytes(),
+      future: _selectedImageBytes.putIfAbsent(
+        imageFile.path,
+        imageFile.readAsBytes,
+      ),
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           final image = Image.memory(snapshot.data!, fit: fit);
@@ -3970,7 +3967,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         radius: 22,
                         backgroundColor: AppColors.primary.withOpacity(0.18),
                         backgroundImage: avatar.isNotEmpty
-                            ? NetworkImage(avatar)
+                            ? OptimizedNetworkImageProvider(avatar)
                             : null,
                         child: avatar.isEmpty
                             ? Text(
@@ -5398,16 +5395,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     final filePath =
                                         'vehicles/$currentUserId/$fileName';
                                     try {
-                                      final imageBytes =
+                                      final originalImageBytes =
                                           await _selectedImages[i]
                                               .readAsBytes();
+                                      final imageBytes =
+                                          await ImageOptimizationService.optimizeForUpload(
+                                            originalImageBytes,
+                                            fileName: fileName,
+                                          );
                                       await _supabase.storage
                                           .from(_vehicleImagesBucket)
                                           .uploadBinary(
                                             filePath,
                                             imageBytes,
                                             fileOptions: const FileOptions(
-                                              cacheControl: '3600',
+                                              cacheControl: '31536000',
                                               upsert: false,
                                             ),
                                           );
@@ -5612,10 +5614,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   borderRadius: BorderRadius.circular(8),
                 )
               : existingImages.isNotEmpty
-              ? Image.network(
-                  existingImages.first['image_url'] ?? '',
+              ? OptimizedNetworkImage(
+                  imageUrl: existingImages.first['image_url'] ?? '',
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Center(
+                  errorWidget: Center(
                     child: Icon(
                       Icons.image_not_supported,
                       color: isDark ? Colors.grey[600] : Colors.grey.shade400,
@@ -5744,19 +5746,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                     : Colors.grey.shade300,
                                               ),
                                             ),
-                                            child: Image.network(
-                                              img['image_url'] ?? '',
+                                            child: OptimizedNetworkImage(
+                                              imageUrl: img['image_url'] ?? '',
                                               fit: BoxFit.cover,
-                                              errorBuilder:
-                                                  (
-                                                    context,
-                                                    error,
-                                                    stackTrace,
-                                                  ) => const Center(
-                                                    child: Icon(
-                                                      Icons.image_not_supported,
-                                                    ),
-                                                  ),
+                                              errorWidget: const Center(
+                                                child: Icon(
+                                                  Icons.image_not_supported,
+                                                ),
+                                              ),
                                             ),
                                           ),
                                           Positioned(
@@ -6264,15 +6261,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         final filePath =
                                             'vehicles/${ownerId ?? 'unknown'}/$fileName';
                                         try {
-                                          final imageBytes = await newImages[i]
-                                              .readAsBytes();
+                                          final originalImageBytes =
+                                              await newImages[i].readAsBytes();
+                                          final imageBytes =
+                                              await ImageOptimizationService.optimizeForUpload(
+                                                originalImageBytes,
+                                                fileName: fileName,
+                                              );
                                           await _supabase.storage
                                               .from(_vehicleImagesBucket)
                                               .uploadBinary(
                                                 filePath,
                                                 imageBytes,
                                                 fileOptions: const FileOptions(
-                                                  cacheControl: '3600',
+                                                  cacheControl: '31536000',
                                                   upsert: false,
                                                 ),
                                               );
@@ -6612,10 +6614,11 @@ class _VehicleCardState extends State<_VehicleCard> {
                   width: double.infinity,
                   height: 130,
                   child: images.isNotEmpty
-                      ? Image.network(
-                          images[_currentImageIndex]['image_url'] ?? '',
+                      ? OptimizedNetworkImage(
+                          imageUrl:
+                              images[_currentImageIndex]['image_url'] ?? '',
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Center(
+                          errorWidget: Center(
                             child: Icon(
                               Icons.image_not_supported,
                               color: isDark

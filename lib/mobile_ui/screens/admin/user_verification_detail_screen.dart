@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class UserVerificationDetailScreen extends StatelessWidget {
   final Map<String, dynamic> user;
@@ -86,7 +87,9 @@ class UserVerificationDetailScreen extends StatelessWidget {
                                 0.2,
                               ),
                               backgroundImage: user['avatar_url'] != null
-                                  ? NetworkImage(user['avatar_url'])
+                                  ? OptimizedNetworkImageProvider(
+                                      user['avatar_url'],
+                                    )
                                   : null,
                               child: user['avatar_url'] == null
                                   ? Text(
@@ -606,12 +609,10 @@ class UserVerificationDetailScreen extends StatelessWidget {
                   ? AppColors.darkBgSecondary
                   : AppColors.lightBgTertiary,
               child: imageUrl != null
-                  ? Image.network(
-                      imageUrl,
+                  ? OnDemandNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return _buildPlaceholder(isDark);
-                      },
+                      label: 'Tap to load verification photo',
                     )
                   : _buildPlaceholder(isDark),
             ),

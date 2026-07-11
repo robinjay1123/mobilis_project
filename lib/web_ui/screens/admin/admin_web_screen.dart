@@ -10,6 +10,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
@@ -2958,12 +2959,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       size: 52,
                       color: isDark ? Colors.grey[600] : Colors.grey.shade500,
                     )
-                  : Image.network(
-                      imageUrl,
+                  : OptimizedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       width: double.infinity,
-                      gaplessPlayback: true,
-                      errorBuilder: (_, __, ___) => Icon(
+                      errorWidget: Icon(
                         Icons.directions_car,
                         size: 52,
                         color: isDark ? Colors.grey[600] : Colors.grey.shade500,
@@ -3359,10 +3359,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               ),
                             ),
                           )
-                        : Image.network(
-                            mapUrl,
+                        : OptimizedNetworkImage(
+                            imageUrl: mapUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Center(
+                            isThumbnail: false,
+                            errorWidget: Center(
                               child: Text(
                                 'Mapbox map failed to load',
                                 style: TextStyle(
@@ -3851,16 +3852,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       color: isDark
                                           ? AppColors.darkBg
                                           : Colors.grey.shade100,
-                                      child: Image.network(
-                                        photoUrls[index],
+                                      child: OptimizedNetworkImage(
+                                        imageUrl: photoUrls[index],
                                         fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) =>
-                                            const Center(
-                                              child: Icon(
-                                                Icons
-                                                    .image_not_supported_outlined,
-                                              ),
-                                            ),
+                                        errorWidget: const Center(
+                                          child: Icon(
+                                            Icons.image_not_supported_outlined,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -4599,15 +4598,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
             AspectRatio(
               aspectRatio: 4 / 3,
-              child: Image.network(
-                url,
+              child: OnDemandNetworkImage(
+                imageUrl: url,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Center(
-                  child: Icon(
-                    Icons.broken_image_outlined,
-                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
-                  ),
-                ),
+                label: 'Tap to load document',
               ),
             ),
           ],
@@ -5822,12 +5816,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             _reservationQrUrlController.text.trim().isNotEmpty
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  _reservationQrUrlController.text.trim(),
+                                child: OptimizedNetworkImage(
+                                  imageUrl: _reservationQrUrlController.text
+                                      .trim(),
                                   width: 96,
                                   height: 96,
                                   fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) => const Icon(
+                                  errorWidget: const Icon(
                                     Icons.broken_image_outlined,
                                     color: AppColors.error,
                                   ),

@@ -4,6 +4,7 @@ import '../../theme/app_colors.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class VehicleSearchScreen extends StatefulWidget {
   final String? initialCategory;
@@ -447,11 +448,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                             topLeft: Radius.circular(10),
                             topRight: Radius.circular(10),
                           ),
-                          child: Image.network(
-                            imageUrl,
+                          child: OptimizedNetworkImage(
+                            imageUrl: imageUrl,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                const Icon(Icons.directions_car, size: 48),
+                            errorWidget: const Icon(
+                              Icons.directions_car,
+                              size: 48,
+                            ),
                           ),
                         )
                       : const Center(

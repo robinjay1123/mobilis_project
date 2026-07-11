@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_optimization_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -154,19 +155,27 @@ class DriverService {
     required File file,
     required String documentType,
   }) async {
-    final bytes = await file.readAsBytes();
+    final originalBytes = await file.readAsBytes();
     final extension = file.path.contains('.')
         ? file.path.split('.').last.toLowerCase()
         : 'jpg';
     final objectPath =
         '$userId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.sensitiveDocument,
+    );
 
     await supabase.storage
         .from('driver_documents')
         .uploadBinary(
           objectPath,
           bytes,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
         );
 
     return supabase.storage.from('driver_documents').getPublicUrl(objectPath);
@@ -507,11 +516,7 @@ class DriverService {
 
       await supabase
           .from('driver_job_assignments')
-          .update({
-            'status': 'accepted',
-            'replied_at': now,
-            'updated_at': now,
-          })
+          .update({'status': 'accepted', 'replied_at': now, 'updated_at': now})
           .eq('id', jobAssignmentId);
 
       final driverUser = await supabase
@@ -583,11 +588,7 @@ class DriverService {
 
       await supabase
           .from('driver_job_assignments')
-          .update({
-            'status': 'rejected',
-            'replied_at': now,
-            'updated_at': now,
-          })
+          .update({'status': 'rejected', 'replied_at': now, 'updated_at': now})
           .eq('id', jobAssignmentId);
 
       if (bookingId.isNotEmpty) {
@@ -1186,14 +1187,21 @@ class DriverService {
     final objectPath =
         '$userId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
 
+    final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
+      bytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.signature,
+    );
+
     await supabase.storage
         .from('driver_documents')
         .uploadBinary(
           objectPath,
-          bytes,
+          optimizedBytes,
           fileOptions: const FileOptions(
             upsert: true,
             contentType: 'image/png',
+            cacheControl: '31536000',
           ),
         );
 

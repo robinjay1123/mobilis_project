@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_optimization_service.dart';
 
 class TripRatingService {
   static final TripRatingService _instance = TripRatingService._internal();
@@ -359,19 +360,26 @@ class TripRatingService {
     final uploadedUrls = <String>[];
     for (var i = 0; i < imageFiles.length; i++) {
       final file = imageFiles[i];
-      final bytes = await file.readAsBytes();
+      final originalBytes = await file.readAsBytes();
       final extension = file.path.contains('.')
           ? file.path.split('.').last.toLowerCase()
           : 'jpg';
       final objectPath =
           '$reviewerUserId/${bookingId}_${targetRole}_${DateTime.now().millisecondsSinceEpoch}_$i.$extension';
+      final bytes = await ImageOptimizationService.optimizeForUpload(
+        originalBytes,
+        fileName: objectPath,
+      );
 
       await supabase.storage
           .from(_bucketName)
           .uploadBinary(
             objectPath,
             bytes,
-            fileOptions: const FileOptions(upsert: true),
+            fileOptions: const FileOptions(
+              upsert: true,
+              cacheControl: '31536000',
+            ),
           );
 
       uploadedUrls.add(

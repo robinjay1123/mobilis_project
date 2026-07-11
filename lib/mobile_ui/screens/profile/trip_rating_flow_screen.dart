@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class TripRatingFlowScreen extends StatefulWidget {
   final String bookingId;
@@ -439,7 +440,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
               borderRadius: BorderRadius.circular(24),
               image: avatarUrl.isNotEmpty
                   ? DecorationImage(
-                      image: NetworkImage(avatarUrl),
+                      image: OptimizedNetworkImageProvider(avatarUrl),
                       fit: BoxFit.cover,
                     )
                   : null,

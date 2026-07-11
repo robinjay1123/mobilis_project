@@ -13,6 +13,7 @@ import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/role_ui.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/emergency_contact_screen.dart';
@@ -63,10 +64,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   int _selectedTab = 0;
   bool _dimCustomerServiceFab = false;
   DateTime? _lastBackPressedAt;
+  late Future<String?> _drawerAvatarFuture;
 
   @override
   void initState() {
     super.initState();
+    _drawerAvatarFuture = _loadDriverAvatarUrl(AuthService().currentUser?.id);
   }
 
   void _handleLogout() async {
@@ -358,17 +361,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     alignment: Alignment.center,
                     clipBehavior: Clip.antiAlias,
                     child: FutureBuilder<String?>(
-                      future: _loadDriverAvatarUrl(user?.id),
+                      future: _drawerAvatarFuture,
                       builder: (context, snapshot) {
                         final avatarUrl = snapshot.data ?? '';
                         if (avatarUrl.isNotEmpty) {
-                          return Image.network(
-                            avatarUrl,
+                          return OptimizedNetworkImage(
+                            imageUrl: avatarUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: double.infinity,
-                            errorBuilder: (_, _, _) =>
-                                _DriverInitial(displayName: displayName),
+                            errorWidget: _DriverInitial(
+                              displayName: displayName,
+                            ),
                           );
                         }
                         return _DriverInitial(displayName: displayName);
@@ -1065,13 +1069,15 @@ class __DashboardTabState extends State<_DashboardTab> {
               builder: (context, snapshot) {
                 final avatarUrl = snapshot.data ?? '';
                 if (avatarUrl.isNotEmpty) {
-                  return Image.network(
-                    avatarUrl,
+                  return OptimizedNetworkImage(
+                    imageUrl: avatarUrl,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
-                    errorBuilder: (_, _, _) =>
-                        _DriverInitial(displayName: displayName, fontSize: 24),
+                    errorWidget: _DriverInitial(
+                      displayName: displayName,
+                      fontSize: 24,
+                    ),
                   );
                 }
                 return _DriverInitial(displayName: displayName, fontSize: 24);
@@ -2135,12 +2141,9 @@ class __JobsTabState extends State<_JobsTab> {
           callback: (payload) {
             if (!mounted) return;
             _jobsRefreshDebounce?.cancel();
-            _jobsRefreshDebounce = Timer(
-              const Duration(milliseconds: 350),
-              () {
-                if (mounted) setState(_loadJobs);
-              },
-            );
+            _jobsRefreshDebounce = Timer(const Duration(milliseconds: 350), () {
+              if (mounted) setState(_loadJobs);
+            });
           },
         )
         .subscribe();
@@ -2904,9 +2907,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton(
-                  onPressed: _isResponding
-                      ? null
-                      : () => _respondToOffer(true),
+                  onPressed: _isResponding ? null : () => _respondToOffer(true),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
@@ -4581,13 +4582,12 @@ class __ProfileTabState extends State<_ProfileTab> {
                         builder: (context, snapshot) {
                           final avatarUrl = snapshot.data ?? '';
                           if (avatarUrl.isNotEmpty) {
-                            return Image.network(
-                              avatarUrl,
+                            return OptimizedNetworkImage(
+                              imageUrl: avatarUrl,
                               fit: BoxFit.cover,
                               width: double.infinity,
                               height: double.infinity,
-                              errorBuilder: (_, _, _) =>
-                                  _buildDriverInitial(displayName),
+                              errorWidget: _buildDriverInitial(displayName),
                             );
                           }
                           return _buildDriverInitial(displayName);

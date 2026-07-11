@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io';
+import 'image_optimization_service.dart';
 
 class VehicleDocumentService {
   static final VehicleDocumentService _instance =
@@ -26,19 +27,27 @@ class VehicleDocumentService {
     try {
       debugPrint('Uploading $documentType to storage for partner: $partnerId');
 
-      final bytes = await file.readAsBytes();
+      final originalBytes = await file.readAsBytes();
       final extension = file.path.contains('.')
           ? file.path.split('.').last.toLowerCase()
           : 'jpg';
       final objectPath =
           '$partnerId/${documentType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+      final bytes = await ImageOptimizationService.optimizeForUpload(
+        originalBytes,
+        fileName: objectPath,
+        preset: UploadImagePreset.sensitiveDocument,
+      );
 
       await supabase.storage
           .from(_vehicleDocumentsBucket)
           .uploadBinary(
             objectPath,
             bytes,
-            fileOptions: const FileOptions(upsert: true),
+            fileOptions: const FileOptions(
+              upsert: true,
+              cacheControl: '31536000',
+            ),
           );
 
       final publicUrl = supabase.storage

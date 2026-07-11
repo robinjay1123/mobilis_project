@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import 'image_optimization_service.dart';
 
 class VerificationService {
   static final supabase = Supabase.instance.client;
@@ -166,12 +167,22 @@ class VerificationService {
 
   /// Upload file to Supabase storage
   static Future<String> _uploadFile(String path, File file) async {
+    final originalBytes = await file.readAsBytes();
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: path,
+      preset: UploadImagePreset.sensitiveDocument,
+    );
     await supabase.storage
         .from(_idImagesBucket)
-        .upload(
+        .uploadBinary(
           path,
-          file,
-          fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+          bytes,
+          fileOptions: const FileOptions(
+            cacheControl: '31536000',
+            upsert: false,
+            contentType: 'image/jpeg',
+          ),
         );
 
     final publicUrl = supabase.storage.from(_idImagesBucket).getPublicUrl(path);

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_optimization_service.dart';
 
 class BookingEvidenceService {
   BookingEvidenceService._();
@@ -23,7 +24,12 @@ class BookingEvidenceService {
         : 'jpg';
     final objectPath =
         '$userId/${evidenceType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
-    final bytes = await File(file.path).readAsBytes();
+    final originalBytes = await File(file.path).readAsBytes();
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.sensitiveDocument,
+    );
 
     await supabase.storage
         .from('booking_evidence')
@@ -33,6 +39,7 @@ class BookingEvidenceService {
           fileOptions: FileOptions(
             upsert: true,
             contentType: file.mimeType ?? 'image/$extension',
+            cacheControl: '31536000',
           ),
         );
 
@@ -49,12 +56,21 @@ class BookingEvidenceService {
     final objectPath =
         '$userId/${evidenceType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
 
+    final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
+      bytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.signature,
+    );
     await supabase.storage
         .from('booking_evidence')
         .uploadBinary(
           objectPath,
-          bytes,
-          fileOptions: FileOptions(upsert: true, contentType: contentType),
+          optimizedBytes,
+          fileOptions: FileOptions(
+            upsert: true,
+            contentType: contentType,
+            cacheControl: '31536000',
+          ),
         );
 
     return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);

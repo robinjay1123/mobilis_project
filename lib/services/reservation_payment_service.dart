@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_optimization_service.dart';
 
 class ReservationPaymentSettings {
   final double amount;
@@ -132,17 +133,25 @@ class ReservationPaymentService {
   }
 
   Future<String> uploadQrCode({required XFile file}) async {
-    final bytes = await file.readAsBytes();
+    final originalBytes = await file.readAsBytes();
     final extension = _fileExtension(file.name, fallback: 'png');
     final objectPath =
         'psdc/payment_qr_${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.sensitiveDocument,
+    );
 
     await _supabase.storage
         .from(_qrBucket)
         .uploadBinary(
           objectPath,
           bytes,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
         );
 
     return _supabase.storage.from(_qrBucket).getPublicUrl(objectPath);
@@ -158,17 +167,25 @@ class ReservationPaymentService {
     required String userId,
     required XFile file,
   }) async {
-    final bytes = await file.readAsBytes();
+    final originalBytes = await file.readAsBytes();
     final extension = _fileExtension(file.name, fallback: 'jpg');
     final objectPath =
         '$userId/reservation_${DateTime.now().millisecondsSinceEpoch}.$extension';
+    final bytes = await ImageOptimizationService.optimizeForUpload(
+      originalBytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.sensitiveDocument,
+    );
 
     await _supabase.storage
         .from(_receiptBucket)
         .uploadBinary(
           objectPath,
           bytes,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
         );
 
     return ReservationReceiptUpload(

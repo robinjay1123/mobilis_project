@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../../../services/auth_service.dart';
 import 'ratings_reviews_screen.dart';
 import 'emergency_contact_screen.dart';
@@ -666,7 +667,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(16),
                   image: avatarUrl.isNotEmpty
                       ? DecorationImage(
-                          image: NetworkImage(avatarUrl),
+                          image: OptimizedNetworkImageProvider(avatarUrl),
                           fit: BoxFit.cover,
                         )
                       : null,

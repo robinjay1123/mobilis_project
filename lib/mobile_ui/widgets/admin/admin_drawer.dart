@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
+import '../optimized_network_image.dart';
 
 class AdminDrawer extends StatelessWidget {
   final int selectedIndex;
@@ -146,7 +147,7 @@ class AdminDrawer extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                       image: avatarUrl != null
                           ? DecorationImage(
-                              image: NetworkImage(avatarUrl!),
+                              image: OptimizedNetworkImageProvider(avatarUrl!),
                               fit: BoxFit.cover,
                             )
                           : null,

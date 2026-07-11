@@ -24,6 +24,7 @@ import '../../widgets/notification_item.dart';
 import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
@@ -628,7 +629,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       setState(() => _vehicles = vehicles);
       _applyVehicleFilters();
-      _precacheVehicleImages(vehicles);
     } catch (e) {
       debugPrint('Error loading vehicles: $e');
       if (!mounted) return;
@@ -639,19 +639,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } finally {
       if (mounted) setState(() => _isLoadingVehicles = false);
     }
-  }
-
-  void _precacheVehicleImages(List<Map<String, dynamic>> vehicles) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final urls = vehicles
-          .map((vehicle) => vehicle['image_url']?.toString().trim() ?? '')
-          .where((url) => url.isNotEmpty)
-          .take(10);
-      for (final url in urls) {
-        precacheImage(NetworkImage(url), context).catchError((_) {});
-      }
-    });
   }
 
   void _applyVehicleFilters() {
@@ -3763,7 +3750,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
           child: RoleTabHeader(
             title: 'Rental Bookings',
-            subtitle: 'Requests, ongoing rentals, completed trips, and tracking',
+            subtitle:
+                'Requests, ongoing rentals, completed trips, and tracking',
             icon: Icons.calendar_month_outlined,
             badge: '${uiBookings.length} total',
           ),
@@ -4304,10 +4292,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child:
                                 userAvatarUrl != null &&
                                     userAvatarUrl!.isNotEmpty
-                                ? Image.network(
-                                    userAvatarUrl!,
+                                ? OptimizedNetworkImage(
+                                    imageUrl: userAvatarUrl!,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => const Icon(
+                                    width: 100,
+                                    height: 100,
+                                    errorWidget: const Icon(
                                       Icons.person,
                                       color: Colors.black,
                                       size: 50,
@@ -4930,7 +4920,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           booking['vehicles'] != null &&
                               booking['vehicles']['image_url'] != null
                           ? DecorationImage(
-                              image: NetworkImage(
+                              image: OptimizedNetworkImageProvider(
                                 booking['vehicles']['image_url'] as String,
                               ),
                               fit: BoxFit.cover,
@@ -5660,7 +5650,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           image:
                               booking['imageUrl']?.toString().isNotEmpty == true
                               ? DecorationImage(
-                                  image: NetworkImage(
+                                  image: OptimizedNetworkImageProvider(
                                     booking['imageUrl'].toString(),
                                   ),
                                   fit: BoxFit.cover,
@@ -5857,7 +5847,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       borderRadius: BorderRadius.circular(10),
                       image: booking['imageUrl']?.toString().isNotEmpty == true
                           ? DecorationImage(
-                              image: NetworkImage(
+                              image: OptimizedNetworkImageProvider(
                                 booking['imageUrl'].toString(),
                               ),
                               fit: BoxFit.cover,
@@ -6972,44 +6962,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return _buildTripImageFallback(backgroundColor, iconColor);
     }
 
-    return Image.network(
-      cleanUrl,
+    return OptimizedNetworkImage(
+      imageUrl: cleanUrl,
       fit: fit,
       width: width,
       height: height,
-      filterQuality: FilterQuality.medium,
-      gaplessPlayback: true,
-      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-        if (wasSynchronouslyLoaded || frame != null) return child;
-        return _buildTripImageFallback(backgroundColor, iconColor);
-      },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        final expected = loadingProgress.expectedTotalBytes;
-        final loaded = loadingProgress.cumulativeBytesLoaded;
-        final value = expected == null ? null : loaded / expected;
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            _buildTripImageFallback(backgroundColor, iconColor),
-            Center(
-              child: SizedBox(
-                width: 26,
-                height: 26,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  value: value,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    AppColors.primary,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-      errorBuilder: (_, __, ___) =>
-          _buildTripImageFallback(backgroundColor, iconColor),
+      placeholder: _buildTripImageFallback(backgroundColor, iconColor),
+      errorWidget: _buildTripImageFallback(backgroundColor, iconColor),
     );
   }
 
@@ -7230,7 +7189,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
               image: imageUrl == null || imageUrl.isEmpty
                   ? null
                   : DecorationImage(
-                      image: NetworkImage(imageUrl),
+                      image: OptimizedNetworkImageProvider(imageUrl),
                       fit: BoxFit.cover,
                     ),
             ),

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_optimization_service.dart';
 
 class BookingInspectionService {
   BookingInspectionService._();
@@ -22,12 +23,20 @@ class BookingInspectionService {
     final objectPath =
         '$userId/$bookingId/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
 
+    final optimizedBytes = await ImageOptimizationService.optimizeForUpload(
+      bytes,
+      fileName: objectPath,
+      preset: UploadImagePreset.standard,
+    );
     await supabase.storage
         .from('booking_evidence')
         .uploadBinary(
           objectPath,
-          bytes,
-          fileOptions: const FileOptions(upsert: true),
+          optimizedBytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            cacheControl: '31536000',
+          ),
         );
 
     return supabase.storage.from('booking_evidence').getPublicUrl(objectPath);

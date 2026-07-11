@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/trip_rating_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/optimized_network_image.dart';
 
 class RatingsReviewsScreen extends StatefulWidget {
   final String userId;
@@ -253,12 +254,12 @@ class _RatingsReviewsScreenState extends State<RatingsReviewsScreen> {
                   .map(
                     (url) => ClipRRect(
                       borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        url,
+                      child: OptimizedNetworkImage(
+                        imageUrl: url,
                         width: 72,
                         height: 72,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
+                        errorWidget: Container(
                           width: 72,
                           height: 72,
                           color: AppColors.darkBgTertiary,

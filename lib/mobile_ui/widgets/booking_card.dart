@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import 'optimized_network_image.dart';
 
 class BookingCard extends StatelessWidget {
   final String carName;
@@ -88,7 +89,7 @@ class BookingCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     image: carImageUrl != null
                         ? DecorationImage(
-                            image: NetworkImage(carImageUrl!),
+                            image: OptimizedNetworkImageProvider(carImageUrl!),
                             fit: BoxFit.cover,
                           )
                         : null,
