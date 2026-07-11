@@ -62,6 +62,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _pendingPartnerVehicleApplications = [];
   List<Map<String, dynamic>> _priceChangeRequests = [];
   List<Map<String, dynamic>> _trackingLocations = [];
+  String? _focusedTrackingBookingId;
   Timer? _trackingRefreshTimer;
   List<Map<String, dynamic>> _announcements = [];
   List<Map<String, dynamic>> _supportConversations = [];
@@ -619,8 +620,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .from('bookings')
           .select('''
             *,
-            vehicles:vehicle_id (brand, model, year),
-            renter:renter_id (full_name, email)
+            vehicles:vehicle_id (id, brand, model, year, plate_number, owner_id, operator_id),
+            renter:renter_id (id, full_name, email),
+            drivers:drivers!bookings_driver_id_fkey (
+              id,
+              user_id,
+              users:users!drivers_user_id_fkey (id, full_name, email)
+            )
           ''')
           .order('created_at', ascending: false);
 
@@ -787,6 +793,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final locations = await TrackingService().getActiveTrackingLocations();
     if (!mounted) return;
     setState(() => _trackingLocations = locations);
+  }
+
+  bool _canTrackBooking(Map<String, dynamic> booking) {
+    final status = (booking['status'] as String? ?? '').toLowerCase();
+    return status == 'active' || status == 'approved' || status == 'confirmed';
+  }
+
+  Future<void> _openTrackingForBooking(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty || !_canTrackBooking(booking)) return;
+
+    setState(() {
+      _selectedIndex = 10;
+      _focusedTrackingBookingId = bookingId;
+      _isLoading = true;
+    });
+
+    try {
+      await _loadTrackingLocations();
+    } finally {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> _visibleTrackingLocations() {
+    if (_focusedTrackingBookingId == null ||
+        _focusedTrackingBookingId!.isEmpty) {
+      return _trackingLocations;
+    }
+
+    return _trackingLocations.where((location) {
+      final booking = location['bookings'] as Map<String, dynamic>?;
+      return booking?['id']?.toString() == _focusedTrackingBookingId;
+    }).toList();
   }
 
   Future<void> _loadPendingVerifications() async {
@@ -3254,13 +3295,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                     ),
                   ),
+                  DataColumn(
+                    label: Text(
+                      'Tracking',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
                 ],
                 rows: _allBookings.map((booking) {
                   final vehicle = booking['vehicles'] as Map<String, dynamic>?;
                   final user = booking['renter'] as Map<String, dynamic>?;
                   final status = booking['status'] as String? ?? 'pending';
+                  final canTrack = _canTrackBooking(booking);
                   final total =
-                      (booking['total_cost'] as num?)?.toDouble() ?? 0;
+                      (booking['total_price'] as num?)?.toDouble() ??
+                      (booking['total_cost'] as num?)?.toDouble() ??
+                      0;
 
                   return DataRow(
                     cells: [
@@ -3292,6 +3344,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           ),
                         ),
                       ),
+                      DataCell(
+                        ElevatedButton.icon(
+                          onPressed: canTrack
+                              ? () => _openTrackingForBooking(booking)
+                              : null,
+                          icon: const Icon(Icons.location_on, size: 16),
+                          label: const Text('Track'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            disabledBackgroundColor: isDark
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade300,
+                            disabledForegroundColor: isDark
+                                ? Colors.grey.shade500
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
                     ],
                   );
                 }).toList(),
@@ -3302,7 +3373,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildTrackingContent(bool isDark) {
-    final mapUrl = _buildMapboxStaticUrl(_trackingLocations);
+    final visibleLocations = _visibleTrackingLocations();
+    final mapUrl = _buildMapboxStaticUrl(visibleLocations);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -3310,7 +3382,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildCard(
-            'Live Tracking (${_trackingLocations.length})',
+            'Live Tracking (${visibleLocations.length})',
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -3329,9 +3401,31 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
+                    if (_focusedTrackingBookingId != null) ...[
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() => _focusedTrackingBookingId = null);
+                        },
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Show all bookings'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark
+                              ? Colors.white
+                              : Colors.black87,
+                          side: BorderSide(
+                            color: isDark
+                                ? AppColors.borderColor
+                                : Colors.grey.shade400,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
                     Expanded(
                       child: Text(
-                        'Tracks app users during active bookings. For a real car installation later, use a GPS/OBD tracker or a dedicated in-car phone.',
+                        _focusedTrackingBookingId == null
+                            ? 'Tracks each active booking from the driver app. Click Track from Bookings to focus one trip.'
+                            : 'Showing only the selected booking from the Bookings table.',
                         style: TextStyle(
                           color: isDark ? Colors.grey[400] : Colors.grey[700],
                         ),
@@ -3349,8 +3443,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     child: mapUrl == null
                         ? Center(
                             child: Text(
-                              _trackingLocations.isEmpty
-                                  ? 'No active tracking locations yet'
+                              visibleLocations.isEmpty
+                                  ? (_focusedTrackingBookingId == null
+                                        ? 'No active tracking locations yet'
+                                        : 'No live location yet for this booking')
                                   : 'Add MAPBOX_ACCESS_TOKEN with --dart-define to show the map',
                               style: TextStyle(
                                 color: isDark
@@ -3377,15 +3473,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (_trackingLocations.isEmpty)
+                if (visibleLocations.isEmpty)
                   Text(
-                    'Tracking starts from the driver app on an active trip.',
+                    _focusedTrackingBookingId == null
+                        ? 'Tracking starts from the driver app on an active trip.'
+                        : 'Ask the assigned driver to start location tracking for this booking.',
                     style: TextStyle(
                       color: isDark ? Colors.grey[400] : Colors.grey[700],
                     ),
                   )
                 else
-                  ..._trackingLocations.map(
+                  ...visibleLocations.map(
                     (location) => _buildTrackingRow(location, isDark),
                   ),
               ],
@@ -3403,6 +3501,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final driver = booking?['drivers'] as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
+    final bookingId = booking?['id']?.toString() ?? 'N/A';
+    final pickup = booking?['pickup_location']?.toString().trim() ?? '';
+    final dropoff = booking?['dropoff_location']?.toString().trim() ?? '';
     final vehicleName = [
       vehicle?['brand'],
       vehicle?['model'],
@@ -3438,11 +3539,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
+                  'Booking: $bookingId | Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
                   style: TextStyle(
                     color: isDark ? Colors.grey[400] : Colors.grey[700],
                   ),
                 ),
+                if (pickup.isNotEmpty || dropoff.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pickup: ${pickup.isEmpty ? 'N/A' : pickup} | Destination: ${dropoff.isEmpty ? 'N/A' : dropoff}',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Text(
                   'Lat/Lng: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'} | Updated: ${location['recorded_at'] ?? 'N/A'}',

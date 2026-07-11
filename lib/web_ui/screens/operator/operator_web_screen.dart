@@ -1809,6 +1809,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driver = booking?['drivers'] as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
+    final bookingId = booking?['id']?.toString() ?? 'N/A';
+    final pickup = booking?['pickup_location']?.toString().trim() ?? '';
+    final dropoff = booking?['dropoff_location']?.toString().trim() ?? '';
     final vehicleName = [
       vehicle?['brand'],
       vehicle?['model'],
@@ -1844,11 +1847,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
+                  'Booking: $bookingId | Driver: ${driverUser?['full_name'] ?? 'N/A'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
                   style: TextStyle(
                     color: isDark ? Colors.grey[400] : Colors.grey[700],
                   ),
                 ),
+                if (pickup.isNotEmpty || dropoff.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pickup: ${pickup.isEmpty ? 'N/A' : pickup} | Destination: ${dropoff.isEmpty ? 'N/A' : dropoff}',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Text(
                   'Lat/Lng: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'} | Updated: ${location['recorded_at'] ?? 'N/A'}',
