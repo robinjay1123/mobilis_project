@@ -439,6 +439,69 @@ class ChatService {
     }
   }
 
+  Future<Map<String, dynamic>> softDeleteMessage({
+    required String messageId,
+    required String userId,
+  }) async {
+    final message = await supabase
+        .from('messages')
+        .select('id, sender_id, is_auto_generated, content, message')
+        .eq('id', messageId)
+        .maybeSingle();
+    if (message == null) throw Exception('Message no longer exists');
+    if (message['sender_id']?.toString() != userId) {
+      throw Exception('You can only delete your own messages');
+    }
+    if (message['is_auto_generated'] == true) {
+      throw Exception('System messages cannot be deleted');
+    }
+    if ((message['content'] ?? message['message'])?.toString() ==
+        'Message deleted') {
+      return Map<String, dynamic>.from(message);
+    }
+
+    final commonUpdates = <String, dynamic>{
+      'message': 'Message deleted',
+      'content': 'Message deleted',
+      'attachment_url': null,
+      'attachment_type': null,
+      'attachment_name': null,
+      'attachment_size': null,
+    };
+    try {
+      final response = await supabase
+          .from('messages')
+          .update({
+            ...commonUpdates,
+            'is_deleted': true,
+            'deleted_at': DateTime.now().toIso8601String(),
+            'deleted_by': userId,
+          })
+          .eq('id', messageId)
+          .eq('sender_id', userId)
+          .select()
+          .single();
+      return Map<String, dynamic>.from(response);
+    } on PostgrestException catch (error) {
+      final missingDeleteColumns =
+          error.code == 'PGRST204' ||
+          error.code == '42703' ||
+          error.message.contains('is_deleted');
+      if (!missingDeleteColumns) rethrow;
+      final response = await supabase
+          .from('messages')
+          .update(commonUpdates)
+          .eq('id', messageId)
+          .eq('sender_id', userId)
+          .select()
+          .single();
+      return Map<String, dynamic>.from(response);
+    }
+  }
+
+  String typingChannelName(String conversationId) =>
+      'chat-typing-${conversationId.trim()}';
+
   Future<void> _notifyMessageRecipients({
     required String conversationId,
     required String senderId,

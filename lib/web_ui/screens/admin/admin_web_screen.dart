@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
+import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
@@ -73,6 +74,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isLoadingSupportInbox = false;
   bool _isSendingSupportReply = false;
   RealtimeChannel? _supportMessagesSubscription;
+  RealtimeChannel? _supportTypingChannel;
+  final Map<String, String> _supportTypingUsers = {};
+  final Map<String, Timer> _supportTypingExpiryTimers = {};
+  Timer? _supportTypingStopTimer;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -121,6 +126,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void dispose() {
     _trackingRefreshTimer?.cancel();
     _supportMessagesSubscription?.unsubscribe();
+    _supportTypingChannel?.unsubscribe();
+    _supportTypingStopTimer?.cancel();
+    for (final timer in _supportTypingExpiryTimers.values) {
+      timer.cancel();
+    }
     _rentalTermsController.dispose();
     _reservationAmountController.dispose();
     _reservationQrUrlController.dispose();
@@ -136,7 +146,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _supportMessagesSubscription = _supabase
         .channel('admin-support-messages')
         .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'messages',
           callback: (payload) {
@@ -172,16 +182,98 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   ) {
     final messages = _supportMessages.putIfAbsent(conversationId, () => []);
     final messageId = message['id']?.toString();
-    if (messageId != null &&
-        messages.any((item) => item['id']?.toString() == messageId)) {
-      return;
+    if (messageId != null) {
+      final existingIndex = messages.indexWhere(
+        (item) => item['id']?.toString() == messageId,
+      );
+      if (existingIndex >= 0) {
+        messages[existingIndex] = message;
+      } else {
+        messages.add(message);
+      }
+    } else {
+      messages.add(message);
     }
-    messages.add(message);
     messages.sort((a, b) {
       final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '');
       final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '');
       return (aDate ?? DateTime(1970)).compareTo(bDate ?? DateTime(1970));
     });
+  }
+
+  void _watchSupportTyping(String conversationId) {
+    _supportTypingChannel?.unsubscribe();
+    _supportTypingUsers.clear();
+    _supportTypingChannel = _supabase
+        .channel(ChatService().typingChannelName(conversationId))
+        .onBroadcast(
+          event: 'typing',
+          callback: (rawPayload) {
+            final nested = rawPayload['payload'];
+            final payload = nested is Map
+                ? Map<String, dynamic>.from(nested)
+                : rawPayload;
+            final userId = payload['user_id']?.toString();
+            if (userId == null ||
+                userId.isEmpty ||
+                userId == _supabase.auth.currentUser?.id) {
+              return;
+            }
+            final isTyping = payload['is_typing'] == true;
+            _supportTypingExpiryTimers.remove(userId)?.cancel();
+            if (!mounted) return;
+            setState(() {
+              if (isTyping) {
+                _supportTypingUsers[userId] =
+                    payload['name']?.toString().trim().isNotEmpty == true
+                    ? payload['name'].toString().trim()
+                    : 'User';
+              } else {
+                _supportTypingUsers.remove(userId);
+              }
+            });
+            if (isTyping) {
+              _supportTypingExpiryTimers[userId] = Timer(
+                const Duration(seconds: 3),
+                () {
+                  if (!mounted) return;
+                  setState(() => _supportTypingUsers.remove(userId));
+                },
+              );
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _handleSupportTyping(String value) {
+    final isTyping = value.trim().isNotEmpty;
+    unawaited(_sendSupportTyping(isTyping));
+    _supportTypingStopTimer?.cancel();
+    if (isTyping) {
+      _supportTypingStopTimer = Timer(
+        const Duration(milliseconds: 1200),
+        () => unawaited(_sendSupportTyping(false)),
+      );
+    }
+  }
+
+  Future<void> _sendSupportTyping(bool isTyping) async {
+    final channel = _supportTypingChannel;
+    final admin = _supabase.auth.currentUser;
+    if (channel == null || admin == null) return;
+    try {
+      await channel.sendBroadcastMessage(
+        event: 'typing',
+        payload: {
+          'user_id': admin.id,
+          'name': 'Admin support',
+          'is_typing': isTyping,
+        },
+      );
+    } catch (e) {
+      debugPrint('Admin typing status skipped: $e');
+    }
   }
 
   Future<void> _loadDashboardData() async {
@@ -301,6 +393,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               ?.toString();
         }
         if (_selectedSupportConversationId != null) {
+          _watchSupportTyping(_selectedSupportConversationId!);
           await _loadSupportConversationMessages(
             _selectedSupportConversationId!,
           );
@@ -341,16 +434,32 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       return;
     }
 
-    setState(() => _isSendingSupportReply = true);
+    final optimisticId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    setState(() {
+      _isSendingSupportReply = true;
+      _mergeSupportMessage(conversationId, {
+        'id': optimisticId,
+        'conversation_id': conversationId,
+        'sender_id': adminId,
+        'content': content,
+        'message': content,
+        'created_at': DateTime.now().toIso8601String(),
+        '_is_sending': true,
+      });
+    });
+    _supportReplyController.clear();
+    unawaited(_sendSupportTyping(false));
     try {
       final sentMessage = await ChatService().sendMessage(
         conversationId: conversationId,
         senderId: adminId,
         content: content,
       );
-      _supportReplyController.clear();
       if (!mounted) return;
       setState(() {
+        _supportMessages[conversationId]?.removeWhere(
+          (message) => message['id'] == optimisticId,
+        );
         _mergeSupportMessage(conversationId, sentMessage);
         final index = _supportConversations.indexWhere(
           (conversation) => conversation['id']?.toString() == conversationId,
@@ -366,6 +475,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        final messages = _supportMessages[conversationId];
+        final index = messages?.indexWhere(
+          (message) => message['id'] == optimisticId,
+        );
+        if (messages != null && index != null && index >= 0) {
+          messages[index] = {
+            ...messages[index],
+            '_is_sending': false,
+            '_send_failed': true,
+          };
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Unable to send support reply: $e'),
@@ -374,6 +496,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
     } finally {
       if (mounted) setState(() => _isSendingSupportReply = false);
+    }
+  }
+
+  Future<void> _deleteSupportMessage(Map<String, dynamic> message) async {
+    final messageId = message['id']?.toString();
+    final adminId = _supabase.auth.currentUser?.id;
+    if (messageId == null || messageId.isEmpty || adminId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: const Text(
+          'The message will be marked as deleted for everyone in this chat.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final deleted = await ChatService().softDeleteMessage(
+        messageId: messageId,
+        userId: adminId,
+      );
+      if (!mounted) return;
+      setState(() {
+        final conversationId = deleted['conversation_id']?.toString();
+        if (conversationId != null) {
+          _mergeSupportMessage(conversationId, deleted);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to delete message: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -5376,6 +5547,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             () =>
                                 _selectedSupportConversationId = conversationId,
                           );
+                          _watchSupportTyping(conversationId);
                           await _loadSupportConversationMessages(
                             conversationId,
                           );
@@ -5525,6 +5697,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               final isAdminMessage =
                                   message['sender_id']?.toString() ==
                                   _supabase.auth.currentUser?.id;
+                              final isDeleted =
+                                  message['is_deleted'] == true ||
+                                  (message['content'] ?? message['message'])
+                                          ?.toString() ==
+                                      'Message deleted';
+                              final isSending = message['_is_sending'] == true;
+                              final sendFailed = message['_send_failed'] == true;
                               return Align(
                                 alignment: isAdminMessage
                                     ? Alignment.centerRight
@@ -5543,15 +5722,88 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                               : Colors.grey.shade100),
                                     borderRadius: BorderRadius.circular(14),
                                   ),
-                                  child: Text(
-                                    message['content']?.toString() ?? '',
-                                    style: TextStyle(
-                                      color: isAdminMessage
-                                          ? Colors.black
-                                          : (isDark
-                                                ? Colors.white
-                                                : Colors.black87),
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        isDeleted
+                                            ? 'Message deleted'
+                                            : message['content']?.toString() ??
+                                                  '',
+                                        style: TextStyle(
+                                          fontStyle: isDeleted
+                                              ? FontStyle.italic
+                                              : FontStyle.normal,
+                                          color: isAdminMessage
+                                              ? Colors.black
+                                              : (isDark
+                                                    ? Colors.white
+                                                    : Colors.black87),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          RelativeTimeText(
+                                            value: message['created_at'],
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: isAdminMessage
+                                                  ? Colors.black54
+                                                  : (isDark
+                                                        ? Colors.white54
+                                                        : Colors.black45),
+                                            ),
+                                          ),
+                                          if (isSending || sendFailed) ...[
+                                            const SizedBox(width: 7),
+                                            Text(
+                                              sendFailed
+                                                  ? 'Failed'
+                                                  : 'Sending...',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontStyle: FontStyle.italic,
+                                                color: sendFailed
+                                                    ? AppColors.error
+                                                    : Colors.black45,
+                                              ),
+                                            ),
+                                          ],
+                                          if (isAdminMessage &&
+                                              !isDeleted &&
+                                              !isSending &&
+                                              !sendFailed &&
+                                              message['is_auto_generated'] !=
+                                                  true) ...[
+                                            const SizedBox(width: 6),
+                                            IconButton(
+                                              tooltip: 'Delete message',
+                                              padding: EdgeInsets.zero,
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              constraints:
+                                                  const BoxConstraints(
+                                                    minWidth: 26,
+                                                    minHeight: 26,
+                                                  ),
+                                              onPressed: () =>
+                                                  _deleteSupportMessage(
+                                                    message,
+                                                  ),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                size: 15,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                 ),
                               );
@@ -5559,6 +5811,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           ),
                   ),
                   const Divider(height: 1),
+                  if (_supportTypingUsers.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(22, 9, 22, 0),
+                        child: Text(
+                          '${_supportTypingUsers.values.first} is typing...',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.all(18),
                     child: Row(
@@ -5566,6 +5834,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         Expanded(
                           child: TextField(
                             controller: _supportReplyController,
+                            onChanged: _handleSupportTyping,
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                             ),

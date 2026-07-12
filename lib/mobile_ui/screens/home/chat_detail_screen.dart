@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/message_filter_service.dart';
@@ -10,6 +11,7 @@ import '../../../services/user_restriction_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/relative_time_text.dart';
 
 class _SupportFaq {
   final String question;
@@ -50,6 +52,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isLoading = false;
   bool _isUploadingAttachment = false;
   bool _showSupportFaqs = true;
+  final List<Map<String, dynamic>> _pendingMessages = [];
+  final Map<String, String> _typingUsers = {};
+  final Map<String, Timer> _typingExpiryTimers = {};
+  RealtimeChannel? _typingChannel;
+  Timer? _typingStopTimer;
   final AuthService _authService = AuthService();
   final UserRestrictionService _restrictionService = UserRestrictionService();
   UserRestrictionState _restrictionState = UserRestrictionState.empty;
@@ -153,6 +160,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _messageStream = _buildMessageStream();
     _loadParticipants();
     _loadRestrictionState();
+    _messageController.addListener(_handleTypingChanged);
+    _setupTypingChannel();
     unawaited(_markCurrentMessagesRead());
   }
 
@@ -167,8 +176,109 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       messages,
     ) async {
       await _markCurrentMessagesRead();
+      final serverIds = messages
+          .map((message) => message['id']?.toString())
+          .whereType<String>()
+          .toSet();
+      if (mounted &&
+          _pendingMessages.any(
+            (message) => serverIds.contains(message['id']?.toString()),
+          )) {
+        setState(
+          () => _pendingMessages.removeWhere(
+            (message) => serverIds.contains(message['id']?.toString()),
+          ),
+        );
+      }
       return messages;
     });
+  }
+
+  void _setupTypingChannel() {
+    final currentUserId = _authService.currentUser?.id;
+    _typingChannel = Supabase.instance.client
+        .channel(ChatService().typingChannelName(widget.conversationId))
+        .onBroadcast(
+          event: 'typing',
+          callback: (rawPayload) {
+            final nested = rawPayload['payload'];
+            final payload = nested is Map
+                ? Map<String, dynamic>.from(nested)
+                : rawPayload;
+            final userId = payload['user_id']?.toString();
+            if (userId == null || userId.isEmpty || userId == currentUserId) {
+              return;
+            }
+            final isTyping = payload['is_typing'] == true;
+            _typingExpiryTimers.remove(userId)?.cancel();
+            if (!mounted) return;
+            setState(() {
+              if (isTyping) {
+                _typingUsers[userId] =
+                    payload['name']?.toString().trim().isNotEmpty == true
+                    ? payload['name'].toString().trim()
+                    : 'Someone';
+              } else {
+                _typingUsers.remove(userId);
+              }
+            });
+            if (isTyping) {
+              _typingExpiryTimers[userId] = Timer(
+                const Duration(seconds: 3),
+                () {
+                  if (!mounted) return;
+                  setState(() => _typingUsers.remove(userId));
+                },
+              );
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _handleTypingChanged() {
+    final isTyping = _messageController.text.trim().isNotEmpty;
+    unawaited(_sendTypingState(isTyping));
+    _typingStopTimer?.cancel();
+    if (isTyping) {
+      _typingStopTimer = Timer(
+        const Duration(milliseconds: 1200),
+        () => unawaited(_sendTypingState(false)),
+      );
+    }
+  }
+
+  Future<void> _sendTypingState(bool isTyping) async {
+    final user = _authService.currentUser;
+    final channel = _typingChannel;
+    if (user == null || channel == null) return;
+    final metadataName = user.userMetadata?['full_name']?.toString().trim();
+    final displayName = widget.isCustomerService && widget.userRole == 'admin'
+        ? 'Admin support'
+        : metadataName?.isNotEmpty == true
+        ? metadataName!
+        : widget.isCustomerService
+        ? 'User'
+        : 'Someone';
+    try {
+      await channel.sendBroadcastMessage(
+        event: 'typing',
+        payload: {
+          'user_id': user.id,
+          'name': displayName,
+          'is_typing': isTyping,
+        },
+      );
+    } catch (e) {
+      debugPrint('Typing status skipped: $e');
+    }
+  }
+
+  String get _typingLabel {
+    final names = _typingUsers.values.toSet().toList();
+    if (names.isEmpty) return '';
+    if (names.length == 1) return '${names.first} is typing...';
+    return '${names.take(2).join(' and ')} are typing...';
   }
 
   Future<void> _markCurrentMessagesRead() async {
@@ -218,7 +328,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     if (currentUser == null) return;
 
-    setState(() => _isLoading = true);
+    final optimisticId =
+        'local-${DateTime.now().microsecondsSinceEpoch}-${currentUser.id}';
+    setState(() {
+      _isLoading = true;
+      _pendingMessages.add({
+        'id': optimisticId,
+        'conversation_id': widget.conversationId,
+        'sender_id': currentUser.id,
+        'content': messageContent,
+        'message': messageContent,
+        'created_at': DateTime.now().toIso8601String(),
+        '_is_sending': true,
+      });
+    });
+    _messageController.clear();
+    unawaited(_sendTypingState(false));
 
     try {
       // Analyze message for off-platform transaction attempts
@@ -241,6 +366,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         senderId: currentUser.id,
         content: messageContent,
       );
+      if (mounted) {
+        setState(() {
+          final index = _pendingMessages.indexWhere(
+            (message) => message['id'] == optimisticId,
+          );
+          if (index >= 0) _pendingMessages[index] = sentMessage;
+        });
+      }
 
       // Flag if necessary
       if (analysis['should_flag']) {
@@ -274,7 +407,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
       }
 
-      _messageController.clear();
       await _loadRestrictionState();
 
       if (mounted) {
@@ -282,13 +414,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
+        setState(() {
+          final index = _pendingMessages.indexWhere(
+            (message) => message['id'] == optimisticId,
+          );
+          if (index >= 0) {
+            _pendingMessages[index] = {
+              ..._pendingMessages[index],
+              '_is_sending': false,
+              '_send_failed': true,
+            };
+          }
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to send message: $e'),
             backgroundColor: AppColors.error,
           ),
         );
-        setState(() => _isLoading = false);
       }
     }
   }
@@ -346,6 +490,56 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _isUploadingAttachment = false;
         });
       }
+    }
+  }
+
+  Future<void> _confirmDeleteMessage(Map<String, dynamic> message) async {
+    final messageId = message['id']?.toString();
+    final userId = _authService.currentUser?.id;
+    if (messageId == null || messageId.isEmpty || userId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Delete message?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'The message will remain in the conversation as "Message deleted".',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ChatService().softDeleteMessage(
+        messageId: messageId,
+        userId: userId,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not delete message: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -609,6 +803,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    _messageController.removeListener(_handleTypingChanged);
+    unawaited(_sendTypingState(false));
+    _typingStopTimer?.cancel();
+    for (final timer in _typingExpiryTimers.values) {
+      timer.cancel();
+    }
+    _typingChannel?.unsubscribe();
     _messageController.dispose();
     _restrictionTicker?.cancel();
     super.dispose();
@@ -787,7 +988,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   );
                 }
 
-                final messages = snapshot.data ?? [];
+                final serverMessages = snapshot.data ?? const [];
+                final serverIds = serverMessages
+                    .map((message) => message['id']?.toString())
+                    .whereType<String>()
+                    .toSet();
+                final messages = <Map<String, dynamic>>[
+                  ...serverMessages,
+                  ..._pendingMessages.where(
+                    (message) =>
+                        !serverIds.contains(message['id']?.toString()),
+                  ),
+                ]..sort((a, b) {
+                  final aDate = DateTime.tryParse(
+                    a['created_at']?.toString() ?? '',
+                  );
+                  final bDate = DateTime.tryParse(
+                    b['created_at']?.toString() ?? '',
+                  );
+                  return (aDate ?? DateTime(1970)).compareTo(
+                    bDate ?? DateTime(1970),
+                  );
+                });
 
                 if (messages.isEmpty) {
                   return Center(
@@ -883,6 +1105,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         message['is_auto_generated'] == true;
                     final currentUserId = _authService.currentUser?.id;
                     final isCurrentUser = message['sender_id'] == currentUserId;
+                    final isDeleted =
+                        message['is_deleted'] == true ||
+                        (message['content'] ?? message['message'])?.toString() ==
+                            'Message deleted';
+                    final isSending = message['_is_sending'] == true;
+                    final sendFailed = message['_send_failed'] == true;
                     final content =
                         (message['content'] ?? message['message'] ?? '')
                             .toString();
@@ -892,6 +1120,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     final attachmentType =
                         message['attachment_type']?.toString() ?? 'document';
                     final violatesPolicy =
+                        !isDeleted &&
                         isCurrentUser &&
                         MessageFilterService.analyzeMessage(
                               content,
@@ -949,7 +1178,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (attachmentUrl != null &&
+                                if (!isDeleted &&
+                                    attachmentUrl != null &&
                                     attachmentUrl.isNotEmpty) ...[
                                   InkWell(
                                     onTap: () => launchUrl(
@@ -991,9 +1221,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                 ],
                                 if (content.isNotEmpty)
                                   Text(
-                                    content,
+                                    isDeleted ? 'Message deleted' : content,
                                     style: TextStyle(
                                       fontSize: 14,
+                                      fontStyle: isDeleted
+                                          ? FontStyle.italic
+                                          : FontStyle.normal,
                                       color: isCurrentUser
                                           ? Colors.black
                                           : (isDark
@@ -1010,8 +1243,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  _formatTime(message['created_at']),
+                                RelativeTimeText(
+                                  value: message['created_at'],
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: isDark
@@ -1019,6 +1252,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                         : AppColors.lightTextTertiary,
                                   ),
                                 ),
+                                if (isSending || sendFailed) ...[
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    sendFailed ? 'Failed' : 'Sending...',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: sendFailed
+                                          ? AppColors.error
+                                          : AppColors.textTertiary,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                                if (isCurrentUser &&
+                                    !isDeleted &&
+                                    !isAutoGenerated &&
+                                    !isSending &&
+                                    !sendFailed) ...[
+                                  const SizedBox(width: 5),
+                                  IconButton(
+                                    tooltip: 'Delete message',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 28,
+                                      minHeight: 28,
+                                    ),
+                                    onPressed: () => _confirmDeleteMessage(
+                                      message,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      size: 16,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                  ),
+                                ],
                                 if (violatesPolicy) ...[
                                   const SizedBox(width: 8),
                                   const Text(
@@ -1072,6 +1342,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+
+          if (_typingUsers.isNotEmpty)
+            Container(
+              width: double.infinity,
+              color: cardColor,
+              padding: const EdgeInsets.fromLTRB(58, 6, 16, 2),
+              child: Text(
+                _typingLabel,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
 
@@ -1275,24 +1561,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
     );
-  }
-
-  String _formatTime(String? dateString) {
-    if (dateString == null) return '';
-    try {
-      final date = DateTime.parse(dateString);
-      final now = DateTime.now();
-      final diff = now.difference(date);
-
-      if (diff.inMinutes < 1) return 'now';
-      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-      if (diff.inHours < 24) return '${diff.inHours}h ago';
-      if (diff.inDays < 7) return '${diff.inDays}d ago';
-
-      return '${date.day}/${date.month}';
-    } catch (e) {
-      return '';
-    }
   }
 
   Widget _buildParticipantReference(
