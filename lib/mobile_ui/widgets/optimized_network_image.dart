@@ -58,10 +58,18 @@ class OptimizedNetworkImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-    final targetWidth = width == null
+    final cacheWidth = width != null && width!.isFinite && width! > 0
+        ? width
+        : null;
+    final cacheHeight = height != null && height!.isFinite && height! > 0
+        ? height
+        : null;
+    final targetWidth = cacheWidth == null
         ? (isThumbnail ? 720 : 1920)
-        : (width! * pixelRatio).round();
-    final targetHeight = height == null ? null : (height! * pixelRatio).round();
+        : (cacheWidth * pixelRatio).round();
+    final targetHeight = cacheHeight == null
+        ? null
+        : (cacheHeight * pixelRatio).round();
     final image = CachedNetworkImage(
       imageUrl: imageUrl,
       cacheKey: MobilisImageCache.cacheKey(imageUrl),

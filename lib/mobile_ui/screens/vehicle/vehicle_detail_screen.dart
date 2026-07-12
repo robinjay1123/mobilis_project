@@ -314,13 +314,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
 
     if (picked == null) {
-      if (!mounted) return;
-      if (_selectedStartDate != null || _selectedEndDate != null) {
-        setState(() {
-          _selectedStartDate = null;
-          _selectedEndDate = null;
-        });
-      }
       return;
     }
 
@@ -529,9 +522,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             );
                             return;
                           }
-                          final picked = await _pickAvailableTimeSlot(
-                            date: selectedDate,
-                            selectingEnd: false,
+                          final picked = await _showFlexibleTimePicker(
+                            initialTime: _startTime,
+                            helpText: 'Set rental start time',
                           );
                           if (picked != null) {
                             setDialogState(() {
@@ -778,7 +771,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     var candidate = DateTime(preferred.year, preferred.month, preferred.day);
     if (candidate.isBefore(lowerBound)) candidate = lowerBound;
     final upperBound = lowerBound.add(const Duration(days: 365));
-    return candidate.isAfter(upperBound) ? upperBound : candidate;
+    if (candidate.isAfter(upperBound)) candidate = upperBound;
+    final blocked = _unavailableDates.map(_dateOnly).toSet();
+    while (blocked.contains(candidate) && candidate.isBefore(upperBound)) {
+      candidate = candidate.add(const Duration(days: 1));
+    }
+    return candidate;
   }
 
   DateTime _dateOnly(DateTime date) {
@@ -1106,10 +1104,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
       return;
     }
-    final picked = await _pickAvailableTimeSlot(
-      date: date,
-      selectingEnd: !isStartTime,
-      rentalStart: isStartTime ? null : _startAtLocal,
+    final picked = await _showFlexibleTimePicker(
+      initialTime: isStartTime ? _startTime : _returnTime,
+      helpText: isStartTime ? 'Set rental start time' : 'Set return time',
     );
     if (picked == null) return;
     setState(() {
@@ -1121,101 +1118,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     });
   }
 
-  Future<TimeOfDay?> _pickAvailableTimeSlot({
-    required DateTime date,
-    required bool selectingEnd,
-    DateTime? rentalStart,
+  Future<TimeOfDay?> _showFlexibleTimePicker({
+    required TimeOfDay initialTime,
+    required String helpText,
   }) async {
-    final slots = await VehicleService().getAvailableTimeSlots(
-      vehicleId: widget.vehicleId,
-      date: date,
-      rentalStart: rentalStart,
-      selectingEnd: selectingEnd,
-    );
-    if (!mounted) return null;
-    if (slots.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            selectingEnd
-                ? 'No available return times for the selected rental range.'
-                : 'No available time slots for this vehicle on this date.',
-          ),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return null;
-    }
-
-    return showModalBottomSheet<TimeOfDay>(
+    return showTimePicker(
       context: context,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                selectingEnd
-                    ? 'Available Return Times'
-                    : 'Available Start Times',
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${_formatDate(date)} - ${_vehicle?['brand'] ?? ''} ${_vehicle?['model'] ?? ''}',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 360),
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: slots.map((slot) {
-                      final time = TimeOfDay.fromDateTime(slot);
-                      return ActionChip(
-                        avatar: const Icon(
-                          Icons.schedule,
-                          size: 17,
-                          color: AppColors.primary,
-                        ),
-                        label: Text(
-                          MaterialLocalizations.of(
-                            context,
-                          ).formatTimeOfDay(time),
-                        ),
-                        onPressed: () => Navigator.pop(sheetContext, time),
-                        backgroundColor: AppColors.darkBgTertiary,
-                        side: const BorderSide(color: AppColors.borderColor),
-                        labelStyle: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-            ],
+      initialTime: initialTime,
+      helpText: helpText,
+      initialEntryMode: TimePickerEntryMode.dial,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: AppColors.primary,
+            surface: AppColors.darkBgSecondary,
+            onSurface: AppColors.textPrimary,
+          ),
+          timePickerTheme: const TimePickerThemeData(
+            backgroundColor: AppColors.darkBgSecondary,
+            dialBackgroundColor: AppColors.darkBgTertiary,
           ),
         ),
+        child: child!,
       ),
     );
   }
 
   Future<void> _refreshDeliveryEstimate() async {
-    if (!_withDriver) {
+    if (!_requiresPickupMap) {
       setState(() {
         _deliveryDistanceKm = null;
       });
@@ -1381,31 +1311,40 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    final availableStartSlots = await VehicleService().getAvailableTimeSlots(
-      vehicleId: widget.vehicleId,
-      date: startAtLocal,
-    );
-    final availableEndSlots = await VehicleService().getAvailableTimeSlots(
-      vehicleId: widget.vehicleId,
-      date: endAtLocal,
-      rentalStart: startAtLocal,
-      selectingEnd: true,
-    );
+    if (!startAtLocal.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental start time must be in the future'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
+    late final bool scheduleIsAvailable;
+    try {
+      scheduleIsAvailable = await VehicleService().isTimeRangeAvailable(
+        vehicleId: widget.vehicleId,
+        startAt: startAtLocal,
+        endAt: endAtLocal,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not validate the selected schedule: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
-    final startIsAvailable = availableStartSlots.any(
-      (slot) =>
-          slot.hour == startAtLocal.hour && slot.minute == startAtLocal.minute,
-    );
-    final endIsAvailable = availableEndSlots.any(
-      (slot) =>
-          slot.hour == endAtLocal.hour && slot.minute == endAtLocal.minute,
-    );
-    if (!startIsAvailable || !endIsAvailable) {
+    if (!scheduleIsAvailable) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'The selected date or time is unavailable. Choose an available time slot.',
+            'That schedule overlaps an unavailable period or another booking. Choose different dates or times.',
           ),
           backgroundColor: AppColors.warning,
         ),
@@ -4020,7 +3959,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   String? _buildStaticBookingMapUrl(_BookingLocationPin? pin) {
-    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    const configuredToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    final token = configuredToken.trim().replaceAll(
+      RegExp(r'''^["']|["']$'''),
+      '',
+    );
     if (token.isEmpty || pin == null) return null;
     final lat = pin.latitude;
     final lng = pin.longitude;
@@ -4059,28 +4002,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               ),
               child: OptimizedNetworkImage(
                 imageUrl: mapUrl,
-                height: 220,
+                height: 170,
                 width: double.infinity,
                 fit: BoxFit.cover,
                 isThumbnail: true,
+                errorWidget: _buildMapPreviewFallback(
+                  hasPin: true,
+                  compact: true,
+                ),
               ),
             )
           else
-            Container(
-              height: 200,
+            SizedBox(
+              height: 140,
               width: double.infinity,
-              decoration: BoxDecoration(
-                color: AppColors.darkBgTertiary,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(14),
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  pin == null ? Icons.add_location_alt_outlined : Icons.place,
-                  color: AppColors.primary,
-                  size: 42,
-                ),
+              child: _buildMapPreviewFallback(
+                hasPin: pin != null,
+                compact: true,
               ),
             ),
           Padding(
@@ -4153,6 +4091,42 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMapPreviewFallback({
+    required bool hasPin,
+    bool compact = false,
+  }) {
+    return ColoredBox(
+      color: AppColors.darkBgTertiary,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                hasPin ? Icons.location_pin : Icons.add_location_alt_outlined,
+                color: AppColors.primary,
+                size: compact ? 34 : 42,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                hasPin
+                    ? 'Map preview unavailable. Your pin and address are still saved.'
+                    : 'Search or use your location to place a pin.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -4811,6 +4785,7 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
                           height: 190,
                           fit: BoxFit.cover,
                           isThumbnail: true,
+                          errorWidget: const _LocationMapError(),
                         ),
                 ),
               ),
@@ -4881,6 +4856,34 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
                     ),
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationMapError extends StatelessWidget {
+  const _LocationMapError();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: AppColors.darkBgTertiary,
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.map_outlined, color: AppColors.primary, size: 38),
+              SizedBox(height: 8),
+              Text(
+                'Map preview could not load. Check your connection or Mapbox token.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
               ),
             ],
           ),

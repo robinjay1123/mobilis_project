@@ -239,9 +239,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final record = await supabase
           .from('users')
-          .select(
-            'full_name, id_verified, verification_status, created_at, avatar_url, profile_picture_url',
-          )
+          .select()
           .eq('id', userId)
           .maybeSingle();
       if (record == null) return null;
@@ -287,6 +285,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               debugPrint('✅ Real-time update received: ${payload.eventType}');
               final newRecord = payload.newRecord as Map<String, dynamic>?;
               if (newRecord != null) {
+                final updatedAvatar =
+                    (newRecord['avatar_url'] ??
+                            newRecord['profile_picture_url'])
+                        ?.toString()
+                        .trim();
                 final status = newRecord['verification_status']
                     ?.toString()
                     .trim()
@@ -311,6 +314,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       mounted) {
                     _showVerificationPromptOnce();
                   }
+                }
+                if (updatedAvatar != null &&
+                    updatedAvatar.isNotEmpty &&
+                    updatedAvatar != userAvatarUrl &&
+                    mounted) {
+                  setState(() => userAvatarUrl = updatedAvatar);
                 }
               }
             },
@@ -1820,11 +1829,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final start =
         _bookingFilterFrom ?? DateTime(today.year, today.month, today.day);
     final end = _bookingFilterTo ?? start;
-    final available = await VehicleService().isVehicleAvailable(
-      vehicleId,
-      start,
-      end,
-    );
+    late final bool available;
+    try {
+      available = await VehicleService().isVehicleAvailable(
+        vehicleId,
+        start,
+        end,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not check vehicle availability: $error'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return false;
+    }
     if (!available && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2251,11 +2273,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final owner = vehicle['owner'] as Map<String, dynamic>?;
       final ownerRole = owner?['role']?.toString().toLowerCase() ?? '';
       final source = vehicle['source']?.toString().toLowerCase() ?? '';
-      if (ownerRole.isNotEmpty &&
-          ownerRole != 'partner' &&
-          source != 'partner') {
-        continue;
-      }
+      final storedOwnerRole = vehicle['owner_role']?.toString().toLowerCase();
+      final isPartnerVehicle =
+          source == 'partner' ||
+          ownerRole == 'partner' ||
+          storedOwnerRole == 'partner' ||
+          vehicle['is_partner_vehicle'] == true;
+      if (!isPartnerVehicle) continue;
 
       final ownerName =
           owner?['full_name']?.toString() ??
@@ -3945,8 +3969,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required Color textColor,
     required Color secondaryTextColor,
   }) {
-    final partners = _topRentalPartners();
-    if (partners.isEmpty) return const SizedBox.shrink();
+    bool isPartnerVehicle(Map<String, dynamic> vehicle) {
+      final source = vehicle['source']?.toString().toLowerCase();
+      final ownerRole = vehicle['owner_role']?.toString().toLowerCase();
+      final owner = vehicle['owner'];
+      final relatedOwnerRole = owner is Map
+          ? owner['role']?.toString().toLowerCase()
+          : null;
+      return source == 'partner' ||
+          ownerRole == 'partner' ||
+          relatedOwnerRole == 'partner' ||
+          vehicle['is_partner_vehicle'] == true;
+    }
+
+    final allPartnerVehicles = _vehicles.where(isPartnerVehicle).toList();
+    final nearbyPartnerIds = _filteredVehicles
+        .where(isPartnerVehicle)
+        .map((vehicle) => vehicle['id']?.toString())
+        .whereType<String>()
+        .toSet();
+    final nearbyPartnerVehicles = allPartnerVehicles
+        .where(
+          (vehicle) => nearbyPartnerIds.contains(vehicle['id']?.toString()),
+        )
+        .toList();
+    final partnerVehicles =
+        _nearbyLatitude != null && nearbyPartnerVehicles.isNotEmpty
+        ? nearbyPartnerVehicles
+        : allPartnerVehicles;
+
+    if (partnerVehicles.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
@@ -3964,7 +4016,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               Text(
-                '${partners.length} nearby',
+                '${partnerVehicles.length} car${partnerVehicles.length == 1 ? '' : 's'}',
                 style: TextStyle(
                   fontSize: 12,
                   color: secondaryTextColor,
@@ -3975,78 +4027,122 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 116,
+            height: 218,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: partners.length,
+              itemCount: partnerVehicles.length,
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
-                final partner = partners[index];
-                final rating = (partner['rating'] as num?)?.toDouble() ?? 0;
-                return Container(
-                  width: 174,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(11),
+                final vehicle = partnerVehicles[index];
+                final vehicleId = vehicle['id']?.toString() ?? '';
+                final imageUrl = vehicle['image_url']?.toString();
+                final title =
+                    '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
+                        .trim();
+                final partnerName =
+                    vehicle['partner_name']?.toString().trim().isNotEmpty ==
+                        true
+                    ? vehicle['partner_name'].toString()
+                    : vehicle['owner_name']?.toString() ?? 'Mobilis Partner';
+                final dailyPrice =
+                    (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
+                final hourlyPrice =
+                    (vehicle['price_per_hour'] as num?)?.toDouble() ?? 0;
+
+                return GestureDetector(
+                  onTap: vehicleId.isEmpty
+                      ? null
+                      : () => Navigator.of(context).pushNamed(
+                          '/vehicle-detail',
+                          arguments: {
+                            'vehicleId': vehicleId,
+                            'vehicleData': vehicle,
+                            'initialStartDate': _bookingFilterFrom,
+                            'initialEndDate': _bookingFilterTo,
+                          },
                         ),
-                        child: Icon(
-                          partner['image'] as IconData? ?? Icons.storefront,
-                          color: Colors.black,
-                          size: 20,
+                  child: Container(
+                    width: 232,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: 112,
+                          width: double.infinity,
+                          child: _buildFastVehicleImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            backgroundColor: cardColor,
+                            iconColor: secondaryTextColor,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              partner['name']?.toString() ?? 'Partner',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: textColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title.isEmpty ? 'Partner Vehicle' : title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
-                            ),
-                            if (rating > 0) ...[
-                              const SizedBox(height: 7),
+                              const SizedBox(height: 4),
+                              Text(
+                                partnerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: secondaryTextColor,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
                               Row(
                                 children: [
                                   const Icon(
-                                    Icons.star_rounded,
-                                    color: AppColors.ratingGold,
-                                    size: 14,
+                                    Icons.payments_outlined,
+                                    color: AppColors.primary,
+                                    size: 15,
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    rating.toStringAsFixed(1),
-                                    style: TextStyle(
-                                      color: secondaryTextColor,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      dailyPrice > 0
+                                          ? 'PHP ${dailyPrice.toStringAsFixed(0)} / day'
+                                          : 'PHP ${hourlyPrice.toStringAsFixed(0)} / hour',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.primary,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: AppColors.primary,
+                                    size: 18,
                                   ),
                                 ],
                               ),
                             ],
-                          ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },
@@ -7029,6 +7125,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildVehicleImageLoading(Color backgroundColor, Color iconColor) {
+    return Container(
+      color: backgroundColor,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox.square(
+            dimension: 26,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: AppColors.primary,
+              backgroundColor: iconColor.withValues(alpha: 0.18),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            'Loading image...',
+            style: TextStyle(
+              color: iconColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFastVehicleImage({
     required String? imageUrl,
     required BoxFit fit,
@@ -7047,7 +7172,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       fit: fit,
       width: width,
       height: height,
-      placeholder: _buildTripImageFallback(backgroundColor, iconColor),
+      placeholder: _buildVehicleImageLoading(backgroundColor, iconColor),
       errorWidget: _buildTripImageFallback(backgroundColor, iconColor),
     );
   }

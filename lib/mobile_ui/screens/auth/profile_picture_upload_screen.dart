@@ -111,20 +111,22 @@ class _ProfilePictureUploadScreenState
     var databaseUpdated = false;
 
     try {
-      await supabase
+      final updatedRows = await supabase
           .from('users')
           .update({'avatar_url': publicUrl, 'profile_picture_url': publicUrl})
-          .eq('id', user.id);
-      databaseUpdated = true;
+          .eq('id', user.id)
+          .select('id');
+      databaseUpdated = updatedRows.isNotEmpty;
     } catch (error) {
       final message = error.toString().toLowerCase();
       if (message.contains('avatar_url')) {
         try {
-          await supabase
+          final updatedRows = await supabase
               .from('users')
               .update({'profile_picture_url': publicUrl})
-              .eq('id', user.id);
-          databaseUpdated = true;
+              .eq('id', user.id)
+              .select('id');
+          databaseUpdated = updatedRows.isNotEmpty;
         } catch (fallbackError) {
           final fallbackMessage = fallbackError.toString().toLowerCase();
           if (!fallbackMessage.contains('profile_picture_url')) {
@@ -146,6 +148,7 @@ class _ProfilePictureUploadScreenState
           },
         ),
       );
+      await supabase.auth.refreshSession();
     } catch (_) {
       if (!databaseUpdated) rethrow;
     }

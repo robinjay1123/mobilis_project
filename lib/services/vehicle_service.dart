@@ -25,6 +25,28 @@ class VehicleService {
   VehicleService._internal();
 
   final supabase = Supabase.instance.client;
+  Future<String>? _availabilityTableFuture;
+
+  Future<String> _availabilityTable() {
+    return _availabilityTableFuture ??= _resolveAvailabilityTable();
+  }
+
+  Future<String> _resolveAvailabilityTable() async {
+    try {
+      await supabase.from('vehicle_availability').select('id').limit(1);
+      return 'vehicle_availability';
+    } on PostgrestException catch (error) {
+      final missingRelation =
+          error.code == '42P01' ||
+          error.code == 'PGRST205' ||
+          error.message.toLowerCase().contains('could not find the table');
+      if (!missingRelation) rethrow;
+      debugPrint(
+        'vehicle_availability is unavailable; using the existing backup table.',
+      );
+      return 'vehicle_availability_backup';
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Image URL — stored as full public URL, just return it as-is
@@ -119,9 +141,7 @@ class VehicleService {
     try {
       final response = await supabase
           .from('partner_vehicle_applications')
-          .select(
-            'partner_vehicle_id,created_vehicle_id,plate_number,status,application_status',
-          );
+          .select('*');
       final partnerVehicleIds = <String>{};
       final vehicleIds = <String>{};
       final plateNumbers = <String>{};
@@ -352,8 +372,10 @@ class VehicleService {
           .where((vehicle) {
             final status = (vehicle['status'] ?? '').toString().toLowerCase();
             final canonicalVehicleId = vehicle['vehicle_id']?.toString().trim();
-            return status == 'available' &&
-                vehicle['is_available'] == true &&
+            const visibleStatuses = {'available', 'approved', 'active'};
+            return visibleStatuses.contains(status) &&
+                vehicle['is_available'] != false &&
+                vehicle['is_posted'] != false &&
                 canonicalVehicleId != null &&
                 canonicalVehicleId.isNotEmpty &&
                 _hasApprovedPartnerApplication(
@@ -471,7 +493,6 @@ class VehicleService {
     debugPrint('getAvailableVehicles: category=$category');
 
     try {
-      final approvedPartnerLinks = await _getApprovedPartnerVehicleLinks();
       final response = await supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -499,21 +520,14 @@ class VehicleService {
 
       final normalized = _normalizeList(vehicles).where((vehicle) {
         if (!_isVisibleForRent(vehicle)) return false;
-        if (vehicle['owner_role']?.toString().toLowerCase() != 'partner') {
-          return true;
-        }
-        return _hasApprovedPartnerApplication(
-          vehicle,
-          approvedPartnerLinks,
-          legacyPartnerVehicle: false,
-        );
+        // Canonical partner vehicles are published by the approval flow itself.
+        // Requiring a second application-table read hid valid cars when that
+        // table was unavailable to renter sessions.
+        return true;
       }).toList();
-      final partnerVehicles = await _getAvailablePartnerVehicles(
-        approvedPartnerLinks,
-      );
       final allVehicles = <Map<String, dynamic>>[];
       final seenVehicleKeys = <String>{};
-      for (final vehicle in [...normalized, ...partnerVehicles]) {
+      for (final vehicle in normalized) {
         final plate = vehicle['plate_number']?.toString().trim().toUpperCase();
         final id = vehicle['id']?.toString().trim() ?? '';
         final key = plate != null && plate.isNotEmpty
@@ -558,7 +572,6 @@ class VehicleService {
     String? category,
   }) async {
     try {
-      final approvedPartnerLinks = await _getApprovedPartnerVehicleLinks();
       var query = supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -598,17 +611,9 @@ class VehicleService {
         }
       }
 
-      final normalized = _normalizeList(vehicles).where((vehicle) {
-        if (!_isVisibleForRent(vehicle)) return false;
-        if (vehicle['owner_role']?.toString().toLowerCase() != 'partner') {
-          return true;
-        }
-        return _hasApprovedPartnerApplication(
-          vehicle,
-          approvedPartnerLinks,
-          legacyPartnerVehicle: false,
-        );
-      }).toList();
+      final normalized = _normalizeList(
+        vehicles,
+      ).where(_isVisibleForRent).toList();
 
       final categoryFiltered = category == null || category.isEmpty
           ? normalized
@@ -637,8 +642,9 @@ class VehicleService {
     String vehicleId,
   ) async {
     try {
+      final table = await _availabilityTable();
       final response = await supabase
-          .from('vehicle_availability')
+          .from(table)
           .select()
           .eq('vehicle_id', vehicleId)
           .order('date', ascending: true);
@@ -668,13 +674,9 @@ class VehicleService {
           .inFilter('status', _bookingBlockingStatuses);
       final intervalsByDay = <String, List<(DateTime, DateTime)>>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
-        final start = DateTime.tryParse(
-          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
-        )?.toLocal();
-        final end = DateTime.tryParse(
-          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
-        )?.toLocal();
-        if (start == null || end == null) continue;
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (start, end) = interval;
 
         var current = _dateOnly(start);
         final last = _dateOnly(end);
@@ -719,13 +721,10 @@ class VehicleService {
 
       final dates = <String, DateTime>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
-        final start = DateTime.tryParse(
-          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
-        )?.toLocal();
-        final end = DateTime.tryParse(
-          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
-        )?.toLocal();
-        if (start == null || end == null) continue;
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (start, endExclusive) = interval;
+        final end = endExclusive.subtract(const Duration(microseconds: 1));
 
         var current = DateTime(start.year, start.month, start.day);
         final last = DateTime(end.year, end.month, end.day);
@@ -758,8 +757,9 @@ class VehicleService {
     }
 
     try {
+      final table = await _availabilityTable();
       final availabilityRows = await supabase
-          .from('vehicle_availability')
+          .from(table)
           .select('date,is_available')
           .eq('vehicle_id', vehicleId)
           .eq('is_available', false)
@@ -776,16 +776,10 @@ class VehicleService {
           .inFilter('status', _bookingBlockingStatuses);
       final bookedIntervals = <(DateTime, DateTime)>[];
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
-        final start = DateTime.tryParse(
-          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
-        )?.toLocal();
-        final end = DateTime.tryParse(
-          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
-        )?.toLocal();
-        if (start != null &&
-            end != null &&
-            start.isBefore(windowEnd) &&
-            end.isAfter(windowStart)) {
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (start, end) = interval;
+        if (start.isBefore(windowEnd) && end.isAfter(windowStart)) {
           bookedIntervals.add((start, end));
         }
       }
@@ -824,7 +818,45 @@ class VehicleService {
       return slots;
     } catch (e) {
       debugPrint('getAvailableTimeSlots error: $e');
-      return [];
+      rethrow;
+    }
+  }
+
+  Future<bool> isTimeRangeAvailable({
+    required String vehicleId,
+    required DateTime startAt,
+    required DateTime endAt,
+  }) async {
+    if (!endAt.isAfter(startAt)) return false;
+
+    try {
+      final table = await _availabilityTable();
+      final unavailableRows = await supabase
+          .from(table)
+          .select('date')
+          .eq('vehicle_id', vehicleId)
+          .eq('is_available', false)
+          .gte('date', _dateKey(startAt))
+          .lte('date', _dateKey(endAt));
+      if (unavailableRows.isNotEmpty) return false;
+
+      final bookingRows = await supabase
+          .from('bookings')
+          .select('start_at,end_at,start_date,end_date')
+          .eq('vehicle_id', vehicleId)
+          .inFilter('status', _bookingBlockingStatuses);
+      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (bookedStart, bookedEnd) = interval;
+        if (startAt.isBefore(bookedEnd) && endAt.isAfter(bookedStart)) {
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
+      debugPrint('isTimeRangeAvailable error: $error');
+      rethrow;
     }
   }
 
@@ -847,8 +879,9 @@ class VehicleService {
     }
 
     try {
+      final table = await _availabilityTable();
       final availabilityRows = await supabase
-          .from('vehicle_availability')
+          .from(table)
           .select('vehicle_id,date')
           .inFilter('vehicle_id', ids)
           .eq('is_available', false)
@@ -876,13 +909,10 @@ class VehicleService {
 
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
         final vehicleId = row['vehicle_id']?.toString();
-        final start = DateTime.tryParse(
-          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
-        )?.toLocal();
-        final end = DateTime.tryParse(
-          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
-        )?.toLocal();
-        if (vehicleId == null || start == null || end == null) continue;
+        final interval = _bookingInterval(row);
+        if (vehicleId == null || interval == null) continue;
+        final (start, endExclusive) = interval;
+        final end = endExclusive.subtract(const Duration(microseconds: 1));
 
         var current = DateTime(start.year, start.month, start.day);
         final last = DateTime(end.year, end.month, end.day);
@@ -910,11 +940,22 @@ class VehicleService {
     required bool isAvailable,
   }) async {
     final dateStr = date.toIso8601String().split('T')[0];
-    await supabase.from('vehicle_availability').upsert({
+    final table = await _availabilityTable();
+    final record = {
       'vehicle_id': vehicleId,
       'date': dateStr,
       'is_available': isAvailable,
-    }, onConflict: 'vehicle_id,date');
+    };
+    if (table == 'vehicle_availability_backup') {
+      await supabase
+          .from(table)
+          .delete()
+          .eq('vehicle_id', vehicleId)
+          .eq('date', dateStr);
+      await supabase.from(table).insert(record);
+    } else {
+      await supabase.from(table).upsert(record, onConflict: 'vehicle_id,date');
+    }
   }
 
   Future<void> setAvailabilityRange({
@@ -933,9 +974,18 @@ class VehicleService {
       });
       current = current.add(const Duration(days: 1));
     }
-    await supabase
-        .from('vehicle_availability')
-        .upsert(records, onConflict: 'vehicle_id,date');
+    final table = await _availabilityTable();
+    if (table == 'vehicle_availability_backup') {
+      await supabase
+          .from(table)
+          .delete()
+          .eq('vehicle_id', vehicleId)
+          .gte('date', startDate.toIso8601String().split('T')[0])
+          .lte('date', endDate.toIso8601String().split('T')[0]);
+      await supabase.from(table).insert(records);
+    } else {
+      await supabase.from(table).upsert(records, onConflict: 'vehicle_id,date');
+    }
   }
 
   Future<void> clearAvailability({
@@ -943,8 +993,9 @@ class VehicleService {
     required DateTime date,
   }) async {
     final dateStr = date.toIso8601String().split('T')[0];
+    final table = await _availabilityTable();
     await supabase
-        .from('vehicle_availability')
+        .from(table)
         .delete()
         .eq('vehicle_id', vehicleId)
         .eq('date', dateStr);
@@ -956,10 +1007,11 @@ class VehicleService {
     DateTime endDate,
   ) async {
     try {
+      final table = await _availabilityTable();
       final startDay = DateTime(startDate.year, startDate.month, startDate.day);
       final endDay = DateTime(endDate.year, endDate.month, endDate.day);
       final response = await supabase
-          .from('vehicle_availability')
+          .from(table)
           .select('date')
           .eq('vehicle_id', vehicleId)
           .eq('is_available', false)
@@ -974,21 +1026,18 @@ class VehicleService {
           .eq('vehicle_id', vehicleId)
           .inFilter('status', _bookingBlockingStatuses);
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
-        final bookedStart = DateTime.tryParse(
-          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
-        )?.toLocal();
-        final bookedEnd = DateTime.tryParse(
-          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
-        )?.toLocal();
-        if (bookedStart == null || bookedEnd == null) continue;
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (bookedStart, bookedEnd) = interval;
         if (bookedStart.isBefore(rangeEndExclusive) &&
             bookedEnd.isAfter(startDay)) {
           return false;
         }
       }
       return true;
-    } catch (_) {
-      return false;
+    } catch (error) {
+      debugPrint('isVehicleAvailable error: $error');
+      rethrow;
     }
   }
 
@@ -1046,6 +1095,32 @@ class VehicleService {
 
   DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
+
+  (DateTime, DateTime)? _bookingInterval(Map<String, dynamic> row) {
+    final startAt = row['start_at']?.toString().trim() ?? '';
+    final endAt = row['end_at']?.toString().trim() ?? '';
+    if (startAt.isNotEmpty && endAt.isNotEmpty) {
+      final start = DateTime.tryParse(startAt)?.toLocal();
+      final end = DateTime.tryParse(endAt)?.toLocal();
+      if (start != null && end != null && end.isAfter(start)) {
+        return (start, end);
+      }
+    }
+
+    final startDate = DateTime.tryParse(
+      row['start_date']?.toString().trim() ?? '',
+    );
+    final endDate = DateTime.tryParse(row['end_date']?.toString().trim() ?? '');
+    if (startDate == null || endDate == null) return null;
+    final start = _dateOnly(startDate);
+    final inclusiveEnd = _dateOnly(endDate).add(const Duration(days: 1));
+    return (
+      start,
+      inclusiveEnd.isAfter(start)
+          ? inclusiveEnd
+          : start.add(const Duration(days: 1)),
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // VEHICLE CRUD

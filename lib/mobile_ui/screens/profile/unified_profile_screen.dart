@@ -48,35 +48,51 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   Map<String, dynamic>? _verification;
   bool _isLoading = true;
   late final ScrollController _scrollController;
-  late final AnimationController _introController;
-  late final Animation<double> _introCurve;
+  late final AnimationController _photoController;
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController()..addListener(_handleScroll);
-    _introController = AnimationController(
+    _scrollController = ScrollController();
+    _photoController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
-    );
-    _introCurve = CurvedAnimation(
-      parent: _introController,
-      curve: Curves.easeOutCubic,
+      duration: const Duration(milliseconds: 420),
+      reverseDuration: const Duration(milliseconds: 340),
     );
     _loadProfile();
   }
 
   @override
   void dispose() {
-    _scrollController
-      ..removeListener(_handleScroll)
-      ..dispose();
-    _introController.dispose();
+    _scrollController.dispose();
+    _photoController.dispose();
     super.dispose();
   }
 
-  void _handleScroll() {
-    if (mounted) setState(() {});
+  bool _handleProfileScroll(ScrollNotification notification) {
+    if (notification is OverscrollNotification) {
+      if (notification.overscroll > 0 &&
+          _photoController.status != AnimationStatus.completed) {
+        _photoController.forward();
+      } else if (notification.overscroll < 0 &&
+          _photoController.status != AnimationStatus.dismissed) {
+        _photoController.reverse();
+      }
+      return false;
+    }
+    if (notification is! ScrollUpdateNotification ||
+        notification.dragDetails == null) {
+      return false;
+    }
+
+    final delta = notification.scrollDelta ?? 0;
+    if (delta > 1 && _photoController.status != AnimationStatus.completed) {
+      _photoController.forward();
+    } else if (delta < -1 &&
+        _photoController.status != AnimationStatus.dismissed) {
+      _photoController.reverse();
+    }
+    return false;
   }
 
   Future<void> _loadProfile() async {
@@ -93,8 +109,19 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       _verification = verification;
       _isLoading = false;
     });
-    if (_introController.status == AnimationStatus.dismissed) {
-      _introController.forward();
+  }
+
+  void _toggleProfilePhoto() {
+    if (_photoController.status == AnimationStatus.completed ||
+        _photoController.value > 0.5) {
+      _photoController.reverse();
+    } else {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      _photoController.forward();
     }
   }
 
@@ -323,94 +350,116 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       profile['avatar_url'] ?? profile['profile_picture_url'],
     );
 
-    return RefreshIndicator(
-      onRefresh: _loadProfile,
-      child: ListView(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-        children: [
-          _animatedProfileCard(
-            child: _profileCard(
-              name: name,
-              email: email,
-              phone: phone,
-              location: location,
-              avatarUrl: avatarUrl,
+    return Column(
+      children: [
+        _profileHeaderBar(),
+        Expanded(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _handleProfileScroll,
+            child: RefreshIndicator(
+              onRefresh: _loadProfile,
+              child: ListView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                children: [
+                  _profileCard(
+                    name: name,
+                    email: email,
+                    phone: phone,
+                    location: location,
+                    avatarUrl: avatarUrl,
+                  ),
+                  const SizedBox(height: 18),
+                  _settingsTile(
+                    icon: widget.isDarkMode
+                        ? Icons.dark_mode
+                        : Icons.light_mode,
+                    title: 'Appearance',
+                    subtitle: widget.isDarkMode ? 'Dark Mode' : 'Light Mode',
+                    trailing: Switch(
+                      value: widget.isDarkMode,
+                      activeThumbColor: AppColors.primary,
+                      onChanged: widget.onThemeToggle,
+                    ),
+                  ),
+                  _settingsTile(
+                    icon: Icons.verified_user_outlined,
+                    title: 'Verification and Documents',
+                    subtitle: _verificationSubtitle(),
+                    onTap:
+                        widget.onOpenVerification ?? _openVerificationSummary,
+                  ),
+                  _settingsTile(
+                    icon: Icons.star_outline_rounded,
+                    title: 'Ratings and Reviews',
+                    subtitle: 'View ratings and renter reviews',
+                    onTap: _openRatings,
+                  ),
+                  _settingsTile(
+                    icon: Icons.help_outline,
+                    title: 'Help Center',
+                    subtitle: 'FAQs, support, reports, terms, and privacy',
+                    onTap: _openHelpCenter,
+                  ),
+                  _settingsTile(
+                    icon: Icons.health_and_safety_outlined,
+                    title: 'Emergency Contact',
+                    subtitle: 'Safety contact for trips and incidents',
+                    onTap: _openEmergencyContact,
+                  ),
+                  _settingsTile(
+                    icon: Icons.logout,
+                    title: 'Logout',
+                    subtitle: 'Sign out of this device',
+                    iconColor: AppColors.error,
+                    textColor: AppColors.error,
+                    onTap: _confirmLogout,
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 18),
-          _settingsTile(
-            icon: widget.isDarkMode ? Icons.dark_mode : Icons.light_mode,
-            title: 'Appearance',
-            subtitle: widget.isDarkMode ? 'Dark Mode' : 'Light Mode',
-            trailing: Switch(
-              value: widget.isDarkMode,
-              activeThumbColor: AppColors.primary,
-              onChanged: widget.onThemeToggle,
-            ),
-          ),
-          _settingsTile(
-            icon: Icons.verified_user_outlined,
-            title: 'Verification and Documents',
-            subtitle: _verificationSubtitle(),
-            onTap: widget.onOpenVerification ?? _openVerificationSummary,
-          ),
-          _settingsTile(
-            icon: Icons.star_outline_rounded,
-            title: 'Ratings and Reviews',
-            subtitle: 'View ratings and renter reviews',
-            onTap: _openRatings,
-          ),
-          _settingsTile(
-            icon: Icons.help_outline,
-            title: 'Help Center',
-            subtitle: 'FAQs, support, reports, terms, and privacy',
-            onTap: _openHelpCenter,
-          ),
-          _settingsTile(
-            icon: Icons.health_and_safety_outlined,
-            title: 'Emergency Contact',
-            subtitle: 'Safety contact for trips and incidents',
-            onTap: _openEmergencyContact,
-          ),
-          _settingsTile(
-            icon: Icons.logout,
-            title: 'Logout',
-            subtitle: 'Sign out of this device',
-            iconColor: AppColors.error,
-            textColor: AppColors.error,
-            onTap: _confirmLogout,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _animatedProfileCard({required Widget child}) {
-    return AnimatedBuilder(
-      animation: _introCurve,
-      builder: (context, _) {
-        final offset = _scrollController.hasClients
-            ? _scrollController.offset
-            : 0.0;
-        final scrollProgress = (offset / 110).clamp(0.0, 1.0);
-        final lift = 18.0 * (1 - _introCurve.value);
-        final scale =
-            0.96 + (_introCurve.value * 0.04) - (scrollProgress * 0.015);
-
-        return Opacity(
-          opacity: _introCurve.value,
-          child: Transform.translate(
-            offset: Offset(0, lift - (scrollProgress * 8)),
-            child: Transform.scale(
-              scale: scale,
-              alignment: Alignment.topCenter,
-              child: child,
+  Widget _profileHeaderBar() {
+    return Container(
+      height: 58,
+      width: double.infinity,
+      color: AppColors.primary,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Icon(Icons.person_outline, color: Colors.black, size: 22),
+          ),
+          const Text(
+            'Profile',
+            style: TextStyle(
+              color: Colors.black,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
             ),
           ),
-        );
-      },
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: _openRatings,
+              tooltip: 'Ratings and Reviews',
+              icon: const Icon(
+                Icons.star_outline_rounded,
+                color: Colors.black,
+                size: 25,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -421,111 +470,293 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     required String location,
     required String? avatarUrl,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      width: 74,
-                      height: 74,
-                      color: AppColors.primary,
-                      child: avatarUrl != null && avatarUrl.isNotEmpty
-                          ? OptimizedNetworkImage(
-                              imageUrl: avatarUrl,
-                              fit: BoxFit.cover,
-                              width: 74,
-                              height: 74,
-                              errorWidget: _initialBox(name),
-                            )
-                          : _initialBox(name),
-                    ),
-                  ),
-                  Positioned(
-                    right: -6,
-                    bottom: -6,
-                    child: InkWell(
-                      onTap: _openProfilePictureUpload,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.primary),
-                        ),
-                        child: const Icon(
-                          Icons.edit_outlined,
-                          color: AppColors.primary,
-                          size: 15,
+    return AnimatedBuilder(
+      animation: _photoController,
+      builder: (context, _) {
+        final progress = Curves.easeInOutCubic.transform(
+          _photoController.value,
+        );
+        final compactOpacity = (1 - (progress * 1.8)).clamp(0.0, 1.0);
+        final expandedOpacity = ((progress - 0.35) / 0.65).clamp(0.0, 1.0);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final compactHeight = 238.0;
+            final expandedHeight = (width * 1.08).clamp(350.0, 430.0);
+            final height =
+                compactHeight + ((expandedHeight - compactHeight) * progress);
+            final avatarRect = Rect.lerp(
+              const Rect.fromLTWH(18, 18, 74, 74),
+              Rect.fromLTWH(0, 0, width, height),
+              progress,
+            )!;
+            final radius = BorderRadius.lerp(
+              BorderRadius.circular(20),
+              BorderRadius.circular(22),
+              progress,
+            )!;
+
+            return SizedBox(
+              height: height,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const ColoredBox(color: AppColors.darkBgSecondary),
+                    Positioned.fromRect(
+                      rect: avatarRect,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _toggleProfilePhoto,
+                        child: ClipRRect(
+                          borderRadius: radius,
+                          child: ColoredBox(
+                            color: AppColors.primary,
+                            child: avatarUrl != null && avatarUrl.isNotEmpty
+                                ? OptimizedNetworkImage(
+                                    imageUrl: avatarUrl,
+                                    fit: BoxFit.cover,
+                                    isThumbnail: progress < 0.25,
+                                    errorWidget: _initialBox(name),
+                                  )
+                                : _initialBox(name),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
+                    IgnorePointer(
+                      child: Opacity(
+                        opacity: expandedOpacity,
+                        child: const DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Color(0x22000000),
+                                Color(0xE6000000),
+                              ],
+                              stops: [0.35, 0.58, 1],
                             ),
                           ),
                         ),
-                        IconButton(
-                          onPressed: _openEditProfile,
-                          icon: const Icon(
-                            Icons.edit_square,
-                            color: AppColors.primary,
-                          ),
-                          tooltip: 'Edit Profile',
-                        ),
-                      ],
+                      ),
                     ),
-                    _roleBadge(),
-                    const SizedBox(height: 10),
-                    _profileInfo(Icons.mail_outline, email),
-                    _profileInfo(Icons.phone_outlined, phone),
-                    _profileInfo(Icons.location_on_outlined, location),
+                    Positioned(
+                      left: 106,
+                      top: 14,
+                      right: 10,
+                      child: IgnorePointer(
+                        ignoring: compactOpacity < 0.5,
+                        child: Opacity(
+                          opacity: compactOpacity,
+                          child: _compactProfileDetails(
+                            name: name,
+                            email: email,
+                            phone: phone,
+                            location: location,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 18,
+                      right: 18,
+                      bottom: 82,
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: expandedOpacity,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 25,
+                                  fontWeight: FontWeight.w900,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black54,
+                                      blurRadius: 8,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              _roleBadge(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Color.lerp(
+                            AppColors.darkBgSecondary,
+                            Colors.black.withValues(alpha: 0.58),
+                            progress,
+                          ),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: _profileStats(),
+                      ),
+                    ),
+                    Positioned(
+                      left: 22,
+                      top: 22,
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: compactOpacity * 0.9,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.58),
+                              borderRadius: BorderRadius.circular(7),
+                            ),
+                            child: const Icon(
+                              Icons.open_in_full_rounded,
+                              color: Colors.white,
+                              size: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 70,
+                      top: 70,
+                      child: IgnorePointer(
+                        ignoring: compactOpacity < 0.5,
+                        child: Opacity(
+                          opacity: compactOpacity,
+                          child: _profileAction(
+                            icon: Icons.edit_outlined,
+                            tooltip: 'Change profile photo',
+                            onTap: _openProfilePictureUpload,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: IgnorePointer(
+                        ignoring: expandedOpacity < 0.5,
+                        child: Opacity(
+                          opacity: expandedOpacity,
+                          child: Row(
+                            children: [
+                              _profileAction(
+                                icon: Icons.add_a_photo_outlined,
+                                tooltip: 'Change profile photo',
+                                onTap: _openProfilePictureUpload,
+                              ),
+                              const SizedBox(width: 8),
+                              _profileAction(
+                                icon: Icons.edit_outlined,
+                                tooltip: 'Edit profile',
+                                onTap: _openEditProfile,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              for (var index = 0; index < widget.stats.length; index++) ...[
-                Expanded(child: _stat(widget.stats[index])),
-                if (index != widget.stats.length - 1)
-                  Container(height: 42, width: 1, color: AppColors.borderColor),
-              ],
-            ],
-          ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _compactProfileDetails({
+    required String name,
+    required String email,
+    required String phone,
+    required String location,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _openEditProfile,
+              icon: const Icon(
+                Icons.edit_square,
+                color: AppColors.primary,
+                size: 20,
+              ),
+              tooltip: 'Edit Profile',
+            ),
+          ],
+        ),
+        _roleBadge(),
+        const SizedBox(height: 9),
+        _profileInfo(Icons.mail_outline, email),
+        _profileInfo(Icons.phone_outlined, phone),
+        _profileInfo(Icons.location_on_outlined, location),
+      ],
+    );
+  }
+
+  Widget _profileStats() {
+    return Row(
+      children: [
+        for (var index = 0; index < widget.stats.length; index++) ...[
+          Expanded(child: _stat(widget.stats[index])),
+          if (index != widget.stats.length - 1)
+            Container(height: 42, width: 1, color: AppColors.borderColor),
         ],
+      ],
+    );
+  }
+
+  Widget _profileAction({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.58),
+      borderRadius: BorderRadius.circular(11),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: Tooltip(
+          message: tooltip,
+          child: SizedBox.square(
+            dimension: 36,
+            child: Icon(icon, color: AppColors.primary, size: 18),
+          ),
+        ),
       ),
     );
   }

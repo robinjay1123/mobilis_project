@@ -253,7 +253,23 @@ class AuthService {
       return profile;
     } catch (e) {
       debugPrint('Error fetching current user profile: $e');
-      return null;
+      final user = currentUser;
+      if (user == null) return null;
+      final metadata = user.userMetadata ?? const <String, dynamic>{};
+      return {
+        'id': user.id,
+        'email': user.email,
+        'full_name': metadata['full_name'] ?? metadata['name'] ?? user.email,
+        'role': metadata['role'] ?? 'renter',
+        'avatar_url':
+            metadata['avatar_url'] ??
+            metadata['profile_picture_url'] ??
+            metadata['picture'],
+        'profile_picture_url':
+            metadata['profile_picture_url'] ??
+            metadata['avatar_url'] ??
+            metadata['picture'],
+      };
     }
   }
 

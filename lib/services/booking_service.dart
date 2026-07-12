@@ -16,6 +16,8 @@ class BookingService {
 
   final supabase = Supabase.instance.client;
   static const List<String> _bookingBlockingStatuses = [
+    'pending',
+    'approved',
     'confirmed',
     'active',
     'ongoing',

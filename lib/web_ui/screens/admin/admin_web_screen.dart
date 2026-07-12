@@ -2497,6 +2497,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   dropdownColor: isDark ? AppColors.darkCard : Colors.white,
                 ),
               ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () => _showAddOperatorDialog(isDark),
+                icon: const Icon(Icons.person_add_alt_1_outlined, size: 19),
+                label: const Text('Add Operator'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 17,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -6132,85 +6149,349 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  void _showAddUserDialog(bool isDark) {
+  Future<void> _showAddOperatorDialog(bool isDark) async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
     final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final passwordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    var obscurePassword = true;
+    var obscureConfirmation = true;
+    var isSubmitting = false;
 
-    showDialog(
+    await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-        title: Text(
-          'Promote to Operator',
-          style: TextStyle(color: isDark ? Colors.white : Colors.black),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Enter user email to promote:',
-              style: TextStyle(
-                color: isDark ? Colors.grey : Colors.grey.shade600,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final inputColor = isDark ? Colors.white : Colors.black87;
+
+          InputDecoration fieldDecoration(
+            String label,
+            IconData icon, {
+            Widget? suffixIcon,
+          }) {
+            return InputDecoration(
+              labelText: label,
+              labelStyle: TextStyle(
+                color: isDark ? Colors.white60 : Colors.black54,
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: emailController,
-              decoration: InputDecoration(
-                hintText: 'user@example.com',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+              prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
+              suffixIcon: suffixIcon,
+              filled: true,
+              fillColor: isDark ? AppColors.darkBg : Colors.grey.shade50,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
                 ),
               ),
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black,
-                fontSize: 14,
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(
+                  color: AppColors.primary,
+                  width: 2,
+                ),
               ),
-              cursorColor: isDark ? Colors.white : Colors.black,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final email = emailController.text.trim();
-              if (email.isEmpty) return;
+            );
+          }
 
-              try {
-                final response = await _supabase
-                    .from('users')
-                    .select('id')
-                    .eq('email', email)
-                    .maybeSingle();
-                if (response == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('User not found'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-                await _updateUserRole(response['id'], 'operator');
-                Navigator.pop(context);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: Colors.red,
+          return AlertDialog(
+            backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+            insetPadding: const EdgeInsets.all(24),
+            titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+            contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
+            title: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-            child: const Text('Promote', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+                  child: const Icon(
+                    Icons.admin_panel_settings_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Add Operator',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        'Create a new operator login account',
+                        style: TextStyle(
+                          color: isDark ? Colors.white60 : Colors.black54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              child: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        enabled: !isSubmitting,
+                        textCapitalization: TextCapitalization.words,
+                        style: TextStyle(color: inputColor),
+                        decoration: fieldDecoration(
+                          'Full name',
+                          Icons.badge_outlined,
+                        ),
+                        validator: (value) =>
+                            value == null || value.trim().length < 2
+                            ? 'Enter the operator full name'
+                            : null,
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: emailController,
+                        enabled: !isSubmitting,
+                        keyboardType: TextInputType.emailAddress,
+                        style: TextStyle(color: inputColor),
+                        decoration: fieldDecoration(
+                          'Email address',
+                          Icons.email_outlined,
+                        ),
+                        validator: (value) {
+                          final email = value?.trim() ?? '';
+                          final valid = RegExp(
+                            r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+                          ).hasMatch(email);
+                          return valid ? null : 'Enter a valid email address';
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: phoneController,
+                        enabled: !isSubmitting,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
+                          LengthLimitingTextInputFormatter(13),
+                        ],
+                        style: TextStyle(color: inputColor),
+                        decoration: fieldDecoration(
+                          'Phone number (optional)',
+                          Icons.phone_outlined,
+                        ),
+                        validator: (value) {
+                          final phone = value?.trim() ?? '';
+                          if (phone.isEmpty) return null;
+                          final digits = phone.replaceAll(RegExp(r'\D'), '');
+                          return digits.length >= 10 && digits.length <= 12
+                              ? null
+                              : 'Enter 10 to 12 digits';
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: passwordController,
+                        enabled: !isSubmitting,
+                        obscureText: obscurePassword,
+                        style: TextStyle(color: inputColor),
+                        decoration: fieldDecoration(
+                          'Temporary password',
+                          Icons.lock_outline,
+                          suffixIcon: IconButton(
+                            onPressed: () => setDialogState(
+                              () => obscurePassword = !obscurePassword,
+                            ),
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                          ),
+                        ),
+                        validator: _operatorPasswordError,
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Minimum 8 characters with uppercase, lowercase, number, and special character.',
+                          style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black54,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: confirmPasswordController,
+                        enabled: !isSubmitting,
+                        obscureText: obscureConfirmation,
+                        style: TextStyle(color: inputColor),
+                        decoration: fieldDecoration(
+                          'Confirm password',
+                          Icons.lock_reset_outlined,
+                          suffixIcon: IconButton(
+                            onPressed: () => setDialogState(
+                              () => obscureConfirmation = !obscureConfirmation,
+                            ),
+                            icon: Icon(
+                              obscureConfirmation
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                          ),
+                        ),
+                        validator: (value) => value != passwordController.text
+                            ? 'Passwords do not match'
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        if (!(formKey.currentState?.validate() ?? false)) {
+                          return;
+                        }
+                        setDialogState(() => isSubmitting = true);
+                        try {
+                          await _createOperatorAccount(
+                            fullName: nameController.text.trim(),
+                            email: emailController.text.trim(),
+                            phone: phoneController.text.trim(),
+                            password: passwordController.text,
+                          );
+                          if (!mounted || !dialogContext.mounted) return;
+                          Navigator.pop(dialogContext);
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Operator account created'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                          await _loadDashboardData();
+                        } catch (error) {
+                          if (!mounted || !dialogContext.mounted) return;
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            SnackBar(
+                              content: Text(_operatorCreationError(error)),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          setDialogState(() => isSubmitting = false);
+                        }
+                      },
+                icon: isSubmitting
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.black,
+                        ),
+                      )
+                    : const Icon(Icons.person_add_alt_1_outlined),
+                label: Text(isSubmitting ? 'Creating...' : 'Create Operator'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
+
+    nameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+    passwordController.dispose();
+    confirmPasswordController.dispose();
+  }
+
+  String? _operatorPasswordError(String? value) {
+    final password = value ?? '';
+    if (password.length < 8) return 'Use at least 8 characters';
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'Add at least one uppercase letter';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'Add at least one lowercase letter';
+    }
+    if (!RegExp(r'[0-9]').hasMatch(password)) {
+      return 'Add at least one number';
+    }
+    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
+      return 'Add at least one special character';
+    }
+    return null;
+  }
+
+  Future<void> _createOperatorAccount({
+    required String fullName,
+    required String email,
+    required String phone,
+    required String password,
+  }) async {
+    final response = await _supabase.functions.invoke(
+      'create-operator',
+      body: {
+        'full_name': fullName,
+        'email': email.toLowerCase(),
+        'phone': phone.isEmpty ? null : phone,
+        'password': password,
+      },
+    );
+    final data = response.data;
+    if (data is Map && data['error'] != null) {
+      throw Exception(data['error'].toString());
+    }
+  }
+
+  String _operatorCreationError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message.contains('already') || message.contains('registered')) {
+      return 'An account already exists for this email address.';
+    }
+    if (message.contains('create-operator') && message.contains('404')) {
+      return 'The create-operator function is not deployed yet.';
+    }
+    return 'Could not create operator: $message';
   }
 
   Future<void> _generateAndExportReport(bool isDark) async {
