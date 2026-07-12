@@ -3857,7 +3857,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               content,
               is_auto_generated,
               created_at,
-              sender:users!messages_sender_id_fkey (id, full_name)
+              sender:users!messages_new_sender_id_fkey (id, full_name)
             ''')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);

@@ -15,25 +15,34 @@ class RolePageHeader extends StatelessWidget {
       color: AppColors.primary,
       padding: EdgeInsets.fromLTRB(
         16,
-        MediaQuery.of(context).padding.top + 12,
+        MediaQuery.of(context).padding.top + 6,
         16,
-        12,
+        6,
       ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
+      child: SizedBox(
+        height: 34,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          if (trailing != null)
-            Align(alignment: Alignment.centerRight, child: trailing),
-        ],
+            if (trailing != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 34),
+                  child: trailing,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

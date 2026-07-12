@@ -7,13 +7,7 @@ import '../theme/app_colors.dart';
 class MobilisImageCache {
   MobilisImageCache._();
 
-  static final CacheManager instance = CacheManager(
-    Config(
-      'mobilis_network_images_v1',
-      stalePeriod: const Duration(days: 30),
-      maxNrOfCacheObjects: 600,
-    ),
-  );
+  static final CacheManager instance = _MobilisImageCacheManager.instance;
 
   static String cacheKey(String url) {
     final uri = Uri.tryParse(url);
@@ -31,6 +25,20 @@ class MobilisImageCache {
         )
         .toString();
   }
+}
+
+class _MobilisImageCacheManager extends CacheManager with ImageCacheManager {
+  static final _MobilisImageCacheManager instance =
+      _MobilisImageCacheManager._();
+
+  _MobilisImageCacheManager._()
+    : super(
+        Config(
+          'mobilis_network_images_v3',
+          stalePeriod: const Duration(days: 30),
+          maxNrOfCacheObjects: 600,
+        ),
+      );
 }
 
 class OptimizedNetworkImage extends StatelessWidget {
@@ -64,12 +72,19 @@ class OptimizedNetworkImage extends StatelessWidget {
     final cacheHeight = height != null && height!.isFinite && height! > 0
         ? height
         : null;
-    final targetWidth = cacheWidth == null
-        ? (isThumbnail ? 720 : 1920)
-        : (cacheWidth * pixelRatio).round();
-    final targetHeight = cacheHeight == null
-        ? null
-        : (cacheHeight * pixelRatio).round();
+    // Resize along one axis only so portrait photos keep their aspect ratio.
+    final int? targetWidth;
+    final int? targetHeight;
+    if (cacheWidth != null) {
+      targetWidth = (cacheWidth * pixelRatio).round();
+      targetHeight = null;
+    } else if (cacheHeight != null) {
+      targetWidth = null;
+      targetHeight = (cacheHeight * pixelRatio).round();
+    } else {
+      targetWidth = isThumbnail ? 720 : 1920;
+      targetHeight = null;
+    }
     final image = CachedNetworkImage(
       imageUrl: imageUrl,
       cacheKey: MobilisImageCache.cacheKey(imageUrl),
@@ -82,8 +97,10 @@ class OptimizedNetworkImage extends StatelessWidget {
       maxWidthDiskCache: isThumbnail ? 960 : 2048,
       fadeInDuration: const Duration(milliseconds: 140),
       placeholder: (_, __) => placeholder ?? const _ImageLoadingPlaceholder(),
-      errorWidget: (_, __, ___) =>
-          errorWidget ?? const _ImageErrorPlaceholder(),
+      errorWidget: (_, url, error) {
+        debugPrint('Image failed to load: $url ($error)');
+        return errorWidget ?? const _ImageErrorPlaceholder();
+      },
     );
 
     return borderRadius == null

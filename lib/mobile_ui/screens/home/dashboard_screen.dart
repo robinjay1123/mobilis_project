@@ -4348,6 +4348,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ? null
               : TextButton(
                   onPressed: _markAllNotificationsRead,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   child: const Text(
                     'Mark all read',
                     style: TextStyle(

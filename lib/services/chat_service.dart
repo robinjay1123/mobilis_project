@@ -57,14 +57,82 @@ class ChatService {
           .order('updated_at', ascending: false);
 
       debugPrint('Fetched ${response.length} conversations');
-      return List<Map<String, dynamic>>.from(response);
+      return _normalizeConversationRows(
+        List<Map<String, dynamic>>.from(response),
+      );
     } on PostgrestException catch (e) {
-      debugPrint('Database error fetching conversations: ${e.message}');
-      rethrow;
+      debugPrint(
+        'Conversation embed failed; loading related rows separately: ${e.message}',
+      );
+      return _getConversationsWithoutEmbed(userId);
     } catch (e) {
       debugPrint('Unexpected error fetching conversations: $e');
       rethrow;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _getConversationsWithoutEmbed(
+    String userId,
+  ) async {
+    final participantRows = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', userId);
+    final conversationIds = List<Map<String, dynamic>>.from(participantRows)
+        .map((row) => row['conversation_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (conversationIds.isEmpty) return [];
+
+    final conversationRows = await supabase
+        .from('conversations')
+        .select()
+        .inFilter('id', conversationIds)
+        .order('updated_at', ascending: false);
+    final conversations = List<Map<String, dynamic>>.from(conversationRows);
+
+    final messageRows = await supabase
+        .from('messages')
+        .select()
+        .inFilter('conversation_id', conversationIds)
+        .order('created_at', ascending: true);
+    final messagesByConversation = <String, List<Map<String, dynamic>>>{};
+    for (final message in List<Map<String, dynamic>>.from(messageRows)) {
+      final conversationId = message['conversation_id']?.toString();
+      if (conversationId == null || conversationId.isEmpty) continue;
+      messagesByConversation.putIfAbsent(conversationId, () => []).add(message);
+    }
+
+    for (final conversation in conversations) {
+      final id = conversation['id']?.toString();
+      conversation['messages'] = messagesByConversation[id] ?? const [];
+    }
+    return _normalizeConversationRows(conversations);
+  }
+
+  List<Map<String, dynamic>> _normalizeConversationRows(
+    List<Map<String, dynamic>> conversations,
+  ) {
+    for (final conversation in conversations) {
+      final rawMessages = conversation['messages'];
+      if (rawMessages is! List) {
+        conversation['messages'] = <Map<String, dynamic>>[];
+        continue;
+      }
+      final messages = rawMessages
+          .whereType<Map<String, dynamic>>()
+          .map(Map<String, dynamic>.from)
+          .toList();
+      messages.sort((a, b) {
+        final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '');
+        final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '');
+        return (aDate ?? DateTime(1970)).compareTo(bDate ?? DateTime(1970));
+      });
+      conversation['messages'] = messages;
+    }
+    return conversations;
   }
 
   // Get or create a conversation between two users
@@ -97,20 +165,32 @@ class ChatService {
       final commonConvIds = user1ConvIds.intersection(user2ConvIds);
 
       if (commonConvIds.isNotEmpty) {
-        // Return existing conversation
-        final existing = await supabase
+        final candidates = await supabase
             .from('conversations')
             .select()
-            .eq('id', commonConvIds.first)
-            .single();
-        debugPrint('Found existing conversation');
-        return existing;
+            .inFilter('id', commonConvIds.toList())
+            .isFilter('booking_id', null)
+            .eq('is_group', false)
+            .order('updated_at', ascending: false);
+        for (final candidate in List<Map<String, dynamic>>.from(candidates)) {
+          final participantRows = await supabase
+              .from('conversation_participants')
+              .select('user_id')
+              .eq('conversation_id', candidate['id']);
+          if (participantRows.length == 2) {
+            debugPrint('Found existing direct conversation');
+            return candidate;
+          }
+        }
       }
 
       // Create new conversation
       final newConv = await supabase
           .from('conversations')
           .insert({
+            'is_group': false,
+            'user_id': userId1,
+            'other_user_id': userId2,
             'created_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })
@@ -118,7 +198,7 @@ class ChatService {
           .single();
 
       // Add both users as participants
-      await supabase.from('conversation_participants').insert([
+      await supabase.from('conversation_participants').upsert([
         {
           'conversation_id': newConv['id'],
           'user_id': userId1,
@@ -129,7 +209,7 @@ class ChatService {
           'user_id': userId2,
           'joined_at': DateTime.now().toIso8601String(),
         },
-      ]);
+      ], onConflict: 'conversation_id,user_id');
 
       debugPrint('Created new conversation with participants');
       return newConv;
@@ -231,19 +311,57 @@ class ChatService {
 
       final response = await supabase
           .from('messages')
-          .select('*, sender:users!messages_sender_id_fkey(*)')
+          .select('*, sender:users!messages_new_sender_id_fkey(*)')
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);
 
       debugPrint('Fetched ${response.length} messages');
       return List<Map<String, dynamic>>.from(response);
     } on PostgrestException catch (e) {
-      debugPrint('Database error fetching messages: ${e.message}');
-      rethrow;
+      debugPrint(
+        'Message sender relationship failed; loading profiles separately: ${e.message}',
+      );
+      return _getMessagesWithoutEmbed(conversationId);
     } catch (e) {
       debugPrint('Unexpected error fetching messages: $e');
       rethrow;
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _getMessagesWithoutEmbed(
+    String conversationId,
+  ) async {
+    final response = await supabase
+        .from('messages')
+        .select()
+        .eq('conversation_id', conversationId)
+        .order('created_at', ascending: true);
+    final messages = List<Map<String, dynamic>>.from(response);
+    final senderIds = messages
+        .map((message) => message['sender_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (senderIds.isEmpty) return messages;
+
+    final users = await supabase
+        .from('users')
+        .select()
+        .inFilter('id', senderIds);
+    final usersById = {
+      for (final user in List<Map<String, dynamic>>.from(users))
+        user['id']?.toString(): user,
+    };
+    return messages
+        .map(
+          (message) => {
+            ...message,
+            'sender': usersById[message['sender_id']?.toString()],
+          },
+        )
+        .toList();
   }
 
   // Send a message
@@ -302,6 +420,12 @@ class ChatService {
           .update({'updated_at': DateTime.now().toIso8601String()})
           .eq('id', conversationId);
 
+      await _notifyMessageRecipients(
+        conversationId: conversationId,
+        senderId: senderId,
+        content: content,
+      );
+
       // Flagging and enforcement are handled by the chat screen flow.
 
       debugPrint('Message sent successfully');
@@ -312,6 +436,40 @@ class ChatService {
     } catch (e) {
       debugPrint('Unexpected error sending message: $e');
       rethrow;
+    }
+  }
+
+  Future<void> _notifyMessageRecipients({
+    required String conversationId,
+    required String senderId,
+    required String content,
+  }) async {
+    try {
+      final participantRows = await supabase
+          .from('conversation_participants')
+          .select('user_id')
+          .eq('conversation_id', conversationId)
+          .neq('user_id', senderId);
+      final preview = content.trim().isEmpty
+          ? 'You received a new attachment.'
+          : content.trim().length > 120
+          ? '${content.trim().substring(0, 117)}...'
+          : content.trim();
+      for (final participant in participantRows) {
+        final recipientId = participant['user_id']?.toString();
+        if (recipientId == null || recipientId.isEmpty) continue;
+        await NotificationService().createNotification(
+          userId: recipientId,
+          title: 'New Message',
+          message: preview,
+          type: 'message',
+          data: {'conversation_id': conversationId, 'sender_id': senderId},
+        );
+      }
+    } catch (e) {
+      // A delivered chat message must not be reported as failed only because
+      // its secondary notification could not be queued.
+      debugPrint('Message notification skipped: $e');
     }
   }
 
@@ -745,7 +903,7 @@ class ChatService {
 
       await supabase
           .from('conversation_participants')
-          .insert(participantRecords);
+          .upsert(participantRecords, onConflict: 'conversation_id,user_id');
 
       await supabase
           .from('conversations')

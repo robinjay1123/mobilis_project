@@ -12,7 +12,8 @@ class VehicleService {
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'owner_role,rating';
+      'owner_role,rating,'
+      'vehicle_images!vehicle_images_vehicle_id_fkey(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',
     'approved',
@@ -217,46 +218,6 @@ class VehicleService {
     return vt.trim().isNotEmpty ? vt : (v['category']?.toString() ?? '');
   }
 
-  // ---------------------------------------------------------------------------
-  // Fetch and group vehicle images by vehicle_id
-  // ---------------------------------------------------------------------------
-  Future<Map<String, List<Map<String, dynamic>>>> _fetchAndGroupImages(
-    List<String> vehicleIds,
-  ) async {
-    if (vehicleIds.isEmpty) return {};
-
-    try {
-      final imagesResponse = await supabase
-          .from('vehicle_images')
-          .select('vehicle_id,image_url,display_order')
-          .inFilter('vehicle_id', vehicleIds);
-
-      final grouped = <String, List<Map<String, dynamic>>>{};
-      for (final image in imagesResponse) {
-        final vehicleId = image['vehicle_id'] as String?;
-        if (vehicleId != null) {
-          grouped
-              .putIfAbsent(vehicleId, () => [])
-              .add(Map<String, dynamic>.from(image));
-        }
-      }
-
-      // Sort each list by display_order
-      for (final list in grouped.values) {
-        list.sort((a, b) {
-          final aOrder = (a['display_order'] as num?)?.toInt() ?? 9999;
-          final bOrder = (b['display_order'] as num?)?.toInt() ?? 9999;
-          return aOrder.compareTo(bOrder);
-        });
-      }
-
-      return grouped;
-    } catch (e) {
-      debugPrint('Error fetching vehicle images: $e');
-      return {};
-    }
-  }
-
   Future<Map<String, List<Map<String, dynamic>>>> _fetchAndGroupPartnerImages(
     List<String> partnerVehicleIds,
   ) async {
@@ -425,20 +386,6 @@ class VehicleService {
 
       final vehicles = List<Map<String, dynamic>>.from(response);
 
-      // Fetch images separately
-      final vehicleIds = vehicles
-          .map((v) => v['id']?.toString() ?? '')
-          .toList();
-      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
-
-      // Attach images to each vehicle
-      for (final vehicle in vehicles) {
-        final id = vehicle['id']?.toString();
-        if (id != null) {
-          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
-        }
-      }
-
       return _normalizeList(vehicles);
     } on PostgrestException catch (e) {
       debugPrint('getPartnerVehicles error: ${e.message}');
@@ -460,19 +407,6 @@ class VehicleService {
       if (response == null) return null;
 
       final vehicle = Map<String, dynamic>.from(response);
-
-      // Fetch images for this vehicle separately
-      try {
-        final imagesResponse = await supabase
-            .from('vehicle_images')
-            .select('image_url,display_order')
-            .eq('vehicle_id', vehicleId)
-            .order('display_order', ascending: true);
-        vehicle['vehicle_images'] = imagesResponse;
-      } catch (e) {
-        debugPrint('Error fetching images for vehicle $vehicleId: $e');
-        vehicle['vehicle_images'] = [];
-      }
 
       return _normalizeVehicleRecord(vehicle);
     } on PostgrestException catch (e) {
@@ -503,20 +437,6 @@ class VehicleService {
       debugPrint('Raw rows returned: ${response.length}');
 
       final vehicles = List<Map<String, dynamic>>.from(response);
-
-      // Fetch images separately
-      final vehicleIds = vehicles
-          .map((v) => v['id']?.toString() ?? '')
-          .toList();
-      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
-
-      // Attach images to each vehicle
-      for (final vehicle in vehicles) {
-        final id = vehicle['id']?.toString();
-        if (id != null) {
-          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
-        }
-      }
 
       final normalized = _normalizeList(vehicles).where((vehicle) {
         if (!_isVisibleForRent(vehicle)) return false;
@@ -596,20 +516,6 @@ class VehicleService {
       final response = await query.order('created_at', ascending: false);
 
       final vehicles = List<Map<String, dynamic>>.from(response);
-
-      // Fetch images separately
-      final vehicleIds = vehicles
-          .map((v) => v['id']?.toString() ?? '')
-          .toList();
-      final imagesByVehicleId = await _fetchAndGroupImages(vehicleIds);
-
-      // Attach images to each vehicle
-      for (final vehicle in vehicles) {
-        final id = vehicle['id']?.toString();
-        if (id != null) {
-          vehicle['vehicle_images'] = imagesByVehicleId[id] ?? [];
-        }
-      }
 
       final normalized = _normalizeList(
         vehicles,

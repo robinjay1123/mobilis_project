@@ -2863,19 +2863,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             unreadCount: 0,
                             onTap: () {
                               final conversationId = conv['id'];
-                              Navigator.of(context).pushNamed(
-                                '/chat-detail',
-                                arguments: {
-                                  'conversationId': conversationId,
-                                  'recipientName': isCustomerService
-                                      ? 'Customer Service'
-                                      : 'Renter',
-                                  'recipientAvatar': '',
-                                  'isDarkMode': true,
-                                  'isCustomerService': isCustomerService,
-                                  'userRole': 'partner',
-                                },
-                              );
+                              Navigator.of(context)
+                                  .pushNamed(
+                                    '/chat-detail',
+                                    arguments: {
+                                      'conversationId': conversationId,
+                                      'recipientName': isCustomerService
+                                          ? 'Customer Service'
+                                          : 'Renter',
+                                      'recipientAvatar': '',
+                                      'isDarkMode': true,
+                                      'isCustomerService': isCustomerService,
+                                      'userRole': 'partner',
+                                    },
+                                  )
+                                  .then((_) => _loadPartnerData());
                             },
                           );
                         },

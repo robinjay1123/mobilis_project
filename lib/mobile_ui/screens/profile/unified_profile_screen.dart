@@ -5,6 +5,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/role_ui.dart';
 import 'emergency_contact_screen.dart';
 import 'ratings_reviews_screen.dart';
 
@@ -333,7 +334,12 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return Column(
+        children: [
+          _profileHeaderBar(),
+          const Expanded(child: Center(child: CircularProgressIndicator())),
+        ],
+      );
     }
 
     final profile = _profile ?? {};
@@ -346,9 +352,13 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         _value(profile['phone'] ?? profile['phone_number']) ?? 'Not set';
     final location =
         _value(profile['location'] ?? profile['address']) ?? 'Not set';
-    final avatarUrl = _value(
-      profile['avatar_url'] ?? profile['profile_picture_url'],
-    );
+    final avatarUrl = _firstValue([
+      profile['avatar_url'],
+      profile['profile_picture_url'],
+      AuthService().currentUser?.userMetadata?['avatar_url'],
+      AuthService().currentUser?.userMetadata?['profile_picture_url'],
+      AuthService().currentUser?.userMetadata?['picture'],
+    ]);
 
     return Column(
       children: [
@@ -426,41 +436,29 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   Widget _profileHeaderBar() {
-    return Container(
-      height: 58,
-      width: double.infinity,
-      color: AppColors.primary,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Icon(Icons.person_outline, color: Colors.black, size: 22),
-          ),
-          const Text(
-            'Profile',
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: _openRatings,
-              tooltip: 'Ratings and Reviews',
-              icon: const Icon(
-                Icons.star_outline_rounded,
-                color: Colors.black,
-                size: 25,
-              ),
-            ),
-          ),
-        ],
+    return RolePageHeader(
+      title: 'Profile',
+      trailing: IconButton(
+        onPressed: _openRatings,
+        tooltip: 'Ratings and Reviews',
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.all(6),
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        icon: const Icon(
+          Icons.star_outline_rounded,
+          color: Colors.black,
+          size: 24,
+        ),
       ),
     );
+  }
+
+  String? _firstValue(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return null;
   }
 
   Widget _profileCard({
