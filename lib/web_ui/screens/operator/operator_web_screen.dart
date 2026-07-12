@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../theme/web_portal_theme.dart';
+import '../../../utils/booking_status.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
@@ -1989,24 +1990,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildStatusBadge(String status) {
-    Color color;
-    switch (status.toLowerCase()) {
-      case 'confirmed':
-      case 'approved':
-        color = AppColors.primary;
-        break;
-      case 'active':
-        color = Colors.green;
-        break;
-      case 'completed':
-        color = Colors.blue;
-        break;
-      case 'cancelled':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.orange;
-    }
+    final group = bookingStatusGroup(status);
+    final color = bookingStatusColor(group);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -2015,7 +2000,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        status.toUpperCase(),
+        bookingStatusLabel(group).toUpperCase(),
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -2153,23 +2138,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildBookingsContent(bool isDark) {
     final pendingBookings = _recentBookings
-        .where((b) => (b['status'] as String? ?? 'pending') == 'pending')
+        .where(
+          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.pending,
+        )
         .toList();
-    final activeBookings = _recentBookings.where((b) {
-      final status = (b['status'] as String? ?? 'pending').toLowerCase();
-      return status == 'active' ||
-          status == 'approved' ||
-          status == 'confirmed';
-    }).toList();
+    final approvedBookings = _recentBookings
+        .where(
+          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.approved,
+        )
+        .toList();
+    final ongoingBookings = _recentBookings
+        .where(
+          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.ongoing,
+        )
+        .toList();
     final completedBookings = _recentBookings
-        .where((b) => (b['status'] as String? ?? 'pending') == 'completed')
+        .where(
+          (b) =>
+              bookingStatusGroup(b['status']) == BookingStatusGroup.completed,
+        )
         .toList();
-    final cancelledBookings = _recentBookings.where((b) {
-      final status = (b['status'] as String? ?? 'pending').toLowerCase();
-      return status == 'cancelled' ||
-          status == 'canceled' ||
-          status == 'rejected';
-    }).toList();
+    final cancelledBookings = _recentBookings
+        .where(
+          (b) =>
+              bookingStatusGroup(b['status']) == BookingStatusGroup.cancelled,
+        )
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -2213,8 +2207,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 const SizedBox(height: 30),
                 // Active section - always show
                 _buildBookingSection(
+                  'Approved Bookings',
+                  approvedBookings,
+                  isDark,
+                  AppColors.primary,
+                  showEmpty: true,
+                ),
+                const SizedBox(height: 30),
+                _buildBookingSection(
                   'Ongoing Bookings',
-                  activeBookings,
+                  ongoingBookings,
                   isDark,
                   Colors.green,
                   showEmpty: true,

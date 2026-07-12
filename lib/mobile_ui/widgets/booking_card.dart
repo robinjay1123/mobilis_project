@@ -15,8 +15,10 @@ class BookingCard extends StatelessWidget {
   final VoidCallback? onViewDetails;
   final VoidCallback? onMessage;
   final VoidCallback? onTrack;
+  final VoidCallback? onCancel;
   final bool showMessageButton;
   final bool showTrackButton;
+  final bool showCancelButton;
   final bool showRating;
   final String detailsButtonLabel;
   final bool isActive;
@@ -36,8 +38,10 @@ class BookingCard extends StatelessWidget {
     this.onViewDetails,
     this.onMessage,
     this.onTrack,
+    this.onCancel,
     this.showMessageButton = false,
     this.showTrackButton = false,
+    this.showCancelButton = false,
     this.showRating = true,
     this.detailsButtonLabel = 'View Details',
     this.isActive = false,
@@ -258,20 +262,7 @@ class BookingCard extends StatelessWidget {
                             color: AppColors.textPrimary,
                           ),
                         ),
-                      ] else
-                        const Flexible(
-                          child: Text(
-                            'No ratings yet',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textTertiary,
-                            ),
-                          ),
-                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -299,6 +290,24 @@ class BookingCard extends StatelessWidget {
             ],
             Row(
               children: [
+                if (showCancelButton) ...[
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onCancel,
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text('Cancel'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        side: const BorderSide(color: AppColors.error),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: onViewDetails ?? onTap,

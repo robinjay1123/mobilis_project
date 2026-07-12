@@ -17,6 +17,7 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  bool _phoneTouched = false;
   late TextEditingController fullNameController;
   late TextEditingController emailController;
   late TextEditingController phoneController;
@@ -147,13 +148,8 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    if (phoneController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your phone number');
-      return;
-    }
-
     if (!_isValidPhilippinePhone(phoneController.text.trim())) {
-      _showErrorSnackBar('Phone number must be 11 digits, e.g. 09171234567');
+      setState(() => _phoneTouched = true);
       return;
     }
 
@@ -301,6 +297,16 @@ class _SignupScreenState extends State<SignupScreen> {
     final digits = phone.replaceAll(RegExp(r'\D'), '');
     return RegExp(r'^09\d{9}$').hasMatch(digits) ||
         RegExp(r'^639\d{9}$').hasMatch(digits);
+  }
+
+  String? get _phoneError {
+    if (!_phoneTouched) return null;
+    final phone = phoneController.text.trim();
+    if (phone.isEmpty) return 'Contact number is required';
+    if (!_isValidPhilippinePhone(phone)) {
+      return 'Enter exactly 11 digits beginning with 09';
+    }
+    return null;
   }
 
   Future<void> _getCurrentLocation() async {
@@ -819,6 +825,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(11),
                 ],
+                errorText: _phoneError,
+                onChanged: (_) => setState(() => _phoneTouched = true),
                 prefixIcon: const Icon(
                   Icons.phone_outlined,
                   color: AppColors.textTertiary,

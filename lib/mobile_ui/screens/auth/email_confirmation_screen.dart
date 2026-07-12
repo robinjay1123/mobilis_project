@@ -81,7 +81,7 @@ class EmailConfirmationScreen extends StatelessWidget {
                       Text(
                         '1. Check your email inbox\n'
                         '2. Click the confirmation link\n'
-                        '3. Return to the app and login',
+                        '3. Return to the app and continue verification',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -99,7 +99,9 @@ class EmailConfirmationScreen extends StatelessWidget {
                   height: 56,
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.of(context).pushReplacementNamed('/login');
+                      Navigator.of(
+                        context,
+                      ).pushReplacementNamed('/verification-options');
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
@@ -110,7 +112,7 @@ class EmailConfirmationScreen extends StatelessWidget {
                       elevation: 0,
                     ),
                     child: const Text(
-                      'Go to Login',
+                      'Continue Verification',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,

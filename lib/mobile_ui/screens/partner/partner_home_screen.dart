@@ -22,6 +22,7 @@ import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../../../utils/booking_status.dart';
 import '../profile/unified_profile_screen.dart';
 import 'partner_tracking_screen.dart';
 import 'partner_revenue_screen.dart';
@@ -2904,20 +2905,23 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         const SizedBox(height: 14),
         Expanded(
           child: DefaultTabController(
-            length: 4,
+            length: 5,
             child: Column(
               children: [
                 Container(
                   color: const Color(0xFF131E2D),
                   child: TabBar(
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: AppColors.primary,
                     unselectedLabelColor: const Color(0xFF98A4B7),
                     indicatorColor: AppColors.primary,
                     indicatorWeight: 3,
                     tabs: const [
                       Tab(text: 'Pending'),
-                      Tab(text: 'Active'),
-                      Tab(text: 'Past'),
+                      Tab(text: 'Approved'),
+                      Tab(text: 'Ongoing'),
+                      Tab(text: 'Completed'),
                       Tab(text: 'Cancelled'),
                     ],
                   ),
@@ -2926,8 +2930,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   child: TabBarView(
                     children: [
                       _buildBookingsList('pending'),
-                      _buildBookingsList('active'),
-                      _buildBookingsList('past'),
+                      _buildBookingsList('approved'),
+                      _buildBookingsList('ongoing'),
+                      _buildBookingsList('completed'),
                       _buildBookingsList('cancelled'),
                     ],
                   ),
@@ -2991,7 +2996,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.zero,
         children: [
-          if (tabKey == 'active') _buildActiveBookingsHero(filteredBookings),
+          if (tabKey == 'ongoing') _buildActiveBookingsHero(filteredBookings),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             child: Column(
@@ -3305,33 +3310,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   bool _matchesBookingTab(Map<String, dynamic> booking, String tabKey) {
-    final status = (booking['status']?.toString() ?? '').toLowerCase();
-    switch (tabKey) {
-      case 'pending':
-        return status == 'pending';
-      case 'active':
-        return status == 'active' ||
-            status == 'approved' ||
-            status == 'confirmed';
-      case 'past':
-        return status == 'completed';
-      case 'cancelled':
-        return status == 'cancelled' ||
-            status == 'canceled' ||
-            status == 'rejected';
-      default:
-        return false;
-    }
+    return bookingStatusGroup(booking['status']).name == tabKey;
   }
 
   String _bookingTabLabel(String tabKey) {
     switch (tabKey) {
       case 'pending':
         return 'Pending';
-      case 'active':
-        return 'Active';
-      case 'past':
-        return 'Past';
+      case 'approved':
+        return 'Approved';
+      case 'ongoing':
+        return 'Ongoing';
+      case 'completed':
+        return 'Completed';
       case 'cancelled':
         return 'Cancelled';
       default:
@@ -3360,22 +3351,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           ((tracking['speed_mps'] as num?)?.toDouble() ?? 0) * 2.23694;
       return speed > 4 ? 'In Transit' : 'Parked';
     }
-    switch (status) {
-      case 'approved':
-      case 'confirmed':
-        return 'Ongoing';
-      case 'active':
-        return 'Ongoing';
-      case 'completed':
-        return 'Completed';
-      case 'cancelled':
-      case 'canceled':
-        return 'Cancelled';
-      case 'rejected':
-        return 'Rejected';
-      default:
-        return 'Pending';
-    }
+    return bookingStatusLabel(bookingStatusGroup(status));
   }
 
   Color _bookingStatusColor(String label) {

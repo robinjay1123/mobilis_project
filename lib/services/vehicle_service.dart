@@ -14,6 +14,8 @@ class VehicleService {
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
       'owner_role,rating';
   static const List<String> _bookingBlockingStatuses = [
+    'pending',
+    'approved',
     'confirmed',
     'active',
     'ongoing',
@@ -771,9 +773,7 @@ class VehicleService {
           .from('bookings')
           .select('start_at,end_at,start_date,end_date')
           .eq('vehicle_id', vehicleId)
-          .inFilter('status', _bookingBlockingStatuses)
-          .lt('start_at', windowEnd.toUtc().toIso8601String())
-          .gt('end_at', windowStart.toUtc().toIso8601String());
+          .inFilter('status', _bookingBlockingStatuses);
       final bookedIntervals = <(DateTime, DateTime)>[];
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
         final start = DateTime.tryParse(
@@ -782,7 +782,12 @@ class VehicleService {
         final end = DateTime.tryParse(
           row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
         )?.toLocal();
-        if (start != null && end != null) bookedIntervals.add((start, end));
+        if (start != null &&
+            end != null &&
+            start.isBefore(windowEnd) &&
+            end.isAfter(windowStart)) {
+          bookedIntervals.add((start, end));
+        }
       }
 
       bool rangeHasUnavailableDay(DateTime start, DateTime end) {
@@ -803,7 +808,7 @@ class VehicleService {
 
       final now = DateTime.now();
       final slots = <DateTime>[];
-      final initialHour = selectingEnd ? firstHour + 1 : firstHour;
+      final initialHour = firstHour;
       for (var hour = initialHour; hour <= lastHour; hour++) {
         final candidate = DateTime(day.year, day.month, day.day, hour);
         final intervalStart = selectingEnd ? rentalStart! : candidate;
@@ -963,15 +968,25 @@ class VehicleService {
       if (response.isNotEmpty) return false;
 
       final rangeEndExclusive = endDay.add(const Duration(days: 1));
-      final overlapping = await supabase
+      final bookingRows = await supabase
           .from('bookings')
-          .select('id')
+          .select('id,start_at,end_at,start_date,end_date')
           .eq('vehicle_id', vehicleId)
-          .inFilter('status', _bookingBlockingStatuses)
-          .lt('start_at', rangeEndExclusive.toUtc().toIso8601String())
-          .gt('end_at', startDay.toUtc().toIso8601String())
-          .limit(1);
-      return overlapping.isEmpty;
+          .inFilter('status', _bookingBlockingStatuses);
+      for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final bookedStart = DateTime.tryParse(
+          row['start_at']?.toString() ?? row['start_date']?.toString() ?? '',
+        )?.toLocal();
+        final bookedEnd = DateTime.tryParse(
+          row['end_at']?.toString() ?? row['end_date']?.toString() ?? '',
+        )?.toLocal();
+        if (bookedStart == null || bookedEnd == null) continue;
+        if (bookedStart.isBefore(rangeEndExclusive) &&
+            bookedEnd.isAfter(startDay)) {
+          return false;
+        }
+      }
+      return true;
     } catch (_) {
       return false;
     }

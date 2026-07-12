@@ -21,6 +21,7 @@ import '../../../services/chat_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
+import '../../../utils/booking_status.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -2241,20 +2242,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildStatusBadge(String status) {
-    Color color;
-    switch (status) {
-      case 'active':
-        color = Colors.green;
-        break;
-      case 'completed':
-        color = Colors.blue;
-        break;
-      case 'cancelled':
-        color = Colors.red;
-        break;
-      default:
-        color = Colors.orange;
-    }
+    final group = bookingStatusGroup(status);
+    final color = bookingStatusColor(group);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -2263,7 +2252,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        status.toUpperCase(),
+        bookingStatusLabel(group).toUpperCase(),
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -3255,117 +3244,129 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildBookingsContent(bool isDark) {
+    final sortedBookings = [..._allBookings]
+      ..sort((a, b) {
+        return bookingStatusOrder
+            .indexOf(bookingStatusGroup(a['status']))
+            .compareTo(
+              bookingStatusOrder.indexOf(bookingStatusGroup(b['status'])),
+            );
+      });
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: _buildCard(
         'All Bookings (${_allBookings.length})',
         _allBookings.isEmpty
             ? const Center(child: Text('No bookings found'))
-            : DataTable(
-                columns: [
-                  DataColumn(
-                    label: Text(
-                      'Vehicle',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columns: [
+                    DataColumn(
+                      label: Text(
+                        'Vehicle',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Renter',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+                    DataColumn(
+                      label: Text(
+                        'Renter',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Status',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+                    DataColumn(
+                      label: Text(
+                        'Status',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Total',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+                    DataColumn(
+                      label: Text(
+                        'Total',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                  DataColumn(
-                    label: Text(
-                      'Tracking',
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
+                    DataColumn(
+                      label: Text(
+                        'Tracking',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-                rows: _allBookings.map((booking) {
-                  final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-                  final user = booking['renter'] as Map<String, dynamic>?;
-                  final status = booking['status'] as String? ?? 'pending';
-                  final canTrack = _canTrackBooking(booking);
-                  final total =
-                      (booking['total_price'] as num?)?.toDouble() ??
-                      (booking['total_cost'] as num?)?.toDouble() ??
-                      0;
+                  ],
+                  rows: sortedBookings.map((booking) {
+                    final vehicle =
+                        booking['vehicles'] as Map<String, dynamic>?;
+                    final user = booking['renter'] as Map<String, dynamic>?;
+                    final status = booking['status'] as String? ?? 'pending';
+                    final canTrack = _canTrackBooking(booking);
+                    final total =
+                        (booking['total_price'] as num?)?.toDouble() ??
+                        (booking['total_cost'] as num?)?.toDouble() ??
+                        0;
 
-                  return DataRow(
-                    cells: [
-                      DataCell(
-                        Text(
-                          vehicle != null
-                              ? '${vehicle['brand']} ${vehicle['model']}'
-                              : 'Unknown',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
+                    return DataRow(
+                      cells: [
+                        DataCell(
+                          Text(
+                            vehicle != null
+                                ? '${vehicle['brand']} ${vehicle['model']}'
+                                : 'Unknown',
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
                           ),
                         ),
-                      ),
-                      DataCell(
-                        Text(
-                          user?['full_name'] ?? 'Unknown',
-                          style: TextStyle(
-                            color: isDark ? Colors.white70 : Colors.black87,
+                        DataCell(
+                          Text(
+                            user?['full_name'] ?? 'Unknown',
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
                           ),
                         ),
-                      ),
-                      DataCell(_buildStatusBadge(status)),
-                      DataCell(
-                        Text(
-                          'PHP ${total.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Colors.green,
+                        DataCell(_buildStatusBadge(status)),
+                        DataCell(
+                          Text(
+                            'PHP ${total.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green,
+                            ),
                           ),
                         ),
-                      ),
-                      DataCell(
-                        ElevatedButton.icon(
-                          onPressed: canTrack
-                              ? () => _openTrackingForBooking(booking)
-                              : null,
-                          icon: const Icon(Icons.location_on, size: 16),
-                          label: const Text('Track'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.black,
-                            disabledBackgroundColor: isDark
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade300,
-                            disabledForegroundColor: isDark
-                                ? Colors.grey.shade500
-                                : Colors.grey.shade600,
+                        DataCell(
+                          ElevatedButton.icon(
+                            onPressed: canTrack
+                                ? () => _openTrackingForBooking(booking)
+                                : null,
+                            icon: const Icon(Icons.location_on, size: 16),
+                            label: const Text('Track'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              disabledBackgroundColor: isDark
+                                  ? Colors.grey.shade800
+                                  : Colors.grey.shade300,
+                              disabledForegroundColor: isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade600,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }).toList(),
+                      ],
+                    );
+                  }).toList(),
+                ),
               ),
         isDark,
       ),

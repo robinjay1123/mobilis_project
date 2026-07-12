@@ -55,6 +55,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   List<DateTime> _unavailableDates = [];
   List<Map<String, dynamic>> _myBookings = [];
   bool _withDriver = false;
+  bool _vehicleDelivery = false;
   TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _returnTime = const TimeOfDay(hour: 18, minute: 0);
   String? _acceptedTermsSnapshot;
@@ -1068,9 +1069,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   double get _deliveryFee {
-    if (!_withDriver || _deliveryDistanceKm == null) return 0;
+    if (!_requiresPickupMap || _deliveryDistanceKm == null) return 0;
     return _deliveryDistanceKm! * PricingPolicy.deliveryRatePerKm;
   }
+
+  bool get _requiresPickupMap => _withDriver || _vehicleDelivery;
 
   double get _totalPrice => _rentalSubtotal + _deliveryFee;
 
@@ -1422,13 +1425,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (_withDriver && _deliveryDistanceKm == null) {
+    if (_requiresPickupMap && _deliveryDistanceKm == null) {
       await _refreshDeliveryEstimate();
       if (_deliveryDistanceKm == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Please estimate the delivery fee before booking with a driver.',
+              'Please pin the delivery location and estimate the fee before booking.',
             ),
             backgroundColor: AppColors.warning,
           ),
@@ -2858,6 +2861,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           onChanged: (value) {
                             setState(() {
                               _withDriver = value;
+                              if (value) _vehicleDelivery = false;
                               // Reset location selections when toggling driver
                               if (!value) {
                                 _pickupProvince = null;
@@ -2878,10 +2882,72 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
                   // Driver delivery requires a pickup. Every rental still
                   // records its own trip destination below.
-                  if (_withDriver) ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.local_shipping_outlined,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Vehicle Delivery',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Have the vehicle delivered without hiring a driver.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _vehicleDelivery,
+                          activeThumbColor: AppColors.primary,
+                          onChanged: _withDriver
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    _vehicleDelivery = value;
+                                    if (!value) {
+                                      _pickupProvince = null;
+                                      _pickupCity = null;
+                                      _pickupBarangay = null;
+                                      _pickupFreetext = null;
+                                      _pickupMapPin = null;
+                                      _pickupFreetextController.clear();
+                                      _deliveryDistanceKm = null;
+                                    }
+                                  });
+                                  if (value) _refreshDeliveryEstimate();
+                                },
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (_requiresPickupMap) ...[
                     const SizedBox(height: 24),
                     const Text(
-                      'Pick-up Location',
+                      'Delivery / Pick-up Location',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
@@ -3191,7 +3257,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 ? '$_billableHours hour${_billableHours == 1 ? '' : 's'}'
                                 : '${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1)} day${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1) == 1 ? '' : 's'}',
                           ),
-                          if (_withDriver) ...[
+                          if (_requiresPickupMap) ...[
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Rental subtotal',
@@ -3326,7 +3392,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     height: 1.4,
                   ),
                 ),
-                if (_withDriver) ...[
+                if (_requiresPickupMap) ...[
                   const SizedBox(height: 12),
                   if (_isCalculatingDeliveryFee)
                     const LinearProgressIndicator(color: AppColors.primary)
@@ -3817,7 +3883,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   String _getPickupLocation() {
-    if (!_withDriver) {
+    if (!_requiresPickupMap) {
       return PhilippineLocations.psdc_garage;
     }
     if (_pickupMapPin != null) {
@@ -3993,7 +4059,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               ),
               child: OptimizedNetworkImage(
                 imageUrl: mapUrl,
-                height: 140,
+                height: 220,
                 width: double.infinity,
                 fit: BoxFit.cover,
                 isThumbnail: true,
@@ -4001,7 +4067,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             )
           else
             Container(
-              height: 128,
+              height: 200,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: AppColors.darkBgTertiary,

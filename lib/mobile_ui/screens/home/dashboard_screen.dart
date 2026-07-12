@@ -31,6 +31,7 @@ import '../profile/verification_documents_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
 import '../partner/partner_tracking_screen.dart';
+import '../../../utils/booking_status.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -46,6 +47,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   // ---------------------------------------------------------------------------
   // State fields
   // ---------------------------------------------------------------------------
@@ -1797,6 +1799,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<bool> _canOpenVehicleBooking(Map<String, dynamic> vehicle) async {
+    final vehicleId = vehicle['id']?.toString() ?? '';
+    final listed = vehicle['is_posted'] != false;
+    final enabled = vehicle['is_available'] != false;
+    final status = vehicle['status']?.toString().trim().toLowerCase() ?? '';
+    if (vehicleId.isEmpty || !listed || !enabled || status == 'rejected') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This vehicle is currently unavailable.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      }
+      return false;
+    }
+
+    final today = DateTime.now();
+    final start =
+        _bookingFilterFrom ?? DateTime(today.year, today.month, today.day);
+    final end = _bookingFilterTo ?? start;
+    final available = await VehicleService().isVehicleAvailable(
+      vehicleId,
+      start,
+      end,
+    );
+    if (!available && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This vehicle is unavailable for the selected date. Choose another vehicle or date.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    }
+    return available;
+  }
+
   // ---------------------------------------------------------------------------
   // Data mappers
   // ---------------------------------------------------------------------------
@@ -1872,26 +1913,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       final rawStatus = (booking['status'] ?? '').toString().toLowerCase();
-      String uiStatus;
-      String statusGroup;
-      if (rawStatus == 'active' ||
-          rawStatus == 'approved' ||
-          rawStatus == 'confirmed') {
-        uiStatus = rawStatus == 'active' ? 'Ongoing' : 'Confirmed';
-        statusGroup = 'Ongoing';
-      } else if (rawStatus == 'completed') {
-        uiStatus = 'Completed';
-        statusGroup = 'Completed';
-      } else if (rawStatus == 'rejected') {
-        uiStatus = 'Declined';
-        statusGroup = 'Declined';
-      } else if (rawStatus == 'cancelled' || rawStatus == 'canceled') {
-        uiStatus = 'Cancelled';
-        statusGroup = 'Declined';
-      } else {
-        uiStatus = 'Pending';
-        statusGroup = 'Pending';
-      }
+      final groupedStatus = bookingStatusGroup(rawStatus);
+      final uiStatus = bookingStatusLabel(groupedStatus);
+      final statusGroup = uiStatus;
 
       final owner = vehicle?['owner'] as Map<String, dynamic>?;
       final ownerRole = (owner?['role'] ?? '').toString().toLowerCase();
@@ -2334,6 +2358,145 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Widget _buildRenterDrawer() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = isDark
+        ? AppColors.textPrimary
+        : AppColors.lightTextPrimary;
+    final secondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
+
+    void selectTab(int index) {
+      Navigator.pop(context);
+      setState(() {
+        selectedNavIndex = index;
+        selectedBookingIndex = null;
+        selectedProfilePage = null;
+      });
+    }
+
+    Widget item(IconData icon, String label, int index) {
+      final selected = selectedNavIndex == index;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: ListTile(
+          onTap: () => selectTab(index),
+          selected: selected,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          tileColor: selected ? AppColors.primary : Colors.transparent,
+          leading: Icon(icon, color: selected ? Colors.black : secondary),
+          title: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.black : foreground,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Drawer(
+      backgroundColor: isDark ? const Color(0xFF062A44) : Colors.white,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: userAvatarUrl?.trim().isNotEmpty == true
+                        ? OptimizedNetworkImage(
+                            imageUrl: userAvatarUrl!,
+                            fit: BoxFit.cover,
+                            isThumbnail: true,
+                            errorWidget: const Icon(
+                              Icons.person,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Icon(Icons.person, color: Colors.black),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          userName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: foreground,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          userLocation,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: secondary, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Divider(
+              color: isDark
+                  ? AppColors.borderColor
+                  : AppColors.lightBorderColor,
+            ),
+            Expanded(
+              child: ListView(
+                children: [
+                  item(Icons.home_rounded, 'Home', 0),
+                  item(Icons.calendar_month_outlined, 'My Bookings', 1),
+                  item(Icons.chat_bubble_outline, 'Messages', 2),
+                  item(Icons.notifications_outlined, 'Notifications', 3),
+                  item(Icons.person_outline, 'Profile', 4),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: ListTile(
+                onTap: () => Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/auth-processing',
+                  (route) => false,
+                  arguments: {'mode': 'logout'},
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                leading: const Icon(Icons.logout, color: AppColors.error),
+                title: const Text(
+                  'Logout',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------------
@@ -2347,6 +2510,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (!didPop) _handleBackPressed();
       },
       child: Scaffold(
+        key: _scaffoldKey,
+        drawer: _buildRenterDrawer(),
         backgroundColor: selectedNavIndex == 0
             ? (isDark ? AppColors.darkBg : AppColors.lightBg)
             : AppColors.darkBg,
@@ -2502,7 +2667,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final uiBookings = _uiBookings();
     final homeTrips = uiBookings
         .where(
-          (b) => b['statusGroup'] == 'Ongoing' || b['statusGroup'] == 'Pending',
+          (b) =>
+              b['statusGroup'] == 'Pending' ||
+              b['statusGroup'] == 'Approved' ||
+              b['statusGroup'] == 'Ongoing',
         )
         .take(10)
         .toList();
@@ -2527,14 +2695,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   // Profile row
                   Row(
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(12),
+                      GestureDetector(
+                        onTap: () => _scaffoldKey.currentState?.openDrawer(),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: userAvatarUrl?.trim().isNotEmpty == true
+                              ? OptimizedNetworkImage(
+                                  imageUrl: userAvatarUrl!,
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                  isThumbnail: true,
+                                  errorWidget: const Icon(
+                                    Icons.person,
+                                    color: Colors.black,
+                                  ),
+                                )
+                              : const Icon(Icons.person, color: Colors.black),
                         ),
-                        child: const Icon(Icons.person, color: Colors.black),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -2872,19 +3056,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                 ),
                                               ),
                                               const SizedBox(width: 12),
-                                              const Icon(
-                                                Icons.star,
-                                                size: 12,
-                                                color: AppColors.ratingGold,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                '${booking['rating']}',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: secondaryTextColor,
+                                              if (((booking['rating'] as num?)
+                                                          ?.toDouble() ??
+                                                      0) >
+                                                  0) ...[
+                                                const Icon(
+                                                  Icons.star,
+                                                  size: 12,
+                                                  color: AppColors.ratingGold,
                                                 ),
-                                              ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  (booking['rating'] as num)
+                                                      .toStringAsFixed(1),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: secondaryTextColor,
+                                                  ),
+                                                ),
+                                              ],
                                             ],
                                           ),
                                         ],
@@ -3013,6 +3203,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 24),
 
             // ── Available Cars ───────────────────────────────────────────────
+            _buildPartnersNearYouSection(
+              cardColor: cardColor,
+              borderColor: borderColor,
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+            ),
+            const SizedBox(height: 24),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
@@ -3563,7 +3760,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                               height: 44,
                                               child: ElevatedButton(
                                                 onPressed: () async {
-                                                  if (await _checkRentalVerification()) {
+                                                  if (await _checkRentalVerification() &&
+                                                      await _canOpenVehicleBooking(
+                                                        car,
+                                                      )) {
                                                     Navigator.of(
                                                       context,
                                                     ).pushNamed(
@@ -3621,119 +3821,238 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
             const SizedBox(height: 24),
 
-            // ── Partners Near You ────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Partners Near You',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () {},
-                    child: const Text(
-                      'See all',
+            if (_topRentalPartners().isEmpty && _isLoadingVehicles) ...[
+              // Legacy placement; the visible section now appears above cars.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Partners Near You',
                       style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: SizedBox(
-                height: 120,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _topRentalPartners().length,
-                  itemBuilder: (context, index) {
-                    final partner = _topRentalPartners()[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: Container(
-                        width: 160,
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBgSecondary,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.borderColor),
+                    GestureDetector(
+                      onTap: () {},
+                      child: const Text(
+                        'See all',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w500,
                         ),
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 40,
-                                  height: 40,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: SizedBox(
+                  height: 120,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _topRentalPartners().length,
+                    itemBuilder: (context, index) {
+                      final partner = _topRentalPartners()[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: Container(
+                          width: 160,
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBgSecondary,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderColor),
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      partner['image'] as IconData? ??
+                                          Icons.person,
+                                      color: Colors.black,
+                                    ),
                                   ),
-                                  child: Icon(
-                                    partner['image'] as IconData? ??
-                                        Icons.person,
-                                    color: Colors.black,
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      partner['name'] as String,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    partner['name'] as String,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star,
+                                    color: AppColors.ratingGold,
+                                    size: 12,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    (partner['rating'] as double)
+                                        .toStringAsFixed(1),
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      fontWeight: FontWeight.w600,
                                       color: AppColors.textPrimary,
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPartnersNearYouSection({
+    required Color cardColor,
+    required Color borderColor,
+    required Color textColor,
+    required Color secondaryTextColor,
+  }) {
+    final partners = _topRentalPartners();
+    if (partners.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Partners Near You',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+              Text(
+                '${partners.length} nearby',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: secondaryTextColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 116,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: partners.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final partner = partners[index];
+                final rating = (partner['rating'] as num?)?.toDouble() ?? 0;
+                return Container(
+                  width: 174,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          partner['image'] as IconData? ?? Icons.storefront,
+                          color: Colors.black,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              partner['name']?.toString() ?? 'Partner',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.star,
-                                  color: AppColors.ratingGold,
-                                  size: 12,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  (partner['rating'] as double).toStringAsFixed(
-                                    1,
+                            if (rating > 0) ...[
+                              const SizedBox(height: 7),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    color: AppColors.ratingGold,
+                                    size: 14,
                                   ),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textPrimary,
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    rating.toStringAsFixed(1),
+                                    style: TextStyle(
+                                      color: secondaryTextColor,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                    );
-                  },
-                ),
-              ),
+                    ],
+                  ),
+                );
+              },
             ),
-            const SizedBox(height: 32),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -3760,20 +4079,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 14),
         Expanded(
           child: DefaultTabController(
-            length: 4,
+            length: 5,
             child: Column(
               children: [
                 Container(
                   color: AppColors.darkBg,
                   child: const TabBar(
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: AppColors.primary,
                     unselectedLabelColor: AppColors.textSecondary,
                     indicatorColor: AppColors.primary,
                     tabs: [
                       Tab(text: 'Pending'),
+                      Tab(text: 'Approved'),
                       Tab(text: 'Ongoing'),
                       Tab(text: 'Completed'),
-                      Tab(text: 'Declined'),
+                      Tab(text: 'Cancelled'),
                     ],
                   ),
                 ),
@@ -3783,6 +4105,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       _buildBookingsList(
                         uiBookings
                             .where((b) => b['statusGroup'] == 'Pending')
+                            .toList(),
+                      ),
+                      _buildBookingsList(
+                        uiBookings
+                            .where((b) => b['statusGroup'] == 'Approved')
                             .toList(),
                       ),
                       _buildBookingsList(
@@ -3797,7 +4124,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       _buildBookingsList(
                         uiBookings
-                            .where((b) => b['statusGroup'] == 'Declined')
+                            .where((b) => b['statusGroup'] == 'Cancelled')
                             .toList(),
                       ),
                     ],
@@ -3879,7 +4206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       showRating:
                           booking['statusGroup'] == 'Completed' &&
                           ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
-                      showTrackButton: booking['rawStatus'] == 'active',
+                      showTrackButton: booking['statusGroup'] == 'Ongoing',
                       onTrack: () => _openBookingTracking(booking),
                       detailsButtonLabel: isCompleted
                           ? 'View Receipt'
@@ -3896,6 +4223,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           : _showBookingDetails(booking),
                       showMessageButton: _canOpenBookingConversation(booking),
                       onMessage: () => _openBookingConversation(booking),
+                      showCancelButton:
+                          booking['statusGroup'] == 'Pending' &&
+                          _canCancelBooking(booking),
+                      onCancel: () => _handleBookingCancellation(booking),
                     );
                   },
                 ),
