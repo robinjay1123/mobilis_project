@@ -71,6 +71,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
   String? _selectedSupportConversationId;
   bool _isLoadingSupportInbox = false;
+  bool _isSendingSupportReply = false;
+  RealtimeChannel? _supportMessagesSubscription;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -108,6 +110,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _loadDashboardData();
     _loadRentalTerms();
     _loadReservationPaymentSettings();
+    _setupSupportMessagesListener();
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
@@ -117,6 +120,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
+    _supportMessagesSubscription?.unsubscribe();
     _rentalTermsController.dispose();
     _reservationAmountController.dispose();
     _reservationQrUrlController.dispose();
@@ -126,6 +130,58 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _announcementMessageController.dispose();
     _supportReplyController.dispose();
     super.dispose();
+  }
+
+  void _setupSupportMessagesListener() {
+    _supportMessagesSubscription = _supabase
+        .channel('admin-support-messages')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          callback: (payload) {
+            final message = Map<String, dynamic>.from(payload.newRecord);
+            final conversationId = message['conversation_id']?.toString();
+            if (conversationId == null || conversationId.isEmpty) return;
+            final index = _supportConversations.indexWhere(
+              (conversation) =>
+                  conversation['id']?.toString() == conversationId,
+            );
+            if (index < 0) {
+              unawaited(_loadSupportInbox());
+              return;
+            }
+            if (!mounted) return;
+            setState(() {
+              _mergeSupportMessage(conversationId, message);
+              final conversation = Map<String, dynamic>.from(
+                _supportConversations.removeAt(index),
+              );
+              conversation['latest_message'] = message;
+              conversation['updated_at'] = message['created_at'];
+              _supportConversations.insert(0, conversation);
+            });
+          },
+        )
+        .subscribe();
+  }
+
+  void _mergeSupportMessage(
+    String conversationId,
+    Map<String, dynamic> message,
+  ) {
+    final messages = _supportMessages.putIfAbsent(conversationId, () => []);
+    final messageId = message['id']?.toString();
+    if (messageId != null &&
+        messages.any((item) => item['id']?.toString() == messageId)) {
+      return;
+    }
+    messages.add(message);
+    messages.sort((a, b) {
+      final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '');
+      final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '');
+      return (aDate ?? DateTime(1970)).compareTo(bDate ?? DateTime(1970));
+    });
   }
 
   Future<void> _loadDashboardData() async {
@@ -280,19 +336,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         conversationId.isEmpty ||
         content.isEmpty ||
         adminId == null ||
-        adminId.isEmpty) {
+        adminId.isEmpty ||
+        _isSendingSupportReply) {
       return;
     }
 
+    setState(() => _isSendingSupportReply = true);
     try {
-      await ChatService().sendMessage(
+      final sentMessage = await ChatService().sendMessage(
         conversationId: conversationId,
         senderId: adminId,
         content: content,
       );
       _supportReplyController.clear();
-      await _loadSupportConversationMessages(conversationId);
-      await _loadSupportInbox();
+      if (!mounted) return;
+      setState(() {
+        _mergeSupportMessage(conversationId, sentMessage);
+        final index = _supportConversations.indexWhere(
+          (conversation) => conversation['id']?.toString() == conversationId,
+        );
+        if (index >= 0) {
+          final conversation = Map<String, dynamic>.from(
+            _supportConversations.removeAt(index),
+          );
+          conversation['latest_message'] = sentMessage;
+          conversation['updated_at'] = sentMessage['created_at'];
+          _supportConversations.insert(0, conversation);
+        }
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -301,6 +372,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           backgroundColor: AppColors.error,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isSendingSupportReply = false);
     }
   }
 
@@ -5216,7 +5289,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         : (_supportMessages[selectedConversationId] ??
               const <Map<String, dynamic>>[]);
 
-    if (_isLoadingSupportInbox) {
+    if (_isLoadingSupportInbox && _supportConversations.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -5507,7 +5580,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                         const SizedBox(width: 12),
                         ElevatedButton.icon(
-                          onPressed: _sendSupportReply,
+                          onPressed: _isSendingSupportReply
+                              ? null
+                              : _sendSupportReply,
                           icon: const Icon(Icons.send),
                           label: const Text('Reply'),
                           style: ElevatedButton.styleFrom(

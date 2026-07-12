@@ -44,9 +44,8 @@ class ChatDetailScreen extends StatefulWidget {
 
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late TextEditingController _messageController;
-  late Future<List<Map<String, dynamic>>> _messagesFuture;
+  late Stream<List<Map<String, dynamic>>> _messageStream;
   late Future<List<Map<String, dynamic>>> _participantsFuture;
-  StreamSubscription? _messagesStream;
   String? _warningMessage;
   bool _isLoading = false;
   bool _isUploadingAttachment = false;
@@ -151,15 +150,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void initState() {
     super.initState();
     _messageController = TextEditingController();
-    _loadMessages();
+    _messageStream = _buildMessageStream();
     _loadParticipants();
-    _subscribeToMessages();
     _loadRestrictionState();
     unawaited(_markCurrentMessagesRead());
-  }
-
-  void _loadMessages() {
-    _messagesFuture = ChatService().getMessages(widget.conversationId);
   }
 
   void _loadParticipants() {
@@ -168,21 +162,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-  void _subscribeToMessages() {
-    _messagesStream = ChatService()
-        .subscribeToMessages(widget.conversationId)
-        .listen(
-          (_) {
-            if (!mounted) return;
-            setState(() {
-              _loadMessages();
-            });
-            unawaited(_markCurrentMessagesRead());
-          },
-          onError: (Object error) {
-            debugPrint('Message realtime subscription failed: $error');
-          },
-        );
+  Stream<List<Map<String, dynamic>>> _buildMessageStream() {
+    return ChatService().subscribeToMessages(widget.conversationId).asyncMap((
+      messages,
+    ) async {
+      await _markCurrentMessagesRead();
+      return messages;
+    });
   }
 
   Future<void> _markCurrentMessagesRead() async {
@@ -289,12 +275,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
 
       _messageController.clear();
-      if (mounted) {
-        setState(() {
-          _loadMessages();
-          _loadParticipants();
-        });
-      }
       await _loadRestrictionState();
 
       if (mounted) {
@@ -352,13 +332,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         attachmentName: picked.name,
         attachmentSize: picked.size,
       );
-
-      if (mounted) {
-        setState(() {
-          _loadMessages();
-          _loadParticipants();
-        });
-      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -637,7 +610,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void dispose() {
     _messageController.dispose();
-    _messagesStream?.cancel();
     _restrictionTicker?.cancel();
     super.dispose();
   }
@@ -773,8 +745,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
           // Messages list
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _messagesFuture,
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _messageStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -803,7 +775,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           ),
                           const SizedBox(height: 12),
                           OutlinedButton.icon(
-                            onPressed: () => setState(_loadMessages),
+                            onPressed: () => setState(
+                              () => _messageStream = _buildMessageStream(),
+                            ),
                             icon: const Icon(Icons.refresh),
                             label: const Text('Retry'),
                           ),
