@@ -540,7 +540,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               renter:users!bookings_renter_id_fkey (
                 id,
                 full_name,
-                email
+                email,
+                avatar_url,
+                profile_picture_url
               ),
               driver:drivers!bookings_driver_id_fkey (
                 user_id,
@@ -2964,7 +2966,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 _buildQueueHeader('Driver', 3, isDark),
                 _buildQueueHeader('Amount', 2, isDark),
                 _buildQueueHeader('Status', 2, isDark),
-                _buildQueueHeader('Actions', 3, isDark),
+                _buildQueueHeader('Actions', 4, isDark),
               ],
             ),
           ),
@@ -3112,6 +3114,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               renter['email']?.toString() ?? 'Renter',
               foreground,
               muted ?? Colors.grey,
+              avatarUrl: _operatorUserAvatarUrl(renter),
             ),
             3,
           ),
@@ -3177,10 +3180,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             2,
           ),
           cell(
-            _buildStatusBadge(booking['status']?.toString() ?? 'pending'),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _buildStatusBadge(
+                booking['status']?.toString() ?? 'pending',
+              ),
+            ),
             2,
           ),
-          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 3),
+          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 4),
         ],
       ),
     );
@@ -3191,16 +3199,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final color = bookingStatusColor(group);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.24)),
       ),
       child: Text(
         bookingStatusLabel(group).toUpperCase(),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
+          fontSize: 10,
+          height: 1,
+          fontWeight: FontWeight.w800,
           color: color,
         ),
       ),
@@ -3653,7 +3665,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           label('Driver', 3),
           label('Date & Time', 3),
           label('Status', 2),
-          label('Actions', 3),
+          label('Actions', 4),
         ],
       ),
     );
@@ -3711,6 +3723,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               renter['email']?.toString() ?? 'Renter',
               primaryColor,
               mutedColor,
+              avatarUrl: _operatorUserAvatarUrl(renter),
             ),
             3,
           ),
@@ -3768,10 +3781,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             3,
           ),
           cell(
-            _buildStatusBadge(booking['status']?.toString() ?? 'pending'),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _buildStatusBadge(
+                booking['status']?.toString() ?? 'pending',
+              ),
+            ),
             2,
           ),
-          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 3),
+          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 4),
         ],
       ),
     );
@@ -3781,28 +3799,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String name,
     String detail,
     Color primaryColor,
-    Color mutedColor,
-  ) {
+    Color mutedColor, {
+    String? avatarUrl,
+  }) {
     final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    final avatarFallback = Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFDCE9FF),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: _operatorNavy,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+    );
     return Row(
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFFDCE9FF),
+        if (avatarUrl != null && avatarUrl.isNotEmpty)
+          OptimizedNetworkImage(
+            imageUrl: avatarUrl,
+            width: 34,
+            height: 34,
             borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            initial,
-            style: const TextStyle(
-              color: _operatorNavy,
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-            ),
-          ),
-        ),
+            placeholder: avatarFallback,
+            errorWidget: avatarFallback,
+          )
+        else
+          avatarFallback,
         const SizedBox(width: 9),
         Expanded(
           child: Column(
@@ -3829,6 +3859,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ],
     );
+  }
+
+  String? _operatorUserAvatarUrl(Map<String, dynamic> user) {
+    for (final key in const ['avatar_url', 'profile_picture_url']) {
+      final value = user[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return null;
   }
 
   Widget _buildOperatorBookingCard(Map<String, dynamic> booking, bool isDark) {
@@ -3865,12 +3903,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
+          _buildOperatorPersonCell(
             renter['full_name']?.toString() ?? 'Unknown renter',
-            style: TextStyle(
-              color: isDark ? Colors.grey[200] : _operatorInk,
-              fontWeight: FontWeight.w700,
-            ),
+            renter['email']?.toString() ?? 'Renter',
+            isDark ? Colors.grey.shade200 : _operatorInk,
+            isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            avatarUrl: _operatorUserAvatarUrl(renter),
           ),
           const SizedBox(height: 5),
           Text(
@@ -3900,7 +3938,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
     final driverAccepted = assignmentStatus == 'accepted';
-    final driverDeclined = assignmentStatus == 'rejected';
 
     final buttons = <Widget>[
       OutlinedButton(
@@ -3917,30 +3954,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
     ];
 
-    if (group == BookingStatusGroup.pending &&
-        needsDriver &&
-        !driverAccepted &&
-        !waitingForDriver) {
+    if (group == BookingStatusGroup.pending) {
       buttons.add(
         ElevatedButton(
-          onPressed: () => _showApproveDialog(booking),
+          onPressed: waitingForDriver
+              ? null
+              : () => _handleQuickApproveBooking(
+                  booking,
+                  needsDriver: needsDriver,
+                  driverAccepted: driverAccepted,
+                ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: _operatorNavy,
+            backgroundColor: Colors.green.shade600,
             foregroundColor: Colors.white,
+            disabledBackgroundColor: Colors.grey.shade700,
+            disabledForegroundColor: Colors.grey.shade300,
             padding: EdgeInsets.symmetric(
-              horizontal: compact ? 11 : 16,
+              horizontal: compact ? 10 : 16,
               vertical: 12,
             ),
             minimumSize: Size.zero,
           ),
-          child: Text(driverDeclined ? 'Reassign' : 'Assign'),
+          child: Text(waitingForDriver ? 'Awaiting' : 'Approve'),
         ),
       );
-    } else if (group == BookingStatusGroup.pending && waitingForDriver) {
       buttons.add(
-        const Tooltip(
-          message: 'Waiting for the selected driver to respond',
-          child: Icon(Icons.hourglass_top_rounded, color: _operatorGold),
+        OutlinedButton(
+          onPressed: () => _showRejectDialog(booking['id'].toString()),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red.shade400,
+            side: BorderSide(color: Colors.red.shade400),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 10 : 16,
+              vertical: 12,
+            ),
+            minimumSize: Size.zero,
+          ),
+          child: const Text('Reject'),
         ),
       );
     } else if (_canTrackBooking(booking)) {
@@ -3962,6 +4012,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+  }
+
+  Future<void> _handleQuickApproveBooking(
+    Map<String, dynamic> booking, {
+    required bool needsDriver,
+    required bool driverAccepted,
+  }) async {
+    if (needsDriver && !driverAccepted) {
+      _showApproveDialog(booking);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Approve booking?'),
+        content: const Text(
+          'This will finalize the booking and create its conversation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Approve'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _approveBooking(booking);
+    }
   }
 
   Future<void> _showOperatorBookingDetailsDialog(
