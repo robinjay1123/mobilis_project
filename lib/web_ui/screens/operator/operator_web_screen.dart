@@ -1715,55 +1715,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
-          if (expanded)
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withOpacity(0.08)),
-              ),
-              child: const Row(
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: _operatorGold,
-                    child: Text(
-                      'OP',
-                      style: TextStyle(
-                        color: _operatorNavyDeep,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Operator Profile',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          'Operations Console',
-                          style: TextStyle(
-                            color: Color(0xFF8CA0B2),
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
           InkWell(
             onTap: isCompact
                 ? null
@@ -1965,6 +1916,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 const SizedBox(width: 10),
                 Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -1984,25 +1937,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ],
                 ),
+                const SizedBox(width: 8),
                 Icon(
                   Icons.arrow_drop_down,
                   color: isDark ? Colors.white : Colors.black,
                 ),
               ],
             ),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Icon(Icons.person_outline),
-                    SizedBox(width: 10),
-                    Text('Profile'),
-                  ],
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
+            itemBuilder: (context) => const [
+              PopupMenuItem(
                 value: 'logout',
                 child: Row(
                   children: [
