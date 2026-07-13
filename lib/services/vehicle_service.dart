@@ -133,9 +133,37 @@ class VehicleService {
   // ---------------------------------------------------------------------------
   bool _isVisibleForRent(Map<String, dynamic> v) {
     if (v['is_posted'] != true) return false;
-    if (v['is_available'] == false) return false;
+    if (v['is_available'] != true) return false;
     final status = (v['status'] ?? '').toString().toLowerCase();
     return status != 'inactive' && status != 'archived' && status != 'deleted';
+  }
+
+  bool _isPartnerOwned(
+    Map<String, dynamic> vehicle, [
+    Set<String> knownPartnerOwnerIds = const <String>{},
+  ]) {
+    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase();
+    final source = vehicle['source']?.toString().trim().toLowerCase();
+    final ownerId = vehicle['owner_id']?.toString().trim();
+    return ownerRole == 'partner' ||
+        source == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        (ownerId != null && knownPartnerOwnerIds.contains(ownerId));
+  }
+
+  bool _isApprovedForRenterListing(
+    Map<String, dynamic> vehicle,
+    Map<String, Set<String>> approvedLinks,
+  ) {
+    if (!_isVisibleForRent(vehicle)) return false;
+    if (!_isPartnerOwned(vehicle, approvedLinks['partner_owner_ids']!)) {
+      return true;
+    }
+    return _hasApprovedPartnerApplication(
+      vehicle,
+      approvedLinks,
+      legacyPartnerVehicle: false,
+    );
   }
 
   Future<Map<String, Set<String>>> _getApprovedPartnerVehicleLinks() async {
@@ -146,8 +174,13 @@ class VehicleService {
       final partnerVehicleIds = <String>{};
       final vehicleIds = <String>{};
       final plateNumbers = <String>{};
+      final partnerOwnerIds = <String>{};
 
       for (final raw in List<Map<String, dynamic>>.from(response)) {
+        final partnerOwnerId = raw['partner_id']?.toString().trim();
+        if (partnerOwnerId != null && partnerOwnerId.isNotEmpty) {
+          partnerOwnerIds.add(partnerOwnerId);
+        }
         final status = (raw['application_status'] ?? raw['status'] ?? '')
             .toString()
             .trim()
@@ -175,6 +208,7 @@ class VehicleService {
         'partner_vehicle_ids': partnerVehicleIds,
         'vehicle_ids': vehicleIds,
         'plate_numbers': plateNumbers,
+        'partner_owner_ids': partnerOwnerIds,
       };
     } catch (e) {
       debugPrint('Unable to verify partner vehicle approvals: $e');
@@ -182,6 +216,7 @@ class VehicleService {
         'partner_vehicle_ids': <String>{},
         'vehicle_ids': <String>{},
         'plate_numbers': <String>{},
+        'partner_owner_ids': <String>{},
       };
     }
   }
@@ -295,9 +330,9 @@ class VehicleService {
           _cleanText(partnerVehicle['vehicle_type']) ??
           _cleanText(partnerVehicle['category']) ??
           'Partner Vehicle',
-      'is_posted': partnerVehicle['is_posted'] ?? true,
-      'is_available': partnerVehicle['is_available'] ?? true,
-      'status': partnerVehicle['status'] ?? 'available',
+      'is_posted': partnerVehicle['is_posted'] == true,
+      'is_available': partnerVehicle['is_available'] == true,
+      'status': partnerVehicle['status'] ?? 'pending',
     });
 
     return normalized;
@@ -415,6 +450,36 @@ class VehicleService {
     }
   }
 
+  /// Revalidates a renter-facing vehicle against its live listing state.
+  /// Partner vehicles additionally require a currently approved application.
+  Future<bool> isVehicleBookable(String vehicleId) async {
+    if (vehicleId.trim().isEmpty) return false;
+
+    try {
+      final response = await supabase
+          .from('vehicles')
+          .select('id,plate_number,owner_role,is_available,is_posted,status')
+          .eq('id', vehicleId)
+          .maybeSingle();
+      if (response == null) return false;
+
+      final vehicle = Map<String, dynamic>.from(response);
+      if (!_isVisibleForRent(vehicle)) return false;
+      final approvedLinks = await _getApprovedPartnerVehicleLinks();
+      if (!_isPartnerOwned(vehicle, approvedLinks['partner_owner_ids']!)) {
+        return true;
+      }
+      return _hasApprovedPartnerApplication(
+        vehicle,
+        approvedLinks,
+        legacyPartnerVehicle: false,
+      );
+    } catch (error) {
+      debugPrint('Unable to validate vehicle booking eligibility: $error');
+      return false;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // GET AVAILABLE VEHICLES (renter view)
   // ---------------------------------------------------------------------------
@@ -427,6 +492,7 @@ class VehicleService {
     debugPrint('getAvailableVehicles: category=$category');
 
     try {
+      final approvedLinks = await _getApprovedPartnerVehicleLinks();
       final response = await supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -438,13 +504,11 @@ class VehicleService {
 
       final vehicles = List<Map<String, dynamic>>.from(response);
 
-      final normalized = _normalizeList(vehicles).where((vehicle) {
-        if (!_isVisibleForRent(vehicle)) return false;
-        // Canonical partner vehicles are published by the approval flow itself.
-        // Requiring a second application-table read hid valid cars when that
-        // table was unavailable to renter sessions.
-        return true;
-      }).toList();
+      final normalized = _normalizeList(vehicles)
+          .where(
+            (vehicle) => _isApprovedForRenterListing(vehicle, approvedLinks),
+          )
+          .toList();
       final allVehicles = <Map<String, dynamic>>[];
       final seenVehicleKeys = <String>{};
       for (final vehicle in normalized) {
@@ -492,6 +556,7 @@ class VehicleService {
     String? category,
   }) async {
     try {
+      final approvedLinks = await _getApprovedPartnerVehicleLinks();
       var query = supabase
           .from('vehicles')
           .select(_vehicleSelect)
@@ -517,9 +582,11 @@ class VehicleService {
 
       final vehicles = List<Map<String, dynamic>>.from(response);
 
-      final normalized = _normalizeList(
-        vehicles,
-      ).where(_isVisibleForRent).toList();
+      final normalized = _normalizeList(vehicles)
+          .where(
+            (vehicle) => _isApprovedForRenterListing(vehicle, approvedLinks),
+          )
+          .toList();
 
       final categoryFiltered = category == null || category.isEmpty
           ? normalized

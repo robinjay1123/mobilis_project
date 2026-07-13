@@ -13,7 +13,6 @@ import '../../../services/vehicle_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
-import '../../../services/notification_service.dart';
 import '../../../services/notification_permission_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
@@ -390,15 +389,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _markAllNotificationsRead() async {
+  Future<void> _markAllMessagesRead() async {
     final userId = AuthService().currentUser?.id;
     if (userId == null) return;
-    await NotificationService().markAllAsRead(userId);
-    await _loadNotifications();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('All notifications marked as read')),
-    );
+
+    final conversationIds = _uiConversations()
+        .map((conversation) => conversation['conversationId']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (conversationIds.isEmpty) return;
+
+    try {
+      final chatService = ChatService();
+      await Future.wait(
+        conversationIds.map(
+          (conversationId) =>
+              chatService.markMessagesAsRead(conversationId, userId),
+        ),
+      );
+      await _loadConversations();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All messages marked as read')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not mark messages as read: $error')),
+      );
+    }
   }
 
   Future<void> _loadConversations() async {
@@ -1825,10 +1844,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return false;
     }
 
-    final today = DateTime.now();
-    final start =
-        _bookingFilterFrom ?? DateTime(today.year, today.month, today.day);
-    final end = _bookingFilterTo ?? start;
+    final isBookable = await VehicleService().isVehicleBookable(vehicleId);
+    if (!isBookable) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This vehicle is not approved or listed for rental.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        await _loadVehicles();
+      }
+      return false;
+    }
+
+    // The regular Book Now action opens the calendar, so there is no selected
+    // rental period to validate yet. Checking today here incorrectly blocks a
+    // vehicle that is booked today but available on the renter's intended date.
+    if (_bookingFilterFrom == null && _bookingFilterTo == null) return true;
+
+    final start = _bookingFilterFrom ?? _bookingFilterTo!;
+    final end = _bookingFilterTo ?? _bookingFilterFrom!;
     late final bool available;
     try {
       available = await VehicleService().isVehicleAvailable(
@@ -1848,10 +1884,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return false;
     }
     if (!available && mounted) {
+      final selectedRange = _formatDateRange(start, end);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'This vehicle is unavailable for the selected date. Choose another vehicle or date.',
+            'This vehicle is unavailable for $selectedRange. Choose another vehicle or date.',
           ),
           backgroundColor: AppColors.warning,
         ),
@@ -1959,6 +1996,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 true
           ? booking['reservation_payment_status'].toString().trim()
           : 'Reservation pending';
+      final tripRatings = (booking['trip_ratings'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) => (row['rating'] as num?)?.toDouble())
+          .whereType<double>()
+          .toList();
+      final actualTripRating = tripRatings.isEmpty
+          ? 0.0
+          : tripRatings.reduce((total, value) => total + value) /
+                tripRatings.length;
 
       return {
         'id': booking['id']?.toString() ?? '',
@@ -2012,7 +2058,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'totalCost': totalCost,
         'days': days,
         'rentalPartner': rentalPartner,
-        'rating': (vehicle?['rating'] as num?)?.toDouble() ?? 0.0,
+        'rating': actualTripRating,
       };
     }).toList();
   }
@@ -2403,20 +2449,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Widget item(IconData icon, String label, int index) {
       final selected = selectedNavIndex == index;
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        child: ListTile(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
           onTap: () => selectTab(index),
-          selected: selected,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          tileColor: selected ? AppColors.primary : Colors.transparent,
-          leading: Icon(icon, color: selected ? Colors.black : secondary),
-          title: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.black : foreground,
-              fontWeight: FontWeight.w700,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 11),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  color: selected ? Colors.black : foreground,
+                  size: 20,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: selected ? Colors.black : foreground,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -2429,12 +2490,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 14),
+              padding: const EdgeInsets.fromLTRB(20, 22, 18, 18),
               child: Row(
                 children: [
                   Container(
-                    width: 52,
-                    height: 52,
+                    width: 46,
+                    height: 46,
                     clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
                       color: AppColors.primary,
@@ -2445,12 +2506,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             imageUrl: userAvatarUrl!,
                             fit: BoxFit.cover,
                             isThumbnail: true,
-                            errorWidget: const Icon(
-                              Icons.person,
-                              color: Colors.black,
+                            errorWidget: Center(
+                              child: Text(
+                                userName.isNotEmpty
+                                    ? userName[0].toUpperCase()
+                                    : 'R',
+                                style: const TextStyle(
+                                  color: Color(0xFF062A44),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ),
                           )
-                        : const Icon(Icons.person, color: Colors.black),
+                        : Center(
+                            child: Text(
+                              userName.isNotEmpty
+                                  ? userName[0].toUpperCase()
+                                  : 'R',
+                              style: const TextStyle(
+                                color: Color(0xFF062A44),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2463,14 +2543,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: foreground,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
+                        const SizedBox(height: 3),
                         Text(
                           userLocation,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: secondary, fontSize: 12),
+                          style: TextStyle(
+                            color: secondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -2478,40 +2564,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            Divider(
-              color: isDark
-                  ? AppColors.borderColor
-                  : AppColors.lightBorderColor,
-            ),
             Expanded(
-              child: ListView(
-                children: [
-                  item(Icons.home_rounded, 'Home', 0),
-                  item(Icons.calendar_month_outlined, 'My Bookings', 1),
-                  item(Icons.chat_bubble_outline, 'Messages', 2),
-                  item(Icons.notifications_outlined, 'Notifications', 3),
-                  item(Icons.person_outline, 'Profile', 4),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: ListTile(
-                onTap: () => Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/auth-processing',
-                  (route) => false,
-                  arguments: {'mode': 'logout'},
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                leading: const Icon(Icons.logout, color: AppColors.error),
-                title: const Text(
-                  'Logout',
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontWeight: FontWeight.w700,
-                  ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    item(Icons.home_rounded, 'Home', 0),
+                    item(Icons.calendar_month_outlined, 'My Bookings', 1),
+                    item(Icons.chat_bubble_outline, 'Messages', 2),
+                    item(Icons.notifications_outlined, 'Notifications', 3),
+                    item(Icons.person_outline, 'Profile', 4),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: Divider(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : AppColors.lightBorderColor,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () =>
+                            Navigator.of(context).pushNamedAndRemoveUntil(
+                              '/auth-processing',
+                              (route) => false,
+                              arguments: {'mode': 'logout'},
+                            ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 17,
+                            vertical: 11,
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.logout,
+                                color: Color(0xFFFF6B77),
+                                size: 20,
+                              ),
+                              SizedBox(width: 14),
+                              Text(
+                                'Logout',
+                                style: TextStyle(
+                                  color: Color(0xFFFF6B77),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -3387,14 +3500,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final isPartnerVehicle =
                           car['source']?.toString().toLowerCase() ==
                               'partner' ||
-                          car['is_partner_vehicle'] == true;
+                          car['is_partner_vehicle'] == true ||
+                          car['owner_role']?.toString().toLowerCase() ==
+                              'partner' ||
+                          car['partner_vehicle_id'] != null;
                       final partnerName =
                           car['partner_name']?.toString().trim().isNotEmpty ==
                               true
                           ? car['partner_name'].toString()
                           : 'Mobilis Partner';
                       final providerName = isPartnerVehicle
-                          ? 'Partner'
+                          ? 'PSDC Partner'
                           : 'PSDC';
                       final vehicleId = car['id']?.toString() ?? '';
                       final isFavorite = _favoriteVehicleIds.contains(
@@ -4342,27 +4458,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Column(
       children: [
-        _buildCenteredTabHeader(
-          'Notifications',
-          trailing: _notifications.isEmpty
-              ? null
-              : TextButton(
-                  onPressed: _markAllNotificationsRead,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    'Mark all read',
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-        ),
+        _buildCenteredTabHeader('Notifications'),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadNotifications,
@@ -4485,21 +4581,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildCenteredTabHeader(
           'Messages',
           trailing: unreadCount > 0
-              ? Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
+              ? TextButton(
+                  onPressed: _markAllMessagesRead,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    unreadCount.toString(),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                  child: const Text(
+                    'Mark all read',
+                    style: TextStyle(
                       color: Colors.black,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 )
@@ -6933,13 +7027,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _isCancellableStatusForUi(Map<String, dynamic> booking) {
     final rawStatus = booking['rawStatus']?.toString().toLowerCase();
-    return {'pending', 'approved', 'confirmed'}.contains(rawStatus);
+    return rawStatus == 'pending';
   }
 
   bool _canCancelBooking(Map<String, dynamic> booking) {
     final rawStatus = booking['rawStatus']?.toString().toLowerCase();
-    const cancellableStatuses = {'pending', 'approved', 'confirmed'};
-    if (!cancellableStatuses.contains(rawStatus)) return false;
+    if (rawStatus != 'pending') return false;
 
     final timeInfo = _getRemainingCancelTime(booking);
     return timeInfo['canCancel'] as bool;

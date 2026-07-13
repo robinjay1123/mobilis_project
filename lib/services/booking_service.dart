@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
+import 'vehicle_service.dart';
 import '../utils/pricing_policy.dart';
 
 class BookingService {
@@ -136,7 +137,8 @@ class BookingService {
                 email,
                 phone
               )
-            )
+            ),
+            trip_ratings(rating)
           ''')
           .eq('renter_id', userId)
           .order('created_at', ascending: false);
@@ -285,26 +287,10 @@ class BookingService {
       }
 
       if (vehicleState?['owner_role']?.toString().toLowerCase() == 'partner') {
-        var approvedApplications = await supabase
-            .from('partner_vehicle_applications')
-            .select('id')
-            .eq('created_vehicle_id', vehicleId)
-            .or('application_status.eq.approved,status.eq.approved')
-            .limit(1);
-
-        if (approvedApplications.isEmpty) {
-          final plateNumber = vehicleState?['plate_number']?.toString().trim();
-          if (plateNumber != null && plateNumber.isNotEmpty) {
-            approvedApplications = await supabase
-                .from('partner_vehicle_applications')
-                .select('id')
-                .eq('plate_number', plateNumber)
-                .or('application_status.eq.approved,status.eq.approved')
-                .limit(1);
-          }
-        }
-
-        if (approvedApplications.isEmpty) {
+        final approvedAndListed = await VehicleService().isVehicleBookable(
+          vehicleId,
+        );
+        if (!approvedAndListed) {
           throw Exception(
             'This partner vehicle is not approved for rental anymore',
           );
