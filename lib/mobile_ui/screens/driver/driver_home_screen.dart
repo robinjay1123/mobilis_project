@@ -341,6 +341,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           isDarkMode: widget.isDarkMode,
           onLogout: _handleLogout,
           onOpenSupport: _openCustomerServiceConversation,
+          onOpenBookings: () => setState(() => _selectedTab = 1),
           onProfileUpdated: _refreshDriverAvatar,
         );
       case 5:
@@ -4505,6 +4506,7 @@ class _ProfileTab extends StatefulWidget {
   final bool isDarkMode;
   final VoidCallback onLogout;
   final VoidCallback onOpenSupport;
+  final VoidCallback onOpenBookings;
   final VoidCallback onProfileUpdated;
 
   const _ProfileTab({
@@ -4512,6 +4514,7 @@ class _ProfileTab extends StatefulWidget {
     required this.isDarkMode,
     required this.onLogout,
     required this.onOpenSupport,
+    required this.onOpenBookings,
     required this.onProfileUpdated,
   });
 
@@ -4577,10 +4580,15 @@ class __ProfileTabState extends State<_ProfileTab> {
               Navigator.pushNamed(context, '/driver-identity-verification'),
           onProfileUpdated: widget.onProfileUpdated,
           stats: [
-            ProfileStatItem(label: 'Trips', value: totalTrips.toString()),
+            ProfileStatItem(
+              label: 'Trips',
+              value: totalTrips.toString(),
+              onTap: widget.onOpenBookings,
+            ),
             ProfileStatItem(
               label: 'Assignments',
               value: assignments.toString(),
+              onTap: widget.onOpenBookings,
             ),
             ProfileStatItem(
               label: 'Rating',

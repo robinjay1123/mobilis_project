@@ -45,10 +45,20 @@ class OperatorWebScreen extends StatefulWidget {
 }
 
 class _OperatorWebScreenState extends State<OperatorWebScreen> {
+  static const Color _operatorNavy = Color(0xFF032A46);
+  static const Color _operatorNavyDeep = Color(0xFF021F35);
+  static const Color _operatorGold = Color(0xFFFFD740);
+  static const Color _operatorPage = Color(0xFFF5F7F9);
+  static const Color _operatorInk = Color(0xFF08233D);
+
   int _selectedIndex = 0;
   bool _isLoading = true;
   bool _sidebarExpanded = true;
   String? _focusedTrackingBookingId;
+  String _bookingFilter = 'all';
+  String _bookingSearchQuery = '';
+  String _vehicleView = 'company';
+  String _vehicleSearchQuery = '';
 
   // Stats
   int _totalUsers = 0;
@@ -61,6 +71,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   // Lists
   List<Map<String, dynamic>> _pendingApplications = [];
   List<Map<String, dynamic>> _recentBookings = [];
+  List<Map<String, dynamic>> _operatorRevenueBookings = [];
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
   List<Map<String, dynamic>> _conversations = [];
@@ -92,6 +103,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _transmissionController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _bookingSearchController =
+      TextEditingController();
+  final TextEditingController _vehicleSearchController =
+      TextEditingController();
   String _selectedConversationId = '';
   String _selectedStatus = 'active';
   List<XFile> _selectedImages = [];
@@ -131,6 +146,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _longitudeController.dispose();
     _transmissionController.dispose();
     _messageController.dispose();
+    _bookingSearchController.dispose();
+    _vehicleSearchController.dispose();
     super.dispose();
   }
 
@@ -262,6 +279,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadNotifications(),
         _loadVehicles(),
         _loadRecentBookings(),
+        _loadOperatorRevenueBookings(),
         _loadTrackingLocations(),
       ]);
     } catch (e) {
@@ -349,7 +367,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (bookingId.isEmpty || !_canTrackBooking(booking)) return;
 
     setState(() {
-      _selectedIndex = 3;
+      _selectedIndex = 6;
       _focusedTrackingBookingId = bookingId;
       _isLoading = true;
     });
@@ -464,6 +482,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               vehicle_id,
               renter_id,
               driver_id,
+              operator_id,
               status,
               start_at,
               end_at,
@@ -560,6 +579,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
       debugPrint('[Bookings] Stack trace: $st');
       _recentBookings = [];
+    }
+  }
+
+  Future<void> _loadOperatorRevenueBookings() async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) {
+      _operatorRevenueBookings = [];
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('bookings')
+          .select('''
+            id,
+            operator_id,
+            status,
+            total_price,
+            total_cost,
+            created_at,
+            completed_at
+          ''')
+          .eq('operator_id', operatorId)
+          .order('created_at', ascending: false);
+      _operatorRevenueBookings = List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error loading operator revenue analytics: $e');
+      _operatorRevenueBookings = [];
     }
   }
 
@@ -1037,88 +1084,312 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       builder: (context) {
         String? selectedDriverId;
         final withDriver = _bookingNeedsDriver(booking['with_driver']);
+        final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(withDriver ? 'Select Driver' : 'Finalize Booking'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    withDriver
-                        ? 'Choose a driver. The booking will remain pending until the driver accepts and you finalize it.'
-                        : 'Finalize this booking and create its conversation?',
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.all(30),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 940,
+                  maxHeight: 700,
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _operatorNavyDeep,
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black38,
+                        blurRadius: 40,
+                        offset: Offset(0, 18),
+                      ),
+                    ],
                   ),
-                  if (withDriver) ...[
-                    const SizedBox(height: 16),
-                    const Text('Select Driver:'),
-                    const SizedBox(height: 8),
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      future: BookingService().getAvailableVerifiedDrivers(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
-                            child: LinearProgressIndicator(),
-                          );
-                        }
-
-                        final drivers = snapshot.data ?? [];
-                        if (drivers.isEmpty) {
-                          return const Text('No available drivers found');
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          value: selectedDriverId,
-                          hint: const Text('Choose a driver'),
-                          isExpanded: true,
-                          items: drivers.map((driverMap) {
-                            final driverId = driverMap['id'].toString();
-                            final driverUser =
-                                driverMap['users'] as Map<String, dynamic>?;
-                            final driverName =
-                                driverUser?['full_name'] as String? ??
-                                'Unknown';
-                            return DropdownMenuItem(
-                              value: driverId,
-                              child: Text(driverName),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() => selectedDriverId = value);
-                          },
-                        );
-                      },
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (withDriver && selectedDriverId == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please select an available driver'),
-                          backgroundColor: Colors.orange,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(28, 24, 18, 20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _operatorGold,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: const Text(
+                                      'PSDC VEHICLE',
+                                      style: TextStyle(
+                                        color: _operatorNavyDeep,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    withDriver
+                                        ? 'Assign Professional Driver'
+                                        : 'Finalize Booking',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 25,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    withDriver
+                                        ? 'Available Mobilis by PSDC certified drivers for ${_vehicleTitle(vehicle)}'
+                                        : 'Confirm the reservation and create its booking conversation.',
+                                    style: const TextStyle(
+                                      color: Color(0xFF87A0B7),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                      return;
-                    }
-
-                    _approveBooking(booking, driverId: selectedDriverId);
-                    Navigator.pop(context);
-                  },
-                  child: Text(withDriver ? 'Send Job Offer' : 'Finalize'),
+                      ),
+                      Divider(height: 1, color: Colors.white.withOpacity(0.08)),
+                      Expanded(
+                        child: withDriver
+                            ? FutureBuilder<List<Map<String, dynamic>>>(
+                                future: BookingService()
+                                    .getAvailableVerifiedDrivers(),
+                                builder: (context, snapshot) {
+                                  if (snapshot.connectionState ==
+                                      ConnectionState.waiting) {
+                                    return const Center(
+                                      child: CircularProgressIndicator(
+                                        color: _operatorGold,
+                                      ),
+                                    );
+                                  }
+                                  final drivers = snapshot.data ?? [];
+                                  if (drivers.isEmpty) {
+                                    return const Center(
+                                      child: Text(
+                                        'No available certified drivers found',
+                                        style: TextStyle(color: Colors.white70),
+                                      ),
+                                    );
+                                  }
+                                  return ListView.separated(
+                                    padding: const EdgeInsets.all(24),
+                                    itemCount: drivers.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(height: 10),
+                                    itemBuilder: (context, index) {
+                                      final driver = drivers[index];
+                                      final driverId = driver['id'].toString();
+                                      final user =
+                                          driver['users']
+                                              as Map<String, dynamic>? ??
+                                          {};
+                                      final name =
+                                          user['full_name']?.toString() ??
+                                          'Unknown driver';
+                                      final selected =
+                                          selectedDriverId == driverId;
+                                      final rating =
+                                          (driver['rating'] as num?)
+                                              ?.toDouble() ??
+                                          0;
+                                      final trips =
+                                          (driver['completed_trips'] as num?)
+                                              ?.toInt() ??
+                                          0;
+                                      return InkWell(
+                                        onTap: () => setDialogState(
+                                          () => selectedDriverId = driverId,
+                                        ),
+                                        borderRadius: BorderRadius.circular(15),
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 150,
+                                          ),
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: selected
+                                                ? _operatorGold
+                                                : Colors.white.withOpacity(
+                                                    0.06,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              15,
+                                            ),
+                                            border: Border.all(
+                                              color: selected
+                                                  ? _operatorGold
+                                                  : Colors.white.withOpacity(
+                                                      0.09,
+                                                    ),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 48,
+                                                height: 48,
+                                                alignment: Alignment.center,
+                                                decoration: BoxDecoration(
+                                                  color: selected
+                                                      ? _operatorNavy
+                                                      : const Color(0xFF173D5B),
+                                                  borderRadius:
+                                                      BorderRadius.circular(14),
+                                                ),
+                                                child: Text(
+                                                  name.isEmpty
+                                                      ? '?'
+                                                      : name[0].toUpperCase(),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 14),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      name,
+                                                      style: TextStyle(
+                                                        color: selected
+                                                            ? _operatorNavyDeep
+                                                            : Colors.white,
+                                                        fontSize: 15,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 5),
+                                                    Text(
+                                                      '$trips completed trips  •  ${rating.toStringAsFixed(1)} rating',
+                                                      style: TextStyle(
+                                                        color: selected
+                                                            ? _operatorNavy
+                                                            : const Color(
+                                                                0xFF8CA5BB,
+                                                              ),
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Icon(
+                                                selected
+                                                    ? Icons.check_circle
+                                                    : Icons.circle_outlined,
+                                                color: selected
+                                                    ? _operatorNavy
+                                                    : Colors.white38,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              )
+                            : const Center(
+                                child: Icon(
+                                  Icons.verified_outlined,
+                                  color: _operatorGold,
+                                  size: 72,
+                                ),
+                              ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: const BorderRadius.vertical(
+                            bottom: Radius.circular(22),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            OutlinedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white24),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: const Text('Discard'),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                if (withDriver && selectedDriverId == null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Please select an available driver',
+                                      ),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                Navigator.pop(context);
+                                _approveBooking(
+                                  booking,
+                                  driverId: selectedDriverId,
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _operatorGold,
+                                foregroundColor: _operatorNavyDeep,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 26,
+                                  vertical: 16,
+                                ),
+                              ),
+                              icon: const Icon(Icons.arrow_forward_rounded),
+                              label: Text(
+                                withDriver
+                                    ? 'Send Driver Offer'
+                                    : 'Finalize Booking',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             );
           },
         );
@@ -1128,57 +1399,172 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   void _showRejectDialog(String bookingId) {
     final reasonController = TextEditingController();
+    const reasons = [
+      'Vehicle unavailable',
+      'Incomplete renter documents',
+      'Safety policy violation',
+      'Maintenance schedule conflict',
+      'Other',
+    ];
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Reject Booking'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Please provide a reason for rejection:'),
-              const SizedBox(height: 16),
-              TextField(
-                controller: reasonController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: 'Enter rejection reason...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+        String? selectedReason;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(24, 22, 16, 14),
+            contentPadding: const EdgeInsets.fromLTRB(24, 6, 24, 12),
+            actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
+            title: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.red),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Decline Reservation',
+                        style: TextStyle(fontSize: 19),
+                      ),
+                      Text(
+                        'Select a clear reason for the renter.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.normal,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Reason for decline',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    ...reasons.map(
+                      (reason) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: InkWell(
+                          onTap: () =>
+                              setDialogState(() => selectedReason = reason),
+                          borderRadius: BorderRadius.circular(13),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: selectedReason == reason
+                                    ? _operatorGold
+                                    : Colors.grey.shade300,
+                              ),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Row(
+                              children: [
+                                Radio<String>(
+                                  value: reason,
+                                  groupValue: selectedReason,
+                                  activeColor: _operatorGold,
+                                  onChanged: (value) => setDialogState(
+                                    () => selectedReason = value,
+                                  ),
+                                ),
+                                Expanded(child: Text(reason)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Additional comments',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: reasonController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        hintText: 'Explain the decision to the renter...',
+                        filled: true,
+                        fillColor: Colors.grey.withOpacity(0.08),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Go Back'),
+              ),
+              ElevatedButton.icon(
+                onPressed: selectedReason == null
+                    ? null
+                    : () {
+                        final comments = reasonController.text.trim();
+                        final reason = comments.isEmpty
+                            ? selectedReason!
+                            : '$selectedReason: $comments';
+                        Navigator.pop(context);
+                        _rejectBooking(bookingId, reason);
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.block_outlined, size: 17),
+                label: const Text('Confirm Decline'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _rejectBooking(bookingId, reasonController.text);
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Reject'),
-            ),
-          ],
         );
       },
-    );
+    ).whenComplete(reasonController.dispose);
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final screenWidth = MediaQuery.of(context).size.width;
-    final isCompact = screenWidth < 1200;
+    final isCompact = screenWidth < 980;
 
     return Theme(
       data: WebPortalTheme.resolve(context, isDark: isDark),
       child: Scaffold(
+        backgroundColor: isDark ? const Color(0xFF101827) : _operatorPage,
         body: Row(
           children: [
             _buildSidebar(isDark, isCompact),
@@ -1197,59 +1583,60 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildSidebar(bool isDark, bool isCompact) {
-    final sidebarWidth = _sidebarExpanded ? 260.0 : 70.0;
+    final expanded = _sidebarExpanded && !isCompact;
+    final sidebarWidth = expanded ? 252.0 : 76.0;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: sidebarWidth,
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : Colors.white,
+        color: _operatorNavyDeep,
         border: Border(
-          right: BorderSide(
-            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-          ),
+          right: BorderSide(color: Colors.white.withOpacity(0.06)),
         ),
       ),
       child: Column(
         children: [
           Container(
-            height: 70,
-            padding: EdgeInsets.symmetric(
-              horizontal: _sidebarExpanded ? 20 : 10,
-            ),
+            height: 92,
+            padding: EdgeInsets.symmetric(horizontal: expanded ? 20 : 14),
             child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
+                  padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(10),
+                    color: _operatorGold,
+                    borderRadius: BorderRadius.circular(13),
                   ),
                   child: Image.asset(
                     'assets/icon/logo-black.png',
                     fit: BoxFit.contain,
                   ),
                 ),
-                if (_sidebarExpanded) ...[
+                if (expanded) ...[
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'PSDC Operator',
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
                           ),
                         ),
-                        Text(
-                          'Management Portal',
+                        const Text(
+                          'VEHICLE MANAGEMENT',
                           style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? Colors.grey : Colors.grey.shade600,
+                            fontSize: 9,
+                            letterSpacing: 1.3,
+                            fontWeight: FontWeight.w600,
+                            color: _operatorGold,
                           ),
                         ),
                       ],
@@ -1259,17 +1646,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
-          const Divider(height: 1),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               children: [
-                _buildNavItem(0, Icons.home, 'Home', isDark),
-                _buildNavItem(1, Icons.book, 'Bookings', isDark),
-                _buildNavItem(2, Icons.message, 'Messages', isDark),
+                _buildNavItem(0, Icons.grid_view_rounded, 'Home', isDark),
+                _buildNavItem(
+                  1,
+                  Icons.calendar_month_outlined,
+                  'Bookings',
+                  isDark,
+                ),
+                _buildNavItem(
+                  2,
+                  Icons.chat_bubble_outline_rounded,
+                  'Messages',
+                  isDark,
+                ),
                 _buildNavItem(
                   3,
-                  Icons.notifications,
+                  Icons.notifications_none_rounded,
                   'Notifications',
                   isDark,
                   badge:
@@ -1279,49 +1675,112 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             .where((n) => n['is_read'] == false)
                             .length,
                 ),
-                _buildNavItem(4, Icons.directions_car, 'Vehicles', isDark),
+                _buildNavItem(
+                  4,
+                  Icons.directions_car_outlined,
+                  'Vehicles',
+                  isDark,
+                ),
                 _buildNavItem(
                   6,
-                  Icons.location_on,
+                  Icons.location_on_outlined,
                   'Live Tracking',
                   isDark,
                   badge: _trackingLocations.isEmpty
                       ? null
                       : _trackingLocations.length,
                 ),
+                _buildNavItem(
+                  7,
+                  Icons.account_balance_wallet_outlined,
+                  'Revenue',
+                  isDark,
+                ),
                 const SizedBox(height: 20),
-                if (_sidebarExpanded)
+                if (expanded)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
+                    child: const Text(
                       'SETTINGS',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.grey : Colors.grey.shade500,
+                        color: Color(0xFF7991A5),
                         letterSpacing: 1,
                       ),
                     ),
                   ),
                 const SizedBox(height: 10),
-                _buildNavItem(5, Icons.settings, 'Settings', isDark),
+                _buildNavItem(5, Icons.settings_outlined, 'Settings', isDark),
               ],
             ),
           ),
+          if (expanded)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: const Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: _operatorGold,
+                    child: Text(
+                      'OP',
+                      style: TextStyle(
+                        color: _operatorNavyDeep,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Operator Profile',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'Operations Console',
+                          style: TextStyle(
+                            color: Color(0xFF8CA0B2),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           InkWell(
-            onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
+            onTap: isCompact
+                ? null
+                : () => setState(() => _sidebarExpanded = !_sidebarExpanded),
             child: Container(
-              height: 50,
+              height: isCompact ? 12 : 44,
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
-                mainAxisAlignment: _sidebarExpanded
+                mainAxisAlignment: expanded
                     ? MainAxisAlignment.end
                     : MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    _sidebarExpanded ? Icons.chevron_left : Icons.chevron_right,
-                    color: isDark ? Colors.grey : Colors.grey.shade600,
-                  ),
+                  if (!isCompact)
+                    Icon(
+                      expanded ? Icons.chevron_left : Icons.chevron_right,
+                      color: const Color(0xFF8CA0B2),
+                    ),
                 ],
               ),
             ),
@@ -1339,45 +1798,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     int? badge,
   }) {
     final isSelected = _selectedIndex == index;
+    final expanded =
+        _sidebarExpanded && MediaQuery.of(context).size.width >= 980;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: InkWell(
         onTap: () => setState(() => _selectedIndex = index),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           height: 48,
-          padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
+          padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0),
           decoration: BoxDecoration(
-            color: isSelected
-                ? AppColors.primary.withOpacity(0.1)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            color: isSelected ? _operatorGold : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
-            mainAxisAlignment: _sidebarExpanded
+            mainAxisAlignment: expanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
-                color: isSelected
-                    ? AppColors.primary
-                    : (isDark ? Colors.grey : Colors.grey.shade600),
-                size: 22,
+                color: isSelected ? _operatorNavyDeep : const Color(0xFF9CB0C2),
+                size: 21,
               ),
-              if (_sidebarExpanded) ...[
+              if (expanded) ...[
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
                     style: TextStyle(
                       color: isSelected
-                          ? AppColors.primary
-                          : (isDark ? Colors.white : Colors.black),
+                          ? _operatorNavyDeep
+                          : const Color(0xFFC4D0DB),
                       fontWeight: isSelected
-                          ? FontWeight.w600
-                          : FontWeight.normal,
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      fontSize: 14,
                     ),
                   ),
                 ),
@@ -1410,10 +1868,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildTopBar(bool isDark) {
     return Container(
-      height: 70,
-      padding: const EdgeInsets.symmetric(horizontal: 30),
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : Colors.white,
+        color: isDark ? const Color(0xFF172235) : Colors.white,
         border: Border(
           bottom: BorderSide(
             color: isDark ? AppColors.borderColor : Colors.grey.shade200,
@@ -1425,11 +1883,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Text(
             _getPageTitle(),
             style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
+              fontSize: 21,
+              fontWeight: FontWeight.w800,
+              color: isDark ? Colors.white : _operatorInk,
             ),
           ),
+          const SizedBox(width: 34),
+          if (MediaQuery.of(context).size.width >= 1250)
+            SizedBox(
+              width: 350,
+              height: 42,
+              child: TextField(
+                onChanged: (value) {
+                  if (_selectedIndex == 1) {
+                    setState(() => _bookingSearchQuery = value.trim());
+                  } else if (_selectedIndex == 4) {
+                    setState(() => _vehicleSearchQuery = value.trim());
+                  }
+                },
+                decoration: InputDecoration(
+                  hintText: switch (_selectedIndex) {
+                    1 => 'Search booking ID, renter, or vehicle...',
+                    4 => 'Search vehicle, plate, or owner...',
+                    _ => 'Search operations...',
+                  },
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  filled: true,
+                  fillColor: isDark
+                      ? Colors.white.withOpacity(0.06)
+                      : const Color(0xFFF0F2F4),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
           const Spacer(),
           IconButton(
             tooltip: isDark ? 'Use light theme' : 'Use dark theme',
@@ -1447,7 +1937,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               color: isDark ? Colors.white : Colors.black,
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 14),
+          Container(
+            width: 1,
+            height: 30,
+            color: isDark ? Colors.white12 : Colors.grey.shade200,
+          ),
+          const SizedBox(width: 18),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
@@ -1458,7 +1954,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: _operatorGold,
                     borderRadius: BorderRadius.circular(11),
                   ),
                   child: const Icon(
@@ -1468,12 +1964,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  'Operator',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Operator',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: isDark ? Colors.white : _operatorInk,
+                      ),
+                    ),
+                    Text(
+                      'Operations Desk',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
                 ),
                 Icon(
                   Icons.arrow_drop_down,
@@ -1526,6 +2035,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return 'Settings';
       case 6:
         return 'Live Tracking';
+      case 7:
+        return 'Revenue & Analytics';
       default:
         return 'Dashboard';
     }
@@ -1553,6 +2064,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return _buildSettingsContent(isDark);
       case 6:
         return _buildTrackingContent(isDark);
+      case 7:
+        return _buildRevenueContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -1560,62 +2073,151 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildDashboardContent(bool isDark) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 20,
-            crossAxisSpacing: 20,
-            childAspectRatio: 2,
+          Row(
             children: [
-              _buildStatCard(
-                'Total Users',
-                _totalUsers.toString(),
-                Icons.person,
-                Colors.blue,
-                isDark,
+              Text(
+                'Operations Summary',
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : _operatorInk,
+                ),
               ),
-              _buildStatCard(
-                'Partners',
-                _totalPartners.toString(),
-                Icons.business,
-                Colors.green,
-                isDark,
-              ),
-              _buildStatCard(
-                'Active Vehicles',
-                _totalVehicles.toString(),
-                Icons.directions_car,
-                Colors.orange,
-                isDark,
-              ),
-              _buildStatCard(
-                'Pending Reviews',
-                _pendingVerifications.toString(),
-                Icons.pending_actions,
-                Colors.red,
-                isDark,
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7D6),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.circle, size: 8, color: _operatorGold),
+                    SizedBox(width: 7),
+                    Text(
+                      'LIVE SYSTEM STATUS',
+                      style: TextStyle(
+                        color: _operatorInk,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 30),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: _buildCard(
-                  'Recent Bookings',
-                  _buildBookingsTable(isDark),
-                  isDark,
+          const SizedBox(height: 24),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1120
+                  ? 4
+                  : constraints.maxWidth >= 620
+                  ? 2
+                  : 1;
+              final width =
+                  (constraints.maxWidth - ((columns - 1) * 18)) / columns;
+              return Wrap(
+                spacing: 18,
+                runSpacing: 18,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _buildStatCard(
+                      'Active Trips',
+                      _activeBookings.toString(),
+                      Icons.route_outlined,
+                      _operatorNavy,
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildStatCard(
+                      'Pending Assignments',
+                      _recentBookings
+                          .where(
+                            (booking) =>
+                                bookingStatusGroup(booking['status']) ==
+                                BookingStatusGroup.pending,
+                          )
+                          .length
+                          .toString(),
+                      Icons.assignment_late_outlined,
+                      const Color(0xFFC62828),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildStatCard(
+                      'Vehicles',
+                      _totalVehicles.toString(),
+                      Icons.directions_car_outlined,
+                      const Color(0xFF2E7D32),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildStatCard(
+                      'Total Bookings',
+                      _totalBookings.toString(),
+                      Icons.fact_check_outlined,
+                      const Color(0xFF886A00),
+                      isDark,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 28),
+          _buildCard(
+            'Live Booking Queue',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Incoming and recent requests awaiting operator action',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 20),
-            ],
+                const SizedBox(height: 18),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: _buildBookingsTable(isDark),
+                ),
+                const SizedBox(height: 14),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: () => setState(() => _selectedIndex = 1),
+                    icon: const Icon(Icons.arrow_forward_rounded, size: 17),
+                    label: const Text('View all bookings'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: isDark ? Colors.white : _operatorInk,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            isDark,
           ),
         ],
       ),
@@ -1630,10 +2232,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      constraints: const BoxConstraints(minHeight: 132),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: isDark ? AppColors.borderColor : Colors.grey.shade200,
         ),
@@ -1641,13 +2244,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: Row(
         children: [
           Container(
-            width: 56,
-            height: 56,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: color.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: color, size: 28),
+            child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(width: 20),
           Expanded(
@@ -1658,15 +2261,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : _operatorInk,
                   ),
                 ),
                 Text(
-                  title,
+                  title.toUpperCase(),
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 11,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w700,
                     color: isDark ? Colors.grey : Colors.grey.shade600,
                   ),
                 ),
@@ -1701,6 +2306,415 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(height: 20),
           content,
+        ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _operatorManagedBookings() {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) {
+      return const <Map<String, dynamic>>[];
+    }
+    return _operatorRevenueBookings;
+  }
+
+  double _bookingAmount(Map<String, dynamic> booking) {
+    return (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0;
+  }
+
+  Widget _buildRevenueContent(bool isDark) {
+    final managed = _operatorManagedBookings();
+    final completed = managed
+        .where(
+          (booking) =>
+              bookingStatusGroup(booking['status']) ==
+              BookingStatusGroup.completed,
+        )
+        .toList();
+    final active = managed.where((booking) {
+      final group = bookingStatusGroup(booking['status']);
+      return group == BookingStatusGroup.approved ||
+          group == BookingStatusGroup.ongoing;
+    }).length;
+    final processedRevenue = completed.fold<double>(
+      0,
+      (total, booking) => total + _bookingAmount(booking),
+    );
+    final averageValue = completed.isEmpty
+        ? 0.0
+        : processedRevenue / completed.length;
+    final now = DateTime.now();
+    final monthly = List.generate(6, (index) {
+      final monthDate = DateTime(now.year, now.month - (5 - index));
+      final monthBookings = managed.where((booking) {
+        final date = DateTime.tryParse(
+          (booking['completed_at'] ?? booking['created_at'])?.toString() ?? '',
+        )?.toLocal();
+        return date != null &&
+            date.year == monthDate.year &&
+            date.month == monthDate.month;
+      }).toList();
+      return <String, dynamic>{
+        'label': _getMonthName(monthDate.month),
+        'count': monthBookings.length,
+        'amount': monthBookings.fold<double>(
+          0,
+          (total, booking) => total + _bookingAmount(booking),
+        ),
+      };
+    });
+    final maxMonthly = monthly.fold<double>(
+      1,
+      (maximum, item) => (item['amount'] as double) > maximum
+          ? item['amount'] as double
+          : maximum,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Operator Revenue & Analytics',
+            style: TextStyle(
+              color: isDark ? Colors.white : _operatorInk,
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Only bookings assigned to and managed by this operator are included.',
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 24),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1050
+                  ? 4
+                  : constraints.maxWidth >= 580
+                  ? 2
+                  : 1;
+              final width =
+                  (constraints.maxWidth - ((columns - 1) * 16)) / columns;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _buildRevenueMetricCard(
+                      'Managed Bookings',
+                      managed.length.toString(),
+                      'Bookings assisted by you',
+                      Icons.assignment_turned_in_outlined,
+                      _operatorNavy,
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildRevenueMetricCard(
+                      'Active Trips',
+                      active.toString(),
+                      'Approved or ongoing',
+                      Icons.route_outlined,
+                      const Color(0xFF1976D2),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildRevenueMetricCard(
+                      'Processed Value',
+                      'PHP ${processedRevenue.toStringAsFixed(2)}',
+                      '${completed.length} completed transactions',
+                      Icons.account_balance_wallet_outlined,
+                      const Color(0xFF2E7D32),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildRevenueMetricCard(
+                      'Average Booking',
+                      'PHP ${averageValue.toStringAsFixed(2)}',
+                      'Completed bookings only',
+                      Icons.insights_outlined,
+                      const Color(0xFF886A00),
+                      isDark,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 22),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final chart = Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.borderColor
+                        : Colors.grey.shade200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Managed Booking Value',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : _operatorInk,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Last six months based on your managed bookings',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      height: 220,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: monthly.map((item) {
+                          final amount = item['amount'] as double;
+                          final ratio = amount / maxMonthly;
+                          return Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '${item['count']}',
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? Colors.grey[300]
+                                          : _operatorInk,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    height: 24 + (140 * ratio),
+                                    decoration: BoxDecoration(
+                                      color: _operatorGold,
+                                      borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(8),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    item['label'].toString(),
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey.shade600,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              final breakdown = _buildOperatorRevenueBreakdown(
+                managed,
+                completed,
+                isDark,
+              );
+              if (constraints.maxWidth < 900) {
+                return Column(
+                  children: [chart, const SizedBox(height: 16), breakdown],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 2, child: chart),
+                  const SizedBox(width: 16),
+                  Expanded(child: breakdown),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRevenueMetricCard(
+    String label,
+    String value,
+    String caption,
+    IconData icon,
+    Color accent,
+    bool isDark,
+  ) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 150),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(icon, color: accent, size: 20),
+              ),
+              const Spacer(),
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontSize: 9,
+                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontSize: 25,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            caption,
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 10,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorRevenueBreakdown(
+    List<Map<String, dynamic>> managed,
+    List<Map<String, dynamic>> completed,
+    bool isDark,
+  ) {
+    final pending = managed
+        .where(
+          (booking) =>
+              bookingStatusGroup(booking['status']) ==
+              BookingStatusGroup.pending,
+        )
+        .length;
+    final cancelled = managed
+        .where(
+          (booking) =>
+              bookingStatusGroup(booking['status']) ==
+              BookingStatusGroup.cancelled,
+        )
+        .length;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _operatorNavy,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Booking Performance',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildRevenueBreakdownLine('Completed', completed.length),
+          _buildRevenueBreakdownLine('Pending review', pending),
+          _buildRevenueBreakdownLine('Cancelled', cancelled),
+          _buildRevenueBreakdownLine('All managed', managed.length),
+          const SizedBox(height: 14),
+          const Text(
+            'Analytics are operational records, not operator commission or payout.',
+            style: TextStyle(
+              color: Color(0xFF9CB1C3),
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRevenueBreakdownLine(String label, int value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 13),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: Color(0xFFB8C6D2), fontSize: 12),
+            ),
+          ),
+          Text(
+            value.toString(),
+            style: const TextStyle(
+              color: _operatorGold,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
         ],
       ),
     );
@@ -2137,110 +3151,1196 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildBookingsContent(bool isDark) {
-    final pendingBookings = _recentBookings
-        .where(
-          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.pending,
-        )
-        .toList();
-    final approvedBookings = _recentBookings
-        .where(
-          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.approved,
-        )
-        .toList();
-    final ongoingBookings = _recentBookings
-        .where(
-          (b) => bookingStatusGroup(b['status']) == BookingStatusGroup.ongoing,
-        )
-        .toList();
-    final completedBookings = _recentBookings
-        .where(
-          (b) =>
-              bookingStatusGroup(b['status']) == BookingStatusGroup.completed,
-        )
-        .toList();
-    final cancelledBookings = _recentBookings
-        .where(
-          (b) =>
-              bookingStatusGroup(b['status']) == BookingStatusGroup.cancelled,
-        )
-        .toList();
+    final filteredBookings = _recentBookings.where((booking) {
+      final matchesStatus = _bookingFilterMatches(booking, _bookingFilter);
+      if (!matchesStatus) return false;
+      final query = _bookingSearchQuery.toLowerCase();
+      if (query.isEmpty) return true;
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+      final haystack = [
+        booking['id'],
+        renter['full_name'],
+        renter['email'],
+        _vehicleTitle(vehicle),
+        vehicle['plate_number'],
+      ].whereType<Object>().join(' ').toLowerCase();
+      return haystack.contains(query);
+    }).toList();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(30),
+      padding: const EdgeInsets.all(32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Bookings Management (${_recentBookings.length})',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          const SizedBox(height: 30),
-          if (_recentBookings.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 60),
-                child: Text(
-                  'No bookings yet',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bookings Management',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : _operatorInk,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Review reservations, assign drivers, and monitor trips.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _loadDashboardData,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Refresh'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: isDark ? Colors.white : _operatorInk,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
                   ),
                 ),
               ),
-            )
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+          const SizedBox(height: 24),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildBookingFilterTab('all', 'All Bookings', isDark),
+                  _buildBookingFilterTab('pending', 'Pending', isDark),
+                  _buildBookingFilterTab('approved', 'Approved', isDark),
+                  _buildBookingFilterTab('ongoing', 'Ongoing', isDark),
+                  _buildBookingFilterTab('completed', 'Completed', isDark),
+                  _buildBookingFilterTab('cancelled', 'Cancelled', isDark),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
               children: [
-                // Pending section - always show
-                _buildBookingSection(
-                  'Pending Bookings',
-                  pendingBookings,
-                  isDark,
-                  Colors.orange,
-                  showEmpty: true,
+                Expanded(
+                  child: TextField(
+                    controller: _bookingSearchController,
+                    onChanged: (value) =>
+                        setState(() => _bookingSearchQuery = value.trim()),
+                    decoration: InputDecoration(
+                      hintText: 'Search booking ID, renter, or vehicle',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withOpacity(0.05)
+                          : const Color(0xFFF2F4F6),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 30),
-                // Active section - always show
-                _buildBookingSection(
-                  'Approved Bookings',
-                  approvedBookings,
-                  isDark,
-                  AppColors.primary,
-                  showEmpty: true,
-                ),
-                const SizedBox(height: 30),
-                _buildBookingSection(
-                  'Ongoing Bookings',
-                  ongoingBookings,
-                  isDark,
-                  Colors.green,
-                  showEmpty: true,
-                ),
-                const SizedBox(height: 30),
-                // Completed section - always show
-                _buildBookingSection(
-                  'Completed Bookings',
-                  completedBookings,
-                  isDark,
-                  Colors.blue,
-                  showEmpty: true,
-                ),
-                const SizedBox(height: 30),
-                // Cancelled section - always show
-                _buildBookingSection(
-                  'Cancelled Bookings',
-                  cancelledBookings,
-                  isDark,
-                  Colors.red,
-                  showEmpty: true,
+                const SizedBox(width: 14),
+                Text(
+                  '${filteredBookings.length} result${filteredBookings.length == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[300] : Colors.grey.shade700,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 18),
+          _buildOperatorBookingsResult(filteredBookings, isDark),
+        ],
+      ),
+    );
+  }
+
+  bool _bookingFilterMatches(Map<String, dynamic> booking, String filter) {
+    if (filter == 'all') return true;
+    final group = bookingStatusGroup(booking['status']);
+    return switch (filter) {
+      'pending' => group == BookingStatusGroup.pending,
+      'approved' => group == BookingStatusGroup.approved,
+      'ongoing' => group == BookingStatusGroup.ongoing,
+      'completed' => group == BookingStatusGroup.completed,
+      'cancelled' => group == BookingStatusGroup.cancelled,
+      _ => true,
+    };
+  }
+
+  int _bookingFilterCount(String filter) {
+    return _recentBookings
+        .where((booking) => _bookingFilterMatches(booking, filter))
+        .length;
+  }
+
+  Widget _buildBookingFilterTab(String value, String label, bool isDark) {
+    final selected = _bookingFilter == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: InkWell(
+        onTap: () => setState(() => _bookingFilter = value),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+          decoration: BoxDecoration(
+            color: selected
+                ? (isDark ? _operatorGold : _operatorNavy)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '$label (${_bookingFilterCount(value)})',
+            style: TextStyle(
+              color: selected
+                  ? (isDark ? _operatorNavyDeep : Colors.white)
+                  : (isDark ? Colors.grey[300] : Colors.grey.shade700),
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorBookingsResult(
+    List<Map<String, dynamic>> bookings,
+    bool isDark,
+  ) {
+    if (bookings.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 72, horizontal: 24),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: _operatorGold.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.event_busy_outlined,
+                color: _operatorNavy,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'No matching bookings',
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              'Try another status or clear the search field.',
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 980) {
+          return Column(
+            children: bookings
+                .map(
+                  (booking) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildOperatorBookingCard(booking, isDark),
+                  ),
+                )
+                .toList(),
+          );
+        }
+
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              _buildOperatorBookingTableHeader(isDark),
+              ...bookings.map(
+                (booking) => _buildOperatorBookingTableRow(booking, isDark),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.025)
+                      : const Color(0xFFFAFBFC),
+                ),
+                child: Text(
+                  'Showing ${bookings.length} of ${_recentBookings.length} bookings',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOperatorBookingTableHeader(bool isDark) {
+    Widget label(String text, int flex) => Expanded(
+      flex: flex,
+      child: Text(
+        text.toUpperCase(),
+        style: TextStyle(
+          color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF7F8FA),
+      child: Row(
+        children: [
+          label('Booking ID', 2),
+          label('Customer', 3),
+          label('Vehicle', 3),
+          label('Driver', 3),
+          label('Date & Time', 3),
+          label('Status', 2),
+          label('Actions', 3),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorBookingTableRow(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final driver = booking['driver'] as Map<String, dynamic>?;
+    final driverUser = driver?['user'] as Map<String, dynamic>?;
+    final bookingId = booking['id']?.toString() ?? '';
+    final displayId = bookingId.length > 8
+        ? '#${bookingId.substring(0, 8).toUpperCase()}'
+        : '#${bookingId.toUpperCase()}';
+    final start = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+    final needsDriver = _bookingNeedsDriver(booking['with_driver']);
+    final driverName = driverUser?['full_name']?.toString().trim();
+
+    Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
+    final primaryColor = isDark ? Colors.white : _operatorInk;
+    final Color mutedColor = isDark
+        ? Colors.grey.shade400
+        : Colors.grey.shade600;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          cell(
+            Text(
+              displayId,
+              style: TextStyle(
+                color: primaryColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            2,
+          ),
+          cell(
+            _buildOperatorPersonCell(
+              renter['full_name']?.toString() ?? 'Unknown renter',
+              renter['email']?.toString() ?? 'Renter',
+              primaryColor,
+              mutedColor,
+            ),
+            3,
+          ),
+          cell(
+            Row(
+              children: [
+                Icon(
+                  Icons.directions_car_outlined,
+                  size: 17,
+                  color: isDark ? _operatorGold : _operatorNavy,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _vehicleTitle(vehicle),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: primaryColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            3,
+          ),
+          cell(
+            Text(
+              needsDriver
+                  ? (driverName == null || driverName.isEmpty
+                        ? 'Unassigned'
+                        : driverName)
+                  : 'Self-drive',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: needsDriver && (driverName == null || driverName.isEmpty)
+                    ? Colors.red.shade400
+                    : primaryColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            3,
+          ),
+          cell(
+            Text(
+              _formatBookingDateTime(start),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: primaryColor, fontSize: 11),
+            ),
+            3,
+          ),
+          cell(
+            _buildStatusBadge(booking['status']?.toString() ?? 'pending'),
+            2,
+          ),
+          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 3),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorPersonCell(
+    String name,
+    String detail,
+    Color primaryColor,
+    Color mutedColor,
+  ) {
+    final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFFDCE9FF),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            initial,
+            style: const TextStyle(
+              color: _operatorNavy,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: primaryColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                detail,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: mutedColor, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOperatorBookingCard(Map<String, dynamic> booking, bool isDark) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final start = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _vehicleTitle(vehicle),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _buildStatusBadge(booking['status']?.toString() ?? 'pending'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            renter['full_name']?.toString() ?? 'Unknown renter',
+            style: TextStyle(
+              color: isDark ? Colors.grey[200] : _operatorInk,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _formatBookingDateTime(start),
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildOperatorBookingActions(booking, isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorBookingActions(
+    Map<String, dynamic> booking,
+    bool isDark, {
+    bool compact = false,
+  }) {
+    final group = bookingStatusGroup(booking['status']);
+    final needsDriver = _bookingNeedsDriver(booking['with_driver']);
+    final assignmentStatus = _latestDriverAssignment(
+      booking,
+    )?['status']?.toString().trim().toLowerCase();
+    final waitingForDriver =
+        assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
+    final driverAccepted = assignmentStatus == 'accepted';
+    final driverDeclined = assignmentStatus == 'rejected';
+
+    final buttons = <Widget>[
+      OutlinedButton(
+        onPressed: () => _showOperatorBookingDetailsDialog(booking),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 11 : 16,
+            vertical: 12,
+          ),
+          minimumSize: Size.zero,
+        ),
+        child: Text(compact ? 'Details' : 'View Details'),
+      ),
+    ];
+
+    if (group == BookingStatusGroup.pending &&
+        needsDriver &&
+        !driverAccepted &&
+        !waitingForDriver) {
+      buttons.add(
+        ElevatedButton(
+          onPressed: () => _showApproveDialog(booking),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _operatorNavy,
+            foregroundColor: Colors.white,
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 11 : 16,
+              vertical: 12,
+            ),
+            minimumSize: Size.zero,
+          ),
+          child: Text(driverDeclined ? 'Reassign' : 'Assign'),
+        ),
+      );
+    } else if (group == BookingStatusGroup.pending && waitingForDriver) {
+      buttons.add(
+        const Tooltip(
+          message: 'Waiting for the selected driver to respond',
+          child: Icon(Icons.hourglass_top_rounded, color: _operatorGold),
+        ),
+      );
+    } else if (_canTrackBooking(booking)) {
+      buttons.add(
+        ElevatedButton(
+          onPressed: () => _openTrackingForBooking(booking),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _operatorGold,
+            foregroundColor: _operatorNavyDeep,
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 11 : 16,
+              vertical: 12,
+            ),
+            minimumSize: Size.zero,
+          ),
+          child: const Text('Track'),
+        ),
+      );
+    }
+
+    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+  }
+
+  Future<void> _showOperatorBookingDetailsDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final driver = booking['driver'] as Map<String, dynamic>?;
+    final driverUser = driver?['user'] as Map<String, dynamic>?;
+    final status = booking['status']?.toString() ?? 'pending';
+    final statusLower = status.toLowerCase();
+    final group = bookingStatusGroup(status);
+    final needsDriver = _bookingNeedsDriver(booking['with_driver']);
+    final assignmentStatus = _latestDriverAssignment(
+      booking,
+    )?['status']?.toString().trim().toLowerCase();
+    final waitingForDriver =
+        assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
+    final driverAccepted = assignmentStatus == 'accepted';
+    final driverDeclined = assignmentStatus == 'rejected';
+    final completionState = BookingService().getTripCompletionState(booking);
+    final operatorConfirmed = completionState['operatorConfirmed'] == true;
+    final start = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+    final end = DateTime.tryParse(
+      (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
+    );
+    final total =
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0.0;
+    final imageUrl = _primaryVehicleImageUrl(vehicle);
+    final bookingId = booking['id']?.toString() ?? '';
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1080, maxHeight: 780),
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF172235) : Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 40,
+                  offset: Offset(0, 18),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 760;
+                      final vehiclePanel = _buildOperatorVehicleDetailPanel(
+                        vehicle: vehicle,
+                        renter: renter,
+                        imageUrl: imageUrl,
+                        isDark: isDark,
+                      );
+                      final detailPanel = _buildOperatorBookingDetailPanel(
+                        booking: booking,
+                        bookingShortId: shortId,
+                        driverName:
+                            driverUser?['full_name']?.toString() ??
+                            (needsDriver ? 'Unassigned' : 'Self-drive'),
+                        start: start,
+                        end: end,
+                        total: total,
+                        status: status,
+                        isDark: isDark,
+                      );
+                      if (compact) {
+                        return SingleChildScrollView(
+                          child: Column(children: [vehiclePanel, detailPanel]),
+                        );
+                      }
+                      return Row(
+                        children: [
+                          SizedBox(width: 310, child: vehiclePanel),
+                          Expanded(child: detailPanel),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.black.withOpacity(0.12)
+                        : const Color(0xFFF8F9FA),
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark ? Colors.white10 : Colors.grey.shade200,
+                      ),
+                    ),
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          _showBookingSafetyReviewDialog(booking);
+                        },
+                        icon: const Icon(
+                          Icons.verified_user_outlined,
+                          size: 17,
+                        ),
+                        label: const Text('Review Documents'),
+                      ),
+                      if (group == BookingStatusGroup.pending)
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _showRejectDialog(bookingId);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                          icon: const Icon(Icons.close_rounded, size: 17),
+                          label: const Text('Decline'),
+                        ),
+                      if (group == BookingStatusGroup.pending &&
+                          (!needsDriver || driverAccepted))
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _approveBooking(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorGold,
+                            foregroundColor: _operatorNavyDeep,
+                          ),
+                          icon: const Icon(Icons.check_rounded, size: 17),
+                          label: const Text('Finalize Booking'),
+                        ),
+                      if (group == BookingStatusGroup.pending &&
+                          needsDriver &&
+                          !driverAccepted &&
+                          !waitingForDriver)
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _showApproveDialog(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorNavy,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.person_search, size: 17),
+                          label: Text(
+                            driverDeclined
+                                ? 'Select Another Driver'
+                                : 'Assign Driver',
+                          ),
+                        ),
+                      if (statusLower == 'confirmed' ||
+                          statusLower == 'approved' ||
+                          statusLower == 'active')
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _showInspectionDialog(
+                              booking,
+                              inspectionType: 'before',
+                            );
+                          },
+                          icon: const Icon(Icons.fact_check_outlined, size: 17),
+                          label: const Text('Before Checklist'),
+                        ),
+                      if (statusLower == 'active' || statusLower == 'completed')
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _showInspectionDialog(
+                              booking,
+                              inspectionType: 'after',
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.assignment_turned_in_outlined,
+                            size: 17,
+                          ),
+                          label: const Text('After Checklist'),
+                        ),
+                      if (_canTrackBooking(booking))
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _openTrackingForBooking(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorGold,
+                            foregroundColor: _operatorNavyDeep,
+                          ),
+                          icon: const Icon(Icons.explore_outlined, size: 17),
+                          label: const Text('Track Trip'),
+                        ),
+                      if (group == BookingStatusGroup.completed &&
+                          !operatorConfirmed)
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _confirmOperatorSuccessfulTrip(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorNavy,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.task_alt, size: 17),
+                          label: const Text('Confirm Successful Trip'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleDetailPanel({
+    required Map<String, dynamic> vehicle,
+    required Map<String, dynamic> renter,
+    required String imageUrl,
+    required bool isDark,
+  }) {
+    final foreground = isDark ? Colors.white : _operatorInk;
+    final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      color: isDark ? Colors.black.withOpacity(0.14) : const Color(0xFFF2F4F6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: double.infinity,
+              height: 178,
+              color: isDark ? Colors.white10 : Colors.grey.shade200,
+              child: imageUrl.isEmpty
+                  ? Icon(Icons.directions_car_outlined, color: muted, size: 52)
+                  : OptimizedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: Icon(
+                        Icons.directions_car_outlined,
+                        color: muted,
+                        size: 52,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            _vehicleTitle(vehicle),
+            style: TextStyle(
+              color: foreground,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            [
+                  vehicle['transmission'],
+                  vehicle['vehicle_type'] ?? vehicle['category'],
+                  vehicle['plate_number'],
+                ]
+                .where((value) => value?.toString().trim().isNotEmpty == true)
+                .join(' - '),
+            style: TextStyle(color: muted, fontSize: 11),
+          ),
+          const SizedBox(height: 22),
+          Divider(color: isDark ? Colors.white12 : Colors.grey.shade300),
+          const SizedBox(height: 14),
+          Text(
+            'RENTER',
+            style: TextStyle(
+              color: muted,
+              fontSize: 10,
+              letterSpacing: 1,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            renter['full_name']?.toString() ?? 'Unknown renter',
+            style: TextStyle(
+              color: foreground,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            renter['email']?.toString() ?? 'No email provided',
+            style: TextStyle(color: muted, fontSize: 11),
+          ),
+          if (renter['phone']?.toString().trim().isNotEmpty == true) ...[
+            const SizedBox(height: 4),
+            Text(
+              renter['phone'].toString(),
+              style: TextStyle(color: muted, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorBookingDetailPanel({
+    required Map<String, dynamic> booking,
+    required String bookingShortId,
+    required String driverName,
+    required DateTime? start,
+    required DateTime? end,
+    required double total,
+    required String status,
+    required bool isDark,
+  }) {
+    final foreground = isDark ? Colors.white : _operatorInk;
+    final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(26),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'BOOKING ID  #$bookingShortId',
+                      style: TextStyle(
+                        color: muted,
+                        fontSize: 10,
+                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Booking Details',
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _buildStatusBadge(status),
+                  const SizedBox(height: 7),
+                  Text(
+                    'PHP ${total.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: _operatorGold,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _buildOperatorDetailTile(
+                Icons.calendar_month_outlined,
+                'START',
+                _formatBookingDateTime(start),
+                isDark,
+              ),
+              _buildOperatorDetailTile(
+                Icons.event_available_outlined,
+                'RETURN',
+                _formatBookingDateTime(end),
+                isDark,
+              ),
+              _buildOperatorDetailTile(
+                Icons.person_pin_circle_outlined,
+                'DRIVER',
+                driverName,
+                isDark,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _buildBookingPaymentDetails(booking, isDark),
+          const SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: _operatorNavy,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.shield_outlined, color: _operatorGold, size: 19),
+                    SizedBox(width: 8),
+                    Text(
+                      'Renter Safety Summary',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _buildOperatorSafetyLine(
+                  'Digital signature',
+                  booking['renter_signature_url']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true
+                      ? 'Captured'
+                      : 'Not provided',
+                ),
+                _buildOperatorSafetyLine(
+                  'Emergency contact',
+                  booking['emergency_contact_name']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true
+                      ? booking['emergency_contact_name'].toString()
+                      : 'Not provided',
+                ),
+                _buildOperatorSafetyLine(
+                  'Co-traveler',
+                  booking['co_traveler_name']?.toString().trim().isNotEmpty ==
+                          true
+                      ? booking['co_traveler_name'].toString()
+                      : 'Not provided',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorDetailTile(
+    IconData icon,
+    String label,
+    String value,
+    bool isDark,
+  ) {
+    return Container(
+      width: 205,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : const Color(0xFFF5F6F8),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: isDark ? _operatorGold : _operatorNavy, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 9,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorSafetyLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label.toUpperCase(),
+              style: const TextStyle(
+                color: Color(0xFF91A9BE),
+                fontSize: 9,
+                letterSpacing: 0.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -4065,6 +6165,589 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildMessagesContent(bool isDark) {
+    if (_conversations.isEmpty) {
+      return Center(
+        child: Container(
+          width: 460,
+          padding: const EdgeInsets.all(42),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  color: _operatorGold.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  color: _operatorNavy,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No booking conversations yet',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.white : _operatorInk,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                'A group conversation appears after a booking is finalized.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Map<String, dynamic>? selectedConversation;
+    for (final conversation in _conversations) {
+      if (conversation['id']?.toString() == _selectedConversationId) {
+        selectedConversation = conversation;
+        break;
+      }
+    }
+    final selectedBooking =
+        selectedConversation?['bookings'] as Map<String, dynamic>?;
+    final selectedRenter =
+        selectedBooking?['renter'] as Map<String, dynamic>? ?? {};
+    final selectedVehicle =
+        selectedBooking?['vehicles'] as Map<String, dynamic>? ?? {};
+    final selectedStatus =
+        selectedBooking?['status']?.toString().toLowerCase() ?? 'active';
+    final conversationStatus =
+        selectedConversation?['status']?.toString().toLowerCase() ?? 'active';
+    final isClosed =
+        conversationStatus == 'closed' || selectedStatus == 'completed';
+    final messages = _messages[_selectedConversationId] ?? [];
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 820;
+            final showThreads = !compact || _selectedConversationId.isEmpty;
+            final showConversation =
+                !compact || _selectedConversationId.isNotEmpty;
+            return Row(
+              children: [
+                if (showThreads)
+                  SizedBox(
+                    width: compact ? constraints.maxWidth : 360,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(22, 22, 18, 18),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.black.withOpacity(0.12)
+                                : const Color(0xFFFAFBFC),
+                            border: Border(
+                              bottom: BorderSide(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Active Threads',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.white
+                                            : _operatorInk,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${_conversations.length} booking conversations',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.grey[400]
+                                            : Colors.grey.shade600,
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Refresh conversations',
+                                onPressed: _loadConversations,
+                                icon: const Icon(Icons.refresh_rounded),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(14),
+                            itemCount: _conversations.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 9),
+                            itemBuilder: (context, index) =>
+                                _buildOperatorConversationTile(
+                                  _conversations[index],
+                                  isDark,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!compact)
+                  VerticalDivider(
+                    width: 1,
+                    color: isDark ? Colors.white10 : Colors.grey.shade200,
+                  ),
+                if (showConversation)
+                  Expanded(
+                    child: _selectedConversationId.isEmpty
+                        ? _buildOperatorEmptyConversation(isDark)
+                        : Column(
+                            children: [
+                              _buildOperatorConversationHeader(
+                                selectedConversation,
+                                selectedRenter,
+                                selectedVehicle,
+                                selectedStatus,
+                                compact,
+                                isDark,
+                              ),
+                              _buildOperatorParticipantReference(
+                                _conversationParticipants[_selectedConversationId] ??
+                                    [],
+                                isDark,
+                              ),
+                              Expanded(
+                                child: messages.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          'No messages yet',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? Colors.grey[400]
+                                                : Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      )
+                                    : ListView.builder(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          28,
+                                          22,
+                                          28,
+                                          12,
+                                        ),
+                                        itemCount: messages.length,
+                                        itemBuilder: (context, index) =>
+                                            _buildOperatorMessageBubble(
+                                              messages[index],
+                                              isDark,
+                                            ),
+                                      ),
+                              ),
+                              _buildOperatorMessageComposer(isClosed, isDark),
+                            ],
+                          ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorConversationTile(
+    Map<String, dynamic> conversation,
+    bool isDark,
+  ) {
+    final conversationId = conversation['id']?.toString() ?? '';
+    final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Unknown renter';
+    final vehicleName = [
+      vehicle['brand'],
+      vehicle['model'],
+    ].where((value) => value?.toString().trim().isNotEmpty == true).join(' ');
+    final status = booking['status']?.toString() ?? 'pending';
+    final selected = conversationId == _selectedConversationId;
+    final shortId = conversation['booking_id']?.toString() ?? conversationId;
+    final displayId = shortId.length > 8
+        ? shortId.substring(0, 8).toUpperCase()
+        : shortId.toUpperCase();
+
+    return InkWell(
+      onTap: () {
+        setState(() => _selectedConversationId = conversationId);
+        _loadConversationMessages(conversationId);
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected
+              ? (isDark
+                    ? _operatorGold.withOpacity(0.16)
+                    : const Color(0xFFFFF8DC))
+              : (isDark
+                    ? Colors.white.withOpacity(0.035)
+                    : const Color(0xFFF6F7F8)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected
+                ? _operatorGold
+                : (isDark ? Colors.white10 : Colors.transparent),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '#$displayId',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Spacer(),
+                _buildStatusBadge(status),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              renterName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              vehicleName.isEmpty ? 'Booking conversation' : vehicleName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorEmptyConversation(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.forum_outlined,
+            size: 58,
+            color: isDark ? Colors.grey[600] : Colors.grey.shade300,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Select a booking conversation',
+            style: TextStyle(
+              color: isDark ? Colors.white : _operatorInk,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Messages from the renter, driver, and vehicle owner appear here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorConversationHeader(
+    Map<String, dynamic>? conversation,
+    Map<String, dynamic> renter,
+    Map<String, dynamic> vehicle,
+    String status,
+    bool compact,
+    bool isDark,
+  ) {
+    final bookingId = conversation?['booking_id']?.toString() ?? '';
+    final shortId = bookingId.length > 8
+        ? bookingId.substring(0, 8).toUpperCase()
+        : bookingId.toUpperCase();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black.withOpacity(0.12) : Colors.white,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          if (compact) ...[
+            IconButton(
+              onPressed: () => setState(() => _selectedConversationId = ''),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: _operatorNavy,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(
+              Icons.chat_bubble_outline,
+              color: _operatorGold,
+              size: 19,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  shortId.isEmpty
+                      ? 'Booking Conversation'
+                      : 'Booking #$shortId',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${renter['full_name'] ?? 'Renter'} - ${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _buildStatusBadge(status),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorMessageBubble(
+    Map<String, dynamic> message,
+    bool isDark,
+  ) {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    final isOwn = message['sender_id']?.toString() == currentUserId;
+    final sender = message['sender'] as Map<String, dynamic>? ?? {};
+    final senderName = sender['full_name']?.toString() ?? 'System';
+    final content =
+        message['content']?.toString() ?? message['message']?.toString() ?? '';
+    return Align(
+      alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 15),
+          child: Column(
+            crossAxisAlignment: isOwn
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  isOwn ? 'You (Operator)' : senderName,
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                decoration: BoxDecoration(
+                  color: isOwn
+                      ? _operatorNavy
+                      : (isDark
+                            ? Colors.white.withOpacity(0.07)
+                            : Colors.white),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isOwn ? 16 : 4),
+                    bottomRight: Radius.circular(isOwn ? 4 : 16),
+                  ),
+                  border: isOwn
+                      ? null
+                      : Border.all(
+                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        ),
+                ),
+                child: Text(
+                  content,
+                  style:
+                      const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        height: 1.35,
+                      ).copyWith(
+                        color: isOwn
+                            ? Colors.white
+                            : (isDark ? Colors.white : _operatorInk),
+                      ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _formatMessageTime(message['created_at']?.toString()),
+                style: TextStyle(
+                  color: isDark ? Colors.grey[500] : Colors.grey.shade500,
+                  fontSize: 9,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorMessageComposer(bool isClosed, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.black.withOpacity(0.12)
+            : const Color(0xFFFAFBFC),
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: isClosed
+          ? Text(
+              'This completed booking conversation is read-only.',
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              ),
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    minLines: 1,
+                    maxLines: 4,
+                    onSubmitted: (_) => _sendMessage(
+                      _selectedConversationId,
+                      _messageController.text,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Type a message to the booking team...',
+                      filled: true,
+                      fillColor: isDark
+                          ? Colors.white.withOpacity(0.06)
+                          : Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filled(
+                  onPressed: () => _sendMessage(
+                    _selectedConversationId,
+                    _messageController.text,
+                  ),
+                  style: IconButton.styleFrom(
+                    backgroundColor: _operatorGold,
+                    foregroundColor: _operatorNavyDeep,
+                    minimumSize: const Size(48, 48),
+                  ),
+                  icon: const Icon(Icons.send_rounded),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildLegacyMessagesContent(bool isDark) {
     // Show empty state if no conversations
     if (_conversations.isEmpty) {
       return Center(
@@ -4480,10 +7163,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         '',
                                     style: TextStyle(
                                       color: isOwn
-                                          ? Colors.white
+                                          ? const Color(0xFF101820)
                                           : (isDark
                                                 ? Colors.white
                                                 : Colors.black),
+                                      fontWeight: isOwn
+                                          ? FontWeight.w500
+                                          : FontWeight.normal,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
@@ -4494,7 +7180,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: isOwn
-                                          ? Colors.white70
+                                          ? const Color(0xA6101820)
                                           : (isDark
                                                 ? Colors.grey[500]
                                                 : Colors.grey.shade600),
@@ -4618,6 +7304,958 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildVehiclesContent(bool isDark) {
+    final source = _vehicleView == 'partner' ? _partnerVehicles : _vehicles;
+    final query = _vehicleSearchQuery.toLowerCase();
+    final visible = source.where((vehicle) {
+      if (query.isEmpty) return true;
+      final haystack = [
+        vehicle['brand'],
+        vehicle['model'],
+        vehicle['vehicle_name'],
+        vehicle['plate_number'],
+        vehicle['partner_name'],
+        vehicle['owner_name'],
+      ].whereType<Object>().join(' ').toLowerCase();
+      return haystack.contains(query);
+    }).toList();
+    final allVehicles = [..._vehicles, ..._partnerVehicles];
+    final available = allVehicles.where(_operatorVehicleIsAvailable).length;
+    final posted = allVehicles
+        .where((vehicle) => vehicle['is_posted'] == true)
+        .length;
+    final unavailable = allVehicles.length - available;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Vehicle Management',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : _operatorInk,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Manage PSDC vehicles and review partner vehicle inventory.',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showAddVehicleDialog(isDark),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _operatorNavy,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                ),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add New Vehicle'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1040
+                  ? 4
+                  : constraints.maxWidth >= 560
+                  ? 2
+                  : 1;
+              final width =
+                  (constraints.maxWidth - ((columns - 1) * 16)) / columns;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _buildVehicleMetricCard(
+                      'Total Vehicles',
+                      allVehicles.length,
+                      Icons.directions_car_outlined,
+                      _operatorNavy,
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildVehicleMetricCard(
+                      'Available',
+                      available,
+                      Icons.route_outlined,
+                      const Color(0xFF2E7D32),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildVehicleMetricCard(
+                      'Unavailable',
+                      unavailable,
+                      Icons.build_outlined,
+                      const Color(0xFFC62828),
+                      isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildVehicleMetricCard(
+                      'Posted',
+                      posted,
+                      Icons.verified_outlined,
+                      const Color(0xFF886A00),
+                      isDark,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 22),
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 720;
+                      final tabs = Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : const Color(0xFFF1F3F5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildVehicleViewTab(
+                              'company',
+                              'Managed Vehicles',
+                              isDark,
+                            ),
+                            _buildVehicleViewTab(
+                              'partner',
+                              'Partner Vehicles',
+                              isDark,
+                            ),
+                          ],
+                        ),
+                      );
+                      final search = SizedBox(
+                        width: compact ? constraints.maxWidth : 340,
+                        child: TextField(
+                          controller: _vehicleSearchController,
+                          onChanged: (value) => setState(
+                            () => _vehicleSearchQuery = value.trim(),
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Search vehicle, plate, or owner',
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              size: 20,
+                            ),
+                            filled: true,
+                            fillColor: isDark
+                                ? Colors.white.withOpacity(0.05)
+                                : const Color(0xFFF4F5F7),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                      );
+                      if (compact) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: tabs,
+                            ),
+                            const SizedBox(height: 12),
+                            search,
+                          ],
+                        );
+                      }
+                      return Row(children: [tabs, const Spacer(), search]);
+                    },
+                  ),
+                ),
+                _buildOperatorVehicleInventory(visible, isDark),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _operatorVehicleIsAvailable(Map<String, dynamic> vehicle) {
+    if (vehicle['is_available'] is bool) {
+      return vehicle['is_available'] == true;
+    }
+    final status = vehicle['status']?.toString().trim().toLowerCase() ?? '';
+    return status == 'active' || status == 'available' || status == 'approved';
+  }
+
+  Widget _buildVehicleMetricCard(
+    String label,
+    int value,
+    IconData icon,
+    Color accent,
+    bool isDark,
+  ) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 125),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: accent, size: 22),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value.toString(),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 27,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 9,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleViewTab(String value, String label, bool isDark) {
+    final selected = _vehicleView == value;
+    return InkWell(
+      onTap: () => setState(() => _vehicleView = value),
+      borderRadius: BorderRadius.circular(9),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+        decoration: BoxDecoration(
+          color: selected
+              ? (isDark ? _operatorGold : Colors.white)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected && !isDark
+              ? const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected
+                ? _operatorNavyDeep
+                : (isDark ? Colors.grey[300] : Colors.grey.shade700),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleInventory(
+    List<Map<String, dynamic>> vehicles,
+    bool isDark,
+  ) {
+    if (vehicles.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 24),
+        child: Column(
+          children: [
+            Icon(
+              Icons.directions_car_outlined,
+              color: isDark ? Colors.grey[600] : Colors.grey.shade300,
+              size: 54,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No matching vehicles',
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 900) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Column(
+              children: vehicles
+                  .map(
+                    (vehicle) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _buildOperatorVehicleRowCard(vehicle, isDark),
+                    ),
+                  )
+                  .toList(),
+            ),
+          );
+        }
+        return Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
+              color: isDark
+                  ? Colors.white.withOpacity(0.04)
+                  : const Color(0xFFF7F8FA),
+              child: Row(
+                children: [
+                  _vehicleHeaderLabel('Vehicle', 4, isDark),
+                  _vehicleHeaderLabel('Owner', 3, isDark),
+                  _vehicleHeaderLabel('Status', 2, isDark),
+                  _vehicleHeaderLabel('Pricing', 3, isDark),
+                  _vehicleHeaderLabel('Listing', 2, isDark),
+                  _vehicleHeaderLabel('Actions', 2, isDark),
+                ],
+              ),
+            ),
+            ...vehicles.map(
+              (vehicle) => _buildOperatorVehicleTableRow(vehicle, isDark),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              color: isDark
+                  ? Colors.white.withOpacity(0.02)
+                  : const Color(0xFFFAFBFC),
+              child: Text(
+                'Showing ${vehicles.length} ${_vehicleView == 'partner' ? 'partner' : 'managed'} vehicles',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _vehicleHeaderLabel(String label, int flex, bool isDark) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+          fontSize: 9,
+          letterSpacing: 0.7,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleTableRow(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final foreground = isDark ? Colors.white : _operatorInk;
+    final owner = vehicle['_source'] == 'partner'
+        ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
+        : 'PSDC';
+    final available = _operatorVehicleIsAvailable(vehicle);
+    final posted = vehicle['is_posted'] == true;
+    Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          cell(_buildOperatorVehicleIdentity(vehicle, isDark), 4),
+          cell(
+            Text(
+              owner,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            3,
+          ),
+          cell(_buildOperatorVehicleStatus(available, isDark), 2),
+          cell(
+            Text(
+              'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}/day\nPHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}/hour',
+              style: TextStyle(color: foreground, fontSize: 10, height: 1.45),
+            ),
+            3,
+          ),
+          cell(
+            Row(
+              children: [
+                Transform.scale(
+                  scale: 0.72,
+                  child: Switch(
+                    value: posted,
+                    onChanged: (value) => _togglePostingStatus(vehicle, value),
+                    activeTrackColor: _operatorGold,
+                    activeThumbColor: _operatorNavyDeep,
+                  ),
+                ),
+                Text(
+                  posted ? 'POSTED' : 'HIDDEN',
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            2,
+          ),
+          cell(_buildOperatorVehicleMenu(vehicle, isDark), 2),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleIdentity(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final imageUrl = _primaryVehicleImageUrl(vehicle);
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            width: 62,
+            height: 46,
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+            child: imageUrl.isEmpty
+                ? const Icon(Icons.directions_car_outlined)
+                : OptimizedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.cover,
+                    errorWidget: const Icon(Icons.directions_car_outlined),
+                  ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _vehicleTitle(vehicle),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isDark ? Colors.white : _operatorInk,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                vehicle['plate_number']?.toString() ?? 'No plate number',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontSize: 9,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOperatorVehicleStatus(bool available, bool isDark) {
+    final color = available ? const Color(0xFF2E7D32) : const Color(0xFFC62828);
+    return Row(
+      children: [
+        Icon(Icons.circle, size: 8, color: color),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Text(
+            available ? 'Available' : 'Unavailable',
+            style: TextStyle(
+              color: isDark ? Colors.white : _operatorInk,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showOperatorVehicleDetailsDialog(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final imageUrl = _primaryVehicleImageUrl(vehicle);
+    final isPartner = vehicle['_source'] == 'partner';
+    final owner = isPartner
+        ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
+        : 'PSDC';
+    final available = _operatorVehicleIsAvailable(vehicle);
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 940, maxHeight: 760),
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF172235) : Colors.white,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(26, 20, 16, 18),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _operatorNavy,
+                                    borderRadius: BorderRadius.circular(7),
+                                  ),
+                                  child: Text(
+                                    vehicle['plate_number']?.toString() ??
+                                        'NO PLATE',
+                                    style: const TextStyle(
+                                      color: _operatorGold,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                _buildOperatorVehicleStatus(available, isDark),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _vehicleTitle(vehicle),
+                              style: TextStyle(
+                                color: isDark ? Colors.white : _operatorInk,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(26),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final compact = constraints.maxWidth < 720;
+                        final image = ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Container(
+                            height: compact ? 220 : 330,
+                            color: isDark
+                                ? Colors.white10
+                                : Colors.grey.shade200,
+                            child: imageUrl.isEmpty
+                                ? const Center(
+                                    child: Icon(
+                                      Icons.directions_car_outlined,
+                                      size: 70,
+                                    ),
+                                  )
+                                : OptimizedNetworkImage(
+                                    imageUrl: imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorWidget: const Icon(
+                                      Icons.directions_car_outlined,
+                                      size: 70,
+                                    ),
+                                  ),
+                          ),
+                        );
+                        final details = Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Vehicle Information',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : _operatorInk,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            _operatorVehicleDetailTile(
+                              'Owner',
+                              owner,
+                              Icons.business_outlined,
+                              isDark,
+                            ),
+                            const SizedBox(height: 10),
+                            _operatorVehicleDetailTile(
+                              'Type',
+                              (vehicle['vehicle_type'] ??
+                                      vehicle['category'] ??
+                                      'Not provided')
+                                  .toString(),
+                              Icons.category_outlined,
+                              isDark,
+                            ),
+                            const SizedBox(height: 10),
+                            _operatorVehicleDetailTile(
+                              'Transmission and color',
+                              '${vehicle['transmission'] ?? 'Not provided'} - ${vehicle['color'] ?? 'Not provided'}',
+                              Icons.settings_outlined,
+                              isDark,
+                            ),
+                            const SizedBox(height: 10),
+                            _operatorVehicleDetailTile(
+                              'Rental pricing',
+                              'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}/day - PHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}/hour',
+                              Icons.payments_outlined,
+                              isDark,
+                            ),
+                          ],
+                        );
+                        if (compact) {
+                          return Column(
+                            children: [
+                              image,
+                              const SizedBox(height: 22),
+                              details,
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: image),
+                            const SizedBox(width: 26),
+                            Expanded(child: details),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  color: isDark
+                      ? Colors.black.withOpacity(0.12)
+                      : const Color(0xFFF7F8FA),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('Close'),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          _showEditVehicleDialog(vehicle, isDark);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _operatorNavy,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 15,
+                          ),
+                        ),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: Text(
+                          isPartner ? 'Manage Price' : 'Edit Vehicle',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _operatorVehicleDetailTile(
+    String label,
+    String value,
+    IconData icon,
+    bool isDark,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : const Color(0xFFF5F7F9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _operatorGold, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 8,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleMenu(Map<String, dynamic> vehicle, bool isDark) {
+    final posted = vehicle['is_posted'] == true;
+    final isPartner = vehicle['_source'] == 'partner';
+    return PopupMenuButton<String>(
+      tooltip: 'Vehicle actions',
+      onSelected: (action) {
+        if (action == 'view') {
+          _showOperatorVehicleDetailsDialog(vehicle, isDark);
+        } else if (action == 'edit') {
+          _showEditVehicleDialog(vehicle, isDark);
+        } else if (action == 'toggle') {
+          _togglePostingStatus(vehicle, !posted);
+        } else if (action == 'delete') {
+          _deleteVehicle(vehicle['id']);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'view',
+          child: Row(
+            children: [
+              Icon(Icons.visibility_outlined, size: 18),
+              SizedBox(width: 9),
+              Text('View Details'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'edit',
+          child: Row(
+            children: [
+              const Icon(Icons.edit_outlined, size: 18),
+              const SizedBox(width: 9),
+              Text(isPartner ? 'Manage Price' : 'Edit Vehicle'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'toggle',
+          child: Row(
+            children: [
+              Icon(
+                posted
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                size: 18,
+              ),
+              const SizedBox(width: 9),
+              Text(posted ? 'Hide Listing' : 'Post Vehicle'),
+            ],
+          ),
+        ),
+        if (!isPartner)
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                SizedBox(width: 9),
+                Text('Delete Vehicle', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+      ],
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withOpacity(0.06)
+              : const Color(0xFFF2F4F6),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(Icons.more_vert_rounded, size: 19),
+      ),
+    );
+  }
+
+  Widget _buildOperatorVehicleRowCard(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final available = _operatorVehicleIsAvailable(vehicle);
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.035)
+            : const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _buildOperatorVehicleIdentity(vehicle, isDark)),
+              _buildOperatorVehicleMenu(vehicle, isDark),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _buildOperatorVehicleStatus(available, isDark)),
+              Text(
+                vehicle['is_posted'] == true ? 'POSTED' : 'HIDDEN',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[300] : _operatorInk,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegacyVehiclesContent(bool isDark) {
     final ownVehicles = _vehicles;
 
     return SingleChildScrollView(
@@ -6472,7 +10110,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             .from('partner_vehicles')
             .update({
               'is_available': isPosted,
-              'status': isPosted ? 'available' : 'pending',
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('id', partnerVehicleId);
@@ -6485,7 +10122,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       vehicle['is_posted'] = isPosted;
       vehicle['is_available'] = isPosted;
-      _loadVehicles();
+      await _loadVehicles();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

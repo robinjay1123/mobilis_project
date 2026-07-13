@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
@@ -127,7 +128,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   Future<void> _openEditProfile() async {
-    final updated = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => UnifiedEditProfileScreen(
           initialProfile: _profile ?? const {},
@@ -135,10 +136,11 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         ),
       ),
     );
-    if (updated == true && mounted) {
-      await _loadProfile();
-      widget.onProfileUpdated?.call();
-    }
+    if (!mounted) return;
+    // Refresh even when only the photo was changed and the system back button
+    // was used to leave the edit page.
+    await _loadProfile();
+    widget.onProfileUpdated?.call();
   }
 
   Future<void> _openProfilePictureUpload() async {
@@ -220,12 +222,11 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.88,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
             children: [
               Row(
                 children: [
@@ -252,7 +253,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                 icon: Icons.support_agent,
                 label: 'Customer Support',
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                   widget.onOpenSupport?.call();
                 },
               ),
@@ -260,22 +261,57 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                 icon: Icons.report_problem_outlined,
                 label: 'Report an Issue',
                 onTap: () {
-                  Navigator.pop(context);
+                  Navigator.pop(sheetContext);
                   widget.onOpenSupport?.call();
                 },
               ),
               _sheetAction(
                 icon: Icons.description_outlined,
                 label: 'Terms and Conditions',
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openTermsAndConditions();
+                },
               ),
               _sheetAction(
                 icon: Icons.privacy_tip_outlined,
                 label: 'Privacy Policy',
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openPrivacyPolicy();
+                },
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openTermsAndConditions() async {
+    final content = await TermsService().getRentalTerms();
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _ProfileLegalDocumentScreen(
+          title: 'Terms and Conditions',
+          icon: Icons.description_outlined,
+          content: content,
+        ),
+      ),
+    );
+  }
+
+  void _openPrivacyPolicy() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const _ProfileLegalDocumentScreen(
+          title: 'Privacy Policy',
+          icon: Icons.privacy_tip_outlined,
+          content:
+              'Mobilis by PSDC collects account, verification, booking, location, emergency-contact, and payment-related information only to operate rentals, protect users, and meet service requirements.\n\n'
+              'Identity documents and live trip locations are limited to authorized workflows and should only be viewed by users responsible for verification, active bookings, safety, or support.\n\n'
+              'Profile and booking information must not be shared outside the platform without a valid service or safety reason. Contact Customer Support to report incorrect information, request assistance, or raise a privacy concern.',
         ),
       ),
     );
@@ -397,8 +433,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                     icon: Icons.verified_user_outlined,
                     title: 'Verification and Documents',
                     subtitle: _verificationSubtitle(),
-                    onTap:
-                        widget.onOpenVerification ?? _openVerificationSummary,
+                    onTap: _openVerificationSummary,
                   ),
                   _settingsTile(
                     icon: Icons.star_outline_rounded,
@@ -820,8 +855,14 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   Widget _stat(ProfileStatItem item) {
+    final normalizedLabel = item.label.toLowerCase();
+    final fallbackAction = normalizedLabel.contains('rating')
+        ? _openRatings
+        : normalizedLabel.contains('loyalty')
+        ? _openVerificationSummary
+        : null;
     return InkWell(
-      onTap: item.onTap,
+      onTap: item.onTap ?? fallbackAction,
       borderRadius: BorderRadius.circular(14),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
@@ -961,28 +1002,60 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   String _verificationSubtitle() {
-    final status =
-        _verification?['status']?.toString() ??
-        _verification?['verification_status']?.toString() ??
+    return 'Status: ${_verificationDisplayStatus()}';
+  }
+
+  String _verificationDisplayStatus() {
+    final status = _effectiveVerificationStatus().trim().toLowerCase();
+    if (status == 'verified' || status == 'approved' || status == 'certified') {
+      return 'Approved';
+    }
+    if (status == 'rejected' || status == 'declined') return 'Rejected';
+    if (status == 'expired') return 'Expired';
+    if (status == 'pending' ||
+        status == 'submitted' ||
+        status == 'under review' ||
+        status == 'under_review') {
+      return 'Pending';
+    }
+    return 'Not submitted';
+  }
+
+  String _effectiveVerificationStatus() {
+    final record = _verification;
+    final expiryValue = _firstValue([
+      record?['driver_license_expiry'],
+      record?['license_expiry'],
+      record?['expires_at'],
+    ]);
+    final expiry = expiryValue == null ? null : DateTime.tryParse(expiryValue);
+    if (expiry != null) {
+      final today = DateTime.now();
+      final todayOnly = DateTime(today.year, today.month, today.day);
+      final expiryOnly = DateTime(expiry.year, expiry.month, expiry.day);
+      if (expiryOnly.isBefore(todayOnly)) return 'expired';
+    }
+
+    return record?['status']?.toString() ??
+        record?['verification_status']?.toString() ??
         'Not submitted';
-    return 'Status: ${_titleCase(status)}';
   }
 
   void _openVerificationSummary() {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.darkBgSecondary,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         final docs = _verificationDocuments();
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+        return FractionallySizedBox(
+          heightFactor: 0.82,
+          child: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
               children: [
                 const Text(
                   'Verification and Documents',
@@ -1029,6 +1102,28 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                       ),
                     ),
                   ),
+                if (widget.onOpenVerification != null) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onOpenVerification?.call();
+                      },
+                      icon: const Icon(Icons.open_in_new, size: 18),
+                      label: const Text('Open Verification Details'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1044,6 +1139,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     const keys = {
       'id_front_url': 'ID Front',
       'id_back_url': 'ID Back',
+      'id_document_url': 'Government ID',
       'face_selfie_url': 'Face Selfie',
       'selfie_with_id_url': 'Selfie Holding ID',
       'signature_url': 'Digital Signature',
@@ -1060,7 +1156,9 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   Widget _statusChip(String text) {
     final normalized = text.toLowerCase();
     final color =
-        normalized.contains('approved') || normalized.contains('verified')
+        normalized.contains('approved') ||
+            normalized.contains('verified') ||
+            normalized.contains('certified')
         ? AppColors.success
         : normalized.contains('reject') || normalized.contains('expired')
         ? AppColors.error
@@ -1092,19 +1190,6 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? null : text;
   }
-
-  String _titleCase(String value) {
-    if (value.trim().isEmpty) return 'Not submitted';
-    final normalized = value.replaceAll('_', ' ').trim();
-    return normalized
-        .split(' ')
-        .map(
-          (word) => word.isEmpty
-              ? word
-              : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
-        )
-        .join(' ');
-  }
 }
 
 class UnifiedEditProfileScreen extends StatefulWidget {
@@ -1127,6 +1212,7 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
   late final TextEditingController _locationController;
+  String? _avatarUrl;
   bool _isSaving = false;
 
   @override
@@ -1152,6 +1238,13 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
         widget.initialProfile['location'] ?? widget.initialProfile['address'],
       ),
     );
+    _avatarUrl = _firstAvatarValue([
+      widget.initialProfile['avatar_url'],
+      widget.initialProfile['profile_picture_url'],
+      AuthService().currentUser?.userMetadata?['avatar_url'],
+      AuthService().currentUser?.userMetadata?['profile_picture_url'],
+      AuthService().currentUser?.userMetadata?['picture'],
+    ]);
   }
 
   @override
@@ -1222,6 +1315,26 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
     }
   }
 
+  Future<void> _changeProfilePicture() async {
+    final updated = await Navigator.pushNamed(
+      context,
+      '/profile-picture-upload',
+    );
+    if (updated != true || !mounted) return;
+
+    final profile = await AuthService().getCurrentUserProfile();
+    if (!mounted) return;
+    setState(() {
+      _avatarUrl = _firstAvatarValue([
+        profile?['avatar_url'],
+        profile?['profile_picture_url'],
+        AuthService().currentUser?.userMetadata?['avatar_url'],
+        AuthService().currentUser?.userMetadata?['profile_picture_url'],
+        AuthService().currentUser?.userMetadata?['picture'],
+      ]);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1237,6 +1350,8 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
+          _profilePictureCard(),
+          const SizedBox(height: 18),
           _field(
             label: 'Verified Name',
             controller: _nameController,
@@ -1282,6 +1397,87 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
     );
   }
 
+  Widget _profilePictureCard() {
+    final name = _nameController.text.trim();
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox.square(
+              dimension: 72,
+              child: ColoredBox(
+                color: AppColors.primary,
+                child: _avatarUrl != null && _avatarUrl!.isNotEmpty
+                    ? OptimizedNetworkImage(
+                        imageUrl: _avatarUrl!,
+                        fit: BoxFit.cover,
+                        isThumbnail: true,
+                        errorWidget: _editProfileInitial(name),
+                      )
+                    : _editProfileInitial(name),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Profile Picture',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Shown on your dashboard and profile.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _changeProfilePicture,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Change Photo'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _editProfileInitial(String name) {
+    return Center(
+      child: Text(
+        name.isEmpty ? '?' : name[0].toUpperCase(),
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 26,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
   Widget _field({
     required String label,
     required TextEditingController controller,
@@ -1323,6 +1519,77 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
   }
 
   String _text(dynamic value) => value?.toString().trim() ?? '';
+
+  String? _firstAvatarValue(Iterable<dynamic> values) {
+    for (final value in values) {
+      final text = value?.toString().trim();
+      if (text != null && text.isNotEmpty) return text;
+    }
+    return null;
+  }
+}
+
+class _ProfileLegalDocumentScreen extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String content;
+
+  const _ProfileLegalDocumentScreen({
+    required this.title,
+    required this.icon,
+    required this.content,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.black,
+        centerTitle: true,
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.borderColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: AppColors.primary),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  content.trim().isEmpty
+                      ? 'This document is not available yet.'
+                      : content.trim(),
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                    height: 1.55,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HelpFaqTile extends StatefulWidget {

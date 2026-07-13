@@ -5703,7 +5703,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                           ?.toString() ==
                                       'Message deleted';
                               final isSending = message['_is_sending'] == true;
-                              final sendFailed = message['_send_failed'] == true;
+                              final sendFailed =
+                                  message['_send_failed'] == true;
                               return Align(
                                 alignment: isAdminMessage
                                     ? Alignment.centerRight
@@ -5737,10 +5738,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                               ? FontStyle.italic
                                               : FontStyle.normal,
                                           color: isAdminMessage
-                                              ? Colors.black
+                                              ? const Color(0xFF101820)
                                               : (isDark
                                                     ? Colors.white
                                                     : Colors.black87),
+                                          fontWeight: isAdminMessage
+                                              ? FontWeight.w500
+                                              : FontWeight.normal,
                                         ),
                                       ),
                                       const SizedBox(height: 5),
@@ -5752,7 +5756,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                             style: TextStyle(
                                               fontSize: 10,
                                               color: isAdminMessage
-                                                  ? Colors.black54
+                                                  ? const Color(0xA6101820)
                                                   : (isDark
                                                         ? Colors.white54
                                                         : Colors.black45),
@@ -5785,11 +5789,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                               padding: EdgeInsets.zero,
                                               visualDensity:
                                                   VisualDensity.compact,
-                                              constraints:
-                                                  const BoxConstraints(
-                                                    minWidth: 26,
-                                                    minHeight: 26,
-                                                  ),
+                                              constraints: const BoxConstraints(
+                                                minWidth: 26,
+                                                minHeight: 26,
+                                              ),
                                               onPressed: () =>
                                                   _deleteSupportMessage(
                                                     message,
