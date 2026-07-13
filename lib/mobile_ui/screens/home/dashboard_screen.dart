@@ -24,6 +24,7 @@ import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/relative_time_text.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
@@ -2416,7 +2417,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _formatTimeAgo(String? date) {
     if (date == null || date.isEmpty) return 'just now';
     try {
-      final d = DateTime.parse(date).toLocal();
+      final d = parseMessageTimestamp(date);
+      if (d == null) return date;
       final diff = DateTime.now().difference(d);
       if (diff.inMinutes < 1) return 'just now';
       if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';

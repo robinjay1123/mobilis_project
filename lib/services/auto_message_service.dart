@@ -35,7 +35,7 @@ class AutoMessageService {
             'booking_id': bookingId,
             'user_id': renterId,
             'other_user_id': recipientId,
-            'created_at': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toUtc().toIso8601String(),
           })
           .select()
           .single();
@@ -55,7 +55,7 @@ class AutoMessageService {
         'message': autoMessage,
         'content': autoMessage,
         'is_auto_generated': true,
-        'created_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
       });
 
       return {

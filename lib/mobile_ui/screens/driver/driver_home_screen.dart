@@ -14,6 +14,7 @@ import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/relative_time_text.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
@@ -3062,7 +3063,7 @@ class _DriverMessagesTabState extends State<_DriverMessagesTab> {
   }
 
   String _formatTimeAgo(String? raw) {
-    final date = DateTime.tryParse(raw ?? '');
+    final date = parseMessageTimestamp(raw);
     if (date == null) return '';
     final diff = DateTime.now().difference(date);
     if (diff.inMinutes < 1) return 'Now';

@@ -20,6 +20,7 @@ import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/relative_time_text.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../../../utils/booking_status.dart';
@@ -4294,7 +4295,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   String _formatTime(String? dateStr) {
     if (dateStr == null) return '';
     try {
-      final date = DateTime.parse(dateStr);
+      final date = parseMessageTimestamp(dateStr);
+      if (date == null) return '';
       final now = DateTime.now();
       final diff = now.difference(date);
 

@@ -443,7 +443,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         'sender_id': adminId,
         'content': content,
         'message': content,
-        'created_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
         '_is_sending': true,
       });
     });

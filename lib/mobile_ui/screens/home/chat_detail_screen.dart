@@ -338,7 +338,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         'sender_id': currentUser.id,
         'content': messageContent,
         'message': messageContent,
-        'created_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
         '_is_sending': true,
       });
     });
@@ -993,23 +993,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     .map((message) => message['id']?.toString())
                     .whereType<String>()
                     .toSet();
-                final messages = <Map<String, dynamic>>[
-                  ...serverMessages,
-                  ..._pendingMessages.where(
-                    (message) =>
-                        !serverIds.contains(message['id']?.toString()),
-                  ),
-                ]..sort((a, b) {
-                  final aDate = DateTime.tryParse(
-                    a['created_at']?.toString() ?? '',
-                  );
-                  final bDate = DateTime.tryParse(
-                    b['created_at']?.toString() ?? '',
-                  );
-                  return (aDate ?? DateTime(1970)).compareTo(
-                    bDate ?? DateTime(1970),
-                  );
-                });
+                final messages =
+                    <Map<String, dynamic>>[
+                      ...serverMessages,
+                      ..._pendingMessages.where(
+                        (message) =>
+                            !serverIds.contains(message['id']?.toString()),
+                      ),
+                    ]..sort((a, b) {
+                      final aDate = DateTime.tryParse(
+                        a['created_at']?.toString() ?? '',
+                      );
+                      final bDate = DateTime.tryParse(
+                        b['created_at']?.toString() ?? '',
+                      );
+                      return (aDate ?? DateTime(1970)).compareTo(
+                        bDate ?? DateTime(1970),
+                      );
+                    });
 
                 if (messages.isEmpty) {
                   return Center(
@@ -1107,7 +1108,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     final isCurrentUser = message['sender_id'] == currentUserId;
                     final isDeleted =
                         message['is_deleted'] == true ||
-                        (message['content'] ?? message['message'])?.toString() ==
+                        (message['content'] ?? message['message'])
+                                ?.toString() ==
                             'Message deleted';
                     final isSending = message['_is_sending'] == true;
                     final sendFailed = message['_send_failed'] == true;
@@ -1279,9 +1281,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       minWidth: 28,
                                       minHeight: 28,
                                     ),
-                                    onPressed: () => _confirmDeleteMessage(
-                                      message,
-                                    ),
+                                    onPressed: () =>
+                                        _confirmDeleteMessage(message),
                                     icon: const Icon(
                                       Icons.delete_outline,
                                       size: 16,

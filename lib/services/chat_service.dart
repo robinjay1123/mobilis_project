@@ -191,8 +191,8 @@ class ChatService {
             'is_group': false,
             'user_id': userId1,
             'other_user_id': userId2,
-            'created_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .select()
           .single();
@@ -202,12 +202,12 @@ class ChatService {
         {
           'conversation_id': newConv['id'],
           'user_id': userId1,
-          'joined_at': DateTime.now().toIso8601String(),
+          'joined_at': DateTime.now().toUtc().toIso8601String(),
         },
         {
           'conversation_id': newConv['id'],
           'user_id': userId2,
-          'joined_at': DateTime.now().toIso8601String(),
+          'joined_at': DateTime.now().toUtc().toIso8601String(),
         },
       ], onConflict: 'conversation_id,user_id');
 
@@ -408,7 +408,7 @@ class ChatService {
             if (attachmentType != null) 'attachment_type': attachmentType,
             if (attachmentName != null) 'attachment_name': attachmentName,
             if (attachmentSize != null) 'attachment_size': attachmentSize,
-            'created_at': DateTime.now().toIso8601String(),
+            'created_at': DateTime.now().toUtc().toIso8601String(),
             'is_read': false,
           })
           .select()
@@ -417,7 +417,7 @@ class ChatService {
       // Update conversation's updated_at
       await supabase
           .from('conversations')
-          .update({'updated_at': DateTime.now().toIso8601String()})
+          .update({'updated_at': DateTime.now().toUtc().toIso8601String()})
           .eq('id', conversationId);
 
       await _notifyMessageRecipients(
@@ -474,7 +474,7 @@ class ChatService {
           .update({
             ...commonUpdates,
             'is_deleted': true,
-            'deleted_at': DateTime.now().toIso8601String(),
+            'deleted_at': DateTime.now().toUtc().toIso8601String(),
             'deleted_by': userId,
           })
           .eq('id', messageId)
@@ -899,8 +899,8 @@ class ChatService {
               .insert({
                 'booking_id': bookingId,
                 'status': 'active',
-                'created_at': DateTime.now().toIso8601String(),
-                'updated_at': DateTime.now().toIso8601String(),
+                'created_at': DateTime.now().toUtc().toIso8601String(),
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
               })
               .select()
               .single();
@@ -957,7 +957,7 @@ class ChatService {
             return {
               'conversation_id': conversationId,
               'user_id': userId,
-              'joined_at': DateTime.now().toIso8601String(),
+              'joined_at': DateTime.now().toUtc().toIso8601String(),
             };
           })
           .toList();
@@ -972,7 +972,7 @@ class ChatService {
           .from('conversations')
           .update({
             'status': 'active',
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', conversationId);
 
@@ -995,7 +995,7 @@ class ChatService {
           .from('conversations')
           .update({
             'status': 'closed',
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
           .eq('booking_id', bookingId);
 

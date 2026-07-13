@@ -2,12 +2,40 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+/// Parses chat timestamps while remaining compatible with legacy messages that
+/// were saved as local wall-clock values but interpreted by Postgres as UTC.
+DateTime? parseMessageTimestamp(dynamic value) {
+  final raw = value?.toString().trim() ?? '';
+  if (raw.isEmpty) return null;
+
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return null;
+
+  final now = DateTime.now();
+  final local = parsed.toLocal();
+  const clockSkewTolerance = Duration(minutes: 2);
+
+  if (parsed.isUtc && local.isAfter(now.add(clockSkewTolerance))) {
+    final legacyLocal = DateTime(
+      parsed.year,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+      parsed.second,
+      parsed.millisecond,
+      parsed.microsecond,
+    );
+    if (!legacyLocal.isAfter(now.add(clockSkewTolerance))) {
+      return legacyLocal;
+    }
+  }
+
+  return local;
+}
+
 class RelativeTimeText extends StatefulWidget {
-  const RelativeTimeText({
-    super.key,
-    required this.value,
-    required this.style,
-  });
+  const RelativeTimeText({super.key, required this.value, required this.style});
 
   final dynamic value;
   final TextStyle style;
@@ -19,7 +47,7 @@ class RelativeTimeText extends StatefulWidget {
 class _RelativeTimeTextState extends State<RelativeTimeText> {
   Timer? _timer;
 
-  DateTime? get _date => DateTime.tryParse(widget.value?.toString() ?? '')?.toLocal();
+  DateTime? get _date => parseMessageTimestamp(widget.value);
 
   @override
   void initState() {

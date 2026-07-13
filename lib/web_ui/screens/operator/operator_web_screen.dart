@@ -13,6 +13,7 @@ import '../../../mobile_ui/theme/app_colors.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
+import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
@@ -6176,7 +6177,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         'message': content,
         'content': content,
         'is_auto_generated': false,
-        'created_at': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toUtc().toIso8601String(),
       });
 
       _messageController.clear();
@@ -6846,8 +6847,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                _formatMessageTime(message['created_at']?.toString()),
+              RelativeTimeText(
+                value: message['created_at'],
                 style: TextStyle(
                   color: isDark ? Colors.grey[500] : Colors.grey.shade500,
                   fontSize: 9,
@@ -7356,10 +7357,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    _formatMessageTime(
-                                      message['created_at'] as String?,
-                                    ),
+                                  RelativeTimeText(
+                                    value: message['created_at'],
                                     style: TextStyle(
                                       fontSize: 10,
                                       color: isOwn
@@ -7452,27 +7451,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ],
     );
-  }
-
-  String _formatMessageTime(String? dateTimeStr) {
-    if (dateTimeStr == null) return '';
-    try {
-      final dateTime = DateTime.parse(dateTimeStr);
-      final now = DateTime.now();
-      final difference = now.difference(dateTime);
-
-      if (difference.inSeconds < 60) {
-        return 'just now';
-      } else if (difference.inMinutes < 60) {
-        return '${difference.inMinutes}m ago';
-      } else if (difference.inHours < 24) {
-        return '${difference.inHours}h ago';
-      } else {
-        return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
-      }
-    } catch (e) {
-      return '';
-    }
   }
 
   String _initials(String name) {
