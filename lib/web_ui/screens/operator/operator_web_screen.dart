@@ -104,6 +104,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _transmissionController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _messageScrollController = ScrollController();
   final TextEditingController _bookingSearchController =
       TextEditingController();
   final TextEditingController _vehicleSearchController =
@@ -147,6 +148,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _longitudeController.dispose();
     _transmissionController.dispose();
     _messageController.dispose();
+    _messageScrollController.dispose();
     _bookingSearchController.dispose();
     _vehicleSearchController.dispose();
     super.dispose();
@@ -527,6 +529,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 brand,
                 model,
                 year,
+                plate_number,
                 owner_id,
                 owner_role,
                 operator_id,
@@ -3022,6 +3025,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
     final deliveryFee = (booking['delivery_fee'] as num?)?.toDouble() ?? 0;
+    final plateNumber = vehicle['plate_number']?.toString().trim() ?? '';
     final service = needsDriver
         ? 'Professional driver'
         : deliveryFee > 0
@@ -3090,7 +3094,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       ),
                       Text(
-                        vehicle['plate_number']?.toString() ?? 'No plate',
+                        plateNumber.isEmpty ? 'No plate' : plateNumber,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: muted, fontSize: 9),
@@ -6141,15 +6145,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .eq('conversation_id', conversationId)
           .order('created_at', ascending: true);
 
-      _messages[conversationId] = List<Map<String, dynamic>>.from(response);
+      final loadedMessages = List<Map<String, dynamic>>.from(response);
+      loadedMessages.sort((first, second) {
+        final firstTime =
+            parseMessageTimestamp(first['created_at']) ?? DateTime(1970);
+        final secondTime =
+            parseMessageTimestamp(second['created_at']) ?? DateTime(1970);
+        return firstTime.compareTo(secondTime);
+      });
+      _messages[conversationId] = loadedMessages;
       debugPrint(
         '[Messages] Loaded ${_messages[conversationId]?.length ?? 0} messages',
       );
 
       setState(() {});
+      _scrollMessagesToBottom();
     } catch (e) {
       debugPrint('[Messages] Error loading messages: $e');
     }
+  }
+
+  void _scrollMessagesToBottom({bool animate = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messageScrollController.hasClients) return;
+      final target = _messageScrollController.position.maxScrollExtent;
+      if (animate) {
+        _messageScrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _messageScrollController.jumpTo(target);
+      }
+    });
   }
 
   Future<void> _loadConversationParticipants(String conversationId) async {
@@ -6182,6 +6211,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       _messageController.clear();
       await _loadConversationMessages(conversationId);
+      _scrollMessagesToBottom(animate: true);
       debugPrint('[Messages] Message sent successfully');
     } catch (e) {
       debugPrint('[Messages] Error sending message: $e');
@@ -6551,6 +6581,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         ),
                                       )
                                     : ListView.builder(
+                                        controller: _messageScrollController,
                                         padding: const EdgeInsets.fromLTRB(
                                           28,
                                           22,
@@ -9355,6 +9386,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         vehicle['id'];
     final brandController = TextEditingController(text: vehicle['brand'] ?? '');
     final modelController = TextEditingController(text: vehicle['model'] ?? '');
+    final plateController = TextEditingController(
+      text: vehicle['plate_number']?.toString() ?? '',
+    );
     final categoryController = TextEditingController(
       text: vehicle['category'] ?? '',
     );
@@ -9746,6 +9780,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                           const SizedBox(height: 12),
                           TextField(
+                            controller: plateController,
+                            readOnly: isPartnerVehicle,
+                            cursorColor: AppColors.primary,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: _fieldDecoration(
+                              'Plate Number',
+                              isDark,
+                            ),
+                            style: _fieldTextStyle(isDark),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
                             controller: categoryController,
                             readOnly: isPartnerVehicle,
                             cursorColor: AppColors.primary,
@@ -9989,6 +10035,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           onPressed: isUpdating
                               ? null
                               : () async {
+                                  final normalizedPlate = plateController.text
+                                      .trim()
+                                      .toUpperCase();
+                                  if (!isPartnerVehicle &&
+                                      normalizedPlate.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Plate number is required.',
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                    return;
+                                  }
                                   setDialogState(() => isUpdating = true);
                                   try {
                                     if (isPartnerVehicle) {
@@ -10034,6 +10095,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           .update({
                                             'brand': brandController.text,
                                             'model': modelController.text,
+                                            'plate_number': normalizedPlate,
                                             'category': categoryController.text,
                                             'vehicle_type':
                                                 vehicleTypeController.text,
