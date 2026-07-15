@@ -15,6 +15,9 @@ class CustomTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final ValueChanged<String>? onChanged;
   final String? errorText;
+  final TextCapitalization textCapitalization;
+  final AutovalidateMode? autovalidateMode;
+  final int? maxLength;
 
   const CustomTextField({
     super.key,
@@ -30,6 +33,9 @@ class CustomTextField extends StatelessWidget {
     this.inputFormatters,
     this.onChanged,
     this.errorText,
+    this.textCapitalization = TextCapitalization.none,
+    this.autovalidateMode,
+    this.maxLength,
   });
 
   @override
@@ -52,8 +58,11 @@ class CustomTextField extends StatelessWidget {
           obscureText: obscureText,
           maxLines: obscureText ? 1 : maxLines,
           validator: validator,
+          autovalidateMode: autovalidateMode,
           inputFormatters: inputFormatters,
           onChanged: onChanged,
+          textCapitalization: textCapitalization,
+          maxLength: maxLength,
           style: const TextStyle(color: Colors.black, fontSize: 14),
           decoration: InputDecoration(
             hintText: hintText,

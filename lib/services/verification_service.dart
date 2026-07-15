@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'image_optimization_service.dart';
+import '../utils/input_validation.dart';
 
 class VerificationService {
   static final supabase = Supabase.instance.client;
@@ -569,6 +570,15 @@ class VerificationService {
   }) async {
     try {
       debugPrint('Submitting verification with details for user: $userId');
+      final normalizedFullName = toTitleCaseName(fullName);
+      final normalizedPhone = normalizePhilippineMobile(phone ?? '');
+      final nameError = validatePersonName(normalizedFullName);
+      final phoneError = validatePhilippineMobile(
+        normalizedPhone,
+        required: false,
+      );
+      if (nameError != null) throw Exception(nameError);
+      if (phoneError != null) throw Exception(phoneError);
       final driverDetailsPayload = <String, dynamic>{
         if (driverYearsExperience?.trim().isNotEmpty == true)
           'driver_years_experience': driverYearsExperience!.trim(),
@@ -590,7 +600,7 @@ class VerificationService {
           .findBlockedIdentityMatch(
             email: userProfile?['email']?.toString(),
             phone: userProfile?['phone']?.toString(),
-            fullName: fullName,
+            fullName: normalizedFullName,
           );
       if (blockedMatch != null) {
         await UserRestrictionService().markUserAsBlockedMatch(
@@ -602,9 +612,9 @@ class VerificationService {
 
         final rejected = await _upsertVerificationRecord({
           'user_id': userId,
-          'full_name': fullName,
+          'full_name': normalizedFullName,
           'location': location,
-          if (phone?.trim().isNotEmpty == true) 'phone': phone!.trim(),
+          if (normalizedPhone.isNotEmpty) 'phone': normalizedPhone,
           'id_type': idType,
           'id_number': idNumber,
           'id_document_url': idDocumentUrl,
@@ -628,9 +638,9 @@ class VerificationService {
 
       final response = await _upsertVerificationRecord({
         'user_id': userId,
-        'full_name': fullName,
+        'full_name': normalizedFullName,
         'location': location,
-        if (phone?.trim().isNotEmpty == true) 'phone': phone!.trim(),
+        if (normalizedPhone.isNotEmpty) 'phone': normalizedPhone,
         'id_type': idType,
         'id_number': idNumber,
         'id_document_url': idDocumentUrl,

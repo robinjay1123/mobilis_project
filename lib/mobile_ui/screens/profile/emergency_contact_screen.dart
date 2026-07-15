@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/app_colors.dart';
 import '../../../services/emergency_contact_service.dart';
+import '../../../utils/input_validation.dart';
 
 class EmergencyContactScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -18,6 +20,7 @@ class EmergencyContactScreen extends StatefulWidget {
 }
 
 class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _service = EmergencyContactService();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -52,7 +55,8 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
         _contactId = contact['id']?.toString();
         _nameController.text = contact['full_name']?.toString() ?? '';
         _phoneController.text = contact['phone_number']?.toString() ?? '';
-        _relationshipController.text = contact['relationship']?.toString() ?? '';
+        _relationshipController.text =
+            contact['relationship']?.toString() ?? '';
       }
     } catch (e) {
       if (mounted) {
@@ -73,6 +77,7 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
   }
 
   Future<void> _saveContact() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
     final relationship = _relationshipController.text.trim();
@@ -142,91 +147,108 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.borderColor),
-                    ),
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.health_and_safety_outlined,
-                              color: AppColors.primary,
-                            ),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Safety contact on file',
-                                style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBgSecondary,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.borderColor),
+                      ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.health_and_safety_outlined,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Safety contact on file',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 10),
-                        Text(
-                          'PSDC can use this contact if a renter or driver needs urgent help during an accident or safety incident.',
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildField(
-                    label: 'Full name',
-                    controller: _nameController,
-                    icon: Icons.person_outline,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildField(
-                    label: 'Phone number',
-                    controller: _phoneController,
-                    icon: Icons.phone_outlined,
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildField(
-                    label: 'Relationship',
-                    controller: _relationshipController,
-                    icon: Icons.family_restroom_outlined,
-                    hint: 'Parent, sibling, spouse, friend',
-                  ),
-                  const SizedBox(height: 24),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: AppColors.primary.withOpacity(0.3),
-                      ),
-                    ),
-                    child: const Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.check_circle_outline, color: AppColors.primary),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'This contact will be saved as your default emergency contact.',
+                            ],
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            'PSDC can use this contact if a renter or driver needs urgent help during an accident or safety incident.',
                             style: TextStyle(color: AppColors.textSecondary),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    _buildField(
+                      label: 'Full name',
+                      controller: _nameController,
+                      icon: Icons.person_outline,
+                      textCapitalization: TextCapitalization.words,
+                      validator: (value) =>
+                          validatePersonName(value, fieldName: 'Contact name'),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildField(
+                      label: 'Phone number',
+                      controller: _phoneController,
+                      icon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: philippineMobileInputFormatters,
+                      validator: validatePhilippineMobile,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildField(
+                      label: 'Relationship',
+                      controller: _relationshipController,
+                      icon: Icons.family_restroom_outlined,
+                      hint: 'Parent, sibling, spouse, friend',
+                      textCapitalization: TextCapitalization.words,
+                      validator: (value) => validateRequiredText(
+                        value,
+                        fieldName: 'Relationship',
+                        minLength: 2,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.primary.withOpacity(0.3),
+                        ),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.check_circle_outline,
+                            color: AppColors.primary,
+                          ),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'This contact will be saved as your default emergency contact.',
+                              style: TextStyle(color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
       bottomNavigationBar: SafeArea(
@@ -272,6 +294,9 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
     String? hint,
+    List<TextInputFormatter>? inputFormatters,
+    String? Function(String?)? validator,
+    TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,9 +309,13 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        TextFormField(
           controller: controller,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          validator: validator,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          textCapitalization: textCapitalization,
           style: const TextStyle(color: AppColors.textPrimary),
           decoration: InputDecoration(
             hintText: hint,

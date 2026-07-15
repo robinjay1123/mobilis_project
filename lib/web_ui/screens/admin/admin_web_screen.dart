@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../utils/input_validation.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -19,6 +20,7 @@ import '../../../services/verification_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/admin_service.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/support_faq_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
@@ -90,6 +92,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isSavingReservationPayment = false;
   bool _isUploadingReservationQr = false;
   bool _isDeletingReservationQr = false;
+  bool _isLoadingSupportFaqs = false;
+  bool _isSavingSupportFaqs = false;
+  String _supportFaqRole = 'renter';
+  Map<String, List<SupportFaq>> _supportFaqsByRole = {};
   final TextEditingController _rentalTermsController = TextEditingController();
   final TextEditingController _reservationAmountController =
       TextEditingController();
@@ -115,6 +121,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _loadDashboardData();
     _loadRentalTerms();
     _loadReservationPaymentSettings();
+    _loadSupportFaqSettings();
     _setupSupportMessagesListener();
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
@@ -158,7 +165,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   conversation['id']?.toString() == conversationId,
             );
             if (index < 0) {
-              unawaited(_loadSupportInbox());
+              unawaited(_refreshSupportInboxIfCustomerService(conversationId));
               return;
             }
             if (!mounted) return;
@@ -174,6 +181,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           },
         )
         .subscribe();
+  }
+
+  Future<void> _refreshSupportInboxIfCustomerService(
+    String conversationId,
+  ) async {
+    try {
+      final conversation = await _supabase
+          .from('conversations')
+          .select('booking_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+      if (conversation != null && conversation['booking_id'] == null) {
+        await _loadSupportInbox();
+      }
+    } catch (error) {
+      debugPrint('Unable to classify incoming support message: $error');
+    }
   }
 
   void _mergeSupportMessage(
@@ -655,6 +679,51 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (mounted) {
         setState(() => _isLoadingReservationPayment = false);
       }
+    }
+  }
+
+  Future<void> _loadSupportFaqSettings() async {
+    if (mounted) setState(() => _isLoadingSupportFaqs = true);
+    try {
+      final faqs = await SupportFaqService().getAllFaqs();
+      if (!mounted) return;
+      setState(() => _supportFaqsByRole = faqs);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to load support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoadingSupportFaqs = false);
+    }
+  }
+
+  Future<void> _saveSupportFaqSettings() async {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+    if (faqs.isEmpty || _isSavingSupportFaqs) return;
+    setState(() => _isSavingSupportFaqs = true);
+    try {
+      await SupportFaqService().updateFaqs(_supportFaqRole, faqs);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer support auto-replies updated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to save support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingSupportFaqs = false);
     }
   }
 
@@ -5444,6 +5513,135 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildSupportFaqEditor(bool isDark) {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Edit the automatic answers shown before a user opens a live admin chat.',
+          style: TextStyle(
+            color: isDark ? Colors.grey : Colors.grey.shade600,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: const ['renter', 'partner', 'driver'].map((role) {
+            final selected = _supportFaqRole == role;
+            return ChoiceChip(
+              selected: selected,
+              onSelected: (_) => setState(() => _supportFaqRole = role),
+              label: Text('${role[0].toUpperCase()}${role.substring(1)}'),
+              selectedColor: AppColors.primary,
+              backgroundColor: isDark
+                  ? AppColors.darkBgSecondary
+                  : Colors.grey.shade100,
+              labelStyle: TextStyle(
+                color: selected
+                    ? Colors.black
+                    : (isDark ? Colors.white : Colors.black87),
+                fontWeight: FontWeight.w700,
+              ),
+              side: BorderSide(
+                color: selected ? AppColors.primary : AppColors.borderColor,
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 16),
+        if (_isLoadingSupportFaqs)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (faqs.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Text('No FAQ configuration is available.'),
+          )
+        else
+          ...faqs.asMap().entries.map((entry) {
+            final index = entry.key;
+            final faq = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    faq.question,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    key: ValueKey('${_supportFaqRole}_${faq.key}'),
+                    initialValue: faq.answer,
+                    minLines: 3,
+                    maxLines: 6,
+                    enabled: !_isSavingSupportFaqs,
+                    onChanged: (value) {
+                      _supportFaqsByRole[_supportFaqRole]![index] = faq
+                          .copyWith(answer: value);
+                    },
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      height: 1.4,
+                    ),
+                    decoration: _settingsInputDecoration(
+                      isDark,
+                      label: 'Automatic reply',
+                      hint: 'Enter the answer shown to users...',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                  ? null
+                  : _loadSupportFaqSettings,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reload'),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed:
+                  _isLoadingSupportFaqs || _isSavingSupportFaqs || faqs.isEmpty
+                  ? null
+                  : _saveSupportFaqSettings,
+              icon: _isSavingSupportFaqs
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                _isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildCustomerServiceContent(bool isDark) {
     final selectedConversation = _supportConversations
         .cast<Map<String, dynamic>?>()
@@ -6480,6 +6678,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
           const SizedBox(height: 20),
           _buildCard(
+            'Customer Support FAQ Auto-Replies',
+            _buildSupportFaqEditor(isDark),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+          _buildCard(
             'Account',
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
@@ -6609,10 +6813,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           'Full name',
                           Icons.badge_outlined,
                         ),
-                        validator: (value) =>
-                            value == null || value.trim().length < 2
-                            ? 'Enter the operator full name'
-                            : null,
+                        validator: (value) => validatePersonName(
+                          value,
+                          fieldName: 'Operator full name',
+                        ),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
@@ -6625,35 +6830,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           Icons.email_outlined,
                         ),
                         validator: (value) {
-                          final email = value?.trim() ?? '';
-                          final valid = RegExp(
-                            r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-                          ).hasMatch(email);
-                          return valid ? null : 'Enter a valid email address';
+                          return validateEmailAddress(value);
                         },
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
                         controller: phoneController,
                         enabled: !isSubmitting,
                         keyboardType: TextInputType.phone,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(RegExp(r'[0-9+]')),
-                          LengthLimitingTextInputFormatter(13),
-                        ],
+                        inputFormatters: philippineMobileInputFormatters,
                         style: TextStyle(color: inputColor),
                         decoration: fieldDecoration(
                           'Phone number (optional)',
                           Icons.phone_outlined,
                         ),
                         validator: (value) {
-                          final phone = value?.trim() ?? '';
-                          if (phone.isEmpty) return null;
-                          final digits = phone.replaceAll(RegExp(r'\D'), '');
-                          return digits.length >= 10 && digits.length <= 12
-                              ? null
-                              : 'Enter 10 to 12 digits';
+                          return validatePhilippineMobile(
+                            value,
+                            required: false,
+                          );
                         },
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
@@ -6818,9 +7016,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final response = await _supabase.functions.invoke(
       'create-operator',
       body: {
-        'full_name': fullName,
+        'full_name': toTitleCaseName(fullName),
         'email': email.toLowerCase(),
-        'phone': phone.isEmpty ? null : phone,
+        'phone': phone.isEmpty ? null : normalizePhilippineMobile(phone),
         'password': password,
       },
     );

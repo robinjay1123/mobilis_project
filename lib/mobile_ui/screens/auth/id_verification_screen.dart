@@ -6,6 +6,7 @@ import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
+import '../../../utils/input_validation.dart';
 
 class IdVerificationScreen extends StatefulWidget {
   const IdVerificationScreen({super.key});
@@ -74,23 +75,35 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
 
   void _handleVerification() async {
     // Validate inputs
-    if (fullNameController.text.trim().isEmpty) {
-      _showError('Please enter your full name');
+    final nameError = validatePersonName(fullNameController.text);
+    if (nameError != null) {
+      _showError(nameError);
       return;
     }
 
-    if (idNumberController.text.trim().isEmpty) {
-      _showError('Please enter your ID number');
+    final idError = validateRequiredText(
+      idNumberController.text,
+      fieldName: 'ID number',
+      minLength: 4,
+    );
+    if (idError != null) {
+      _showError(idError);
       return;
     }
 
-    if (locationController.text.trim().isEmpty) {
-      _showError('Please enter your location');
+    final locationError = validateRequiredText(
+      locationController.text,
+      fieldName: 'Location',
+      minLength: 2,
+    );
+    if (locationError != null) {
+      _showError(locationError);
       return;
     }
 
-    if (phoneController.text.trim().isEmpty) {
-      _showError('Please enter your phone number');
+    final phoneError = validatePhilippineMobile(phoneController.text);
+    if (phoneError != null) {
+      _showError(phoneError);
       return;
     }
 
@@ -322,6 +335,9 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 label: 'Full Name',
                 hintText: 'Enter your full name',
                 controller: fullNameController,
+                textCapitalization: TextCapitalization.words,
+                validator: validatePersonName,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 prefixIcon: const Icon(
                   Icons.person_outline,
                   color: AppColors.textTertiary,
@@ -387,6 +403,12 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 label: 'ID Number',
                 hintText: 'Enter your ID number',
                 controller: idNumberController,
+                validator: (value) => validateRequiredText(
+                  value,
+                  fieldName: 'ID number',
+                  minLength: 4,
+                ),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 prefixIcon: const Icon(
                   Icons.badge_outlined,
                   color: AppColors.textTertiary,
@@ -400,6 +422,9 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 hintText: '+1(555) 000-0000',
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
+                inputFormatters: philippineMobileInputFormatters,
+                validator: validatePhilippineMobile,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 prefixIcon: const Icon(
                   Icons.phone_outlined,
                   color: AppColors.textTertiary,
@@ -412,6 +437,12 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                 label: 'Location',
                 hintText: 'Enter your location',
                 controller: locationController,
+                validator: (value) => validateRequiredText(
+                  value,
+                  fieldName: 'Location',
+                  minLength: 2,
+                ),
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 prefixIcon: const Icon(
                   Icons.location_on_outlined,
                   color: AppColors.textTertiary,

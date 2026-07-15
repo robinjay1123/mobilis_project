@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/admin_service.dart';
+import '../../../utils/notification_target.dart';
 
 class DocumentExpiryNotificationsScreen extends StatefulWidget {
   const DocumentExpiryNotificationsScreen({Key? key}) : super(key: key);
@@ -72,6 +73,24 @@ class _DocumentExpiryNotificationsScreenState
         context,
       ).showSnackBar(SnackBar(content: Text('Error marking as read: $e')));
     }
+  }
+
+  Future<void> _openNotification(Map<String, dynamic> notification) async {
+    final notificationId = notification['id']?.toString();
+    if (notificationId != null && notificationId.isNotEmpty) {
+      await notificationService.markAsRead(notificationId);
+    }
+    if (!mounted) return;
+
+    final target = resolveNotificationTarget(notification);
+    Navigator.pushNamed(
+      context,
+      target.actionRoute ?? '/verification-options',
+      arguments: {
+        if (target.data['document_type']?.toString() == 'driver_license')
+          'mode': 'renewal',
+      },
+    ).then((_) => _loadExpiringDocuments());
   }
 
   Future<void> _deleteNotification(String notificationId) async {
@@ -191,6 +210,7 @@ class _DocumentExpiryNotificationsScreenState
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: ListTile(
+                      onTap: () => _openNotification(notification),
                       leading: CircleAvatar(
                         backgroundColor:
                             _getDocumentColor(daysUntilExpiry) == 'red'

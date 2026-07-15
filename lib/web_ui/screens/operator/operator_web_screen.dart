@@ -12,6 +12,8 @@ import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/notification_target.dart';
+import '../../../utils/notification_visual.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/booking_inspection_service.dart';
@@ -81,6 +83,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Timer? _trackingRefreshTimer;
   Timer? _bookingFlowRefreshDebounce;
   RealtimeChannel? _bookingFlowChannel;
+  RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
 
@@ -132,6 +135,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _trackingRefreshTimer?.cancel();
     _bookingFlowRefreshDebounce?.cancel();
     _bookingFlowChannel?.unsubscribe();
+    _conversationMessagesChannel?.unsubscribe();
     _brandController.dispose();
     _modelController.dispose();
     _yearController.dispose();
@@ -5992,15 +5996,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final createdAt = DateTime.tryParse(
                   notification['created_at']?.toString() ?? '',
                 );
+                final visual = notificationVisualFor(notification);
 
                 return InkWell(
-                  onTap: () async {
-                    final notificationId = notification['id']?.toString();
-                    if (notificationId == null || isRead) return;
-                    await NotificationService().markAsRead(notificationId);
-                    notification['is_read'] = true;
-                    if (mounted) setState(() {});
-                  },
+                  onTap: () => _handleOperatorNotificationTap(notification),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.all(16),
@@ -6021,10 +6020,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          Icons.notifications_active,
+                          visual.icon,
                           color: isRead
                               ? (isDark ? Colors.grey : Colors.grey.shade600)
-                              : AppColors.primary,
+                              : visual.color,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -6081,6 +6080,94 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 );
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleOperatorNotificationTap(
+    Map<String, dynamic> notification,
+  ) async {
+    final notificationId = notification['id']?.toString();
+    if (notificationId != null &&
+        notificationId.isNotEmpty &&
+        notification['is_read'] != true) {
+      await NotificationService().markAsRead(notificationId);
+      notification['is_read'] = true;
+      if (mounted) setState(() {});
+    }
+    if (!mounted) return;
+
+    final target = resolveNotificationTarget(notification);
+    switch (target.destination) {
+      case NotificationDestination.messages:
+        setState(() {
+          _selectedIndex = 2;
+          if (target.conversationId != null) {
+            _selectedConversationId = target.conversationId!;
+          }
+        });
+        if (target.conversationId != null) {
+          await _loadConversationMessages(target.conversationId!);
+        }
+        return;
+      case NotificationDestination.tracking:
+        setState(() {
+          _selectedIndex = 6;
+          _focusedTrackingBookingId = target.bookingId;
+        });
+        return;
+      case NotificationDestination.booking:
+        setState(() {
+          _selectedIndex = 1;
+          _bookingFilter = 'all';
+        });
+        final bookingId = target.bookingId;
+        if (bookingId != null) {
+          final booking = _recentBookings.firstWhere(
+            (item) => item['id']?.toString() == bookingId,
+            orElse: () => <String, dynamic>{},
+          );
+          if (booking.isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _showOperatorBookingDetailsDialog(booking);
+            });
+          }
+        }
+        return;
+      case NotificationDestination.payment:
+        setState(() => _selectedIndex = 7);
+        return;
+      case NotificationDestination.application:
+      case NotificationDestination.verification:
+      case NotificationDestination.vehicles:
+        setState(() => _selectedIndex = 4);
+        return;
+      case NotificationDestination.ratings:
+        setState(() => _selectedIndex = 7);
+        return;
+      case NotificationDestination.announcement:
+      case NotificationDestination.general:
+        _showOperatorNotificationDetails(notification);
+        return;
+    }
+  }
+
+  void _showOperatorNotificationDetails(Map<String, dynamic> notification) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(notification['title']?.toString() ?? 'Notification'),
+        content: Text(
+          notification['message']?.toString().trim().isNotEmpty == true
+              ? notification['message'].toString()
+              : 'No additional details are available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
         ],
       ),
     );
@@ -6192,7 +6279,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 start_date,
                 end_date,
                 status,
-                vehicles!bookings_vehicle_id_fkey (brand, model, year),
+                vehicles!bookings_vehicle_id_fkey (
+                  brand,
+                  model,
+                  year,
+                  image_url,
+                  vehicle_images(image_url, display_order)
+                ),
                 renter:users!bookings_renter_id_fkey (id, full_name, email)
               ),
               users!conversations_user_id_fkey (id, full_name, email),
@@ -6217,6 +6310,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
 
       await _loadConversationParticipants(conversationId);
+      _watchConversationMessages(conversationId);
 
       final response = await _supabase
           .from('messages')
@@ -6227,6 +6321,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               message,
               content,
               is_auto_generated,
+              is_deleted,
+              deleted_at,
               created_at,
               sender:users!messages_new_sender_id_fkey (id, full_name)
             ''')
@@ -6251,6 +6347,76 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     } catch (e) {
       debugPrint('[Messages] Error loading messages: $e');
     }
+  }
+
+  void _watchConversationMessages(String conversationId) {
+    _conversationMessagesChannel?.unsubscribe();
+    _conversationMessagesChannel = _supabase
+        .channel('operator-conversation-$conversationId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'conversation_id',
+            value: conversationId,
+          ),
+          callback: (payload) {
+            final raw = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            if (raw.isEmpty || !mounted) return;
+            final message = Map<String, dynamic>.from(raw);
+            setState(() => _mergeOperatorMessage(conversationId, message));
+            if (_selectedConversationId == conversationId) {
+              _scrollMessagesToBottom();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  void _mergeOperatorMessage(
+    String conversationId,
+    Map<String, dynamic> message,
+  ) {
+    final messages = _messages.putIfAbsent(conversationId, () => []);
+    final messageId = message['id']?.toString();
+    if (messageId == null || messageId.isEmpty) return;
+    var enrichedMessage = message;
+    if (message['sender'] == null) {
+      final senderId = message['sender_id']?.toString();
+      final participants =
+          _conversationParticipants[conversationId] ?? const [];
+      final participant = participants.cast<Map<String, dynamic>?>().firstWhere(
+        (item) => item?['user_id']?.toString() == senderId,
+        orElse: () => null,
+      );
+      final senderName = participant?['display_name']?.toString();
+      if (senderName != null && senderName.trim().isNotEmpty) {
+        enrichedMessage = {
+          ...message,
+          'sender': {'id': senderId, 'full_name': senderName.trim()},
+        };
+      }
+    }
+    final existingIndex = messages.indexWhere(
+      (item) => item['id']?.toString() == messageId,
+    );
+    if (existingIndex >= 0) {
+      final existing = messages[existingIndex];
+      messages[existingIndex] = {...existing, ...enrichedMessage};
+    } else {
+      messages.add(enrichedMessage);
+    }
+    messages.sort((first, second) {
+      final firstTime =
+          parseMessageTimestamp(first['created_at']) ?? DateTime(1970);
+      final secondTime =
+          parseMessageTimestamp(second['created_at']) ?? DateTime(1970);
+      return firstTime.compareTo(secondTime);
+    });
   }
 
   void _scrollMessagesToBottom({bool animate = false}) {
@@ -6288,17 +6454,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       debugPrint('[Messages] Sending message to conversation: $conversationId');
 
-      await _supabase.from('messages').insert({
-        'conversation_id': conversationId,
-        'sender_id': currentUserId,
-        'message': content,
-        'content': content,
-        'is_auto_generated': false,
-        'created_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      final sentMessage = await ChatService().sendMessage(
+        conversationId: conversationId,
+        senderId: currentUserId,
+        content: content,
+      );
 
       _messageController.clear();
-      await _loadConversationMessages(conversationId);
+      if (mounted) {
+        setState(() => _mergeOperatorMessage(conversationId, sentMessage));
+      }
       _scrollMessagesToBottom(animate: true);
       debugPrint('[Messages] Message sent successfully');
     } catch (e) {
@@ -6710,6 +6875,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       vehicle['model'],
     ].where((value) => value?.toString().trim().isNotEmpty == true).join(' ');
     final status = booking['status']?.toString() ?? 'pending';
+    final imageUrl = _operatorVehicleImageUrl(vehicle);
     final selected = conversationId == _selectedConversationId;
     final shortId = conversation['booking_id']?.toString() ?? conversationId;
     final displayId = shortId.length > 8
@@ -6745,6 +6911,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           children: [
             Row(
               children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  margin: const EdgeInsets.only(right: 10),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: imageUrl.isNotEmpty
+                      ? OptimizedNetworkImage(
+                          imageUrl: imageUrl,
+                          width: 42,
+                          height: 42,
+                          fit: BoxFit.cover,
+                          borderRadius: BorderRadius.circular(12),
+                          errorWidget: const Icon(
+                            Icons.directions_car_outlined,
+                          ),
+                        )
+                      : const Icon(Icons.directions_car_outlined),
+                ),
                 Text(
                   '#$displayId',
                   style: TextStyle(
@@ -6782,6 +6970,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ),
     );
+  }
+
+  String _operatorVehicleImageUrl(Map<String, dynamic> vehicle) {
+    final direct = vehicle['image_url']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+    final images =
+        List<Map<String, dynamic>>.from(
+          vehicle['vehicle_images'] as List? ?? const [],
+        )..sort((a, b) {
+          final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+          final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+          return aOrder.compareTo(bOrder);
+        });
+    for (final image in images) {
+      final url = image['image_url']?.toString().trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+    return '';
   }
 
   Widget _buildOperatorEmptyConversation(bool isDark) {

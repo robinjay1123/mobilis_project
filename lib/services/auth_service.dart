@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/input_validation.dart';
 import 'preferences_service.dart';
 import 'user_restriction_service.dart';
 import 'verification_service.dart';
@@ -315,11 +316,18 @@ class AuthService {
       final user = currentUser;
       if (user == null) throw Exception('No user logged in');
 
+      final normalizedFullName = toTitleCaseName(fullName);
+      final normalizedPhone = normalizePhilippineMobile(phone);
+      final nameError = validatePersonName(normalizedFullName);
+      final phoneError = validatePhilippineMobile(normalizedPhone);
+      if (nameError != null) throw Exception(nameError);
+      if (phoneError != null) throw Exception(phoneError);
+
       final blockedMatch = await UserRestrictionService()
           .findBlockedIdentityMatch(
             email: user.email,
-            phone: phone,
-            fullName: fullName,
+            phone: normalizedPhone,
+            fullName: normalizedFullName,
           );
       if (blockedMatch != null) {
         await UserRestrictionService().markUserAsBlockedMatch(
@@ -337,33 +345,33 @@ class AuthService {
 
       final updatePayloads = <Map<String, dynamic>>[
         {
-          'full_name': fullName,
+          'full_name': normalizedFullName,
           'location': location,
-          'phone': phone,
+          'phone': normalizedPhone,
           'id_verified': false,
           'verification_status': 'pending',
         },
         {
-          'full_name': fullName,
-          'phone': phone,
+          'full_name': normalizedFullName,
+          'phone': normalizedPhone,
           'id_verified': false,
           'verification_status': 'pending',
         },
         {
-          'full_name': fullName,
-          'phone_number': phone,
+          'full_name': normalizedFullName,
+          'phone_number': normalizedPhone,
           'id_verified': false,
           'verification_status': 'pending',
         },
         {
-          'name': fullName,
-          'phone_number': phone,
+          'name': normalizedFullName,
+          'phone_number': normalizedPhone,
           'id_verified': false,
           'verification_status': 'pending',
         },
         {
-          'name': fullName,
-          'phone': phone,
+          'name': normalizedFullName,
+          'phone': normalizedPhone,
           'id_verified': false,
           'verification_status': 'pending',
         },
@@ -392,11 +400,11 @@ class AuthService {
       if (idDocumentUrl != null && idDocumentUrl.isNotEmpty) {
         await supabase.from('user_verifications').upsert({
           'user_id': user.id,
-          'full_name': fullName,
+          'full_name': normalizedFullName,
           'id_type': idType,
           'id_number': idNumber,
           'location': location,
-          'phone': phone,
+          'phone': normalizedPhone,
           'id_document_url': idDocumentUrl,
           'verification_status': 'pending',
         }, onConflict: 'user_id');
@@ -664,6 +672,20 @@ class AuthService {
     try {
       debugPrint('Attempting signup for: $email');
 
+      final normalizedMetadata = Map<String, dynamic>.from(userMetadata);
+      final rawName = normalizedMetadata['full_name']?.toString() ?? '';
+      final normalizedName = toTitleCaseName(rawName);
+      final normalizedPhone = normalizePhilippineMobile(
+        normalizedMetadata['phone']?.toString() ?? '',
+      );
+      final nameError = validatePersonName(normalizedName);
+      final phoneError = validatePhilippineMobile(normalizedPhone);
+      if (nameError != null) throw AuthException(nameError);
+      if (phoneError != null) throw AuthException(phoneError);
+      normalizedMetadata['full_name'] = normalizedName;
+      normalizedMetadata['name'] = normalizedName;
+      normalizedMetadata['phone'] = normalizedPhone;
+
       final existingProfile = await supabase
           .from('users')
           .select('id')
@@ -676,7 +698,7 @@ class AuthService {
       final response = await supabase.auth.signUp(
         email: email,
         password: password,
-        data: userMetadata,
+        data: normalizedMetadata,
         emailRedirectTo: 'io.supabase.flutter://login-callback/',
       );
 
@@ -687,17 +709,17 @@ class AuthService {
         await _createOrUpdateUserProfile(
           userId: response.user!.id,
           email: email,
-          fullName: userMetadata['full_name'] as String?,
-          phone: userMetadata['phone'] as String?,
-          location: userMetadata['location'] as String?,
-          role: userMetadata['role'] as String? ?? 'renter',
+          fullName: normalizedMetadata['full_name'] as String?,
+          phone: normalizedMetadata['phone'] as String?,
+          location: normalizedMetadata['location'] as String?,
+          role: normalizedMetadata['role'] as String? ?? 'renter',
         );
 
         final blockedMatch = await UserRestrictionService()
             .findBlockedIdentityMatch(
               email: email,
-              phone: userMetadata['phone'] as String?,
-              fullName: userMetadata['full_name'] as String?,
+              phone: normalizedMetadata['phone'] as String?,
+              fullName: normalizedMetadata['full_name'] as String?,
             );
         if (blockedMatch != null) {
           await UserRestrictionService().markUserAsBlockedMatch(
@@ -743,9 +765,9 @@ class AuthService {
     debugPrint('Creating/updating user profile for: $userId with role: $role');
 
     // Ensure fullName is never null (database constraint)
-    final safeName = fullName?.isNotEmpty == true
-        ? fullName
-        : email.split('@').first;
+    final safeName = toTitleCaseName(
+      fullName?.isNotEmpty == true ? fullName! : email.split('@').first,
+    );
 
     final payloadVariants = <Map<String, dynamic>>[
       {

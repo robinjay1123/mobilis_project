@@ -4,7 +4,7 @@ import '../../theme/app_colors.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
-import '../../widgets/optimized_network_image.dart';
+import '../../widgets/vehicle_image_carousel.dart';
 
 class VehicleSearchScreen extends StatefulWidget {
   final String? initialCategory;
@@ -408,7 +408,6 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     final seats = vehicle['seats'] as int? ?? 0;
     final transmission = vehicle['transmission']?.toString() ?? 'Manual';
     final fuelType = vehicle['fuel_type']?.toString() ?? 'Gasoline';
-    final imageUrl = vehicle['image_url'] as String?;
     final vehicleId = vehicle['id']?.toString() ?? '';
     final isFavorite = _favoriteVehicleIds.contains(vehicleId);
 
@@ -432,34 +431,15 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           children: [
             Stack(
               children: [
-                Container(
+                VehicleImageCarousel(
+                  key: ValueKey('search-car-$vehicleId'),
+                  vehicle: vehicle,
                   height: 140,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(10),
-                      topRight: Radius.circular(10),
-                    ),
-                    color: Colors.grey.shade300,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(10),
+                    topRight: Radius.circular(10),
                   ),
-                  child: imageUrl != null && imageUrl.isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(10),
-                            topRight: Radius.circular(10),
-                          ),
-                          child: OptimizedNetworkImage(
-                            imageUrl: imageUrl,
-                            fit: BoxFit.cover,
-                            errorWidget: const Icon(
-                              Icons.directions_car,
-                              size: 48,
-                            ),
-                          ),
-                        )
-                      : const Center(
-                          child: Icon(Icons.directions_car, size: 48),
-                        ),
+                  backgroundColor: Colors.grey.shade300,
                 ),
                 Positioned(
                   top: 10,

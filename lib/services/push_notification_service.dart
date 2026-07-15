@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -29,8 +30,19 @@ class PushNotificationService {
 
   bool _initialized = false;
   bool _firebaseReady = false;
+  final StreamController<Map<String, dynamic>> _notificationTapController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  Map<String, dynamic>? _pendingNotificationTap;
 
   bool get isReady => _firebaseReady;
+  Stream<Map<String, dynamic>> get notificationTaps =>
+      _notificationTapController.stream;
+
+  Map<String, dynamic>? takePendingNotificationTap() {
+    final pending = _pendingNotificationTap;
+    _pendingNotificationTap = null;
+    return pending;
+  }
 
   Future<void> ensureInitialized() async {
     if (_initialized) return;
@@ -116,7 +128,41 @@ class PushNotificationService {
       iOS: iosSettings,
     );
 
-    await _localNotifications.initialize(settings);
+    await _localNotifications.initialize(
+      settings,
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload == null || payload.trim().isEmpty) return;
+        try {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map) {
+            _publishNotificationTap(
+              decoded.map((key, value) => MapEntry(key.toString(), value)),
+            );
+          }
+        } catch (e) {
+          debugPrint('Local notification payload could not be opened: $e');
+        }
+      },
+    );
+
+    final launchDetails = await _localNotifications
+        .getNotificationAppLaunchDetails();
+    final launchPayload = launchDetails?.notificationResponse?.payload;
+    if (launchDetails?.didNotificationLaunchApp == true &&
+        launchPayload != null &&
+        launchPayload.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(launchPayload);
+        if (decoded is Map) {
+          _publishNotificationTap(
+            decoded.map((key, value) => MapEntry(key.toString(), value)),
+          );
+        }
+      } catch (e) {
+        debugPrint('Notification launch payload could not be opened: $e');
+      }
+    }
 
     const channel = AndroidNotificationChannel(
       'mobilis_general',
@@ -188,11 +234,38 @@ class PushNotificationService {
       title,
       body,
       details,
+      payload: jsonEncode({
+        ...message.data,
+        'type': message.data['type'] ?? message.data['notification_type'] ?? '',
+        'title': title,
+        'message': body,
+      }),
     );
   }
 
   void _handleNotificationTap(RemoteMessage message) {
     debugPrint('Notification opened: ${message.messageId}');
+    _publishNotificationTap({
+      ...message.data,
+      'type': message.data['type'] ?? message.data['notification_type'] ?? '',
+      'title':
+          message.notification?.title ??
+          message.data['title']?.toString() ??
+          'Notification',
+      'message':
+          message.notification?.body ??
+          message.data['message']?.toString() ??
+          message.data['body']?.toString() ??
+          '',
+    });
+  }
+
+  void _publishNotificationTap(Map<String, dynamic> payload) {
+    if (_notificationTapController.hasListener) {
+      _notificationTapController.add(payload);
+    } else {
+      _pendingNotificationTap = payload;
+    }
   }
 
   Future<String?> _getMessagingToken() async {

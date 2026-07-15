@@ -15,7 +15,7 @@ DateTime? parseMessageTimestamp(dynamic value) {
   final local = parsed.toLocal();
   const clockSkewTolerance = Duration(minutes: 2);
 
-  if (parsed.isUtc && local.isAfter(now.add(clockSkewTolerance))) {
+  if (local.isAfter(now.add(clockSkewTolerance))) {
     final legacyLocal = DateTime(
       parsed.year,
       parsed.month,
@@ -29,6 +29,10 @@ DateTime? parseMessageTimestamp(dynamic value) {
     if (!legacyLocal.isAfter(now.add(clockSkewTolerance))) {
       return legacyLocal;
     }
+
+    // Do not leave a message permanently stuck at "now" when a legacy
+    // timestamp is still ahead of the device clock.
+    return now;
   }
 
   return local;

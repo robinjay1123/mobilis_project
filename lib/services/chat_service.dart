@@ -47,9 +47,12 @@ class ChatService {
               id,
               status,
               vehicles!bookings_vehicle_id_fkey (
+                id,
                 brand,
                 model,
-                vehicle_name
+                vehicle_name,
+                image_url,
+                vehicle_images(image_url, display_order)
               )
             )
           ''')
@@ -93,6 +96,35 @@ class ChatService {
         .order('updated_at', ascending: false);
     final conversations = List<Map<String, dynamic>>.from(conversationRows);
 
+    final bookingIds = conversations
+        .map((conversation) => conversation['booking_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    final bookingsById = <String, Map<String, dynamic>>{};
+    if (bookingIds.isNotEmpty) {
+      final bookingRows = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            status,
+            vehicles!bookings_vehicle_id_fkey (
+              id,
+              brand,
+              model,
+              vehicle_name,
+              image_url,
+              vehicle_images(image_url, display_order)
+            )
+          ''')
+          .inFilter('id', bookingIds);
+      for (final booking in List<Map<String, dynamic>>.from(bookingRows)) {
+        final id = booking['id']?.toString();
+        if (id != null && id.isNotEmpty) bookingsById[id] = booking;
+      }
+    }
+
     final messageRows = await supabase
         .from('messages')
         .select()
@@ -108,6 +140,10 @@ class ChatService {
     for (final conversation in conversations) {
       final id = conversation['id']?.toString();
       conversation['messages'] = messagesByConversation[id] ?? const [];
+      final bookingId = conversation['booking_id']?.toString();
+      if (bookingId != null && bookingsById.containsKey(bookingId)) {
+        conversation['bookings'] = bookingsById[bookingId];
+      }
     }
     return _normalizeConversationRows(conversations);
   }
@@ -119,6 +155,9 @@ class ChatService {
       final rawMessages = conversation['messages'];
       if (rawMessages is! List) {
         conversation['messages'] = <Map<String, dynamic>>[];
+        conversation['vehicle_image_url'] = _conversationVehicleImageUrl(
+          conversation,
+        );
         continue;
       }
       final messages = rawMessages
@@ -131,8 +170,35 @@ class ChatService {
         return (aDate ?? DateTime(1970)).compareTo(bDate ?? DateTime(1970));
       });
       conversation['messages'] = messages;
+      conversation['vehicle_image_url'] = _conversationVehicleImageUrl(
+        conversation,
+      );
     }
     return conversations;
+  }
+
+  String _conversationVehicleImageUrl(Map<String, dynamic> conversation) {
+    final booking = conversation['bookings'];
+    if (booking is! Map) return '';
+    final vehicle = booking['vehicles'];
+    if (vehicle is! Map) return '';
+
+    final direct = vehicle['image_url']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+
+    final images =
+        List<Map<String, dynamic>>.from(
+          vehicle['vehicle_images'] as List? ?? const [],
+        )..sort((a, b) {
+          final aOrder = (a['display_order'] as num?)?.toInt() ?? 999;
+          final bOrder = (b['display_order'] as num?)?.toInt() ?? 999;
+          return aOrder.compareTo(bOrder);
+        });
+    for (final image in images) {
+      final url = image['image_url']?.toString().trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+    return '';
   }
 
   // Get or create a conversation between two users

@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_evidence_service.dart';
@@ -26,6 +27,8 @@ import '../profile/emergency_contact_screen.dart';
 import 'signature_capture_screen.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/pricing_policy.dart';
+import '../../../utils/currency_formatter.dart';
+import '../../../utils/input_validation.dart';
 import '../../../utils/web_html.dart' as html;
 
 class VehicleDetailScreen extends StatefulWidget {
@@ -91,6 +94,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       TextEditingController();
   final TextEditingController _coTravelerLicenseController =
       TextEditingController();
+  final Set<TextEditingController> _touchedEvidenceFields = {};
   Uint8List? _signatureBytes;
   Uint8List? _coTravelerSignatureBytes;
   XFile? _validIdPhoto;
@@ -1522,8 +1526,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    final coTravelerName = _coTravelerNameController.text.trim();
-    final coTravelerPhone = _coTravelerPhoneController.text.trim();
+    final coTravelerName = toTitleCaseName(_coTravelerNameController.text);
+    final coTravelerPhone = normalizePhilippineMobile(
+      _coTravelerPhoneController.text,
+    );
     final coTravelerLicense = _coTravelerLicenseController.text.trim();
     if (coTravelerName.isEmpty ||
         coTravelerPhone.isEmpty ||
@@ -1794,7 +1800,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       const SizedBox(height: 8),
                       _buildSummaryRow(
                         'Total',
-                        '₱${_totalPrice.toStringAsFixed(2)}',
+                        '₱${formatAmount(_totalPrice)}',
                         isTotal: true,
                       ),
                       const SizedBox(height: 8),
@@ -2099,7 +2105,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'PHP ${payableAmount.toStringAsFixed(0)} to ${settings.accountName}',
+                        'PHP ${formatAmount(payableAmount, decimalDigits: 0)} to ${settings.accountName}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontSize: 18,
@@ -2452,7 +2458,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
         const SizedBox(width: 12),
         Text(
-          'PHP ${amount.toStringAsFixed(0)}',
+          'PHP ${formatAmount(amount, decimalDigits: 0)}',
           style: TextStyle(
             color: isTotal ? AppColors.primary : AppColors.textPrimary,
             fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
@@ -2568,7 +2574,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final plateNumber = _vehicle!['plate_number'] ?? 'N/A';
     final fuelType = _vehicle!['fuel_type'] ?? 'Gasoline';
     final description = _vehicle!['description'] ?? 'No description available.';
-    final imageUrl = _vehicle!['image_url'] as String?;
     final isPartnerVehicle =
         _vehicle!['source']?.toString().toLowerCase() == 'partner' ||
         _vehicle!['is_partner_vehicle'] == true ||
@@ -2620,14 +2625,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
-              background: imageUrl != null
-                  ? OptimizedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      isThumbnail: false,
-                      errorWidget: _buildPlaceholderImage(),
-                    )
-                  : _buildPlaceholderImage(),
+              background: VehicleImageCarousel(
+                key: ValueKey('vehicle-detail-${widget.vehicleId}'),
+                vehicle: _vehicle!,
+                height: 280,
+                isThumbnail: false,
+                backgroundColor: AppColors.darkBgTertiary,
+                iconColor: AppColors.textTertiary,
+              ),
             ),
           ),
 
@@ -2698,7 +2703,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                         ),
                         Text(
-                          '₱${(pricePerHour > 0 ? pricePerHour : pricePerDay).toStringAsFixed(2)}',
+                          '₱${formatAmount(pricePerHour > 0 ? pricePerHour : pricePerDay)}',
                           style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -3100,8 +3105,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             ?.toDouble() ??
                                         0.0) >
                                     0
-                                ? '₱${((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}'
-                                : '₱${pricePerDay.toStringAsFixed(2)}',
+                                ? '₱${formatAmount(((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0))}'
+                                : '₱${formatAmount(pricePerDay)}',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
@@ -3117,7 +3122,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Rental subtotal',
-                              'PHP ${_rentalSubtotal.toStringAsFixed(2)}',
+                              'PHP ${formatAmount(_rentalSubtotal)}',
                             ),
                             const SizedBox(height: 8),
                             _buildSummaryRow(
@@ -3129,12 +3134,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Delivery rate',
-                              'PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(2)} / km',
+                              'PHP ${formatAmount(PricingPolicy.deliveryRatePerKm)} / km',
                             ),
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Delivery fee',
-                              'PHP ${_deliveryFee.toStringAsFixed(2)}',
+                              'PHP ${formatAmount(_deliveryFee)}',
                             ),
                           ],
                           const Divider(
@@ -3144,18 +3149,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           if (_requiresLongBookingReservation) ...[
                             _buildSummaryRow(
                               'Reservation fee',
-                              '20% = PHP ${_reservationFeeAmount.toStringAsFixed(2)}',
+                              '20% = PHP ${formatAmount(_reservationFeeAmount)}',
                             ),
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Remaining balance',
-                              'PHP ${_remainingBalance.toStringAsFixed(2)}',
+                              'PHP ${formatAmount(_remainingBalance)}',
                             ),
                             const SizedBox(height: 8),
                           ],
                           _buildSummaryRow(
                             'Total',
-                            '₱${_totalPrice.toStringAsFixed(2)}',
+                            '₱${formatAmount(_totalPrice)}',
                             isTotal: true,
                           ),
                         ],
@@ -3183,7 +3188,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 : _selectedStartDate != null &&
                       _startTime != null &&
                       _returnTime != null
-                ? 'Book for ₱${_totalPrice.toStringAsFixed(2)}'
+                ? 'Book for ₱${formatAmount(_totalPrice)}'
                 : _selectedStartDate == null
                 ? 'Select Dates to Book'
                 : 'Select Available Times',
@@ -3196,29 +3201,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 : null,
             isLoading: _isBooking,
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlaceholderImage() {
-    return Container(
-      color: AppColors.darkBgSecondary,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.directions_car,
-              size: 80,
-              color: AppColors.textTertiary.withOpacity(0.5),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'No image available',
-              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
-            ),
-          ],
         ),
       ),
     );
@@ -3409,7 +3391,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Doorstep delivery is PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(0)} per kilometer.',
+                  'Doorstep delivery is PHP ${formatAmount(PricingPolicy.deliveryRatePerKm, decimalDigits: 0)} per kilometer.',
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     height: 1.4,
@@ -3429,12 +3411,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         const SizedBox(height: 8),
                         _buildSummaryRow(
                           'Rate per kilometer',
-                          'PHP ${PricingPolicy.deliveryRatePerKm.toStringAsFixed(2)}',
+                          'PHP ${formatAmount(PricingPolicy.deliveryRatePerKm)}',
                         ),
                         const SizedBox(height: 8),
                         _buildSummaryRow(
                           'Delivery fee',
-                          'PHP ${fee.toStringAsFixed(2)}',
+                          'PHP ${formatAmount(fee)}',
                         ),
                       ],
                     )
@@ -3666,6 +3648,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             label: 'Full name',
             hint: 'Co-traveler legal name',
             icon: Icons.person_add_alt_1_outlined,
+            textCapitalization: TextCapitalization.words,
           ),
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
@@ -3674,10 +3657,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             hint: '09171234567',
             icon: Icons.phone_outlined,
             keyboardType: TextInputType.phone,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(11),
-            ],
+            inputFormatters: philippineMobileInputFormatters,
           ),
           const SizedBox(height: 12),
           _buildBookingEvidenceField(
@@ -3831,11 +3811,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required IconData icon,
     TextInputType keyboardType = TextInputType.text,
     List<TextInputFormatter>? inputFormatters,
+    TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
+      textCapitalization: textCapitalization,
+      onChanged: (_) {
+        _touchedEvidenceFields.add(controller);
+        setState(() {});
+      },
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: label,
@@ -3843,6 +3829,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         prefixIcon: Icon(icon, color: AppColors.primary),
         labelStyle: const TextStyle(color: AppColors.textSecondary),
         hintStyle: const TextStyle(color: AppColors.textTertiary),
+        errorText: _bookingEvidenceFieldError(controller),
         filled: true,
         fillColor: AppColors.darkBg,
         enabledBorder: OutlineInputBorder(
@@ -3855,6 +3842,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
       ),
     );
+  }
+
+  String? _bookingEvidenceFieldError(TextEditingController controller) {
+    if (!_touchedEvidenceFields.contains(controller)) return null;
+    if (identical(controller, _coTravelerNameController)) {
+      return validatePersonName(controller.text, fieldName: 'Co-traveler name');
+    }
+    if (identical(controller, _coTravelerPhoneController)) {
+      return validatePhilippineMobile(controller.text);
+    }
+    if (identical(controller, _coTravelerLicenseController)) {
+      final requiredError = validateRequiredText(
+        controller.text,
+        fieldName: "Driver's license number",
+        minLength: 6,
+      );
+      if (requiredError != null) return requiredError;
+      if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(controller.text.trim())) {
+        return 'Use 6-32 letters, numbers, or hyphens.';
+      }
+    }
+    return null;
   }
 
   Widget _buildSpecCard(IconData icon, String label, String value) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../utils/currency_formatter.dart';
 import '../theme/app_colors.dart';
 import 'optimized_network_image.dart';
 
@@ -234,7 +235,7 @@ class BookingCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '₱$totalCost',
+                      '₱${formatAmount(totalCost, decimalDigits: 0)}',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,

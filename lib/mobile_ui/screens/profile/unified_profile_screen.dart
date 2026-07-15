@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/role_ui.dart';
 import 'emergency_contact_screen.dart';
 import 'ratings_reviews_screen.dart';
+import 'settings_screen.dart';
 
 class ProfileStatItem {
   final String label;
@@ -169,6 +172,23 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => EmergencyContactScreen(isDarkMode: widget.isDarkMode),
+      ),
+    );
+  }
+
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (settingsContext) => SettingsScreen(
+          isDarkMode: widget.isDarkMode,
+          onThemeToggle: widget.onThemeToggle,
+          onBack: () => Navigator.of(settingsContext).pop(),
+          onOpenSupport: widget.onOpenSupport,
+          onProfileUpdated: () async {
+            await _loadProfile();
+            widget.onProfileUpdated?.call();
+          },
+        ),
       ),
     );
   }
@@ -454,6 +474,12 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                     onTap: _openEmergencyContact,
                   ),
                   _settingsTile(
+                    icon: Icons.settings_outlined,
+                    title: 'Settings',
+                    subtitle: 'Notifications, privacy, security, and account',
+                    onTap: _openSettings,
+                  ),
+                  _settingsTile(
                     icon: Icons.logout,
                     title: 'Logout',
                     subtitle: 'Sign out of this device',
@@ -725,31 +751,15 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              onPressed: _openEditProfile,
-              icon: const Icon(
-                Icons.edit_square,
-                color: AppColors.primary,
-                size: 20,
-              ),
-              tooltip: 'Edit Profile',
-            ),
-          ],
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
         ),
         _roleBadge(),
         const SizedBox(height: 9),
@@ -1208,25 +1218,18 @@ class UnifiedEditProfileScreen extends StatefulWidget {
 }
 
 class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
-  late final TextEditingController _nameController;
-  late final TextEditingController _emailController;
+  final _formKey = GlobalKey<FormState>();
   late final TextEditingController _phoneController;
   late final TextEditingController _locationController;
+  late final String _displayName;
   String? _avatarUrl;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(
-      text: _text(
-        widget.initialProfile['full_name'] ?? widget.initialProfile['name'],
-      ),
-    );
-    _emailController = TextEditingController(
-      text: _text(
-        widget.initialProfile['email'] ?? AuthService().currentUser?.email,
-      ),
+    _displayName = _text(
+      widget.initialProfile['full_name'] ?? widget.initialProfile['name'],
     );
     _phoneController = TextEditingController(
       text: _text(
@@ -1249,8 +1252,6 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
     _locationController.dispose();
     super.dispose();
@@ -1259,13 +1260,13 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
   Future<void> _save() async {
     final user = AuthService().currentUser;
     if (user == null) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isSaving = true);
     try {
       final supabase = Supabase.instance.client;
       final payload = {
-        'email': _emailController.text.trim(),
-        'phone': _phoneController.text.trim(),
+        'phone': normalizePhilippineMobile(_phoneController.text),
         'location': _locationController.text.trim(),
       };
       try {
@@ -1283,12 +1284,9 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
 
       await supabase.auth.updateUser(
         UserAttributes(
-          email: _emailController.text.trim().isEmpty
-              ? null
-              : _emailController.text.trim(),
           data: {
             ...?user.userMetadata,
-            'phone': _phoneController.text.trim(),
+            'phone': normalizePhilippineMobile(_phoneController.text),
             'location': _locationController.text.trim(),
           },
         ),
@@ -1347,58 +1345,55 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          _profilePictureCard(),
-          const SizedBox(height: 18),
-          _field(
-            label: 'Verified Name',
-            controller: _nameController,
-            icon: Icons.badge_outlined,
-            enabled: false,
-            helper: 'Verified names cannot be edited.',
-          ),
-          _field(
-            label: 'Email',
-            controller: _emailController,
-            icon: Icons.mail_outline,
-            keyboardType: TextInputType.emailAddress,
-          ),
-          _field(
-            label: 'Phone Number',
-            controller: _phoneController,
-            icon: Icons.phone_outlined,
-            keyboardType: TextInputType.phone,
-          ),
-          _field(
-            label: 'Location',
-            controller: _locationController,
-            icon: Icons.location_on_outlined,
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _isSaving ? null : _save,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.black,
-              minimumSize: const Size.fromHeight(54),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(18),
+          children: [
+            _profilePictureCard(),
+            const SizedBox(height: 18),
+            _field(
+              label: 'Mobile Phone',
+              controller: _phoneController,
+              icon: Icons.phone_outlined,
+              keyboardType: TextInputType.phone,
+              inputFormatters: philippineMobileInputFormatters,
+              validator: validatePhilippineMobile,
+            ),
+            _field(
+              label: 'Location',
+              controller: _locationController,
+              icon: Icons.location_on_outlined,
+              validator: (value) => validateRequiredText(
+                value,
+                fieldName: 'Location',
+                minLength: 2,
               ),
             ),
-            child: Text(
-              _isSaving ? 'Saving...' : 'Save Changes',
-              style: const TextStyle(fontWeight: FontWeight.w900),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _isSaving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(54),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                _isSaving ? 'Saving...' : 'Save Changes',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _profilePictureCard() {
-    final name = _nameController.text.trim();
+    final name = _displayName.trim();
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1482,23 +1477,23 @@ class _UnifiedEditProfileScreenState extends State<UnifiedEditProfileScreen> {
     required String label,
     required TextEditingController controller,
     required IconData icon,
-    bool enabled = true,
-    String? helper,
     TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: TextField(
+      child: TextFormField(
         controller: controller,
-        enabled: enabled,
         keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
+        validator: validator,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         style: const TextStyle(color: AppColors.textPrimary),
         decoration: InputDecoration(
           labelText: label,
-          helperText: helper,
           prefixIcon: Icon(icon, color: AppColors.primary),
           labelStyle: const TextStyle(color: AppColors.textSecondary),
-          helperStyle: const TextStyle(color: AppColors.textTertiary),
           filled: true,
           fillColor: AppColors.darkBgSecondary,
           border: OutlineInputBorder(

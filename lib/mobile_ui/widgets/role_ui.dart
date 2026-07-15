@@ -216,11 +216,13 @@ class RoleEmptyStateCard extends StatelessWidget {
 class RoleBottomNavigation extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final Map<int, int> badgeCounts;
 
   const RoleBottomNavigation({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    this.badgeCounts = const {},
   });
 
   @override
@@ -248,26 +250,95 @@ class RoleBottomNavigation extends StatelessWidget {
         selectedFontSize: 12,
         unselectedFontSize: 11,
         onTap: onTap,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month_outlined),
+            icon: _RoleBottomNavigationIcon(
+              icon: Icons.home,
+              count: badgeCounts[0] ?? 0,
+              backgroundColor: background,
+            ),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: _RoleBottomNavigationIcon(
+              icon: Icons.calendar_month_outlined,
+              count: badgeCounts[1] ?? 0,
+              backgroundColor: background,
+            ),
             label: 'Bookings',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
+            icon: _RoleBottomNavigationIcon(
+              icon: Icons.chat_bubble_outline,
+              count: badgeCounts[2] ?? 0,
+              backgroundColor: background,
+            ),
             label: 'Messages',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.notifications_outlined),
+            icon: _RoleBottomNavigationIcon(
+              icon: Icons.notifications_outlined,
+              count: badgeCounts[3] ?? 0,
+              backgroundColor: background,
+            ),
             label: 'Notifications',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
+            icon: _RoleBottomNavigationIcon(
+              icon: Icons.person_outline,
+              count: badgeCounts[4] ?? 0,
+              backgroundColor: background,
+            ),
             label: 'Profile',
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RoleBottomNavigationIcon extends StatelessWidget {
+  const _RoleBottomNavigationIcon({
+    required this.icon,
+    required this.count,
+    required this.backgroundColor,
+  });
+
+  final IconData icon;
+  final int count;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (count > 0)
+          Positioned(
+            top: -6,
+            right: -10,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+              padding: EdgeInsets.symmetric(horizontal: count > 9 ? 4 : 2),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE53935),
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: backgroundColor, width: 1.5),
+              ),
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/input_validation.dart';
 
 class EmergencyContactService {
   EmergencyContactService._();
 
-  static final EmergencyContactService _instance =
-      EmergencyContactService._();
+  static final EmergencyContactService _instance = EmergencyContactService._();
 
   factory EmergencyContactService() => _instance;
 
@@ -49,6 +49,23 @@ class EmergencyContactService {
       throw Exception('You need to log in first.');
     }
 
+    final normalizedName = toTitleCaseName(fullName);
+    final normalizedPhone = normalizePhilippineMobile(phoneNumber);
+    final normalizedRelationship = toTitleCaseName(relationship);
+    final nameError = validatePersonName(
+      normalizedName,
+      fieldName: 'Contact name',
+    );
+    final phoneError = validatePhilippineMobile(normalizedPhone);
+    final relationshipError = validateRequiredText(
+      normalizedRelationship,
+      fieldName: 'Relationship',
+      minLength: 2,
+    );
+    if (nameError != null) throw Exception(nameError);
+    if (phoneError != null) throw Exception(phoneError);
+    if (relationshipError != null) throw Exception(relationshipError);
+
     if (isDefault) {
       await supabase
           .from('emergency_contacts')
@@ -59,9 +76,9 @@ class EmergencyContactService {
 
     final payload = <String, dynamic>{
       'user_id': user.id,
-      'full_name': fullName.trim(),
-      'phone_number': phoneNumber.trim(),
-      'relationship': relationship.trim(),
+      'full_name': normalizedName,
+      'phone_number': normalizedPhone,
+      'relationship': normalizedRelationship,
       'is_default': isDefault,
       'updated_at': DateTime.now().toIso8601String(),
     };

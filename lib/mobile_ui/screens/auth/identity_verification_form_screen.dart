@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
+import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../vehicle/signature_capture_screen.dart';
@@ -38,6 +39,7 @@ class _IdentityVerificationFormScreenState
   final _locationController = TextEditingController();
   final _idNumberController = TextEditingController();
   final _previousCompaniesController = TextEditingController();
+  final Set<TextEditingController> _touchedFields = {};
   String _selectedIdType = 'National ID';
   String _selectedYearsExperience = '0';
   DateTime? _driverLicenseExpiryDate;
@@ -300,12 +302,42 @@ class _IdentityVerificationFormScreenState
 
   Future<void> _submitVerification() async {
     // Validate form
-    if (_nameController.text.isEmpty) {
-      _showError('Please enter your full name');
+    _touchedFields.addAll([
+      _nameController,
+      _phoneController,
+      _locationController,
+      _idNumberController,
+      if (widget.userRole == 'driver') _previousCompaniesController,
+    ]);
+    setState(() {});
+    final nameError = validatePersonName(_nameController.text);
+    if (nameError != null) {
+      _showError(nameError);
       return;
     }
-    if (_locationController.text.isEmpty) {
-      _showError('Please enter your location/address');
+    if (widget.userRole == 'driver') {
+      final phoneError = validatePhilippineMobile(_phoneController.text);
+      if (phoneError != null) {
+        _showError(phoneError);
+        return;
+      }
+      final experienceError = validateRequiredText(
+        _previousCompaniesController.text,
+        fieldName: 'Previous companies / platforms',
+        minLength: 2,
+      );
+      if (experienceError != null) {
+        _showError(experienceError);
+        return;
+      }
+    }
+    final locationError = validateRequiredText(
+      _locationController.text,
+      fieldName: 'Location / address',
+      minLength: 3,
+    );
+    if (locationError != null) {
+      _showError(locationError);
       return;
     }
     if (_idNumberController.text.trim().isEmpty) {
@@ -1010,6 +1042,7 @@ class _IdentityVerificationFormScreenState
               controller: _nameController,
               hint: 'Enter your full name',
               icon: Icons.person,
+              textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 16),
 
@@ -1189,6 +1222,7 @@ class _IdentityVerificationFormScreenState
                   controller: _nameController,
                   hint: 'Enter your full legal name',
                   icon: Icons.badge_outlined,
+                  textCapitalization: TextCapitalization.words,
                 ),
                 const SizedBox(height: 14),
                 _buildFormField(
@@ -1218,6 +1252,7 @@ class _IdentityVerificationFormScreenState
                   hint: '+63 900 000 0000',
                   icon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: philippineMobileInputFormatters,
                 ),
                 const SizedBox(height: 14),
                 _buildFormField(
@@ -1924,6 +1959,7 @@ class _IdentityVerificationFormScreenState
     TextInputType keyboardType = TextInputType.text,
     bool readOnly = false,
     List<TextInputFormatter>? inputFormatters,
+    TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1948,10 +1984,16 @@ class _IdentityVerificationFormScreenState
             keyboardType: keyboardType,
             readOnly: readOnly,
             inputFormatters: inputFormatters,
+            textCapitalization: textCapitalization,
+            onChanged: (_) {
+              _touchedFields.add(controller);
+              setState(() {});
+            },
             style: TextStyle(color: inputTextColor),
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: TextStyle(color: hintTextColor),
+              errorText: _formFieldError(controller),
               prefixIcon: Icon(icon, color: AppColors.primary),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
@@ -1963,6 +2005,34 @@ class _IdentityVerificationFormScreenState
         ),
       ],
     );
+  }
+
+  String? _formFieldError(TextEditingController controller) {
+    if (!_touchedFields.contains(controller)) return null;
+    if (identical(controller, _nameController)) {
+      return validatePersonName(controller.text);
+    }
+    if (identical(controller, _phoneController)) {
+      return validatePhilippineMobile(controller.text);
+    }
+    if (identical(controller, _locationController)) {
+      return validateRequiredText(
+        controller.text,
+        fieldName: 'Location / address',
+        minLength: 3,
+      );
+    }
+    if (identical(controller, _idNumberController)) {
+      return _validateIdNumber(_selectedIdType, controller.text);
+    }
+    if (identical(controller, _previousCompaniesController)) {
+      return validateRequiredText(
+        controller.text,
+        fieldName: 'Previous companies / platforms',
+        minLength: 2,
+      );
+    }
+    return null;
   }
 
   String get _idNumberLabel {

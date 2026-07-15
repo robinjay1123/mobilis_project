@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import 'optimized_network_image.dart';
 
 class ConversationTile extends StatelessWidget {
   final String senderName;
@@ -7,6 +8,8 @@ class ConversationTile extends StatelessWidget {
   final String timestamp;
   final int unreadCount;
   final VoidCallback onTap;
+  final String imageUrl;
+  final IconData fallbackIcon;
 
   const ConversationTile({
     super.key,
@@ -15,6 +18,8 @@ class ConversationTile extends StatelessWidget {
     required this.timestamp,
     required this.unreadCount,
     required this.onTap,
+    this.imageUrl = '',
+    this.fallbackIcon = Icons.directions_car_outlined,
   });
 
   @override
@@ -38,7 +43,17 @@ class ConversationTile extends StatelessWidget {
                 color: AppColors.primary,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.chat_bubble_outline, color: Colors.black),
+              clipBehavior: Clip.antiAlias,
+              child: imageUrl.trim().isNotEmpty
+                  ? OptimizedNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
+                      borderRadius: BorderRadius.circular(14),
+                      errorWidget: Icon(fallbackIcon, color: Colors.black),
+                    )
+                  : Icon(fallbackIcon, color: Colors.black),
             ),
             const SizedBox(width: 12),
             Expanded(

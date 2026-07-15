@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +13,7 @@ import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/notification_permission_service.dart';
+import '../../../services/push_notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/user_restriction_service.dart';
@@ -24,6 +27,8 @@ import '../../widgets/relative_time_text.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/notification_target.dart';
+import '../../../utils/notification_visual.dart';
 import '../profile/unified_profile_screen.dart';
 import 'partner_tracking_screen.dart';
 import 'partner_revenue_screen.dart';
@@ -106,6 +111,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   bool dismissedVerificationBanner = false;
   bool _dimCustomerServiceFab = false;
   DateTime? _lastBackPressedAt;
+  StreamSubscription<Map<String, dynamic>>? _pushNotificationTapSubscription;
 
   String _normalizeVerificationStatus(String? status) {
     final value = (status ?? 'pending').toLowerCase();
@@ -118,9 +124,42 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   bool get _isPartnerCertified => partnershipStatus == 'certified';
 
+  int get _partnerUnreadMessageCount {
+    final currentUserId = AuthService().currentUser?.id;
+    if (currentUserId == null) return 0;
+
+    return conversations.fold<int>(0, (total, conversation) {
+      final messages = List<Map<String, dynamic>>.from(
+        conversation['messages'] as List? ?? const [],
+      );
+      return total +
+          messages.where((message) {
+            return message['sender_id']?.toString() != currentUserId &&
+                message['is_read'] != true &&
+                message['is_deleted'] != true;
+          }).length;
+    });
+  }
+
+  int get _partnerUnreadNotificationCount => notifications
+      .where((notification) => notification['is_read'] != true)
+      .length;
+
   @override
   void initState() {
     super.initState();
+    final pushService = PushNotificationService();
+    _pushNotificationTapSubscription = pushService.notificationTaps.listen((
+      payload,
+    ) {
+      if (mounted) _handlePartnerNotificationTap(payload);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = pushService.takePendingNotificationTap();
+      if (pending != null && mounted) {
+        _handlePartnerNotificationTap(pending);
+      }
+    });
     _loadPartnerData();
     _initializeConnectivity();
     _setupBookingsListener(); // 🔔 Listen for real-time bookings
@@ -128,6 +167,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   @override
   void dispose() {
+    _pushNotificationTapSubscription?.cancel();
     _bookingsSubscription?.unsubscribe();
     _notificationsSubscription?.unsubscribe();
     super.dispose();
@@ -596,6 +636,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         ),
         bottomNavigationBar: RoleBottomNavigation(
           currentIndex: selectedNavIndex,
+          badgeCounts: {
+            1: bookingCounts['pending'] ?? 0,
+            2: _partnerUnreadMessageCount,
+            3: _partnerUnreadNotificationCount,
+          },
           onTap: (index) => setState(() => selectedNavIndex = index),
         ),
       ),
@@ -2738,6 +2783,113 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   // ===================== NOTIFICATIONS TAB =====================
+  Future<void> _handlePartnerNotificationTap(
+    Map<String, dynamic> notification,
+  ) async {
+    final notificationId = notification['id']?.toString();
+    if (notificationId != null &&
+        notificationId.isNotEmpty &&
+        notification['is_read'] != true) {
+      await NotificationService().markAsRead(notificationId);
+      final index = notifications.indexWhere(
+        (item) => item['id']?.toString() == notificationId,
+      );
+      if (index >= 0) notifications[index]['is_read'] = true;
+      if (mounted) setState(() {});
+    }
+    if (!mounted) return;
+
+    final target = resolveNotificationTarget(notification);
+    if (target.destination == NotificationDestination.messages) {
+      final conversationId = target.conversationId;
+      if (conversationId == null) {
+        setState(() => selectedNavIndex = 2);
+      } else {
+        Navigator.pushNamed(
+          context,
+          '/chat-detail',
+          arguments: {
+            'conversationId': conversationId,
+            'recipientName': notification['title']?.toString() ?? 'Chat',
+            'recipientAvatar': '',
+            'isDarkMode': true,
+            'isAutoGenerated': false,
+            'userRole': 'partner',
+          },
+        );
+      }
+      return;
+    }
+
+    final bookingId = target.bookingId;
+    final booking = bookingId == null
+        ? <String, dynamic>{}
+        : bookings.firstWhere(
+            (item) => item['id']?.toString() == bookingId,
+            orElse: () => <String, dynamic>{},
+          );
+    if (target.destination == NotificationDestination.tracking &&
+        booking.isNotEmpty) {
+      await _openTrackingScreen(booking);
+      return;
+    }
+    if (target.destination == NotificationDestination.booking &&
+        booking.isNotEmpty) {
+      setState(() => selectedNavIndex = 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showBookingDetailModal(context, booking);
+      });
+      return;
+    }
+
+    switch (target.destination) {
+      case NotificationDestination.payment:
+        _openRevenuePayoutScreen();
+        return;
+      case NotificationDestination.ratings:
+        _showRatesReviewsDialog();
+        return;
+      case NotificationDestination.verification:
+        setState(() => selectedNavIndex = 4);
+        return;
+      case NotificationDestination.application:
+      case NotificationDestination.vehicles:
+        setState(() => selectedNavIndex = 0);
+        return;
+      case NotificationDestination.booking:
+      case NotificationDestination.tracking:
+        setState(() => selectedNavIndex = 1);
+        return;
+      case NotificationDestination.messages:
+        setState(() => selectedNavIndex = 2);
+        return;
+      case NotificationDestination.announcement:
+      case NotificationDestination.general:
+        _showPartnerNotificationDetails(notification);
+        return;
+    }
+  }
+
+  void _showPartnerNotificationDetails(Map<String, dynamic> notification) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(notification['title']?.toString() ?? 'Notification'),
+        content: Text(
+          notification['message']?.toString().trim().isNotEmpty == true
+              ? notification['message'].toString()
+              : 'No additional details are available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotificationsTab() {
     return Column(
       children: [
@@ -2790,17 +2942,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         itemCount: notifications.length,
                         itemBuilder: (context, index) {
                           final notif = notifications[index];
+                          final visual = notificationVisualFor(notif);
                           return NotificationItem(
-                            icon: _getNotificationIcon(notif['type']),
+                            icon: visual.icon,
                             title: notif['title'] ?? 'Notification',
                             message: notif['message'] ?? '',
                             timestamp: _formatTime(notif['created_at']),
-                            iconColor: _getNotificationColor(notif['type']),
-                            onTap: () async {
-                              final notificationService = NotificationService();
-                              await notificationService.markAsRead(notif['id']);
-                              _loadPartnerData();
-                            },
+                            iconColor: visual.color,
+                            onTap: () => _handlePartnerNotificationTap(notif),
                           );
                         },
                       ),
@@ -2849,6 +2998,23 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                         itemBuilder: (context, index) {
                           final conv = conversations[index];
                           final isCustomerService = conv['bookings'] is! Map;
+                          final booking = conv['bookings'] as Map?;
+                          final vehicle = booking?['vehicles'] as Map?;
+                          final vehicleName =
+                              [vehicle?['brand'], vehicle?['model']]
+                                  .where(
+                                    (value) =>
+                                        value?.toString().trim().isNotEmpty ==
+                                        true,
+                                  )
+                                  .join(' ');
+                          final topicTitle = isCustomerService
+                              ? 'Customer Service'
+                              : vehicleName.isNotEmpty
+                              ? '$vehicleName Booking'
+                              : 'Booking Conversation';
+                          final imageUrl =
+                              conv['vehicle_image_url']?.toString() ?? '';
                           final messages =
                               conv['messages'] as List<dynamic>? ?? [];
                           final lastMessage = messages.isNotEmpty
@@ -2856,12 +3022,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                               : 'No messages';
 
                           return ConversationTile(
-                            senderName: isCustomerService
-                                ? 'Customer Service'
-                                : 'Renter',
+                            senderName: topicTitle,
                             lastMessage: lastMessage,
                             timestamp: _formatTime(conv['updated_at']),
                             unreadCount: 0,
+                            imageUrl: imageUrl,
+                            fallbackIcon: isCustomerService
+                                ? Icons.support_agent
+                                : Icons.directions_car_outlined,
                             onTap: () {
                               final conversationId = conv['id'];
                               Navigator.of(context)
@@ -2869,10 +3037,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                                     '/chat-detail',
                                     arguments: {
                                       'conversationId': conversationId,
-                                      'recipientName': isCustomerService
-                                          ? 'Customer Service'
-                                          : 'Renter',
-                                      'recipientAvatar': '',
+                                      'recipientName': topicTitle,
+                                      'recipientAvatar': imageUrl,
                                       'isDarkMode': true,
                                       'isCustomerService': isCustomerService,
                                       'userRole': 'partner',
@@ -4255,41 +4421,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         ),
       ),
     );
-  }
-
-  // ===================== HELPERS =====================
-  IconData _getNotificationIcon(String? type) {
-    switch (type?.toLowerCase()) {
-      case 'booking':
-        return Icons.calendar_today;
-      case 'application':
-        return Icons.description;
-      case 'announcement':
-        return Icons.campaign;
-      case 'message':
-        return Icons.chat;
-      case 'payment':
-        return Icons.payment;
-      default:
-        return Icons.notifications;
-    }
-  }
-
-  Color _getNotificationColor(String? type) {
-    switch (type?.toLowerCase()) {
-      case 'booking':
-        return AppColors.success;
-      case 'application':
-        return AppColors.warning;
-      case 'announcement':
-        return AppColors.primary;
-      case 'message':
-        return AppColors.primary;
-      case 'payment':
-        return Colors.green;
-      default:
-        return AppColors.primary;
-    }
   }
 
   String _formatTime(String? dateStr) {

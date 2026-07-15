@@ -13,7 +13,9 @@ import '../../../services/vehicle_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/notification_permission_service.dart';
+import '../../../services/push_notification_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
@@ -24,6 +26,7 @@ import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/vehicle_image_carousel.dart';
 import '../../widgets/relative_time_text.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
@@ -32,6 +35,9 @@ import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
 import '../partner/partner_tracking_screen.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/currency_formatter.dart';
+import '../../../utils/notification_target.dart';
+import '../../../utils/notification_visual.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -61,6 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   int selectedNavIndex = 0;
   int? selectedBookingIndex;
+  String _selectedBookingStatus = 'Pending';
   String? selectedProfilePage;
   String selectedCategory = '';
 
@@ -93,6 +100,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // 📅 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
+  StreamSubscription<Map<String, dynamic>>? _pushNotificationTapSubscription;
 
   final List<Map<String, dynamic>> categories = [
     {'name': 'All Cars', 'icon': Icons.directions_car},
@@ -107,6 +115,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    final pushService = PushNotificationService();
+    _pushNotificationTapSubscription = pushService.notificationTaps.listen((
+      payload,
+    ) {
+      if (mounted) _handleNotificationTap({'raw': payload});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = pushService.takePendingNotificationTap();
+      if (pending != null && mounted) {
+        _handleNotificationTap({'raw': pending});
+      }
+    });
     _checkAuth();
     _loadUserData();
     _initializeConnectivity();
@@ -123,6 +143,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _pushNotificationTapSubscription?.cancel();
     _verificationSubscription?.unsubscribe(); // ✅ Clean up realtime listener
     _notificationsSubscription
         ?.unsubscribe(); // ✅ Clean up notifications listener
@@ -937,6 +958,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await _loadVehicles();
   }
 
+  Future<void> _resetBookNowDateFilter() async {
+    if (_bookingFilterFrom == null && _bookingFilterTo == null) return;
+    setState(() {
+      _bookingFilterFrom = null;
+      _bookingFilterTo = null;
+      selectedCategory = '';
+      _searchController.clear();
+      _nearbyLatitude = null;
+      _nearbyLongitude = null;
+      _nearbyLocationLabel = null;
+      _nearbyLocationTokens = [];
+    });
+    await _loadVehicles();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Booking dates reset. Showing all available cars.'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  }
+
   Future<void> _selectBookNowDates() async {
     if (!await _checkRentalVerification()) return;
     if (!mounted) return;
@@ -963,10 +1006,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           firstDate.add(const Duration(days: 1)),
       unavailableDays: unavailableDays,
     );
-    if (picked == null) {
-      await _clearBookNowDateFilter();
-      return;
-    }
+    if (picked == null) return;
     if (!mounted) return;
 
     setState(() {
@@ -985,7 +1025,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
-    await _clearBookNowDateFilter();
   }
 
   Future<DateTimeRange?> _showBookNowCalendarDialog({
@@ -2087,37 +2126,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? reservationFee
         : 0;
     final suffix = coversTotal ? 'full amount' : 'reservation fee';
-    return 'PHP ${amountPaid.toStringAsFixed(0)} ($suffix)';
+    return 'PHP ${formatAmount(amountPaid, decimalDigits: 0)} ($suffix)';
   }
 
   List<Map<String, dynamic>> _uiNotifications() {
     return _notifications.map((n) {
-      final type = (n['type'] ?? 'general').toString().toLowerCase();
-      IconData icon;
-      Color iconColor;
-      if (type.contains('booking')) {
-        icon = Icons.calendar_today;
-        iconColor = AppColors.warning;
-      } else if (type.contains('announcement')) {
-        icon = Icons.campaign;
-        iconColor = AppColors.primary;
-      } else if (type.contains('message')) {
-        icon = Icons.message;
-        iconColor = AppColors.primary;
-      } else if (type.contains('payment') || type.contains('success')) {
-        icon = Icons.check_circle;
-        iconColor = AppColors.success;
-      } else {
-        icon = Icons.notifications;
-        iconColor = AppColors.textSecondary;
-      }
+      final visual = notificationVisualFor(n);
 
       return {
+        'raw': n,
         'title': n['title']?.toString() ?? 'Notification',
         'message': n['message']?.toString() ?? '',
         'timestamp': _formatTimeAgo(n['created_at']?.toString()),
-        'icon': icon,
-        'iconColor': iconColor,
+        'icon': visual.icon,
+        'iconColor': visual.color,
       };
     }).toList();
   }
@@ -2162,6 +2184,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'unreadCount': unreadCount,
         'isAutoGenerated': lastMessage?['is_auto_generated'] == true,
         'isCustomerService': isCustomerService,
+        'imageUrl': conversation['vehicle_image_url']?.toString() ?? '',
       };
     }).toList();
   }
@@ -2174,6 +2197,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  int get _pendingBookingActionCount {
+    const actionableStatuses = {
+      'pending',
+      'payment_pending',
+      'pending_payment',
+      'action_required',
+    };
+    return _bookings.where((booking) {
+      final status = (booking['status'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase()
+          .replaceAll(' ', '_');
+      return actionableStatuses.contains(status);
+    }).length;
+  }
+
+  int get _unreadNotificationCount => _notifications
+      .where((notification) => notification['is_read'] != true)
+      .length;
+
   void _openConversation(Map<String, dynamic> conversation) {
     final conversationId = conversation['conversationId']?.toString() ?? '';
     if (conversationId.isEmpty) return;
@@ -2185,7 +2229,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             'conversationId': conversationId,
             'recipientName':
                 conversation['recipientName']?.toString() ?? 'Chat',
-            'recipientAvatar': '',
+            'recipientAvatar': conversation['imageUrl']?.toString() ?? '',
             'isAutoGenerated':
                 conversation['isCustomerService'] != true &&
                 conversation['isAutoGenerated'] == true,
@@ -2197,6 +2241,124 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _loadConversations();
           _loadNotifications();
         });
+  }
+
+  Future<void> _handleNotificationTap(
+    Map<String, dynamic> notificationItem,
+  ) async {
+    final raw = Map<String, dynamic>.from(
+      notificationItem['raw'] as Map? ?? const <String, dynamic>{},
+    );
+    final notificationId = raw['id']?.toString();
+    if (notificationId != null &&
+        notificationId.isNotEmpty &&
+        raw['is_read'] != true) {
+      await NotificationService().markAsRead(notificationId);
+      raw['is_read'] = true;
+      final index = _notifications.indexWhere(
+        (item) => item['id']?.toString() == notificationId,
+      );
+      if (index >= 0) _notifications[index]['is_read'] = true;
+      if (mounted) setState(() {});
+    }
+    if (!mounted) return;
+
+    final target = resolveNotificationTarget(raw);
+    if (target.destination == NotificationDestination.messages) {
+      final conversationId = target.conversationId;
+      if (conversationId != null) {
+        final conversation = _uiConversations().firstWhere(
+          (item) => item['conversationId']?.toString() == conversationId,
+          orElse: () => <String, dynamic>{
+            'conversationId': conversationId,
+            'recipientName': raw['title']?.toString() ?? 'Conversation',
+            'isCustomerService': raw['type']?.toString() == 'customer_service',
+          },
+        );
+        _openConversation(conversation);
+      } else {
+        setState(() => selectedNavIndex = 2);
+      }
+      return;
+    }
+
+    final bookingId = target.bookingId;
+    final booking = bookingId == null
+        ? <String, dynamic>{}
+        : _uiBookings().firstWhere(
+            (item) => item['id']?.toString() == bookingId,
+            orElse: () => <String, dynamic>{},
+          );
+    if (target.destination == NotificationDestination.tracking &&
+        booking.isNotEmpty) {
+      _openBookingTracking(booking);
+      return;
+    }
+    if ((target.destination == NotificationDestination.booking ||
+            target.destination == NotificationDestination.payment) &&
+        booking.isNotEmpty) {
+      setState(() => selectedNavIndex = 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showBookingDetails(booking);
+      });
+      return;
+    }
+
+    switch (target.destination) {
+      case NotificationDestination.verification:
+      case NotificationDestination.application:
+        setState(() {
+          selectedNavIndex = 4;
+          selectedProfilePage = 'verification';
+        });
+        return;
+      case NotificationDestination.payment:
+        setState(() {
+          selectedNavIndex = 4;
+          selectedProfilePage = 'payment';
+        });
+        return;
+      case NotificationDestination.ratings:
+        setState(() {
+          selectedNavIndex = 4;
+          selectedProfilePage = null;
+        });
+        return;
+      case NotificationDestination.booking:
+      case NotificationDestination.tracking:
+        setState(() => selectedNavIndex = 1);
+        return;
+      case NotificationDestination.vehicles:
+        setState(() => selectedNavIndex = 0);
+        return;
+      case NotificationDestination.messages:
+        setState(() => selectedNavIndex = 2);
+        return;
+      case NotificationDestination.announcement:
+      case NotificationDestination.general:
+        _showNotificationDetails(raw);
+        return;
+    }
+  }
+
+  void _showNotificationDetails(Map<String, dynamic> notification) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(notification['title']?.toString() ?? 'Notification'),
+        content: Text(
+          notification['message']?.toString().trim().isNotEmpty == true
+              ? notification['message'].toString()
+              : 'No additional details are available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   bool _canOpenBookingConversation(Map<String, dynamic> booking) {
@@ -2672,6 +2834,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         bottomNavigationBar: RoleBottomNavigation(
           currentIndex: selectedNavIndex,
+          badgeCounts: {
+            1: _pendingBookingActionCount,
+            2: _totalUnreadMessages(),
+            3: _unreadNotificationCount,
+          },
           onTap: (index) {
             setState(() {
               if (index == 4 || selectedNavIndex == 4) {
@@ -3043,26 +3210,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ],
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _selectBookNowDates,
-                      icon: const Icon(Icons.calendar_month),
-                      label: Text(
-                        _bookingFilterFrom == null
-                            ? 'Book Now!'
-                            : 'Book Now! ${_formatDateRange(_bookingFilterFrom, _bookingFilterTo)}',
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  if (_bookingFilterFrom == null && _bookingFilterTo == null)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _selectBookNowDates,
+                        icon: const Icon(Icons.calendar_month),
+                        label: const Text('Book Now!'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _isLoadingVehicles
+                              ? null
+                              : _resetBookNowDateFilter,
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Reset'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _selectBookNowDates,
+                            icon: const Icon(Icons.calendar_month, size: 19),
+                            label: Text(
+                              _formatDateRange(
+                                _bookingFilterFrom,
+                                _bookingFilterTo,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
                 ],
               ),
             ),
@@ -3498,7 +3708,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       // ✅ FIX: Read transmission field instead of reusing vehicleType
                       final transmission = car['transmission'] ?? 'Manual';
 
-                      final imageUrl = car['image_url'] as String?;
                       final isPartnerVehicle =
                           car['source']?.toString().toLowerCase() ==
                               'partner' ||
@@ -3551,10 +3760,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       Container(
                                         height: 200,
                                         color: mutedCardColor,
-                                        child: _buildFastVehicleImage(
-                                          imageUrl: imageUrl,
-                                          fit: BoxFit.cover,
-                                          width: double.infinity,
+                                        child: VehicleImageCarousel(
+                                          key: ValueKey(
+                                            'renter-car-$vehicleId',
+                                          ),
+                                          vehicle: car,
+                                          height: 200,
                                           backgroundColor: mutedCardColor,
                                           iconColor: tertiaryTextColor,
                                         ),
@@ -3848,7 +4059,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                       children: [
                                                         TextSpan(
                                                           text:
-                                                              '₱${pricePerHour.toStringAsFixed(0)}',
+                                                              '₱${formatAmount(pricePerHour, decimalDigits: 0)}',
                                                           style:
                                                               const TextStyle(
                                                                 fontSize: 20,
@@ -3876,7 +4087,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                       children: [
                                                         TextSpan(
                                                           text:
-                                                              '₱${pricePerDay.toStringAsFixed(0)}',
+                                                              '₱${formatAmount(pricePerDay, decimalDigits: 0)}',
                                                           style: TextStyle(
                                                             fontSize: 13,
                                                             fontWeight:
@@ -4153,7 +4364,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               itemBuilder: (context, index) {
                 final vehicle = partnerVehicles[index];
                 final vehicleId = vehicle['id']?.toString() ?? '';
-                final imageUrl = vehicle['image_url']?.toString();
                 final title =
                     '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
                         .trim();
@@ -4193,12 +4403,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         SizedBox(
                           height: 112,
                           width: double.infinity,
-                          child: _buildFastVehicleImage(
-                            imageUrl: imageUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
+                          child: VehicleImageCarousel(
+                            key: ValueKey('partner-car-$vehicleId'),
+                            vehicle: vehicle,
+                            height: 112,
                             backgroundColor: cardColor,
                             iconColor: secondaryTextColor,
+                            showArrows: false,
                           ),
                         ),
                         Padding(
@@ -4238,8 +4449,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   Expanded(
                                     child: Text(
                                       dailyPrice > 0
-                                          ? 'PHP ${dailyPrice.toStringAsFixed(0)} / day'
-                                          : 'PHP ${hourlyPrice.toStringAsFixed(0)} / hour',
+                                          ? 'PHP ${formatAmount(dailyPrice, decimalDigits: 0)} / day'
+                                          : 'PHP ${formatAmount(hourlyPrice, decimalDigits: 0)} / hour',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
@@ -4276,74 +4487,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ---------------------------------------------------------------------------
   Widget _buildBookingsTab() {
     final uiBookings = _uiBookings();
+    final visibleBookings = uiBookings
+        .where((booking) => booking['statusGroup'] == _selectedBookingStatus)
+        .toList();
 
     return Column(
       children: [
         _buildCenteredTabHeader('My Bookings'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-          child: RoleTabHeader(
-            title: 'Rental Bookings',
-            subtitle:
-                'Requests, ongoing rentals, completed trips, and tracking',
-            icon: Icons.calendar_month_outlined,
-            badge: '${uiBookings.length} total',
-          ),
-        ),
-        const SizedBox(height: 14),
         Expanded(
-          child: DefaultTabController(
-            length: 5,
-            child: Column(
+          child: RefreshIndicator(
+            onRefresh: _loadBookings,
+            color: AppColors.primary,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
               children: [
-                Container(
-                  color: AppColors.darkBg,
-                  child: const TabBar(
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    labelColor: AppColors.primary,
-                    unselectedLabelColor: AppColors.textSecondary,
-                    indicatorColor: AppColors.primary,
-                    tabs: [
-                      Tab(text: 'Pending'),
-                      Tab(text: 'Approved'),
-                      Tab(text: 'Ongoing'),
-                      Tab(text: 'Completed'),
-                      Tab(text: 'Cancelled'),
-                    ],
-                  ),
+                RoleTabHeader(
+                  title: 'Rental Bookings',
+                  subtitle:
+                      'Requests, ongoing rentals, completed trips, and tracking',
+                  icon: Icons.calendar_month_outlined,
+                  badge: '${uiBookings.length} total',
                 ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _buildBookingsList(
-                        uiBookings
-                            .where((b) => b['statusGroup'] == 'Pending')
-                            .toList(),
-                      ),
-                      _buildBookingsList(
-                        uiBookings
-                            .where((b) => b['statusGroup'] == 'Approved')
-                            .toList(),
-                      ),
-                      _buildBookingsList(
-                        uiBookings
-                            .where((b) => b['statusGroup'] == 'Ongoing')
-                            .toList(),
-                      ),
-                      _buildBookingsList(
-                        uiBookings
-                            .where((b) => b['statusGroup'] == 'Completed')
-                            .toList(),
-                      ),
-                      _buildBookingsList(
-                        uiBookings
-                            .where((b) => b['statusGroup'] == 'Cancelled')
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 12),
+                _buildRenterBookingStatusTabs(uiBookings),
+                const SizedBox(height: 14),
+                _buildBookingsList(visibleBookings),
               ],
             ),
           ),
@@ -4352,99 +4521,135 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildBookingsList(List<Map<String, dynamic>> bookings) {
-    if (bookings.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: () async {
-          await _loadBookings();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Center(
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.7,
-              child: const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(
-                  child: RoleEmptyStateCard(
-                    icon: Icons.calendar_today_outlined,
-                    title: 'No bookings found',
-                    message:
-                        'Your rental requests and active trips will appear here. Pull down to refresh.',
+  Widget _buildRenterBookingStatusTabs(List<Map<String, dynamic>> bookings) {
+    const statuses = [
+      'Pending',
+      'Approved',
+      'Ongoing',
+      'Completed',
+      'Cancelled',
+    ];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: statuses.map((status) {
+          final selected = _selectedBookingStatus == status;
+          final count = bookings
+              .where((booking) => booking['statusGroup'] == status)
+              .length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _selectedBookingStatus = status),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: status == 'Cancelled' ? 108 : 96,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary
+                      : (isDark ? AppColors.darkBg : Colors.white),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected
+                        ? AppColors.primary
+                        : (isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor),
+                  ),
+                ),
+                child: Text(
+                  '$status ($count)',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.black
+                        : (isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildBookingsList(List<Map<String, dynamic>> bookings) {
+    if (bookings.isEmpty) {
+      return RoleEmptyStateCard(
+        icon: Icons.route_outlined,
+        title: 'No ${_selectedBookingStatus.toLowerCase()} bookings',
+        message:
+            'Bookings with this status will appear here once available. Pull down to refresh.',
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadBookings();
-      },
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: List.generate(
-            bookings.length,
-            (index) => Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => selectedBookingIndex = index);
-                  final booking = bookings[index];
-                  _isCancelledBooking(booking)
-                      ? _showCancellationDetails(booking)
-                      : _showBookingDetails(booking);
-                },
-                child: Builder(
-                  builder: (context) {
-                    final booking = bookings[index];
-                    final isCompleted = booking['statusGroup'] == 'Completed';
-                    final isCancelled = _isCancelledBooking(booking);
+    return Column(
+      children: List.generate(
+        bookings.length,
+        (index) => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: GestureDetector(
+            onTap: () {
+              setState(() => selectedBookingIndex = index);
+              final booking = bookings[index];
+              _isCancelledBooking(booking)
+                  ? _showCancellationDetails(booking)
+                  : _showBookingDetails(booking);
+            },
+            child: Builder(
+              builder: (context) {
+                final booking = bookings[index];
+                final isCompleted = booking['statusGroup'] == 'Completed';
+                final isCancelled = _isCancelledBooking(booking);
 
-                    return BookingCard(
-                      carName: booking['carName'],
-                      rentalPartner: booking['rentalPartner'],
-                      status: booking['status'],
-                      days: (booking['days'] as num?)?.toInt() ?? 0,
-                      pickupLocation: booking['pickupLocation'],
-                      dropoffLocation: booking['dropoffLocation'],
-                      totalCost: (booking['totalCost'] as num?)?.toInt() ?? 0,
-                      rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
-                      isActive: booking['statusGroup'] == 'Ongoing',
-                      carImageUrl: booking['imageUrl'] as String?,
-                      showRating:
-                          booking['statusGroup'] == 'Completed' &&
-                          ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
-                      showTrackButton: booking['statusGroup'] == 'Ongoing',
-                      onTrack: () => _openBookingTracking(booking),
-                      detailsButtonLabel: isCompleted
-                          ? 'View Receipt'
-                          : isCancelled
-                          ? 'Details'
-                          : 'View Details',
-                      onTap: () => isCancelled
-                          ? _showCancellationDetails(booking)
-                          : _showBookingDetails(booking),
-                      onViewDetails: () => isCompleted
-                          ? _showTripReceipt(booking)
-                          : isCancelled
-                          ? _showCancellationDetails(booking)
-                          : _showBookingDetails(booking),
-                      showMessageButton: _canOpenBookingConversation(booking),
-                      onMessage: () => _openBookingConversation(booking),
-                      showCancelButton:
-                          booking['statusGroup'] == 'Pending' &&
-                          _canCancelBooking(booking),
-                      onCancel: () => _handleBookingCancellation(booking),
-                    );
-                  },
-                ),
-              ),
+                return BookingCard(
+                  carName: booking['carName'],
+                  rentalPartner: booking['rentalPartner'],
+                  status: booking['status'],
+                  days: (booking['days'] as num?)?.toInt() ?? 0,
+                  pickupLocation: booking['pickupLocation'],
+                  dropoffLocation: booking['dropoffLocation'],
+                  totalCost: (booking['totalCost'] as num?)?.toInt() ?? 0,
+                  rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
+                  isActive: booking['statusGroup'] == 'Ongoing',
+                  carImageUrl: booking['imageUrl'] as String?,
+                  showRating:
+                      booking['statusGroup'] == 'Completed' &&
+                      ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
+                  showTrackButton: booking['statusGroup'] == 'Ongoing',
+                  onTrack: () => _openBookingTracking(booking),
+                  detailsButtonLabel: isCompleted
+                      ? 'View Receipt'
+                      : isCancelled
+                      ? 'Details'
+                      : 'View Details',
+                  onTap: () => isCancelled
+                      ? _showCancellationDetails(booking)
+                      : _showBookingDetails(booking),
+                  onViewDetails: () => isCompleted
+                      ? _showTripReceipt(booking)
+                      : isCancelled
+                      ? _showCancellationDetails(booking)
+                      : _showBookingDetails(booking),
+                  showMessageButton: _canOpenBookingConversation(booking),
+                  onMessage: () => _openBookingConversation(booking),
+                  showCancelButton:
+                      booking['statusGroup'] == 'Pending' &&
+                      _canCancelBooking(booking),
+                  onCancel: () => _handleBookingCancellation(booking),
+                );
+              },
             ),
           ),
         ),
@@ -4492,68 +4697,77 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         notificationItems.length,
                         (index) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: Container(
-                            padding: const EdgeInsets.all(18),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A3548),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppColors.borderColor),
+                          child: InkWell(
+                            onTap: () => _handleNotificationTap(
+                              notificationItems[index],
                             ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: notificationItems[index]['iconColor']
-                                        .withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Icon(
-                                    notificationItems[index]['icon'],
-                                    color:
-                                        notificationItems[index]['iconColor'],
-                                    size: 24,
-                                  ),
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2A3548),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: AppColors.borderColor,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        notificationItems[index]['title'],
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.textPrimary,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        notificationItems[index]['message'],
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        notificationItems[index]['timestamp'],
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: AppColors.textTertiary,
-                                        ),
-                                      ),
-                                    ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          notificationItems[index]['iconColor']
+                                              .withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      notificationItems[index]['icon'],
+                                      color:
+                                          notificationItems[index]['iconColor'],
+                                      size: 24,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          notificationItems[index]['title'],
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          notificationItems[index]['message'],
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          notificationItems[index]['timestamp'],
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: AppColors.textTertiary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -4648,11 +4862,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     color: AppColors.primary.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
-                                  child: const Icon(
-                                    Icons.person_outline,
-                                    color: AppColors.primary,
-                                    size: 24,
-                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child:
+                                      conversations[index]['imageUrl']
+                                              ?.toString()
+                                              .trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? OptimizedNetworkImage(
+                                          imageUrl:
+                                              conversations[index]['imageUrl']
+                                                  .toString(),
+                                          width: 48,
+                                          height: 48,
+                                          fit: BoxFit.cover,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          errorWidget: const Icon(
+                                            Icons.directions_car_outlined,
+                                            color: AppColors.primary,
+                                          ),
+                                        )
+                                      : Icon(
+                                          conversations[index]['isCustomerService'] ==
+                                                  true
+                                              ? Icons.support_agent
+                                              : Icons.directions_car_outlined,
+                                          color: AppColors.primary,
+                                          size: 24,
+                                        ),
                                 ),
                                 const SizedBox(width: 12),
                                 // Content
@@ -4768,6 +5007,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onThemeToggle: widget.onThemeToggle,
         isDarkMode: widget.isDarkMode,
         onBack: () => setState(() => selectedProfilePage = null),
+        onOpenSupport: _openCustomerServiceConversation,
+        onProfileUpdated: _loadUserData,
       );
     } else if (selectedProfilePage == 'payment') {
       return PaymentMethodsScreen(
@@ -4980,7 +5221,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildLikedVehicleTile(Map<String, dynamic> vehicle) {
-    final imageUrl = vehicle['image_url']?.toString() ?? '';
     final name =
         '${vehicle['brand'] ?? 'Unknown'} ${vehicle['model'] ?? 'Vehicle'}';
     final category =
@@ -5013,11 +5253,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: SizedBox(
                 width: 88,
                 height: 64,
-                child: _buildFastVehicleImage(
-                  imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
-                  fit: BoxFit.cover,
+                child: VehicleImageCarousel(
+                  key: ValueKey('favorite-car-${vehicle['id']}'),
+                  vehicle: vehicle,
+                  height: 64,
                   backgroundColor: AppColors.darkBgTertiary,
                   iconColor: AppColors.textTertiary,
+                  showArrows: false,
+                  showIndicator: false,
                 ),
               ),
             ),
@@ -5046,7 +5289,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '₱${price.toStringAsFixed(0)} / day',
+                    '₱${formatAmount(price, decimalDigits: 0)} / day',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
@@ -5301,7 +5544,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _buildBookingDetailRow(
                     icon: Icons.payments_outlined,
                     label: 'Booking Cost',
-                    value: '₱${booking['totalCost']}',
+                    value:
+                        '₱${formatAmount(booking['totalCost'] as num, decimalDigits: 0)}',
                   ),
                 ],
               ),
@@ -5343,20 +5587,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 12),
             CostBreakdownRow(
               label:
-                  '${booking['days']} days × ₱${booking['totalCost'] ~/ booking['days']}/day',
-              amount: '₱${booking['totalCost']}',
+                  '${booking['days']} days × ₱${formatAmount(booking['totalCost'] ~/ booking['days'], decimalDigits: 0)}/day',
+              amount:
+                  '₱${formatAmount(booking['totalCost'] as num, decimalDigits: 0)}',
             ),
             const CostBreakdownRow(label: 'Insurance', amount: '₱50'),
             CostBreakdownRow(
               label: 'Tax (10%)',
               amount:
-                  '₱${((booking['totalCost'] + 50) * 0.1).toStringAsFixed(0)}',
+                  '₱${formatAmount((booking['totalCost'] + 50) * 0.1, decimalDigits: 0)}',
             ),
             const Divider(color: AppColors.borderColor),
             CostBreakdownRow(
               label: 'Total',
               amount:
-                  '₱${(booking['totalCost'] + 50 + ((booking['totalCost'] + 50) * 0.1)).toStringAsFixed(0)}',
+                  '₱${formatAmount(booking['totalCost'] + 50 + ((booking['totalCost'] + 50) * 0.1), decimalDigits: 0)}',
               isBold: true,
               amountColor: AppColors.primary,
             ),
@@ -6015,19 +6260,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   CostBreakdownRow(
                     label:
-                        '$safeDays day${safeDays == 1 ? '' : 's'} x ₱${dailyRate.toStringAsFixed(0)}/day',
-                    amount: '₱${totalCost.toStringAsFixed(0)}',
+                        '$safeDays day${safeDays == 1 ? '' : 's'} x ₱${formatAmount(dailyRate, decimalDigits: 0)}/day',
+                    amount: '₱${formatAmount(totalCost, decimalDigits: 0)}',
                   ),
                   const CostBreakdownRow(label: 'Insurance', amount: '₱50'),
                   CostBreakdownRow(
                     label: 'Tax (10%)',
-                    amount: '₱${((totalCost + 50) * 0.1).toStringAsFixed(0)}',
+                    amount:
+                        '₱${formatAmount((totalCost + 50) * 0.1, decimalDigits: 0)}',
                   ),
                   const Divider(color: AppColors.borderColor),
                   CostBreakdownRow(
                     label: 'Total Paid',
                     amount:
-                        '₱${(totalCost + 50 + ((totalCost + 50) * 0.1)).toStringAsFixed(0)}',
+                        '₱${formatAmount(totalCost + 50 + ((totalCost + 50) * 0.1), decimalDigits: 0)}',
                     isBold: true,
                     amountColor: AppColors.primary,
                   ),
@@ -6213,7 +6459,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _buildBookingDetailRow(
                     icon: Icons.receipt_long,
                     label: 'Reservation Fee',
-                    value: '₱${booking['totalCost']}',
+                    value:
+                        '₱${formatAmount(booking['totalCost'] as num, decimalDigits: 0)}',
                   ),
                   const Divider(color: AppColors.borderColor),
                   _buildBookingDetailRow(
@@ -6544,7 +6791,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '₱${dailyRate.toStringAsFixed(0)} / day',
+                  '₱${formatAmount(dailyRate, decimalDigits: 0)} / day',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -7431,7 +7678,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   _detailRow(
                     Icons.account_balance_wallet_outlined,
                     'Total Cost',
-                    'PHP ${totalCost.toStringAsFixed(0)}',
+                    'PHP ${formatAmount(totalCost, decimalDigits: 0)}',
                   ),
                 ],
               ),

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
+import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -18,6 +18,10 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   bool _phoneTouched = false;
+  bool _nameTouched = false;
+  bool _emailTouched = false;
+  bool _locationTouched = false;
+  bool _addressTouched = false;
   late TextEditingController fullNameController;
   late TextEditingController emailController;
   late TextEditingController phoneController;
@@ -132,34 +136,18 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
-    // Validate inputs
-    if (fullNameController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your full name');
-      return;
-    }
-
-    if (emailController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your email address');
-      return;
-    }
-
-    if (!_isValidEmail(emailController.text.trim())) {
-      _showErrorSnackBar('Please enter a valid email address');
-      return;
-    }
-
-    if (!_isValidPhilippinePhone(phoneController.text.trim())) {
-      setState(() => _phoneTouched = true);
-      return;
-    }
-
-    if (locationController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your location or use auto-detect');
-      return;
-    }
-
-    if (addressController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your home address');
+    setState(() {
+      _nameTouched = true;
+      _emailTouched = true;
+      _phoneTouched = true;
+      _locationTouched = true;
+      _addressTouched = true;
+    });
+    if (_nameError != null ||
+        _emailError != null ||
+        _phoneError != null ||
+        _locationError != null ||
+        _addressError != null) {
       return;
     }
 
@@ -186,7 +174,7 @@ class _SignupScreenState extends State<SignupScreen> {
       final authService = AuthService();
 
       // Ensure fullName is not empty (database constraint)
-      final fullName = fullNameController.text.trim();
+      final fullName = toTitleCaseName(fullNameController.text);
       if (fullName.isEmpty) {
         _showErrorSnackBar('Full name is required');
         setState(() => isLoading = false);
@@ -199,7 +187,7 @@ class _SignupScreenState extends State<SignupScreen> {
         password: passwordController.text,
         userMetadata: {
           'full_name': fullName,
-          'phone': phoneController.text.trim(),
+          'phone': normalizePhilippineMobile(phoneController.text),
           'location': locationController.text.trim(),
           'address': addressController.text.trim(),
           'role': selectedRole,
@@ -263,16 +251,11 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  bool _isValidEmail(String email) {
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-    return emailRegex.hasMatch(email);
-  }
-
   bool _passwordMeetsRequirements(String password) =>
       password.length >= 8 &&
       RegExp(r'[A-Z]').hasMatch(password) &&
+      RegExp(r'[a-z]').hasMatch(password) &&
+      RegExp(r'\d').hasMatch(password) &&
       RegExp(r'[^A-Za-z0-9]').hasMatch(password);
 
   Widget _buildPasswordRequirement(String text, bool isMet) {
@@ -293,21 +276,32 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  bool _isValidPhilippinePhone(String phone) {
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
-    return RegExp(r'^09\d{9}$').hasMatch(digits) ||
-        RegExp(r'^639\d{9}$').hasMatch(digits);
-  }
-
   String? get _phoneError {
     if (!_phoneTouched) return null;
-    final phone = phoneController.text.trim();
-    if (phone.isEmpty) return 'Contact number is required';
-    if (!_isValidPhilippinePhone(phone)) {
-      return 'Enter exactly 11 digits beginning with 09';
-    }
-    return null;
+    return validatePhilippineMobile(phoneController.text);
   }
+
+  String? get _nameError =>
+      _nameTouched ? validatePersonName(fullNameController.text) : null;
+
+  String? get _emailError =>
+      _emailTouched ? validateEmailAddress(emailController.text) : null;
+
+  String? get _locationError => _locationTouched
+      ? validateRequiredText(
+          locationController.text,
+          fieldName: 'Location',
+          minLength: 2,
+        )
+      : null;
+
+  String? get _addressError => _addressTouched
+      ? validateRequiredText(
+          addressController.text,
+          fieldName: 'Home address',
+          minLength: 5,
+        )
+      : null;
 
   Future<void> _getCurrentLocation() async {
     try {
@@ -795,6 +789,9 @@ class _SignupScreenState extends State<SignupScreen> {
                 label: 'Full Name *',
                 hintText: 'John Doe',
                 controller: fullNameController,
+                textCapitalization: TextCapitalization.words,
+                errorText: _nameError,
+                onChanged: (_) => setState(() => _nameTouched = true),
                 prefixIcon: const Icon(
                   Icons.person_outline,
                   color: AppColors.textTertiary,
@@ -808,6 +805,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 hintText: 'name@gmail.com',
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
+                errorText: _emailError,
+                onChanged: (_) => setState(() => _emailTouched = true),
                 prefixIcon: const Icon(
                   Icons.email_outlined,
                   color: AppColors.textTertiary,
@@ -821,10 +820,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 hintText: '09171234567',
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(11),
-                ],
+                inputFormatters: philippineMobileInputFormatters,
                 errorText: _phoneError,
                 onChanged: (_) => setState(() => _phoneTouched = true),
                 prefixIcon: const Icon(
@@ -839,6 +835,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 label: 'Location *',
                 hintText: 'City, Country',
                 controller: locationController,
+                errorText: _locationError,
+                onChanged: (_) => setState(() => _locationTouched = true),
                 prefixIcon: const Icon(
                   Icons.location_on_outlined,
                   color: AppColors.textTertiary,
@@ -859,6 +857,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 hintText: 'House No., Street, Barangay, City, Country',
                 controller: addressController,
                 maxLines: 2,
+                errorText: _addressError,
+                onChanged: (_) => setState(() => _addressTouched = true),
                 prefixIcon: const Icon(
                   Icons.home_outlined,
                   color: AppColors.textTertiary,
@@ -911,6 +911,14 @@ class _SignupScreenState extends State<SignupScreen> {
               _buildPasswordRequirement(
                 'At least 1 uppercase letter',
                 RegExp(r'[A-Z]').hasMatch(passwordController.text),
+              ),
+              _buildPasswordRequirement(
+                'At least 1 lowercase letter',
+                RegExp(r'[a-z]').hasMatch(passwordController.text),
+              ),
+              _buildPasswordRequirement(
+                'At least 1 number',
+                RegExp(r'\d').hasMatch(passwordController.text),
               ),
               const SizedBox(height: 16),
 
