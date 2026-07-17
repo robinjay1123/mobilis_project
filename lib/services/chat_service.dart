@@ -23,19 +23,8 @@ class ChatService {
     try {
       debugPrint('Fetching conversations for user: $userId');
 
-      // Get conversation IDs where user is a participant
-      final participations = await supabase
-          .from('conversation_participants')
-          .select('conversation_id')
-          .eq('user_id', userId);
-
-      if (participations.isEmpty) {
-        return [];
-      }
-
-      final conversationIds = participations
-          .map((p) => p['conversation_id'] as String)
-          .toList();
+      final conversationIds = await _conversationIdsForUser(userId);
+      if (conversationIds.isEmpty) return [];
 
       // Get conversations with latest message
       final response = await supabase
@@ -74,19 +63,71 @@ class ChatService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _getConversationsWithoutEmbed(
-    String userId,
-  ) async {
+  Future<List<String>> _conversationIdsForUser(String userId) async {
+    final conversationIds = <String>{};
+
     final participantRows = await supabase
         .from('conversation_participants')
         .select('conversation_id')
         .eq('user_id', userId);
-    final conversationIds = List<Map<String, dynamic>>.from(participantRows)
-        .map((row) => row['conversation_id']?.toString())
-        .whereType<String>()
-        .where((id) => id.isNotEmpty)
-        .toSet()
-        .toList();
+    for (final row in List<Map<String, dynamic>>.from(participantRows)) {
+      final id = row['conversation_id']?.toString().trim() ?? '';
+      if (id.isNotEmpty) conversationIds.add(id);
+    }
+
+    // Older direct/support conversations retain these columns even when their
+    // normalized participant row was not created.
+    try {
+      final directRows = await supabase
+          .from('conversations')
+          .select('id')
+          .or('user_id.eq.$userId,other_user_id.eq.$userId');
+      for (final row in List<Map<String, dynamic>>.from(directRows)) {
+        final id = row['id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) conversationIds.add(id);
+      }
+    } on PostgrestException catch (error) {
+      debugPrint('Legacy direct conversation lookup skipped: ${error.message}');
+    }
+
+    // Booking chats are owned by bookings.renter_id. This fallback keeps
+    // legacy renter chats visible without exposing unrelated conversations.
+    try {
+      final bookingRows = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('renter_id', userId);
+      final bookingIds = List<Map<String, dynamic>>.from(bookingRows)
+          .map((row) => row['id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (bookingIds.isNotEmpty) {
+        final bookingConversationRows = await supabase
+            .from('conversations')
+            .select('id')
+            .inFilter('booking_id', bookingIds);
+        for (final row in List<Map<String, dynamic>>.from(
+          bookingConversationRows,
+        )) {
+          final id = row['id']?.toString().trim() ?? '';
+          if (id.isNotEmpty) conversationIds.add(id);
+        }
+      }
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'Renter booking conversation lookup skipped: ${error.message}',
+      );
+    }
+
+    debugPrint('Resolved ${conversationIds.length} conversations for $userId');
+    return conversationIds.toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _getConversationsWithoutEmbed(
+    String userId,
+  ) async {
+    final conversationIds = await _conversationIdsForUser(userId);
     if (conversationIds.isEmpty) return [];
 
     final conversationRows = await supabase

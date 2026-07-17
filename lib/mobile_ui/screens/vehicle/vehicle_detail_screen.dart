@@ -1557,11 +1557,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       return;
     }
 
-    if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(coTravelerLicense)) {
+    if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(coTravelerLicense)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Driver's License Number must be 6-32 letters/numbers and may include hyphens.",
+            "Driver's License Number must be 6-13 letters/numbers and may include hyphens.",
           ),
           backgroundColor: AppColors.warning,
         ),
@@ -3663,11 +3663,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           _buildBookingEvidenceField(
             controller: _coTravelerLicenseController,
             label: "Driver's License Number",
-            hint: 'Required if they are joining this booking',
+            hint: 'e.g. N01-23-456789',
             icon: Icons.credit_card_outlined,
+            maxLength: 13,
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9-]')),
-              LengthLimitingTextInputFormatter(32),
+              LengthLimitingTextInputFormatter(13),
             ],
           ),
           const SizedBox(height: 12),
@@ -3812,12 +3813,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     TextInputType keyboardType = TextInputType.text,
     List<TextInputFormatter>? inputFormatters,
     TextCapitalization textCapitalization = TextCapitalization.none,
+    int? maxLength,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       textCapitalization: textCapitalization,
+      maxLength: maxLength,
       onChanged: (_) {
         _touchedEvidenceFields.add(controller);
         setState(() {});
@@ -3859,8 +3862,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         minLength: 6,
       );
       if (requiredError != null) return requiredError;
-      if (!RegExp(r'^[A-Za-z0-9-]{6,32}$').hasMatch(controller.text.trim())) {
-        return 'Use 6-32 letters, numbers, or hyphens.';
+      if (!RegExp(r'^[A-Za-z0-9-]{6,13}$').hasMatch(controller.text.trim())) {
+        return 'Use 6-13 letters, numbers, or hyphens.';
       }
     }
     return null;
@@ -3989,21 +3992,29 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       final placemarks = await placemarkFromCoordinates(latitude, longitude);
       if (placemarks.isEmpty) return fallbackAddress;
       final place = placemarks.first;
-      final parts = [
-        place.name,
+      final candidates = [
         place.street,
         place.subLocality,
         place.locality,
         place.subAdministrativeArea,
         place.administrativeArea,
+        place.postalCode,
         place.country,
       ];
-      final address = parts
-          .whereType<String>()
-          .map((part) => part.trim())
-          .where((part) => part.isNotEmpty)
-          .toSet()
-          .join(', ');
+      final parts = <String>[];
+      for (final candidate in candidates.whereType<String>()) {
+        final part = candidate.trim();
+        if (part.isEmpty) continue;
+        final normalized = part.toLowerCase();
+        final isDuplicate = parts.any((existing) {
+          final existingNormalized = existing.toLowerCase();
+          return existingNormalized == normalized ||
+              existingNormalized.contains(normalized) ||
+              normalized.contains(existingNormalized);
+        });
+        if (!isDuplicate) parts.add(part);
+      }
+      final address = parts.join(', ');
       return address.isEmpty ? fallbackAddress : address;
     } catch (_) {
       return fallbackAddress;
@@ -4078,7 +4089,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     if (token.isEmpty || pin == null) return null;
     final lat = pin.latitude;
     final lng = pin.longitude;
-    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/'
+    return 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/'
         'pin-s+facc15($lng,$lat)/$lng,$lat,15/720x360'
         '?access_token=$token';
   }
@@ -4266,7 +4277,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       }
 
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 20),
       );
       final placemarks = await placemarkFromCoordinates(
         position.latitude,
@@ -4817,6 +4829,28 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
     });
   }
 
+  Future<void> _openExpandedMap() async {
+    final pin = await Navigator.of(context).push<_BookingLocationPin>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (context) => _ExpandedLocationMapScreen(
+          title: widget.title,
+          mapboxToken: _mapboxToken,
+          initialPin: _selectedPin,
+          fallbackCenter: _mapCenter,
+          resolveAddress: widget.resolveAddress,
+        ),
+      ),
+    );
+    if (pin == null || !mounted) return;
+    setState(() {
+      _selectedPin = pin;
+      _searchController.text = pin.address;
+      _errorMessage = null;
+    });
+    _moveMap(pin);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4883,7 +4917,8 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
       }
 
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 20),
       );
       final address = await widget.resolveAddress(
         position.latitude,
@@ -5078,7 +5113,7 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
                               children: [
                                 TileLayer(
                                   urlTemplate:
-                                      'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxToken',
+                                      'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxToken',
                                   userAgentPackageName:
                                       'com.example.mobilis_by_psdc_app',
                                 ),
@@ -5127,6 +5162,22 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
                                     ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              top: 10,
+                              right: 10,
+                              child: Material(
+                                color: const Color(0xDD111827),
+                                borderRadius: BorderRadius.circular(10),
+                                child: IconButton(
+                                  tooltip: 'Expand map',
+                                  onPressed: _openExpandedMap,
+                                  icon: const Icon(
+                                    Icons.fullscreen_rounded,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ),
@@ -5217,6 +5268,322 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ExpandedLocationMapScreen extends StatefulWidget {
+  final String title;
+  final String mapboxToken;
+  final _BookingLocationPin? initialPin;
+  final LatLng fallbackCenter;
+  final Future<String> Function(
+    double latitude,
+    double longitude, {
+    required String fallbackAddress,
+  })
+  resolveAddress;
+
+  const _ExpandedLocationMapScreen({
+    required this.title,
+    required this.mapboxToken,
+    required this.initialPin,
+    required this.fallbackCenter,
+    required this.resolveAddress,
+  });
+
+  @override
+  State<_ExpandedLocationMapScreen> createState() =>
+      _ExpandedLocationMapScreenState();
+}
+
+class _ExpandedLocationMapScreenState
+    extends State<_ExpandedLocationMapScreen> {
+  final MapController _mapController = MapController();
+  _BookingLocationPin? _selectedPin;
+  bool _isResolving = false;
+
+  LatLng get _center => _selectedPin == null
+      ? widget.fallbackCenter
+      : LatLng(_selectedPin!.latitude, _selectedPin!.longitude);
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPin = widget.initialPin;
+  }
+
+  Future<void> _selectPoint(LatLng point) async {
+    if (_isResolving) return;
+    setState(() {
+      _isResolving = true;
+      _selectedPin = _BookingLocationPin(
+        address: 'Resolving pinned address...',
+        latitude: point.latitude,
+        longitude: point.longitude,
+      );
+    });
+    try {
+      final address = await widget.resolveAddress(
+        point.latitude,
+        point.longitude,
+        fallbackAddress: 'Pinned location',
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedPin = _BookingLocationPin(
+          address: address,
+          latitude: point.latitude,
+          longitude: point.longitude,
+        );
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.toString().replaceFirst('Exception: ', ''),
+          ),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isResolving = false);
+    }
+  }
+
+  Future<void> _useCurrentLocation() async {
+    if (_isResolving) return;
+    setState(() => _isResolving = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Please turn on location services first.');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission is required to pin this.');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location permission is permanently denied. Enable it in settings.',
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.best,
+        timeLimit: const Duration(seconds: 20),
+      );
+      final address = await widget.resolveAddress(
+        position.latitude,
+        position.longitude,
+        fallbackAddress: 'Current location',
+      );
+      final pin = _BookingLocationPin(
+        address: address,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (!mounted) return;
+      setState(() => _selectedPin = pin);
+      _mapController.move(
+        LatLng(position.latitude, position.longitude),
+        17,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.toString().replaceFirst('Exception: ', ''),
+          ),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isResolving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.darkBg,
+        elevation: 0,
+        title: Text(
+          widget.title,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Use current location',
+            onPressed: _isResolving ? null : _useCurrentLocation,
+            icon: const Icon(Icons.my_location_rounded),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: widget.mapboxToken.isEmpty
+                ? const _LocationMapError()
+                : FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _center,
+                      initialZoom: _selectedPin == null ? 12 : 16,
+                      minZoom: 5,
+                      maxZoom: 19,
+                      onTap: (_, point) => _selectPoint(point),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${widget.mapboxToken}',
+                        userAgentPackageName:
+                            'com.example.mobilis_by_psdc_app',
+                      ),
+                      if (_selectedPin != null)
+                        MarkerLayer(
+                          markers: [
+                            Marker(
+                              point: _center,
+                              width: 56,
+                              height: 56,
+                              child: const Icon(
+                                Icons.location_pin,
+                                size: 54,
+                                color: AppColors.primary,
+                                shadows: [
+                                  Shadow(color: Colors.black54, blurRadius: 9),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgSecondary.withOpacity(0.96),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.borderColor),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black38, blurRadius: 18),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_rounded,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            _selectedPin?.address ??
+                                'Tap the terrain map to place a pin.',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _selectedPin == null || _isResolving
+                            ? null
+                            : () => Navigator.pop(context, _selectedPin),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.darkBg,
+                          padding: const EdgeInsets.symmetric(vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        icon: _isResolving
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.darkBg,
+                                ),
+                              )
+                            : const Icon(Icons.check_circle_outline_rounded),
+                        label: Text(
+                          _isResolving
+                              ? 'Resolving address...'
+                              : 'Use this location',
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_isResolving)
+            const Positioned(
+              top: 16,
+              left: 16,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xDD111827),
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox.square(
+                        dimension: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Getting accurate address...',
+                        style: TextStyle(color: Colors.white, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

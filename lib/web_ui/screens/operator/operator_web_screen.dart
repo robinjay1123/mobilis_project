@@ -106,6 +106,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _transmissionController = TextEditingController();
+  final TextEditingController _seatsController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
   final TextEditingController _bookingSearchController =
@@ -151,6 +152,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _latitudeController.dispose();
     _longitudeController.dispose();
     _transmissionController.dispose();
+    _seatsController.dispose();
     _messageController.dispose();
     _messageScrollController.dispose();
     _bookingSearchController.dispose();
@@ -8964,7 +8966,949 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 15);
   }
 
+  InputDecoration _registerVehicleDecoration(
+    String hint,
+    bool isDark, {
+    Widget? suffixIcon,
+  }) {
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.14)
+        : const Color(0xFFD9E0E6);
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: TextStyle(
+        color: isDark ? Colors.white38 : Colors.blueGrey.shade400,
+        fontSize: 13,
+      ),
+      filled: true,
+      fillColor: isDark
+          ? Colors.white.withValues(alpha: 0.045)
+          : const Color(0xFFF7F9FA),
+      suffixIcon: suffixIcon,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 17),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: _operatorGold, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFFF6B6B)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: Color(0xFFFF6B6B), width: 1.5),
+      ),
+    );
+  }
+
+  Widget _registerVehicleField({
+    required String label,
+    required String hint,
+    required TextEditingController controller,
+    required bool isDark,
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+    Widget? suffixIcon,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            color: isDark ? Colors.white60 : Colors.blueGrey.shade600,
+            fontSize: 10,
+            letterSpacing: 0.8,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          validator: validator,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          cursorColor: _operatorGold,
+          style: TextStyle(
+            color: isDark ? Colors.white : _operatorInk,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: _registerVehicleDecoration(
+            hint,
+            isDark,
+            suffixIcon: suffixIcon,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _registerVehicleDropdown({
+    required String label,
+    required String value,
+    required List<String> options,
+    required bool isDark,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            color: isDark ? Colors.white60 : Colors.blueGrey.shade600,
+            fontSize: 10,
+            letterSpacing: 0.8,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: value,
+          isExpanded: true,
+          icon: Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: isDark ? Colors.white54 : Colors.blueGrey,
+          ),
+          dropdownColor: isDark ? const Color(0xFF102C43) : Colors.white,
+          style: TextStyle(
+            color: isDark ? Colors.white : _operatorInk,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: _registerVehicleDecoration('Select $label', isDark),
+          items: options
+              .map(
+                (option) => DropdownMenuItem<String>(
+                  value: option,
+                  child: Text(option),
+                ),
+              )
+              .toList(),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  void _resetNewVehicleForm() {
+    _brandController.clear();
+    _modelController.clear();
+    _categoryController.clear();
+    _vehicleTypeController.clear();
+    _vehicleNameController.clear();
+    _descriptionController.clear();
+    _colorController.clear();
+    _transmissionController.clear();
+    _yearController.clear();
+    _plateController.clear();
+    _priceController.clear();
+    _pricePerHourController.clear();
+    _seatsController.text = '5';
+    _locationController.clear();
+    _latitudeController.clear();
+    _longitudeController.clear();
+    _selectedImages = [];
+    _selectedStatus = 'active';
+  }
+
+  String? _requiredVehicleField(String? value) {
+    if (value == null || value.trim().isEmpty) return 'This field is required';
+    return null;
+  }
+
+  String? _positiveNumberVehicleField(String? value) {
+    final number = double.tryParse(value?.trim() ?? '');
+    if (number == null || number <= 0) return 'Enter a value greater than 0';
+    return null;
+  }
+
+  Future<bool> _saveOperatorVehicle({
+    required String category,
+    required String vehicleType,
+    required String fuelType,
+    required String transmission,
+    required String status,
+    required void Function(VoidCallback callback) setDialogState,
+  }) async {
+    setDialogState(() => _isSubmittingVehicle = true);
+    try {
+      final currentUserId = _supabase.auth.currentUser?.id;
+      if (currentUserId == null) {
+        throw 'Operator account is required to add vehicles';
+      }
+
+      final normalizedPlate = _plateController.text.trim().toUpperCase();
+      final existing = await _supabase
+          .from('vehicles')
+          .select('id')
+          .eq('plate_number', normalizedPlate)
+          .limit(1);
+      if ((existing as List).isNotEmpty) {
+        throw 'A vehicle with plate number $normalizedPlate already exists';
+      }
+
+      final vehicleResponse = await _supabase
+          .from('vehicles')
+          .insert({
+            'brand': _brandController.text.trim(),
+            'model': _modelController.text.trim(),
+            'category': category,
+            'vehicle_type': vehicleType,
+            'vehicle_name': _vehicleNameController.text.trim(),
+            'description': _descriptionController.text.trim(),
+            'color': _colorController.text.trim(),
+            'fuel_type': fuelType,
+            'transmission': transmission,
+            'plate_number': normalizedPlate,
+            'year': int.parse(_yearController.text.trim()),
+            'seats': int.parse(_seatsController.text.trim()),
+            'price_per_day': double.parse(_priceController.text.trim()),
+            'price_per_hour': double.parse(
+              _pricePerHourController.text.trim(),
+            ),
+            'location': _locationController.text.trim(),
+            'latitude': double.tryParse(_latitudeController.text.trim()),
+            'longitude': double.tryParse(_longitudeController.text.trim()),
+            'status': status,
+            'is_available': status == 'active',
+            'is_posted': false,
+            'owner_id': currentUserId,
+          })
+          .select('id')
+          .single();
+      final vehicleId = vehicleResponse['id'].toString();
+
+      var uploadedImageCount = 0;
+      for (var index = 0; index < _selectedImages.length; index++) {
+        final fileName =
+            'vehicle_${DateTime.now().millisecondsSinceEpoch}_$index.jpg';
+        final filePath = 'vehicles/$currentUserId/$fileName';
+        try {
+          final originalBytes = await _selectedImages[index].readAsBytes();
+          final imageBytes = await ImageOptimizationService.optimizeForUpload(
+            originalBytes,
+            fileName: fileName,
+          );
+          await _supabase.storage
+              .from(_vehicleImagesBucket)
+              .uploadBinary(
+                filePath,
+                imageBytes,
+                fileOptions: const FileOptions(
+                  cacheControl: '31536000',
+                  upsert: false,
+                ),
+              );
+          final imageUrl = _supabase.storage
+              .from(_vehicleImagesBucket)
+              .getPublicUrl(filePath);
+          await _supabase.from('vehicle_images').insert({
+            'vehicle_id': vehicleId,
+            'image_url': imageUrl,
+            'display_order': index,
+          });
+          uploadedImageCount++;
+        } catch (error) {
+          debugPrint('Error uploading vehicle image $index: $error');
+        }
+      }
+
+      _resetNewVehicleForm();
+      await _loadVehicles();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              uploadedImageCount == 1
+                  ? 'Vehicle added with 1 image.'
+                  : 'Vehicle added with $uploadedImageCount images.',
+            ),
+            backgroundColor: const Color(0xFF178A5B),
+          ),
+        );
+      }
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to add vehicle: $error'),
+            backgroundColor: const Color(0xFFC93C47),
+          ),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) {
+        setDialogState(() => _isSubmittingVehicle = false);
+      }
+    }
+  }
+
   void _showAddVehicleDialog(bool isDark) {
+    _resetNewVehicleForm();
+    final formKey = GlobalKey<FormState>();
+    var category = 'Sedan';
+    var vehicleType = 'Sedan';
+    var fuelType = 'Unleaded';
+    var transmission = 'Automatic';
+    var status = 'active';
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final foreground = isDark ? Colors.white : _operatorInk;
+          final panelColor = isDark ? _operatorNavyDeep : Colors.white;
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 20,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 1120,
+                maxHeight: 820,
+              ),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: panelColor,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black38,
+                      blurRadius: 36,
+                      offset: Offset(0, 18),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(38, 28, 24, 24),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Register New Vehicle',
+                                  style: TextStyle(
+                                    color: foreground,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  'Configure vehicle details, pricing, and deployment status.',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.blueGrey.shade600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: _isSubmittingVehicle
+                                ? null
+                                : () => Navigator.pop(dialogContext),
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(44, 44),
+                              padding: const EdgeInsets.all(12),
+                            ),
+                            icon: Icon(Icons.close_rounded, color: foreground),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 850;
+                          final imagePanel = _buildRegisterVehicleImagePanel(
+                            isDark: isDark,
+                            setDialogState: setDialogState,
+                          );
+                          final formPanel = Form(
+                            key: formKey,
+                            child: _buildRegisterVehicleFields(
+                              isDark: isDark,
+                              category: category,
+                              vehicleType: vehicleType,
+                              fuelType: fuelType,
+                              transmission: transmission,
+                              status: status,
+                              onCategoryChanged: (value) => setDialogState(
+                                () => category = value ?? category,
+                              ),
+                              onVehicleTypeChanged: (value) => setDialogState(
+                                () => vehicleType = value ?? vehicleType,
+                              ),
+                              onFuelTypeChanged: (value) => setDialogState(
+                                () => fuelType = value ?? fuelType,
+                              ),
+                              onTransmissionChanged: (value) => setDialogState(
+                                () => transmission = value ?? transmission,
+                              ),
+                              onStatusChanged: (value) => setDialogState(
+                                () => status = value ?? status,
+                              ),
+                              setDialogState: setDialogState,
+                            ),
+                          );
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.all(38),
+                            child: compact
+                                ? Column(
+                                    children: [
+                                      imagePanel,
+                                      const SizedBox(height: 28),
+                                      formPanel,
+                                    ],
+                                  )
+                                : Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SizedBox(width: 285, child: imagePanel),
+                                      const SizedBox(width: 38),
+                                      Expanded(child: formPanel),
+                                    ],
+                                  ),
+                          );
+                        },
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(30, 18, 30, 22),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: _isSubmittingVehicle
+                                ? null
+                                : () => Navigator.pop(dialogContext),
+                            style: TextButton.styleFrom(
+                              foregroundColor: isDark
+                                  ? Colors.white70
+                                  : Colors.blueGrey.shade700,
+                              minimumSize: const Size(110, 52),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 16,
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: _isSubmittingVehicle
+                                ? null
+                                : () async {
+                                    if (!(formKey.currentState?.validate() ??
+                                        false)) {
+                                      return;
+                                    }
+                                    final saved = await _saveOperatorVehicle(
+                                      category: category,
+                                      vehicleType: vehicleType,
+                                      fuelType: fuelType,
+                                      transmission: transmission,
+                                      status: status,
+                                      setDialogState: setDialogState,
+                                    );
+                                    if (saved && dialogContext.mounted) {
+                                      Navigator.pop(dialogContext);
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _operatorGold,
+                              foregroundColor: _operatorNavyDeep,
+                              elevation: 0,
+                              minimumSize: const Size(190, 54),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 30,
+                                vertical: 17,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: _isSubmittingVehicle
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: _operatorNavyDeep,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.add_circle_outline_rounded,
+                                    size: 20,
+                                  ),
+                            label: Text(
+                              _isSubmittingVehicle
+                                  ? 'Adding Vehicle...'
+                                  : 'Add Vehicle',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRegisterVehicleImagePanel({
+    required bool isDark,
+    required void Function(VoidCallback callback) setDialogState,
+  }) {
+    final borderColor = isDark ? Colors.white24 : Colors.blueGrey.shade200;
+    Future<void> pickImages() async {
+      final images = await _imagePicker.pickMultiImage(imageQuality: 88);
+      if (images.isEmpty) return;
+      setDialogState(() {
+        final remaining = 5 - _selectedImages.length;
+        if (remaining > 0) _selectedImages.addAll(images.take(remaining));
+      });
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'VEHICLE IMAGES',
+          style: TextStyle(
+            color: _operatorGold,
+            fontSize: 10,
+            letterSpacing: 0.8,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: pickImages,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            height: 220,
+            width: double.infinity,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.025)
+                  : const Color(0xFFF7F9FA),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderColor, width: 1.2),
+            ),
+            child: _selectedImages.isNotEmpty
+                ? Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildImageWidget(
+                        _selectedImages.first,
+                        fit: BoxFit.cover,
+                        borderRadius: BorderRadius.circular(17),
+                      ),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _operatorNavyDeep.withValues(alpha: 0.88),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${_selectedImages.length}/5 images',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          color: _operatorNavy.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.cloud_upload_outlined,
+                          color: _operatorGold,
+                          size: 30,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Upload vehicle images',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : _operatorInk,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'JPG or PNG - up to 5 images',
+                        style: TextStyle(
+                          color: isDark ? Colors.white38 : Colors.blueGrey,
+                          fontSize: 10,
+                        ),
+                      ),
+                      const SizedBox(height: 13),
+                      const Text(
+                        'Browse files',
+                        style: TextStyle(
+                          color: _operatorGold,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+        if (_selectedImages.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 62,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _selectedImages.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) => Stack(
+                children: [
+                  SizedBox(
+                    width: 70,
+                    child: _buildImageWidget(
+                      _selectedImages[index],
+                      fit: BoxFit.cover,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  Positioned(
+                    top: 3,
+                    right: 3,
+                    child: InkWell(
+                      onTap: () => setDialogState(
+                        () => _selectedImages.removeAt(index),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _selectedImages.length >= 5 ? null : pickImages,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _operatorGold,
+              side: BorderSide(color: borderColor),
+              minimumSize: const Size(double.infinity, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(13),
+              ),
+            ),
+            icon: const Icon(Icons.add_photo_alternate_outlined, size: 19),
+            label: const Text(
+              'Add More Images',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRegisterVehicleFields({
+    required bool isDark,
+    required String category,
+    required String vehicleType,
+    required String fuelType,
+    required String transmission,
+    required String status,
+    required ValueChanged<String?> onCategoryChanged,
+    required ValueChanged<String?> onVehicleTypeChanged,
+    required ValueChanged<String?> onFuelTypeChanged,
+    required ValueChanged<String?> onTransmissionChanged,
+    required ValueChanged<String?> onStatusChanged,
+    required void Function(VoidCallback callback) setDialogState,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 620 ? 3 : 1;
+        const gap = 18.0;
+        final fieldWidth = columns == 1
+            ? constraints.maxWidth
+            : (constraints.maxWidth - gap * (columns - 1)) / columns;
+        Widget field(Widget child, {bool fullWidth = false}) => SizedBox(
+          width: fullWidth ? constraints.maxWidth : fieldWidth,
+          child: child,
+        );
+        final currentYear = DateTime.now().year;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: 18,
+          children: [
+            field(
+              _registerVehicleField(
+                label: 'Brand',
+                hint: 'e.g. Toyota',
+                controller: _brandController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Model',
+                hint: 'e.g. Innova',
+                controller: _modelController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Year',
+                hint: '$currentYear',
+                controller: _yearController,
+                isDark: isDark,
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  final year = int.tryParse(value?.trim() ?? '');
+                  if (year == null || year < 1900 || year > currentYear + 1) {
+                    return 'Enter a valid vehicle year';
+                  }
+                  return null;
+                },
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Plate Number',
+                hint: 'ABC 1234',
+                controller: _plateController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleDropdown(
+                label: 'Transmission',
+                value: transmission,
+                options: const ['Automatic', 'Manual', 'CVT'],
+                isDark: isDark,
+                onChanged: onTransmissionChanged,
+              ),
+            ),
+            field(
+              _registerVehicleDropdown(
+                label: 'Category',
+                value: category,
+                options: const ['Sedan', 'SUV', 'Van', 'Pickup', 'Hatchback'],
+                isDark: isDark,
+                onChanged: onCategoryChanged,
+              ),
+            ),
+            field(
+              _registerVehicleDropdown(
+                label: 'Vehicle Type',
+                value: vehicleType,
+                options: const ['Sedan', 'SUV', 'Van', 'Pickup', 'Hatchback'],
+                isDark: isDark,
+                onChanged: onVehicleTypeChanged,
+              ),
+            ),
+            field(
+              _registerVehicleDropdown(
+                label: 'Fuel Type',
+                value: fuelType,
+                options: const [
+                  'Diesel',
+                  'Premium',
+                  'Unleaded',
+                  'Gasoline',
+                  'Electric',
+                  'Hybrid',
+                ],
+                isDark: isDark,
+                onChanged: onFuelTypeChanged,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Color',
+                hint: 'e.g. Pearl White',
+                controller: _colorController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Vehicle Name',
+                hint: 'Display name',
+                controller: _vehicleNameController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Seats',
+                hint: '5',
+                controller: _seatsController,
+                isDark: isDark,
+                keyboardType: TextInputType.number,
+                validator: _positiveNumberVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleDropdown(
+                label: 'Active Status',
+                value: status,
+                options: const ['active', 'inactive', 'maintenance'],
+                isDark: isDark,
+                onChanged: onStatusChanged,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Price / Day (PHP)',
+                hint: '0.00',
+                controller: _priceController,
+                isDark: isDark,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: _positiveNumberVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Price / Hour (PHP)',
+                hint: '0.00',
+                controller: _pricePerHourController,
+                isDark: isDark,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: _positiveNumberVehicleField,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Location',
+                hint: 'Vehicle location',
+                controller: _locationController,
+                isDark: isDark,
+                validator: _requiredVehicleField,
+                suffixIcon: IconButton(
+                  tooltip: 'Use current location',
+                  onPressed: () => _getCurrentVehicleLocation(
+                    onLocationFound: (location, latitude, longitude) {
+                      setDialogState(() {
+                        _locationController.text = location;
+                        _latitudeController.text = latitude;
+                        _longitudeController.text = longitude;
+                      });
+                    },
+                  ),
+                  icon: const Icon(
+                    Icons.my_location_rounded,
+                    color: _operatorGold,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Vehicle Description',
+                hint: 'Add features, condition, and other important details...',
+                controller: _descriptionController,
+                isDark: isDark,
+                maxLines: 3,
+                validator: _requiredVehicleField,
+              ),
+              fullWidth: true,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLegacyAddVehicleDialog(bool isDark) {
     showDialog(
       context: context,
       barrierDismissible: false,

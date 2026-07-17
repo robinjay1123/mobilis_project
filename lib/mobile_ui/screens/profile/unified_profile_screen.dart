@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
+import '../../../services/loyalty_reward_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../utils/input_validation.dart';
@@ -51,9 +52,13 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     with SingleTickerProviderStateMixin {
   Map<String, dynamic>? _profile;
   Map<String, dynamic>? _verification;
+  LoyaltyRewardState? _loyaltyReward;
   bool _isLoading = true;
+  bool _isRedeemingReward = false;
   late final ScrollController _scrollController;
   late final AnimationController _photoController;
+  final GlobalKey _loyaltySectionKey = GlobalKey();
+  RealtimeChannel? _loyaltyBookingsSubscription;
 
   @override
   void initState() {
@@ -65,12 +70,14 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       reverseDuration: const Duration(milliseconds: 340),
     );
     _loadProfile();
+    _setupLoyaltyListener();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     _photoController.dispose();
+    _loyaltyBookingsSubscription?.unsubscribe();
     super.dispose();
   }
 
@@ -104,16 +111,57 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     setState(() => _isLoading = true);
     final profile = await AuthService().getCurrentUserProfile();
     Map<String, dynamic>? verification;
+    LoyaltyRewardState? loyaltyReward;
     final userId = AuthService().currentUser?.id;
     if (userId != null) {
       verification = await VerificationService.getUserVerification(userId);
+      if (_isRenter) {
+        loyaltyReward = await LoyaltyRewardService().load(userId);
+      }
     }
     if (!mounted) return;
     setState(() {
       _profile = profile;
       _verification = verification;
+      _loyaltyReward = loyaltyReward;
       _isLoading = false;
     });
+  }
+
+  bool get _isRenter => widget.role.trim().toLowerCase() == 'renter';
+
+  void _setupLoyaltyListener() {
+    if (!_isRenter) return;
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+
+    _loyaltyBookingsSubscription = Supabase.instance.client
+        .channel('renter-loyalty-$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'renter_id',
+            value: userId,
+          ),
+          callback: (_) => _refreshLoyaltyReward(),
+        )
+        .subscribe();
+  }
+
+  Future<void> _refreshLoyaltyReward() async {
+    final userId = AuthService().currentUser?.id;
+    if (!_isRenter || userId == null) return;
+    LoyaltyRewardState? reward;
+    try {
+      reward = await LoyaltyRewardService().load(userId);
+    } catch (error) {
+      debugPrint('Error refreshing loyalty reward: $error');
+    }
+    if (!mounted) return;
+    if (reward != null) setState(() => _loyaltyReward = reward);
   }
 
   void _toggleProfilePhoto() {
@@ -437,6 +485,10 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                     avatarUrl: avatarUrl,
                   ),
                   const SizedBox(height: 18),
+                  if (_isRenter) ...[
+                    _loyaltyRewardsCard(),
+                    const SizedBox(height: 18),
+                  ],
                   _settingsTile(
                     icon: widget.isDarkMode
                         ? Icons.dark_mode
@@ -866,11 +918,15 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
 
   Widget _stat(ProfileStatItem item) {
     final normalizedLabel = item.label.toLowerCase();
+    final isLoyalty = normalizedLabel.contains('loyalty');
     final fallbackAction = normalizedLabel.contains('rating')
         ? _openRatings
-        : normalizedLabel.contains('loyalty')
-        ? _openVerificationSummary
+        : isLoyalty
+        ? _scrollToLoyalty
         : null;
+    final displayValue = isLoyalty && _loyaltyReward != null
+        ? '${_loyaltyReward!.progressTrips}/12'
+        : item.value;
     return InkWell(
       onTap: item.onTap ?? fallbackAction,
       borderRadius: BorderRadius.circular(14),
@@ -879,7 +935,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         child: Column(
           children: [
             Text(
-              item.value,
+              displayValue,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -904,6 +960,313 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         ),
       ),
     );
+  }
+
+  void _scrollToLoyalty() {
+    final targetContext = _loyaltySectionKey.currentContext;
+    if (targetContext == null) return;
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      alignment: 0.08,
+    );
+  }
+
+  Widget _loyaltyRewardsCard() {
+    final reward = _loyaltyReward;
+    final successfulTrips = reward?.successfulTrips ?? 0;
+    final progressTrips = reward?.progressTrips ?? 0;
+    final remainingTrips = reward?.remainingTrips ?? 12;
+    final progress = reward?.progress ?? 0;
+    final isRedeemed = reward?.isRedeemed ?? false;
+    final isExpired = reward?.isExpired ?? false;
+    final canRedeem = reward?.canRedeem ?? false;
+    final storageReady = reward?.storageReady ?? true;
+    final expiryText = reward == null
+        ? 'Loading membership...'
+        : _formatProfileDate(reward.membershipExpiresAt);
+    final statusText = isRedeemed
+        ? 'Redeemed'
+        : isExpired
+        ? 'Expired'
+        : 'Active';
+    final statusColor = isRedeemed
+        ? AppColors.success
+        : isExpired
+        ? AppColors.error
+        : AppColors.primary;
+    final helperText = isRedeemed
+        ? 'Reward claimed. Keep completing trips for your next cycle.'
+        : successfulTrips == 0
+        ? 'Complete your first successful trip to start earning your reward.'
+        : remainingTrips == 0
+        ? 'Your reward is ready to claim.'
+        : 'Complete $remainingTrips more trip${remainingTrips == 1 ? '' : 's'} to unlock your reward.';
+
+    return Container(
+      key: _loyaltySectionKey,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _squareIcon(Icons.workspace_premium_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Loyalty & Rewards',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Membership valid until: $expiryText',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.5)),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '$progressTrips / 12 Successful Trips',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${(progress * 100).round()}%',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 10,
+              backgroundColor: AppColors.darkBg,
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              for (var index = 1; index <= 12; index++)
+                Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: index <= progressTrips
+                        ? AppColors.primary
+                        : AppColors.darkBg,
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(
+                      color: index <= progressTrips
+                          ? AppColors.primary
+                          : AppColors.borderColor,
+                    ),
+                  ),
+                  child: index <= progressTrips
+                      ? const Icon(
+                          Icons.check_rounded,
+                          color: Colors.black,
+                          size: 14,
+                        )
+                      : Text(
+                          '$index',
+                          style: const TextStyle(
+                            color: AppColors.textTertiary,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            helperText,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (!storageReady) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Reward redemption will be available after database sync.',
+              style: TextStyle(
+                color: AppColors.warning,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: canRedeem && !_isRedeemingReward
+                  ? _redeemLoyaltyReward
+                  : null,
+              icon: _isRedeemingReward
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      isRedeemed
+                          ? Icons.verified_rounded
+                          : Icons.card_giftcard_rounded,
+                      size: 18,
+                    ),
+              label: Text(
+                isRedeemed ? 'Reward Redeemed' : 'Redeem Your Reward',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                disabledBackgroundColor: AppColors.darkBg,
+                foregroundColor: Colors.black,
+                disabledForegroundColor: AppColors.textTertiary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _redeemLoyaltyReward() async {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null || _isRedeemingReward) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Redeem reward?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'This will mark your current loyalty reward as redeemed.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              'Redeem',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _isRedeemingReward = true);
+    try {
+      final reward = await LoyaltyRewardService().redeem(userId);
+      if (!mounted) return;
+      setState(() => _loyaltyReward = reward);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Loyalty reward redeemed.')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to redeem reward: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _isRedeemingReward = false);
+    }
+  }
+
+  String _formatProfileDate(DateTime value) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${months[value.month - 1]} ${value.day}, ${value.year}';
   }
 
   Widget _settingsTile({

@@ -100,6 +100,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // 📅 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
+  RealtimeChannel? _conversationMembershipSubscription;
+  RealtimeChannel? _messagesSubscription;
+  Set<String> _messageConversationIds = const {};
+  Timer? _conversationReloadDebounce;
   StreamSubscription<Map<String, dynamic>>? _pushNotificationTapSubscription;
 
   final List<Map<String, dynamic>> categories = [
@@ -138,6 +142,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadNotifications(); // 🔔 Load notifications
     _setupNotificationsListener(); // 🔔 Listen for new notifications
     _setupBookingsListener(); // 📅 Listen for booking updates
+    _setupConversationMembershipListener();
   }
 
   @override
@@ -148,6 +153,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _notificationsSubscription
         ?.unsubscribe(); // ✅ Clean up notifications listener
     _bookingsSubscription?.unsubscribe(); // ✅ Clean up bookings listener
+    _conversationMembershipSubscription?.unsubscribe();
+    _messagesSubscription?.unsubscribe();
+    _conversationReloadDebounce?.cancel();
     super.dispose();
   }
 
@@ -503,15 +511,82 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _conversations = hydratedConversations;
         });
+        unawaited(
+          _refreshMessageSubscription(
+            hydratedConversations
+                .map((conversation) => conversation['id']?.toString())
+                .whereType<String>()
+                .where((id) => id.isNotEmpty)
+                .toSet(),
+          ),
+        );
       }
-    } catch (e) {
-      debugPrint('Error loading conversations: ');
+    } catch (e, stackTrace) {
+      debugPrint('Error loading renter conversations: $e');
+      debugPrintStack(stackTrace: stackTrace);
       if (mounted) {
         setState(() {
           _conversations = [];
         });
       }
     }
+  }
+
+  void _setupConversationMembershipListener() {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    _conversationMembershipSubscription = Supabase.instance.client
+        .channel('renter-conversation-membership-${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'conversation_participants',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user.id,
+          ),
+          callback: (_) => _scheduleConversationReload(),
+        )
+        .subscribe();
+  }
+
+  Future<void> _refreshMessageSubscription(Set<String> conversationIds) async {
+    if (_messageConversationIds.length == conversationIds.length &&
+        _messageConversationIds.containsAll(conversationIds)) {
+      return;
+    }
+
+    await _messagesSubscription?.unsubscribe();
+    _messagesSubscription = null;
+    _messageConversationIds = Set<String>.unmodifiable(conversationIds);
+    if (conversationIds.isEmpty || !mounted) return;
+
+    var channel = Supabase.instance.client.channel(
+      'renter-messages-${AuthService().currentUser?.id ?? 'anonymous'}',
+    );
+    for (final conversationId in conversationIds) {
+      channel = channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'messages',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'conversation_id',
+          value: conversationId,
+        ),
+        callback: (_) => _scheduleConversationReload(),
+      );
+    }
+    _messagesSubscription = channel.subscribe();
+  }
+
+  void _scheduleConversationReload() {
+    _conversationReloadDebounce?.cancel();
+    _conversationReloadDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) unawaited(_loadConversations());
+    });
   }
 
   void _setupNotificationsListener() {
