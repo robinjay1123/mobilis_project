@@ -215,7 +215,28 @@ class ChatService {
         conversation,
       );
     }
-    return conversations;
+    return conversations.where(_isVisibleConversation).toList();
+  }
+
+  bool _isVisibleConversation(Map<String, dynamic> conversation) {
+    final booking = conversation['bookings'];
+    if (booking is! Map) return true;
+
+    final conversationStatus =
+        conversation['status']?.toString().trim().toLowerCase() ?? 'active';
+    if (conversationStatus == 'closed' || conversationStatus == 'archived') {
+      return false;
+    }
+
+    final bookingStatus =
+        booking['status']?.toString().trim().toLowerCase() ?? '';
+    const visibleBookingStatuses = {
+      'approved',
+      'confirmed',
+      'active',
+      'ongoing',
+    };
+    return visibleBookingStatuses.contains(bookingStatus);
   }
 
   String _conversationVehicleImageUrl(Map<String, dynamic> conversation) {
@@ -1003,11 +1024,7 @@ class ChatService {
           .toSet()
           .toList();
 
-      final existing = await supabase
-          .from('conversations')
-          .select()
-          .eq('booking_id', bookingId)
-          .maybeSingle();
+      final existing = await _firstBookingConversation(bookingId);
 
       final conversation =
           existing ??
@@ -1048,13 +1065,7 @@ class ChatService {
           .toSet()
           .toList();
 
-      if (uniqueParticipantIds.isEmpty) return;
-
-      final conversation = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('booking_id', bookingId)
-          .maybeSingle();
+      final conversation = await _firstBookingConversation(bookingId);
 
       if (conversation == null) return;
 
@@ -1079,12 +1090,14 @@ class ChatService {
           })
           .toList();
 
-      if (participantRecords.isEmpty) return;
+      if (participantRecords.isNotEmpty) {
+        await supabase
+            .from('conversation_participants')
+            .upsert(participantRecords, onConflict: 'conversation_id,user_id');
+      }
 
-      await supabase
-          .from('conversation_participants')
-          .upsert(participantRecords, onConflict: 'conversation_id,user_id');
-
+      // Reactivate the same booking GC even when all participants already
+      // exist. Previously the early return left repaired chats closed.
       await supabase
           .from('conversations')
           .update({
@@ -1101,6 +1114,19 @@ class ChatService {
       debugPrint('Unexpected error adding group participants: $e');
       rethrow;
     }
+  }
+
+  Future<Map<String, dynamic>?> _firstBookingConversation(
+    String bookingId,
+  ) async {
+    final rows = await supabase
+        .from('conversations')
+        .select()
+        .eq('booking_id', bookingId)
+        .order('created_at', ascending: true)
+        .limit(1);
+    final conversations = List<Map<String, dynamic>>.from(rows);
+    return conversations.isEmpty ? null : conversations.first;
   }
 
   // Close a conversation (typically when booking is completed/cancelled)

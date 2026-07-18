@@ -18,16 +18,24 @@ class SettingsScreen extends StatefulWidget {
     super.key,
     this.onThemeToggle,
     this.isDarkMode = true,
+    this.showHeader = true,
+    this.showAppearance = false,
+    this.showSignOut = false,
     this.onBack,
     this.onOpenSupport,
     this.onProfileUpdated,
+    this.onSignOut,
   });
 
   final Function(bool)? onThemeToggle;
   final bool isDarkMode;
+  final bool showHeader;
+  final bool showAppearance;
+  final bool showSignOut;
   final VoidCallback? onBack;
   final VoidCallback? onOpenSupport;
   final VoidCallback? onProfileUpdated;
+  final VoidCallback? onSignOut;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -254,7 +262,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: _backgroundColor(context),
         child: Column(
           children: [
-            _SettingsHeader(title: 'Settings', onBack: _goBack),
+            if (widget.showHeader)
+              _SettingsHeader(title: 'Settings', onBack: _goBack),
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -265,6 +274,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
                       children: [
+                        if (widget.showAppearance) ...[
+                          _SettingsSection(
+                            title: 'Appearance',
+                            children: [
+                              _SettingsMenuRow(
+                                icon: widget.isDarkMode
+                                    ? Icons.dark_mode_outlined
+                                    : Icons.light_mode_outlined,
+                                title: 'Dark Mode',
+                                subtitle: widget.isDarkMode
+                                    ? 'Dark appearance is enabled'
+                                    : 'Light appearance is enabled',
+                                trailing: Switch(
+                                  value: widget.isDarkMode,
+                                  onChanged: widget.onThemeToggle,
+                                  activeThumbColor: AppColors.primary,
+                                ),
+                                onTap: () => widget.onThemeToggle?.call(
+                                  !widget.isDarkMode,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                        ],
                         _SettingsSection(
                           title: 'My Account',
                           children: [
@@ -343,6 +377,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ],
                         ),
+                        if (widget.showSignOut) ...[
+                          const SizedBox(height: 24),
+                          _SettingsSection(
+                            title: 'Account',
+                            children: [
+                              _SettingsMenuRow(
+                                icon: Icons.logout_rounded,
+                                title: 'Sign Out',
+                                subtitle: 'Sign out of the operator portal',
+                                foregroundColor: AppColors.error,
+                                showChevron: false,
+                                onTap: widget.onSignOut ?? () {},
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
             ),
@@ -470,12 +520,16 @@ class _SettingsMenuRow extends StatelessWidget {
     required this.onTap,
     this.subtitle,
     this.foregroundColor,
+    this.trailing,
+    this.showChevron = true,
   });
 
   final IconData icon;
   final String title;
   final String? subtitle;
   final Color? foregroundColor;
+  final Widget? trailing;
+  final bool showChevron;
   final VoidCallback onTap;
 
   @override
@@ -538,11 +592,14 @@ class _SettingsMenuRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: _secondaryTextColor(context),
-                  size: 23,
-                ),
+                if (trailing != null)
+                  trailing!
+                else if (showChevron)
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: _secondaryTextColor(context),
+                    size: 23,
+                  ),
               ],
             ),
           ),

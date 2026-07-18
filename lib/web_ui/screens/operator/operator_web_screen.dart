@@ -12,6 +12,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/notification_target.dart';
@@ -90,6 +91,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
   Timer? _bookingFlowRefreshDebounce;
+  Timer? _conversationFlowRefreshDebounce;
   RealtimeChannel? _bookingFlowChannel;
   RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
@@ -144,6 +146,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void dispose() {
     _trackingRefreshTimer?.cancel();
     _bookingFlowRefreshDebounce?.cancel();
+    _conversationFlowRefreshDebounce?.cancel();
     _bookingFlowChannel?.unsubscribe();
     _conversationMessagesChannel?.unsubscribe();
     _brandController.dispose();
@@ -174,15 +177,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final channelName =
         'operator-booking-flow-${_supabase.auth.currentUser?.id ?? 'guest'}';
     _bookingFlowChannel = _supabase.realtime.channel(channelName);
-    void refreshFlow(PostgresChangePayload payload) {
+
+    void refreshDashboard(PostgresChangePayload payload) {
       if (!mounted) return;
       _bookingFlowRefreshDebounce?.cancel();
       _bookingFlowRefreshDebounce = Timer(
         const Duration(milliseconds: 350),
         () {
-          _loadDashboardData();
-          _loadConversations();
+          _loadDashboardData(showLoading: false);
         },
+      );
+    }
+
+    void refreshConversations(PostgresChangePayload payload) {
+      if (!mounted) return;
+      _conversationFlowRefreshDebounce?.cancel();
+      _conversationFlowRefreshDebounce = Timer(
+        const Duration(milliseconds: 300),
+        () => _loadConversations(),
       );
     }
 
@@ -191,13 +203,90 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'bookings',
-          callback: refreshFlow,
+          callback: refreshDashboard,
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'driver_job_assignments',
-          callback: refreshFlow,
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'vehicles',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'vehicle_images',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'vehicle_applications',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'partner_vehicles',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'partner_vehicle_applications',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'users',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'drivers',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'tracking_locations',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: _supabase.auth.currentUser?.id ?? '',
+          ),
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'conversations',
+          callback: refreshConversations,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'conversation_participants',
+          callback: refreshConversations,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'messages',
+          callback: refreshConversations,
         )
         .subscribe();
   }
@@ -290,8 +379,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
-  Future<void> _loadDashboardData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadDashboardData({bool showLoading = true}) async {
+    if (showLoading && mounted) setState(() => _isLoading = true);
     try {
       await Future.wait([
         _loadStats(),
@@ -303,8 +392,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ]);
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (showLoading) _isLoading = false;
+        });
+      }
     }
-    setState(() => _isLoading = false);
   }
 
   Future<void> _loadNotifications() async {
@@ -384,42 +478,89 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
-    Map<String, dynamic>? conversation;
-    for (final item in _conversations) {
-      if (item['booking_id']?.toString() == bookingId) {
-        conversation = item;
-        break;
-      }
-    }
-
-    if (conversation == null) {
-      await _loadConversations();
+    try {
+      Map<String, dynamic>? conversation;
       for (final item in _conversations) {
         if (item['booking_id']?.toString() == bookingId) {
           conversation = item;
           break;
         }
       }
-    }
 
-    if (!mounted) return;
-    final conversationId = conversation?['id']?.toString() ?? '';
-    if (conversationId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'The booking conversation is not ready yet. Refresh and try again.',
+      if (conversation == null) {
+        final operatorId = _supabase.auth.currentUser?.id;
+        await BookingService().ensureBookingConversationForActiveBooking(
+          bookingId: bookingId,
+          operatorId: operatorId,
+        );
+        await _loadConversations();
+
+        for (final item in _conversations) {
+          if (item['booking_id']?.toString() == bookingId) {
+            conversation = item;
+            break;
+          }
+        }
+      }
+
+      // Realtime/list refreshes can arrive a little later than the insert.
+      // Fetch the newly-created row directly so the Message action works now.
+      if (conversation == null) {
+        final rows = await _supabase
+            .from('conversations')
+            .select(
+              'id, booking_id, user_id, other_user_id, status, created_at, updated_at',
+            )
+            .eq('booking_id', bookingId)
+            .eq('status', 'active')
+            .order('created_at', ascending: true)
+            .limit(1);
+        final directRows = List<Map<String, dynamic>>.from(rows);
+        if (directRows.isNotEmpty) {
+          conversation = {...directRows.first, 'bookings': booking};
+          _conversations.removeWhere(
+            (item) => item['booking_id']?.toString() == bookingId,
+          );
+          _conversations.insert(0, conversation);
+        }
+      }
+
+      if (!mounted) return;
+      final conversationId = conversation?['id']?.toString() ?? '';
+      if (conversationId.isEmpty) {
+        final status = booking['status']?.toString() ?? 'pending';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              bookingStatusGroup(status) == BookingStatusGroup.pending
+                  ? 'Finalize this booking first to open its group conversation.'
+                  : 'The booking conversation could not be created. Please try again.',
+            ),
+            backgroundColor: Colors.orange.shade700,
           ),
+        );
+        return;
+      }
+
+      setState(() {
+        _selectedIndex = 2;
+        _selectedConversationId = conversationId;
+      });
+      await _loadConversationMessages(conversationId);
+    } catch (error) {
+      debugPrint(
+        '[Messages] Could not open conversation for $bookingId: $error',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Unable to open the booking conversation right now.',
+          ),
+          backgroundColor: Colors.red.shade700,
         ),
       );
-      return;
     }
-
-    setState(() {
-      _selectedIndex = 2;
-      _selectedConversationId = conversationId;
-    });
-    await _loadConversationMessages(conversationId);
   }
 
   Future<void> _openTrackingForBooking(Map<String, dynamic> booking) async {
@@ -725,7 +866,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             await _supabase
                     .from('partner_vehicles')
                     .select(
-                      '*, partners:partner_id(id,user_id,business_name,users:user_id(full_name,email))',
+                      '*, partners:partner_id(id,user_id,business_name,business_address,business_phone,users:user_id(full_name,email,phone))',
                     )
                     .order('created_at', ascending: false)
                 as List;
@@ -795,6 +936,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ..['partner_vehicle_id'] = partnerVehicleId
               ..['is_partner_vehicle'] = true
               ..['partner_name'] = partnerName
+              ..['partner_email'] = partnerUser['email']
+              ..['partner_phone'] =
+                  partner['business_phone'] ?? partnerUser['phone']
+              ..['partner_address'] = partner['business_address']
               ..['owner_name'] = partnerName
               ..['vehicle_images'] = images
               ..['image_url'] = images.isNotEmpty
@@ -829,7 +974,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (vehicle == null || vehicle.isEmpty) return '';
 
     final directImageUrl = vehicle['image_url']?.toString().trim() ?? '';
-    if (directImageUrl.isNotEmpty) return directImageUrl;
+    if (directImageUrl.isNotEmpty) {
+      return _normalizeVehicleImageUrl(directImageUrl);
+    }
 
     final images = vehicle['vehicle_images'];
     if (images is! List) return '';
@@ -838,9 +985,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (image is! Map) continue;
       final imageMap = Map<String, dynamic>.from(image);
       final imageUrl = imageMap['image_url']?.toString().trim() ?? '';
-      if (imageUrl.isNotEmpty) return imageUrl;
+      if (imageUrl.isNotEmpty) return _normalizeVehicleImageUrl(imageUrl);
     }
 
+    return '';
+  }
+
+  String _normalizeVehicleImageUrl(String value) {
+    var imageUrl = value.trim();
+    if (imageUrl.isEmpty ||
+        imageUrl.startsWith('http://') ||
+        imageUrl.startsWith('https://') ||
+        imageUrl.startsWith('data:')) {
+      return imageUrl;
+    }
+
+    imageUrl = imageUrl.replaceFirst(RegExp(r'^/+'), '');
+    if (imageUrl.startsWith('$_vehicleImagesBucket/')) {
+      imageUrl = imageUrl.substring(_vehicleImagesBucket.length + 1);
+    }
+    return _supabase.storage.from(_vehicleImagesBucket).getPublicUrl(imageUrl);
+  }
+
+  String _notificationVehicleImageUrl(Map<String, dynamic> notification) {
+    final target = resolveNotificationTarget(notification);
+    final directImage =
+        target.data['vehicle_image_url']?.toString().trim() ??
+        target.data['image_url']?.toString().trim() ??
+        '';
+    if (directImage.isNotEmpty) return _normalizeVehicleImageUrl(directImage);
+
+    final bookingId = target.bookingId;
+    if (bookingId == null || bookingId.isEmpty) return '';
+    for (final booking in _recentBookings) {
+      if (booking['id']?.toString() != bookingId) continue;
+      final vehicle = booking['vehicles'];
+      if (vehicle is Map) {
+        return _primaryVehicleImageUrl(Map<String, dynamic>.from(vehicle));
+      }
+    }
     return '';
   }
 
@@ -862,8 +1045,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           backgroundColor: action == 'approved' ? Colors.green : Colors.red,
         ),
       );
-      _loadDashboardData();
-      _loadConversations();
+      await Future.wait([
+        _loadDashboardData(showLoading: false),
+        _loadConversations(),
+      ]);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -1709,149 +1894,306 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'Other',
     ];
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (context) {
-        String? selectedReason;
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        String selectedReason = reasons.first;
         return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            titlePadding: const EdgeInsets.fromLTRB(24, 22, 16, 14),
-            contentPadding: const EdgeInsets.fromLTRB(24, 6, 24, 12),
-            actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 22),
-            title: Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.close_rounded, color: Colors.red),
+          builder: (context, setDialogState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final surface = isDark
+                ? const Color(0xFF263247)
+                : const Color(0xFFF5F6F8);
+            final border = isDark
+                ? const Color(0xFF46536A)
+                : const Color(0xFFD6DAE1);
+            final secondary = isDark
+                ? Colors.blueGrey.shade200
+                : Colors.blueGrey.shade700;
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
+              backgroundColor: isDark ? const Color(0xFF1B2638) : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 540,
+                  maxHeight: 760,
                 ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Decline Reservation',
-                        style: TextStyle(fontSize: 19),
-                      ),
-                      Text(
-                        'Select a clear reason for the renter.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.normal,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded),
-                ),
-              ],
-            ),
-            content: SizedBox(
-              width: 500,
-              child: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Reason for decline',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 10),
-                    ...reasons.map(
-                      (reason) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: InkWell(
-                          onTap: () =>
-                              setDialogState(() => selectedReason = reason),
-                          borderRadius: BorderRadius.circular(13),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 12, 18),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
                             decoration: BoxDecoration(
-                              border: Border.all(
-                                color: selectedReason == reason
-                                    ? _operatorGold
-                                    : Colors.grey.shade300,
-                              ),
-                              borderRadius: BorderRadius.circular(13),
+                              color: Colors.red.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            child: Row(
+                            child: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Radio<String>(
-                                  value: reason,
-                                  groupValue: selectedReason,
-                                  activeColor: _operatorGold,
-                                  onChanged: (value) => setDialogState(
-                                    () => selectedReason = value,
+                                const Text(
+                                  'Decline Reservation',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
-                                Expanded(child: Text(reason)),
+                                const SizedBox(height: 3),
+                                Text(
+                                  'Select a clear reason for the renter.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: secondary,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(height: 1, color: border.withOpacity(0.65)),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Reason for decline',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...reasons.map((reason) {
+                              final selected = selectedReason == reason;
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: Material(
+                                  color: selected
+                                      ? _operatorGold.withOpacity(0.08)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: InkWell(
+                                    onTap: () => setDialogState(
+                                      () => selectedReason = reason,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 160,
+                                      ),
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 14,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: selected
+                                              ? _operatorGold
+                                              : border,
+                                          width: selected ? 1.5 : 1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          AnimatedContainer(
+                                            duration: const Duration(
+                                              milliseconds: 160,
+                                            ),
+                                            width: 20,
+                                            height: 20,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: selected
+                                                    ? _operatorGold
+                                                    : secondary,
+                                                width: 2,
+                                              ),
+                                            ),
+                                            alignment: Alignment.center,
+                                            child: selected
+                                                ? Container(
+                                                    width: 9,
+                                                    height: 9,
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                          color: _operatorGold,
+                                                          shape:
+                                                              BoxShape.circle,
+                                                        ),
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              reason,
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Additional comments for renter',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: reasonController,
+                              minLines: 3,
+                              maxLines: 4,
+                              decoration: InputDecoration(
+                                hintText:
+                                    'Provide details to help the renter understand the decision...',
+                                hintStyle: TextStyle(color: secondary),
+                                filled: true,
+                                fillColor: surface,
+                                contentPadding: const EdgeInsets.all(16),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide.none,
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: BorderSide(color: border),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  borderSide: const BorderSide(
+                                    color: _operatorGold,
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'The selected reason and comments will be included in the renter notification.',
+                              style: TextStyle(
+                                color: secondary,
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Additional comments',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: reasonController,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        hintText: 'Explain the decision to the renter...',
-                        filled: true,
-                        fillColor: Colors.grey.withOpacity(0.08),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
+                    Divider(height: 1, color: border.withOpacity(0.65)),
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 50,
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(dialogContext),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(color: border),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                  ),
+                                ),
+                                child: const Text('Go Back'),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 2,
+                            child: SizedBox(
+                              height: 50,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  final comments = reasonController.text.trim();
+                                  final reason = comments.isEmpty
+                                      ? selectedReason
+                                      : '$selectedReason: $comments';
+                                  Navigator.pop(dialogContext);
+                                  _rejectBooking(bookingId, reason);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade700,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.block_outlined,
+                                  size: 17,
+                                ),
+                                label: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    'Confirm Decline',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-            actions: [
-              OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Go Back'),
-              ),
-              ElevatedButton.icon(
-                onPressed: selectedReason == null
-                    ? null
-                    : () {
-                        final comments = reasonController.text.trim();
-                        final reason = comments.isEmpty
-                            ? selectedReason!
-                            : '$selectedReason: $comments';
-                        Navigator.pop(context);
-                        _rejectBooking(bookingId, reason);
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.shade700,
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.block_outlined, size: 17),
-                label: const Text('Confirm Decline'),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     ).whenComplete(reasonController.dispose);
@@ -7305,21 +7647,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     notification['message']?.toString() ??
                     notification['body']?.toString() ??
                     '';
-                final createdAt = DateTime.tryParse(
-                  notification['created_at']?.toString() ?? '',
-                );
                 final visual = notificationVisualFor(notification);
+                final vehicleImageUrl = _notificationVehicleImageUrl(
+                  notification,
+                );
 
                 return InkWell(
                   onTap: () => _handleOperatorNotificationTap(notification),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: isRead
                           ? (isDark ? AppColors.darkCard : Colors.white)
                           : AppColors.primary.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: isRead
                             ? (isDark
@@ -7331,13 +7673,74 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          visual.icon,
-                          color: isRead
-                              ? (isDark ? Colors.grey : Colors.grey.shade600)
-                              : visual.color,
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: visual.color.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isRead
+                                      ? Colors.transparent
+                                      : visual.color.withOpacity(0.45),
+                                ),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: vehicleImageUrl.isNotEmpty
+                                  ? OptimizedNetworkImage(
+                                      imageUrl: vehicleImageUrl,
+                                      width: 58,
+                                      height: 58,
+                                      fit: BoxFit.cover,
+                                      placeholder: Center(
+                                        child: SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: visual.color,
+                                          ),
+                                        ),
+                                      ),
+                                      errorWidget: Icon(
+                                        visual.icon,
+                                        color: visual.color,
+                                      ),
+                                    )
+                                  : Icon(
+                                      visual.icon,
+                                      color: isRead
+                                          ? (isDark
+                                                ? Colors.grey
+                                                : Colors.grey.shade600)
+                                          : visual.color,
+                                    ),
+                            ),
+                            if (!isRead)
+                              Positioned(
+                                right: -3,
+                                top: -3,
+                                child: Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isDark
+                                          ? const Color(0xFF101827)
+                                          : Colors.white,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -7345,8 +7748,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               Text(
                                 title,
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                  fontWeight: isRead
+                                      ? FontWeight.w700
+                                      : FontWeight.w800,
                                   color: isDark ? Colors.white : Colors.black,
                                 ),
                               ),
@@ -7362,18 +7767,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                               ],
-                              if (createdAt != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  '${createdAt.day.toString().padLeft(2, '0')} ${_getMonthName(createdAt.month)} ${createdAt.year}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: isDark
-                                        ? Colors.grey[500]
-                                        : Colors.grey.shade500,
-                                  ),
+                              const SizedBox(height: 10),
+                              RelativeTimeText(
+                                value: notification['created_at'],
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark
+                                      ? Colors.grey[500]
+                                      : Colors.grey.shade500,
                                 ),
-                              ],
+                              ),
                             ],
                           ),
                         ),
@@ -7558,20 +7961,77 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading conversations for operator: $currentUserId',
       );
 
+      const activeStatuses = ['approved', 'confirmed', 'active', 'ongoing'];
+      final bookingRows = await _supabase
+          .from('bookings')
+          .select('id, status, operator_id')
+          .inFilter('status', activeStatuses)
+          .order('updated_at', ascending: false);
+      final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
+          .where((booking) {
+            final operatorId = booking['operator_id']?.toString().trim() ?? '';
+            return operatorId.isEmpty || operatorId == currentUserId;
+          })
+          .toList();
+      final bookingIds = eligibleBookings
+          .map((booking) => booking['id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (bookingIds.isEmpty) {
+        _conversations = [];
+        if (mounted) setState(() {});
+        return;
+      }
+
       final participations = await _supabase
           .from('conversation_participants')
           .select('conversation_id')
           .eq('user_id', currentUserId);
 
-      final conversationIds = List<Map<String, dynamic>>.from(participations)
-          .map((row) => row['conversation_id']?.toString())
-          .whereType<String>()
-          .toList();
+      final participantConversationIds =
+          List<Map<String, dynamic>>.from(participations)
+              .map((row) => row['conversation_id']?.toString())
+              .whereType<String>()
+              .toSet();
 
-      if (conversationIds.isEmpty) {
-        _conversations = [];
-        if (mounted) setState(() {});
-        return;
+      final existingRows = await _supabase
+          .from('conversations')
+          .select('id, booking_id, status')
+          .inFilter('booking_id', bookingIds);
+      final existingByBooking = <String, Map<String, dynamic>>{};
+      for (final conversation in List<Map<String, dynamic>>.from(
+        existingRows,
+      )) {
+        final bookingId = conversation['booking_id']?.toString();
+        if (bookingId != null && bookingId.isNotEmpty) {
+          existingByBooking[bookingId] = conversation;
+        }
+      }
+
+      for (final booking in eligibleBookings) {
+        final bookingId = booking['id']?.toString() ?? '';
+        final conversation = existingByBooking[bookingId];
+        final conversationId = conversation?['id']?.toString() ?? '';
+        final conversationStatus =
+            conversation?['status']?.toString().trim().toLowerCase() ?? '';
+        final needsRepair =
+            conversation == null ||
+            conversationStatus != 'active' ||
+            !participantConversationIds.contains(conversationId);
+        if (!needsRepair) continue;
+
+        try {
+          await BookingService().ensureBookingConversationForActiveBooking(
+            bookingId: bookingId,
+            operatorId: currentUserId,
+          );
+        } catch (error) {
+          debugPrint(
+            '[Messages] Could not repair conversation for $bookingId: $error',
+          );
+        }
       }
 
       final response = await _supabase
@@ -7583,6 +8043,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               other_user_id,
               status,
               created_at,
+              updated_at,
               bookings!conversations_booking_id_fkey (
                 id,
                 vehicle_id,
@@ -7603,13 +8064,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               users!conversations_user_id_fkey (id, full_name, email),
               other_users:users!conversations_other_user_id_fkey (id, full_name, email)
             ''')
-          .inFilter('id', conversationIds)
-          .order('created_at', ascending: false);
+          .inFilter('booking_id', bookingIds)
+          .order('updated_at', ascending: false);
 
-      _conversations = List<Map<String, dynamic>>.from(response);
+      final conversationsByBooking = <String, Map<String, dynamic>>{};
+      for (final item in List<Map<String, dynamic>>.from(response)) {
+        final conversationStatus =
+            item['status']?.toString().trim().toLowerCase() ?? 'active';
+        final booking = item['bookings'];
+        final bookingStatus = booking is Map
+            ? booking['status']?.toString().trim().toLowerCase() ?? ''
+            : '';
+        if (conversationStatus != 'active' ||
+            !activeStatuses.contains(bookingStatus)) {
+          continue;
+        }
+        final bookingId = item['booking_id']?.toString().trim() ?? '';
+        if (bookingId.isNotEmpty) {
+          conversationsByBooking.putIfAbsent(bookingId, () => item);
+        }
+      }
+      _conversations = conversationsByBooking.values.toList();
       debugPrint('[Messages] Loaded ${_conversations.length} conversations');
 
-      setState(() {});
+      if (mounted) setState(() {});
     } catch (e) {
       debugPrint('[Messages] Error loading conversations: $e');
     }
@@ -9670,241 +10148,594 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> vehicle,
     bool isDark,
   ) {
-    final imageUrl = _primaryVehicleImageUrl(vehicle);
     final isPartner = vehicle['_source'] == 'partner';
     final owner = isPartner
         ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
         : 'PSDC';
     final available = _operatorVehicleIsAvailable(vehicle);
+    final posted = vehicle['is_posted'] == true;
+    final imageUrls = <String>{};
+    final primaryImageUrl = _primaryVehicleImageUrl(vehicle);
+    if (primaryImageUrl.isNotEmpty) imageUrls.add(primaryImageUrl);
+    for (final image in vehicle['vehicle_images'] as List? ?? const []) {
+      if (image is! Map) continue;
+      final value = image['image_url']?.toString().trim() ?? '';
+      if (value.isNotEmpty) imageUrls.add(_normalizeVehicleImageUrl(value));
+    }
+    final images = imageUrls.toList();
+    var selectedImage = 0;
 
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 940, maxHeight: 760),
-          child: Container(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final surface = isDark ? const Color(0xFF172235) : Colors.white;
+          final mutedSurface = isDark
+              ? const Color(0xFF101B2D)
+              : const Color(0xFFF5F6F7);
+          final foreground = isDark ? Colors.white : _operatorInk;
+          final secondary = isDark
+              ? Colors.grey.shade400
+              : Colors.grey.shade600;
+
+          Widget imagePanel() => Container(
+            height: 300,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF172235) : Colors.white,
-              borderRadius: BorderRadius.circular(22),
+              color: mutedSurface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.grey.shade200,
+              ),
             ),
-            child: Column(
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(26, 20, 16, 18),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 9,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _operatorNavy,
-                                    borderRadius: BorderRadius.circular(7),
-                                  ),
-                                  child: Text(
-                                    vehicle['plate_number']?.toString() ??
-                                        'NO PLATE',
-                                    style: const TextStyle(
-                                      color: _operatorGold,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                _buildOperatorVehicleStatus(available, isDark),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _vehicleTitle(vehicle),
-                              style: TextStyle(
-                                color: isDark ? Colors.white : _operatorInk,
-                                fontSize: 23,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        onPressed: () => Navigator.pop(dialogContext),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(
-                  height: 1,
-                  color: isDark ? Colors.white10 : Colors.grey.shade200,
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(26),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final compact = constraints.maxWidth < 720;
-                        final image = ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Container(
-                            height: compact ? 220 : 330,
-                            color: isDark
-                                ? Colors.white10
-                                : Colors.grey.shade200,
-                            child: imageUrl.isEmpty
-                                ? const Center(
-                                    child: Icon(
-                                      Icons.directions_car_outlined,
-                                      size: 70,
-                                    ),
-                                  )
-                                : OptimizedNetworkImage(
-                                    imageUrl: imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorWidget: const Icon(
-                                      Icons.directions_car_outlined,
-                                      size: 70,
-                                    ),
-                                  ),
-                          ),
-                        );
-                        final details = Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Vehicle Information',
-                              style: TextStyle(
-                                color: isDark ? Colors.white : _operatorInk,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            _operatorVehicleDetailTile(
-                              'Owner',
-                              owner,
-                              Icons.business_outlined,
-                              isDark,
-                            ),
-                            const SizedBox(height: 10),
-                            _operatorVehicleDetailTile(
-                              'Type',
-                              (vehicle['vehicle_type'] ??
-                                      vehicle['category'] ??
-                                      'Not provided')
-                                  .toString(),
-                              Icons.category_outlined,
-                              isDark,
-                            ),
-                            const SizedBox(height: 10),
-                            _operatorVehicleDetailTile(
-                              'Transmission and color',
-                              '${vehicle['transmission'] ?? 'Not provided'} - ${vehicle['color'] ?? 'Not provided'}',
-                              Icons.settings_outlined,
-                              isDark,
-                            ),
-                            const SizedBox(height: 10),
-                            _operatorVehicleDetailTile(
-                              'Rental pricing',
-                              'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}/day - PHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}/hour',
-                              Icons.payments_outlined,
-                              isDark,
-                            ),
-                          ],
-                        );
-                        if (compact) {
-                          return Column(
-                            children: [
-                              image,
-                              const SizedBox(height: 22),
-                              details,
-                            ],
-                          );
-                        }
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: image),
-                            const SizedBox(width: 26),
-                            Expanded(child: details),
-                          ],
-                        );
-                      },
+                if (images.isEmpty)
+                  Center(
+                    child: Icon(
+                      Icons.directions_car_outlined,
+                      size: 72,
+                      color: secondary,
+                    ),
+                  )
+                else
+                  OptimizedNetworkImage(
+                    imageUrl: images[selectedImage],
+                    fit: BoxFit.cover,
+                    errorWidget: Icon(
+                      Icons.directions_car_outlined,
+                      size: 72,
+                      color: secondary,
                     ),
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  color: isDark
-                      ? Colors.black.withOpacity(0.12)
-                      : const Color(0xFFF7F8FA),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        child: const Text('Close'),
+                if (images.length > 1) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _operatorGalleryButton(
+                      Icons.chevron_left_rounded,
+                      () => setDialogState(
+                        () => selectedImage =
+                            (selectedImage - 1 + images.length) % images.length,
                       ),
-                      const SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-                          _showEditVehicleDialog(vehicle, isDark);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _operatorNavy,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 15,
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _operatorGalleryButton(
+                      Icons.chevron_right_rounded,
+                      () => setDialogState(
+                        () =>
+                            selectedImage = (selectedImage + 1) % images.length,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 12,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        images.length,
+                        (index) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          width: index == selectedImage ? 22 : 7,
+                          height: 7,
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            color: index == selectedImage
+                                ? _operatorGold
+                                : Colors.white70,
+                            borderRadius: BorderRadius.circular(20),
                           ),
                         ),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: Text(
-                          isPartner ? 'Manage Price' : 'Edit Vehicle',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+
+          Widget specs() => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _operatorDetailSectionTitle(
+                'Technical Specifications',
+                secondary,
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final tileWidth = constraints.maxWidth < 430
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - 12) / 2;
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Transmission',
+                          vehicle['transmission']?.toString() ?? 'Not provided',
+                          Icons.settings_outlined,
+                          isDark,
+                        ),
+                      ),
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Fuel Type',
+                          vehicle['fuel_type']?.toString() ?? 'Not provided',
+                          Icons.local_gas_station_outlined,
+                          isDark,
+                        ),
+                      ),
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Vehicle Type',
+                          (vehicle['vehicle_type'] ??
+                                  vehicle['category'] ??
+                                  'Not provided')
+                              .toString(),
+                          Icons.category_outlined,
+                          isDark,
+                        ),
+                      ),
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Seats / Color',
+                          '${vehicle['seats'] ?? 'N/A'} seats - ${vehicle['color'] ?? 'Not provided'}',
+                          Icons.event_seat_outlined,
+                          isDark,
                         ),
                       ),
                     ],
+                  );
+                },
+              ),
+            ],
+          );
+
+          Widget statusAndOwner() => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _operatorDetailSectionTitle(
+                'Asset Status & Live Data',
+                secondary,
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: mutedSurface,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200,
                   ),
                 ),
-              ],
+                child: Column(
+                  children: [
+                    _operatorVehicleHealthRow(
+                      'Availability',
+                      available ? 'Available' : 'Unavailable',
+                      Icons.route_outlined,
+                      available ? const Color(0xFF2EAD78) : Colors.redAccent,
+                      foreground,
+                    ),
+                    const SizedBox(height: 15),
+                    _operatorVehicleHealthRow(
+                      'Listing',
+                      posted ? 'Posted' : 'Hidden',
+                      Icons.campaign_outlined,
+                      posted ? _operatorGold : secondary,
+                      foreground,
+                    ),
+                    const SizedBox(height: 15),
+                    _operatorVehicleHealthRow(
+                      'Location',
+                      vehicle['location']?.toString().trim().isNotEmpty == true
+                          ? vehicle['location'].toString()
+                          : 'Not provided',
+                      Icons.location_on_outlined,
+                      _operatorGold,
+                      foreground,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              _operatorDetailSectionTitle(
+                isPartner ? 'Partnership Information' : 'Ownership Information',
+                secondary,
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: _operatorNavy,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFE29A),
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: Icon(
+                            isPartner
+                                ? Icons.workspace_premium_outlined
+                                : Icons.business_outlined,
+                            color: _operatorNavy,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                owner,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                isPartner
+                                    ? 'PSDC CERTIFIED PARTNER'
+                                    : 'PSDC DIRECT VEHICLE',
+                                style: const TextStyle(
+                                  color: _operatorGold,
+                                  fontSize: 9,
+                                  letterSpacing: 0.7,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 28, color: Colors.white24),
+                    _operatorPartnerContactRow(
+                      Icons.email_outlined,
+                      vehicle['partner_email']?.toString() ??
+                          (isPartner
+                              ? 'Email not provided'
+                              : 'PSDC Operations'),
+                    ),
+                    const SizedBox(height: 10),
+                    _operatorPartnerContactRow(
+                      Icons.phone_outlined,
+                      vehicle['partner_phone']?.toString() ??
+                          (isPartner
+                              ? 'Phone not provided'
+                              : 'Operations Desk'),
+                    ),
+                    if (vehicle['partner_address']
+                            ?.toString()
+                            .trim()
+                            .isNotEmpty ==
+                        true) ...[
+                      const SizedBox(height: 10),
+                      _operatorPartnerContactRow(
+                        Icons.location_on_outlined,
+                        vehicle['partner_address'].toString(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(22),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1050, maxHeight: 790),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: surface,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 22, 16, 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    _operatorVehicleBadge(
+                                      vehicle['plate_number']?.toString() ??
+                                          'NO PLATE',
+                                      _operatorNavy,
+                                      _operatorGold,
+                                    ),
+                                    const SizedBox(width: 9),
+                                    _operatorVehicleBadge(
+                                      available
+                                          ? 'Active & Ready'
+                                          : 'Unavailable',
+                                      available
+                                          ? const Color(0xFFFFF4D0)
+                                          : const Color(0xFFFFE1E1),
+                                      available
+                                          ? const Color(0xFF755B00)
+                                          : const Color(0xFFC62828),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 7),
+                                Text(
+                                  _vehicleTitle(vehicle),
+                                  style: TextStyle(
+                                    color: foreground,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: Icon(Icons.close_rounded, color: foreground),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(28),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = constraints.maxWidth < 760;
+                            final left = Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                imagePanel(),
+                                const SizedBox(height: 24),
+                                specs(),
+                              ],
+                            );
+                            if (compact) {
+                              return Column(
+                                children: [
+                                  left,
+                                  const SizedBox(height: 28),
+                                  statusAndOwner(),
+                                ],
+                              );
+                            }
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(flex: 6, child: left),
+                                const SizedBox(width: 28),
+                                Expanded(flex: 4, child: statusAndOwner()),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 28,
+                        vertical: 18,
+                      ),
+                      color: mutedSurface,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compactFooter = constraints.maxWidth < 620;
+                          final details = Row(
+                            children: [
+                              Expanded(
+                                child: _operatorFooterValue(
+                                  'PLATE NUMBER',
+                                  vehicle['plate_number']?.toString() ??
+                                      'Not set',
+                                  foreground,
+                                  secondary,
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 38,
+                                color: isDark ? Colors.white12 : Colors.black12,
+                              ),
+                              const SizedBox(width: 22),
+                              Expanded(
+                                child: _operatorFooterValue(
+                                  'CATEGORY',
+                                  vehicle['category']?.toString() ?? 'Not set',
+                                  foreground,
+                                  secondary,
+                                ),
+                              ),
+                            ],
+                          );
+                          final manageButton = ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                              _showEditVehicleDialog(vehicle, isDark);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              minimumSize: Size(
+                                compactFooter ? double.infinity : 0,
+                                50,
+                              ),
+                              backgroundColor: _operatorNavy,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: const Icon(Icons.tune_rounded, size: 18),
+                            label: Text(
+                              isPartner ? 'Manage Price' : 'Manage Vehicle',
+                            ),
+                          );
+                          if (compactFooter) {
+                            return Column(
+                              children: [
+                                details,
+                                const SizedBox(height: 16),
+                                manageButton,
+                              ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              Expanded(child: details),
+                              const SizedBox(width: 30),
+                              manageButton,
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _operatorGalleryButton(IconData icon, VoidCallback onPressed) {
+    return Padding(
+      padding: const EdgeInsets.all(10),
+      child: IconButton(
+        onPressed: onPressed,
+        style: IconButton.styleFrom(
+          backgroundColor: const Color(0xCC021F35),
+          foregroundColor: Colors.white,
+        ),
+        icon: Icon(icon),
+      ),
+    );
+  }
+
+  Widget _operatorVehicleBadge(String label, Color background, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 8,
+          letterSpacing: 0.5,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );
   }
 
-  Widget _operatorVehicleDetailTile(
+  Widget _operatorDetailSectionTitle(String title, Color color) {
+    return Text(
+      title.toUpperCase(),
+      style: TextStyle(
+        color: color,
+        fontSize: 9,
+        letterSpacing: 1.2,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+
+  Widget _operatorVehicleSpecTile(
     String label,
     String value,
     IconData icon,
     bool isDark,
   ) {
     return Container(
-      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 78),
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withOpacity(0.05)
-            : const Color(0xFFF5F7F9),
-        borderRadius: BorderRadius.circular(14),
+            : const Color(0xFFF5F6F7),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          Icon(icon, color: _operatorGold, size: 20),
-          const SizedBox(width: 12),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white10 : Colors.white,
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: _operatorNavy, size: 19),
+          ),
+          const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -9913,18 +10744,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   label.toUpperCase(),
                   style: TextStyle(
                     color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 8,
-                    letterSpacing: 0.6,
+                    fontSize: 7,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: isDark ? Colors.white : _operatorInk,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -9932,6 +10764,91 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _operatorVehicleHealthRow(
+    String label,
+    String value,
+    IconData icon,
+    Color accent,
+    Color foreground,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 19, color: accent),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(color: foreground, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _operatorPartnerContactRow(IconData icon, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.white70),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _operatorFooterValue(
+    String label,
+    String value,
+    Color foreground,
+    Color secondary,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: secondary,
+            fontSize: 8,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: foreground,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 
@@ -12907,48 +13824,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildSettingsContent(bool isDark) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(30),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildCard(
-            'Appearance',
-            Row(
-              children: [
-                Text(
-                  'Dark Mode',
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                ),
-                const Spacer(),
-                Switch(
-                  value: isDark,
-                  onChanged: widget.onThemeToggle,
-                  activeThumbColor: AppColors.primary,
-                ),
-              ],
-            ),
-            isDark,
-          ),
-          const SizedBox(height: 20),
-          _buildCard(
-            'Account',
-            Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.red),
-                  title: const Text(
-                    'Sign Out',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                  onTap: _handleLogout,
-                ),
-              ],
-            ),
-            isDark,
-          ),
-        ],
-      ),
+    return SettingsScreen(
+      isDarkMode: isDark,
+      showHeader: false,
+      showAppearance: true,
+      showSignOut: true,
+      onThemeToggle: widget.onThemeToggle,
+      onBack: () {},
+      onOpenSupport: () => setState(() => _selectedIndex = 2),
+      onSignOut: _handleLogout,
+      onProfileUpdated: () {
+        _loadDashboardData();
+      },
     );
   }
 }

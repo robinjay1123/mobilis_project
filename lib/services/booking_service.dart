@@ -481,6 +481,7 @@ class BookingService {
   Future<void> updateBookingStatus(String bookingId, String status) async {
     try {
       debugPrint('Updating booking $bookingId status to: $status');
+      final normalizedStatus = status.trim().toLowerCase();
 
       // Get booking details before updating
       final booking = await getBookingById(bookingId);
@@ -488,7 +489,7 @@ class BookingService {
         throw Exception('Booking not found: $bookingId');
       }
 
-      if (status == 'cancelled') {
+      if (normalizedStatus == 'cancelled') {
         final currentStatus =
             booking['status']?.toString().trim().toLowerCase() ?? '';
         const cancellableStatuses = {'pending', 'approved', 'confirmed'};
@@ -516,8 +517,9 @@ class BookingService {
       await supabase
           .from('bookings')
           .update({
-            'status': status,
-            if (status == 'cancelled') 'refund_status': 'refund_needed',
+            'status': normalizedStatus,
+            if (normalizedStatus == 'cancelled')
+              'refund_status': 'refund_needed',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -530,7 +532,7 @@ class BookingService {
           : 'Your rental vehicle';
 
       // ✅ Send notifications based on status change
-      if (status == 'approved') {
+      if (normalizedStatus == 'approved') {
         // Notify renter of approval
         final renterId = booking['renter_id']?.toString();
         if (renterId != null && renterId.isNotEmpty) {
@@ -540,7 +542,7 @@ class BookingService {
             vehicleTitle: vehicleTitle,
           );
         }
-      } else if (status == 'rejected') {
+      } else if (normalizedStatus == 'rejected') {
         // Notify renter of rejection
         if (booking['renter_id'] != null) {
           try {
@@ -549,7 +551,7 @@ class BookingService {
               'title': '❌ Booking Rejected',
               'message': 'Your booking for $vehicleTitle has been rejected.',
               'type': 'booking',
-              'data': {'booking_id': bookingId, 'status': status},
+              'data': {'booking_id': bookingId, 'status': normalizedStatus},
               'created_at': DateTime.now().toIso8601String(),
             });
             debugPrint('✅ Rejection notification sent to renter');
@@ -557,7 +559,7 @@ class BookingService {
             debugPrint('⚠️ Error sending rejection notification: $e');
           }
         }
-      } else if (status == 'cancelled') {
+      } else if (normalizedStatus == 'cancelled') {
         final reservationReference = booking['reservation_payment_reference']
             ?.toString()
             .trim();
@@ -581,7 +583,7 @@ class BookingService {
                     'type': 'booking_refund',
                     'data': {
                       'booking_id': bookingId,
-                      'status': status,
+                      'status': normalizedStatus,
                       'reservation_payment_reference': reservationReference,
                       'refund_status': 'refund_needed',
                     },
@@ -611,7 +613,7 @@ class BookingService {
               'type': 'booking',
               'data': {
                 'booking_id': bookingId,
-                'status': status,
+                'status': normalizedStatus,
                 'cancelled_by': 'renter',
               },
               'created_at': DateTime.now().toIso8601String(),
@@ -626,16 +628,36 @@ class BookingService {
         }
       }
 
-      // Create the group conversation only after final confirmation.
-      if (status == 'confirmed' && booking['conversation_created'] != true) {
+      const conversationStatuses = {
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+      };
+      const terminalStatuses = {
+        'completed',
+        'successful',
+        'cancelled',
+        'canceled',
+        'rejected',
+      };
+
+      if (conversationStatuses.contains(normalizedStatus)) {
         try {
+          final updatedBooking = await getBookingById(bookingId) ?? booking;
           await _ensureBookingGroupChatAndSummary(
-            booking: booking,
+            booking: updatedBooking,
             vehicleTitle: vehicleTitle,
             summaryTitle: 'Booking Confirmed',
           );
         } catch (e) {
           debugPrint('Error creating booking group chat summary: $e');
+        }
+      } else if (terminalStatuses.contains(normalizedStatus)) {
+        try {
+          await ChatService().closeConversation(bookingId);
+        } catch (e) {
+          debugPrint('Error closing booking group chat: $e');
         }
       }
     } on PostgrestException catch (e) {
@@ -893,14 +915,23 @@ class BookingService {
   Future<void> approveBooking(String bookingId, String operatorNotes) async {
     try {
       debugPrint('Approving booking: $bookingId');
+      final operatorId = supabase.auth.currentUser?.id;
       await supabase
           .from('bookings')
           .update({
             'status': 'approved',
+            if (operatorId != null && operatorId.isNotEmpty)
+              'operator_id': operatorId,
             'operator_notes': operatorNotes,
             'approved_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
+
+      await ensureBookingConversationForActiveBooking(
+        bookingId: bookingId,
+        operatorId: operatorId,
+      );
 
       debugPrint('Booking approved');
     } on PostgrestException catch (e) {
@@ -1246,6 +1277,39 @@ class BookingService {
     }
 
     return finalized;
+  }
+
+  /// Repairs or creates the booking group chat without duplicating it.
+  /// Only approved/active trips are eligible for an active conversation.
+  Future<void> ensureBookingConversationForActiveBooking({
+    required String bookingId,
+    String? operatorId,
+  }) async {
+    var booking = await getBookingById(bookingId);
+    if (booking == null) return;
+
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    const activeStatuses = {'approved', 'confirmed', 'active', 'ongoing'};
+    if (!activeStatuses.contains(status)) return;
+
+    final storedOperatorId = booking['operator_id']?.toString().trim() ?? '';
+    final resolvedOperatorId = operatorId?.trim() ?? '';
+    if (storedOperatorId.isEmpty && resolvedOperatorId.isNotEmpty) {
+      await supabase
+          .from('bookings')
+          .update({
+            'operator_id': resolvedOperatorId,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+      booking = await getBookingById(bookingId) ?? booking;
+    }
+
+    await _ensureBookingGroupChatAndSummary(
+      booking: booking,
+      vehicleTitle: _vehicleTitle(booking['vehicles'] as Map<String, dynamic>?),
+      summaryTitle: 'Booking Confirmed',
+    );
   }
 
   /// Unassign driver from booking
