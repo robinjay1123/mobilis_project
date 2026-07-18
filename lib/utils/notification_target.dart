@@ -118,3 +118,10 @@ Map<String, dynamic> _notificationData(dynamic raw) {
   }
   return <String, dynamic>{};
 }
+
+/// Chat activity belongs in the Messages inbox, not the Notifications feed.
+/// Keep this check shared so every role applies the same separation.
+bool isMessageNotification(Map<String, dynamic> notification) {
+  return resolveNotificationTarget(notification).destination ==
+      NotificationDestination.messages;
+}

@@ -1,4 +1,9 @@
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -582,6 +587,143 @@ class _AccountSecurityScreen extends StatefulWidget {
 
 class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
   bool _isSending = false;
+  bool _isSavingMpin = false;
+  bool _mpinEnabled = false;
+  String _mpinHash = '';
+  String _mpinSalt = '';
+
+  @override
+  void initState() {
+    super.initState();
+    final metadata = AuthService().currentUser?.userMetadata;
+    _mpinEnabled = metadata?['mpin_enabled'] == true;
+    _mpinHash = metadata?['mpin_hash']?.toString() ?? '';
+    _mpinSalt = metadata?['mpin_salt']?.toString() ?? '';
+  }
+
+  bool get _hasMpin =>
+      _mpinEnabled && _mpinHash.isNotEmpty && _mpinSalt.isNotEmpty;
+
+  String _hashMpin(String mpin, String salt) {
+    return sha256.convert(utf8.encode('$salt:$mpin')).toString();
+  }
+
+  bool _matchesCurrentMpin(String mpin) {
+    return _mpinSalt.isNotEmpty &&
+        _mpinHash.isNotEmpty &&
+        _hashMpin(mpin, _mpinSalt) == _mpinHash;
+  }
+
+  String _newMpinSalt() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    return base64UrlEncode(bytes);
+  }
+
+  Future<void> _configureMpin() async {
+    final wasConfigured = _hasMpin;
+    final result = await showDialog<_MpinSetupResult>(
+      context: context,
+      builder: (_) => _MpinSetupDialog(requiresCurrentMpin: wasConfigured),
+    );
+    if (result == null || !mounted) return;
+    if (wasConfigured && !_matchesCurrentMpin(result.currentMpin ?? '')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The current MPIN is incorrect.')),
+      );
+      return;
+    }
+
+    setState(() => _isSavingMpin = true);
+    try {
+      final user = AuthService().currentUser;
+      if (user == null) throw Exception('No signed-in user found');
+      final salt = _newMpinSalt();
+      final hash = _hashMpin(result.newMpin, salt);
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'mpin_enabled': true,
+            'mpin_salt': salt,
+            'mpin_hash': hash,
+            'mpin_updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _mpinEnabled = true;
+        _mpinSalt = salt;
+        _mpinHash = hash;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasConfigured ? 'MPIN updated successfully.' : 'MPIN set.',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not update MPIN: $error')));
+    } finally {
+      if (mounted) setState(() => _isSavingMpin = false);
+    }
+  }
+
+  Future<void> _removeMpin() async {
+    final currentMpin = await showDialog<String>(
+      context: context,
+      builder: (_) => const _CurrentMpinDialog(),
+    );
+    if (currentMpin == null || !mounted) return;
+    if (!_matchesCurrentMpin(currentMpin)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The current MPIN is incorrect.')),
+      );
+      return;
+    }
+
+    setState(() => _isSavingMpin = true);
+    try {
+      final user = AuthService().currentUser;
+      if (user == null) throw Exception('No signed-in user found');
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'mpin_enabled': false,
+            'mpin_hash': null,
+            'mpin_salt': null,
+            'mpin_updated_at': null,
+          },
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _mpinEnabled = false;
+        _mpinHash = '';
+        _mpinSalt = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('MPIN removed.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not remove MPIN: $error')));
+    } finally {
+      if (mounted) setState(() => _isSavingMpin = false);
+    }
+  }
 
   Future<void> _sendPasswordReset() async {
     final email = AuthService().currentUser?.email?.trim() ?? '';
@@ -646,8 +788,206 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                   : const Text('Reset Password'),
             ),
           ),
+          const SizedBox(height: 12),
+          _DetailCard(
+            icon: Icons.pin_outlined,
+            title: 'MPIN',
+            subtitle: _hasMpin
+                ? 'A 6-digit MPIN protects sensitive account actions.'
+                : 'Set a 6-digit MPIN for additional account protection.',
+            action: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton(
+                  onPressed: _isSavingMpin ? null : _configureMpin,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: _isSavingMpin
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : Text(_hasMpin ? 'Change MPIN' : 'Set MPIN'),
+                ),
+                if (_hasMpin)
+                  OutlinedButton(
+                    onPressed: _isSavingMpin ? null : _removeMpin,
+                    child: const Text('Remove'),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _MpinSetupResult {
+  const _MpinSetupResult({required this.newMpin, this.currentMpin});
+
+  final String newMpin;
+  final String? currentMpin;
+}
+
+class _MpinSetupDialog extends StatefulWidget {
+  const _MpinSetupDialog({required this.requiresCurrentMpin});
+
+  final bool requiresCurrentMpin;
+
+  @override
+  State<_MpinSetupDialog> createState() => _MpinSetupDialogState();
+}
+
+class _MpinSetupDialogState extends State<_MpinSetupDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _currentController = TextEditingController();
+  final _newController = TextEditingController();
+  final _confirmController = TextEditingController();
+
+  @override
+  void dispose() {
+    _currentController.dispose();
+    _newController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  String? _validateMpin(String? value) {
+    final pin = value?.trim() ?? '';
+    if (!RegExp(r'^\d{6}$').hasMatch(pin)) return 'Enter exactly 6 digits.';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget pinField(
+      TextEditingController controller,
+      String label, {
+      String? Function(String?)? validator,
+    }) {
+      return TextFormField(
+        controller: controller,
+        obscureText: true,
+        keyboardType: TextInputType.number,
+        maxLength: 6,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        decoration: InputDecoration(labelText: label, counterText: ''),
+        validator: validator ?? _validateMpin,
+      );
+    }
+
+    return AlertDialog(
+      title: Text(widget.requiresCurrentMpin ? 'Change MPIN' : 'Set MPIN'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.requiresCurrentMpin) ...[
+                pinField(_currentController, 'Current 6-digit MPIN'),
+                const SizedBox(height: 10),
+              ],
+              pinField(_newController, 'New 6-digit MPIN'),
+              const SizedBox(height: 10),
+              pinField(
+                _confirmController,
+                'Confirm new MPIN',
+                validator: (value) {
+                  final validation = _validateMpin(value);
+                  if (validation != null) return validation;
+                  return value == _newController.text
+                      ? null
+                      : 'MPINs do not match.';
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.of(context).pop(
+              _MpinSetupResult(
+                currentMpin: widget.requiresCurrentMpin
+                    ? _currentController.text
+                    : null,
+                newMpin: _newController.text,
+              ),
+            );
+          },
+          child: const Text('Save MPIN'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CurrentMpinDialog extends StatefulWidget {
+  const _CurrentMpinDialog();
+
+  @override
+  State<_CurrentMpinDialog> createState() => _CurrentMpinDialogState();
+}
+
+class _CurrentMpinDialogState extends State<_CurrentMpinDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Remove MPIN'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: 'Current 6-digit MPIN',
+            counterText: '',
+          ),
+          validator: (value) => RegExp(r'^\d{6}$').hasMatch(value ?? '')
+              ? null
+              : 'Enter exactly 6 digits.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.of(context).pop(_controller.text);
+          },
+          style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+          child: const Text('Remove MPIN'),
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,8 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 
+import '../utils/notification_target.dart';
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
 
@@ -23,8 +25,11 @@ class NotificationService {
           .eq('user_id', userId)
           .order('created_at', ascending: false);
 
-      debugPrint('Fetched ${response.length} notifications');
-      return List<Map<String, dynamic>>.from(response);
+      final notifications = List<Map<String, dynamic>>.from(
+        response,
+      ).where((item) => !isMessageNotification(item)).toList();
+      debugPrint('Fetched ${notifications.length} system notifications');
+      return notifications;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching notifications: ${e.message}');
       rethrow;
@@ -48,8 +53,11 @@ class NotificationService {
           .eq('is_read', false)
           .order('created_at', ascending: false);
 
-      debugPrint('Fetched ${response.length} unread notifications');
-      return List<Map<String, dynamic>>.from(response);
+      final notifications = List<Map<String, dynamic>>.from(
+        response,
+      ).where((item) => !isMessageNotification(item)).toList();
+      debugPrint('Fetched ${notifications.length} unread system notifications');
+      return notifications;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching unread notifications: ${e.message}');
       rethrow;
@@ -66,11 +74,13 @@ class NotificationService {
 
       final response = await supabase
           .from('notifications')
-          .select('id')
+          .select('id, type, title, data')
           .eq('user_id', userId)
           .eq('is_read', false);
 
-      final count = response.length;
+      final count = List<Map<String, dynamic>>.from(
+        response,
+      ).where((item) => !isMessageNotification(item)).length;
       debugPrint('Unread count: $count');
       return count;
     } on PostgrestException catch (e) {

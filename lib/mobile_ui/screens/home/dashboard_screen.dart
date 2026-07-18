@@ -414,9 +414,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .order('created_at', ascending: false)
           .limit(50);
 
+      final systemNotifications = List<Map<String, dynamic>>.from(
+        notifications,
+      ).where((item) => !isMessageNotification(item)).toList();
+
       if (mounted) {
         setState(() {
-          _notifications = List<Map<String, dynamic>>.from(notifications);
+          _notifications = systemNotifications;
         });
       }
     } catch (e) {
@@ -620,6 +624,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final newNotification =
                   payload.newRecord as Map<String, dynamic>?;
               if (newNotification != null && mounted) {
+                if (isMessageNotification(newNotification)) return;
                 final title =
                     newNotification['title']?.toString() ?? 'Notification';
                 final message = newNotification['message']?.toString() ?? '';
@@ -2210,8 +2215,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   List<Map<String, dynamic>> _uiNotifications() {
-    return _notifications.map((n) {
+    return _notifications.where((n) => !isMessageNotification(n)).map((n) {
       final visual = notificationVisualFor(n);
+      final target = resolveNotificationTarget(n);
+      var imageUrl =
+          target.data['vehicle_image_url']?.toString().trim() ??
+          target.data['image_url']?.toString().trim() ??
+          '';
+      if (imageUrl.isEmpty && target.bookingId != null) {
+        final booking = _bookings.firstWhere(
+          (item) => item['id']?.toString() == target.bookingId,
+          orElse: () => const <String, dynamic>{},
+        );
+        final vehicle = booking['vehicles'];
+        if (vehicle is Map<String, dynamic>) {
+          imageUrl = _bookingVehicleImageUrl(vehicle) ?? '';
+        }
+      }
 
       return {
         'raw': n,
@@ -2221,6 +2241,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'timestamp': _formatTimeAgo(n['created_at']?.toString()),
         'icon': visual.icon,
         'iconColor': visual.color,
+        'imageUrl': imageUrl,
       };
     }).toList();
   }
@@ -2296,7 +2317,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int get _unreadNotificationCount => _notifications
-      .where((notification) => notification['is_read'] != true)
+      .where(
+        (notification) =>
+            !isMessageNotification(notification) &&
+            notification['is_read'] != true,
+      )
       .length;
 
   void _openConversation(Map<String, dynamic> conversation) {
@@ -4597,8 +4622,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     title: 'Notifications',
                     subtitle: 'Booking updates, approvals, and trip reminders',
                     icon: Icons.notifications_outlined,
-                    badge:
-                        '${_notifications.where((item) => item['is_read'] != true).length} unread',
+                    badge: '$_unreadNotificationCount unread',
                   ),
                   const SizedBox(height: 18),
                   // Empty State
@@ -4646,12 +4670,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                               .withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
-                                    child: Icon(
-                                      notificationItems[index]['icon'],
-                                      color:
-                                          notificationItems[index]['iconColor'],
-                                      size: 24,
-                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child:
+                                        notificationItems[index]['imageUrl']
+                                                ?.toString()
+                                                .trim()
+                                                .isNotEmpty ==
+                                            true
+                                        ? OptimizedNetworkImage(
+                                            imageUrl:
+                                                notificationItems[index]['imageUrl']
+                                                    .toString(),
+                                            width: 48,
+                                            height: 48,
+                                            fit: BoxFit.cover,
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            errorWidget: Icon(
+                                              notificationItems[index]['icon'],
+                                              color:
+                                                  notificationItems[index]['iconColor'],
+                                              size: 24,
+                                            ),
+                                          )
+                                        : Icon(
+                                            notificationItems[index]['icon'],
+                                            color:
+                                                notificationItems[index]['iconColor'],
+                                            size: 24,
+                                          ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(

@@ -224,7 +224,7 @@ class ChatService {
     final vehicle = booking['vehicles'];
     if (vehicle is! Map) return '';
 
-    final direct = vehicle['image_url']?.toString().trim() ?? '';
+    final direct = _normalizeVehicleImageUrl(vehicle['image_url']);
     if (direct.isNotEmpty) return direct;
 
     final images =
@@ -236,10 +236,20 @@ class ChatService {
           return aOrder.compareTo(bOrder);
         });
     for (final image in images) {
-      final url = image['image_url']?.toString().trim() ?? '';
+      final url = _normalizeVehicleImageUrl(image['image_url']);
       if (url.isNotEmpty) return url;
     }
     return '';
+  }
+
+  String _normalizeVehicleImageUrl(dynamic value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    final path = raw.startsWith('/') ? raw.substring(1) : raw;
+    return path.isEmpty
+        ? ''
+        : supabase.storage.from('vehicle_images').getPublicUrl(path);
   }
 
   // Get or create a conversation between two users

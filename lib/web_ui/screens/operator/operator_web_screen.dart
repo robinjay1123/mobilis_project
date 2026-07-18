@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -60,6 +62,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String? _focusedTrackingBookingId;
   String _bookingFilter = 'all';
   String _bookingSearchQuery = '';
+  String _bookingDateFilter = 'all';
+  String _bookingVehicleTypeFilter = 'all';
   String _vehicleView = 'company';
   String _vehicleSearchQuery = '';
   int _dashboardQueuePage = 0;
@@ -3839,6 +3843,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final filteredBookings = _recentBookings.where((booking) {
       final matchesStatus = _bookingFilterMatches(booking, _bookingFilter);
       if (!matchesStatus) return false;
+      if (!_bookingDateFilterMatches(booking, _bookingDateFilter)) return false;
+      if (!_bookingVehicleTypeFilterMatches(
+        booking,
+        _bookingVehicleTypeFilter,
+      )) {
+        return false;
+      }
       final query = _bookingSearchQuery.toLowerCase();
       if (query.isEmpty) return true;
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
@@ -3931,6 +3942,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          _buildBookingReportFilters(filteredBookings, isDark),
+          const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -3999,6 +4012,275 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'cancelled' => group == BookingStatusGroup.cancelled,
       _ => true,
     };
+  }
+
+  bool _bookingDateFilterMatches(Map<String, dynamic> booking, String filter) {
+    if (filter == 'all') return true;
+    final start = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    )?.toLocal();
+    if (start == null) return false;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final bookingDay = DateTime(start.year, start.month, start.day);
+    return switch (filter) {
+      'today' => bookingDay == today,
+      'next7' =>
+        !bookingDay.isBefore(today) &&
+            bookingDay.isBefore(today.add(const Duration(days: 8))),
+      'next30' =>
+        !bookingDay.isBefore(today) &&
+            bookingDay.isBefore(today.add(const Duration(days: 31))),
+      'past30' =>
+        !bookingDay.isAfter(today) &&
+            bookingDay.isAfter(today.subtract(const Duration(days: 31))),
+      _ => true,
+    };
+  }
+
+  bool _bookingVehicleTypeFilterMatches(
+    Map<String, dynamic> booking,
+    String filter,
+  ) {
+    if (filter == 'all') return true;
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final type = (vehicle['vehicle_type'] ?? vehicle['category'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return type == filter;
+  }
+
+  List<String> get _bookingVehicleTypeOptions {
+    final types =
+        _recentBookings
+            .map((booking) {
+              final vehicle =
+                  booking['vehicles'] as Map<String, dynamic>? ?? {};
+              return (vehicle['vehicle_type'] ?? vehicle['category'])
+                  ?.toString()
+                  .trim()
+                  .toLowerCase();
+            })
+            .whereType<String>()
+            .where((type) => type.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return ['all', ...types];
+  }
+
+  String _bookingFilterDisplayName(String value) {
+    if (value == 'all') return 'All Types';
+    return value
+        .split(RegExp(r'[\s_-]+'))
+        .where((word) => word.isNotEmpty)
+        .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+        .join(' ');
+  }
+
+  Widget _buildBookingReportFilters(
+    List<Map<String, dynamic>> filteredBookings,
+    bool isDark,
+  ) {
+    final foreground = isDark ? Colors.grey[300] : Colors.grey.shade700;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.filter_list_rounded, size: 17, color: foreground),
+              const SizedBox(width: 7),
+              Text(
+                'Filter by:',
+                style: TextStyle(
+                  color: foreground,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          _buildBookingDropdownFilter(
+            value: _bookingDateFilter,
+            items: const {
+              'all': 'Date Range: All Dates',
+              'today': 'Date Range: Today',
+              'next7': 'Date Range: Next 7 Days',
+              'next30': 'Date Range: Next 30 Days',
+              'past30': 'Date Range: Past 30 Days',
+            },
+            isDark: isDark,
+            onChanged: (value) => setState(() {
+              _bookingDateFilter = value;
+              _bookingPage = 0;
+            }),
+          ),
+          _buildBookingDropdownFilter(
+            value: _bookingVehicleTypeFilter,
+            items: {
+              for (final type in _bookingVehicleTypeOptions)
+                type: 'Vehicle: ${_bookingFilterDisplayName(type)}',
+            },
+            isDark: isDark,
+            onChanged: (value) => setState(() {
+              _bookingVehicleTypeFilter = value;
+              _bookingPage = 0;
+            }),
+          ),
+          ElevatedButton.icon(
+            onPressed: filteredBookings.isEmpty
+                ? null
+                : () => _exportBookingsReport(filteredBookings),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? _operatorGold : _operatorNavy,
+              foregroundColor: isDark ? _operatorNavyDeep : Colors.white,
+              disabledBackgroundColor: isDark
+                  ? Colors.white.withOpacity(0.06)
+                  : Colors.grey.shade200,
+              minimumSize: const Size(0, 42),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(11),
+              ),
+            ),
+            icon: const Icon(Icons.download_rounded, size: 17),
+            label: const Text(
+              'Export Report',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingDropdownFilter({
+    required String value,
+    required Map<String, String> items,
+    required bool isDark,
+    required ValueChanged<String> onChanged,
+  }) {
+    final safeValue = items.containsKey(value) ? value : items.keys.first;
+    return Container(
+      height: 42,
+      constraints: const BoxConstraints(minWidth: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 13),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : const Color(0xFFF3F5F7),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: safeValue,
+          isDense: true,
+          borderRadius: BorderRadius.circular(12),
+          dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+          style: TextStyle(
+            color: isDark ? Colors.white : _operatorInk,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+          items: items.entries
+              .map(
+                (entry) => DropdownMenuItem<String>(
+                  value: entry.key,
+                  child: Text(entry.value),
+                ),
+              )
+              .toList(),
+          onChanged: (nextValue) {
+            if (nextValue != null) onChanged(nextValue);
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportBookingsReport(
+    List<Map<String, dynamic>> bookings,
+  ) async {
+    String csvCell(Object? value) {
+      final text = value?.toString() ?? '';
+      return '"${text.replaceAll('"', '""')}"';
+    }
+
+    final rows = <String>[
+      [
+        'Booking ID',
+        'Renter',
+        'Vehicle',
+        'Vehicle Type',
+        'Plate Number',
+        'Schedule',
+        'Status',
+        'Total',
+      ].map(csvCell).join(','),
+      ...bookings.map((booking) {
+        final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+        final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+        final start = DateTime.tryParse(
+          (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+        );
+        return [
+          booking['id'],
+          renter['full_name'],
+          _vehicleTitle(vehicle),
+          vehicle['vehicle_type'] ?? vehicle['category'],
+          vehicle['plate_number'],
+          _formatBookingDateTime(start),
+          bookingStatusLabel(bookingStatusGroup(booking['status'])),
+          booking['total_price'] ?? booking['total_cost'] ?? 0,
+        ].map(csvCell).join(',');
+      }),
+    ];
+    final bytes = Uint8List.fromList(utf8.encode(rows.join('\r\n')));
+    final date = DateTime.now().toIso8601String().split('T').first;
+
+    try {
+      if (kIsWeb) {
+        await FilePicker.platform.saveFile(
+          dialogTitle: 'Export booking report',
+          fileName: 'mobilis-bookings-$date.csv',
+          bytes: bytes,
+        );
+      } else {
+        await Clipboard.setData(ClipboardData(text: rows.join('\r\n')));
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              kIsWeb
+                  ? 'Booking report exported successfully.'
+                  : 'Booking report copied to the clipboard.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      _showErrorSnackBar('Could not export booking report: $error');
+    }
   }
 
   int _bookingFilterCount(String filter) {
@@ -4866,25 +5148,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-                          _showBookingSafetyReviewDialog(booking);
-                        },
-                        icon: const Icon(
-                          Icons.verified_user_outlined,
-                          size: 17,
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 44),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                        ),
-                        label: const Text(
-                          'Review Documents',
-                          maxLines: 1,
-                          softWrap: false,
-                        ),
-                      ),
                       if (group == BookingStatusGroup.pending)
                         OutlinedButton.icon(
                           onPressed: () {
@@ -5385,6 +5648,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Selfie',
                       booking['renter_selfie_url'],
                     ),
+                    _buildOperatorEvidenceChip(
+                      Icons.draw_outlined,
+                      'Co-traveler Signature',
+                      booking['co_traveler_signature_url'],
+                    ),
+                    _buildOperatorEvidenceChip(
+                      Icons.badge_outlined,
+                      'Co-traveler ID',
+                      booking['co_traveler_valid_id_url'],
+                    ),
+                    _buildOperatorEvidenceChip(
+                      Icons.camera_alt_outlined,
+                      'Co-traveler Selfie',
+                      booking['co_traveler_selfie_url'],
+                    ),
                   ],
                 ),
               ],
@@ -5481,36 +5759,176 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildOperatorEvidenceChip(IconData icon, String label, dynamic url) {
     final available = url?.toString().trim().isNotEmpty == true;
-    return Container(
-      constraints: const BoxConstraints(minWidth: 132),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+    return Tooltip(
+      message: available ? 'Preview $label' : '$label was not uploaded',
+      child: InkWell(
+        onTap: available
+            ? () => _showOperatorEvidencePreview(label, url.toString().trim())
+            : null,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: available
-              ? _operatorGold.withOpacity(0.45)
-              : Colors.white.withOpacity(0.08),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            available ? icon : Icons.warning_amber_rounded,
-            size: 15,
-            color: available ? _operatorGold : Colors.orangeAccent,
-          ),
-          const SizedBox(width: 7),
-          Text(
-            available ? label : '$label missing',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 132),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: available
+                  ? _operatorGold.withOpacity(0.45)
+                  : Colors.white.withOpacity(0.08),
             ),
           ),
-        ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                available ? icon : Icons.warning_amber_rounded,
+                size: 15,
+                color: available ? _operatorGold : Colors.orangeAccent,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                available ? label : '$label missing',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (available) ...[
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.visibility_outlined,
+                  color: Color(0xFF91A9BE),
+                  size: 14,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showOperatorEvidencePreview(String title, String url) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.72),
+      builder: (previewContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(36),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760, maxHeight: 680),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF172235) : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black38,
+                  blurRadius: 34,
+                  offset: Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: _operatorGold.withOpacity(0.16),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(
+                        Icons.verified_user_outlined,
+                        color: _operatorGold,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : _operatorInk,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            'Booking verification evidence',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close preview',
+                      onPressed: () => Navigator.pop(previewContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: ColoredBox(
+                      color: isDark
+                          ? Colors.black.withOpacity(0.18)
+                          : const Color(0xFFF1F3F5),
+                      child: SizedBox.expand(
+                        child: OptimizedNetworkImage(
+                          imageUrl: url,
+                          fit: BoxFit.contain,
+                          isThumbnail: false,
+                          errorWidget: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(28),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 54,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'This uploaded file cannot be previewed as an image.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
