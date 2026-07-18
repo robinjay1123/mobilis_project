@@ -3644,6 +3644,17 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                                 ),
                               ),
                             ),
+                            if (!isRead) ...[
+                              const SizedBox(width: 10),
+                              Container(
+                                width: 9,
+                                height: 9,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 8),

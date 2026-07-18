@@ -38,6 +38,7 @@ import '../../../utils/booking_status.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
+import '../../../utils/input_validation.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -217,8 +218,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (resp != null) {
         setState(() {
           userName = (fullName != null && fullName.isNotEmpty)
-              ? fullName
-              : (user.email?.split('@').first ?? userName);
+              ? toProfessionalTitleCase(fullName)
+              : toProfessionalTitleCase(
+                  user.email?.split('@').first ?? userName,
+                );
           userLocation = (location != null && location.isNotEmpty)
               ? location
               : userLocation;
@@ -242,8 +245,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           setState(() {
             userName = (fullName != null && fullName.isNotEmpty)
-                ? fullName
-                : (user.email?.split('@').first ?? userName);
+                ? toProfessionalTitleCase(fullName)
+                : toProfessionalTitleCase(
+                    user.email?.split('@').first ?? userName,
+                  );
             if (location != null && location.isNotEmpty) {
               userLocation = location;
             }
@@ -2210,6 +2215,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       return {
         'raw': n,
+        'isRead': n['is_read'] == true,
         'title': n['title']?.toString() ?? 'Notification',
         'message': n['message']?.toString() ?? '',
         'timestamp': _formatTimeAgo(n['created_at']?.toString()),
@@ -2548,67 +2554,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .eq('booking_id', bookingId)
         .maybeSingle();
     return conversation?['id']?.toString();
-  }
-
-  List<Map<String, dynamic>> _topRentalPartners() {
-    final partnerMap = <String, Map<String, dynamic>>{};
-
-    for (final vehicle in _vehicles) {
-      final owner = vehicle['owner'] as Map<String, dynamic>?;
-      final ownerRole = owner?['role']?.toString().toLowerCase() ?? '';
-      final source = vehicle['source']?.toString().toLowerCase() ?? '';
-      final storedOwnerRole = vehicle['owner_role']?.toString().toLowerCase();
-      final isPartnerVehicle =
-          source == 'partner' ||
-          ownerRole == 'partner' ||
-          storedOwnerRole == 'partner' ||
-          vehicle['is_partner_vehicle'] == true;
-      if (!isPartnerVehicle) continue;
-
-      final ownerName =
-          owner?['full_name']?.toString() ??
-          vehicle['owner_name']?.toString() ??
-          vehicle['partner_name']?.toString() ??
-          'Mobilis Partner';
-      final reviewCount = (vehicle['rating_count'] as num?)?.toInt() ?? 0;
-      final rating = reviewCount > 0
-          ? ((vehicle['rating'] as num?)?.toDouble() ?? 0.0)
-          : 0.0;
-
-      final current = partnerMap[ownerName];
-      if (current == null) {
-        partnerMap[ownerName] = {
-          'name': ownerName,
-          'ratingTotal': rating,
-          'ratingCount': reviewCount > 0 ? 1 : 0,
-          'trips': 1,
-          'image': Icons.person,
-          'verified': true,
-        };
-      } else {
-        current['ratingTotal'] = (current['ratingTotal'] as double) + rating;
-        current['ratingCount'] =
-            (current['ratingCount'] as int) + (reviewCount > 0 ? 1 : 0);
-        current['trips'] = (current['trips'] as int) + 1;
-      }
-    }
-
-    final result = partnerMap.values.map((p) {
-      final count = p['ratingCount'] as int;
-      final avg = count > 0 ? (p['ratingTotal'] as double) / count : 0.0;
-      return {
-        'name': p['name'],
-        'rating': avg,
-        'reviews': '${p['trips']} vehicles',
-        'image': p['image'],
-        'verified': p['verified'],
-      };
-    }).toList();
-
-    result.sort(
-      (a, b) => (b['rating'] as double).compareTo(a['rating'] as double),
-    );
-    return result.take(10).toList();
   }
 
   // ---------------------------------------------------------------------------
@@ -3626,7 +3571,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 24),
 
-            // ── Available Cars ───────────────────────────────────────────────
+            // Keep partner vehicles visible immediately below categories.
             _buildPartnersNearYouSection(
               cardColor: cardColor,
               borderColor: borderColor,
@@ -3758,8 +3703,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     itemCount: _filteredVehicles.length,
                     itemBuilder: (context, index) {
                       final car = _filteredVehicles[index];
-                      final carName =
-                          '${car['brand'] ?? 'Unknown'} ${car['model'] ?? 'Model'}';
+                      final carName = toProfessionalTitleCase(
+                        '${car['brand'] ?? 'Unknown'} ${car['model'] ?? 'Model'}',
+                      );
                       final category =
                           (car['vehicle_type'] ?? car['category'] ?? 'Standard')
                               .toString()
@@ -3776,12 +3722,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final rating = ratingCount > 0
                           ? ((car['rating'] as num?)?.toDouble() ?? 0.0)
                           : 0.0;
-                      final vehicleType = car['vehicle_type'] ?? 'Standard';
-                      final color = car['color'] ?? 'Unknown';
+                      final vehicleType = toProfessionalTitleCase(
+                        (car['vehicle_type'] ?? 'Standard').toString(),
+                      );
+                      final color = toProfessionalTitleCase(
+                        (car['color'] ?? 'Unknown').toString(),
+                      );
                       final seats = car['seats'] ?? 5;
 
                       // ✅ FIX: Read transmission field instead of reusing vehicleType
-                      final transmission = car['transmission'] ?? 'Manual';
+                      final transmission = toProfessionalTitleCase(
+                        (car['transmission'] ?? 'Manual').toString(),
+                      );
 
                       final isPartnerVehicle =
                           car['source']?.toString().toLowerCase() ==
@@ -3793,7 +3745,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       final partnerName =
                           car['partner_name']?.toString().trim().isNotEmpty ==
                               true
-                          ? car['partner_name'].toString()
+                          ? toProfessionalTitleCase(
+                              car['partner_name'].toString(),
+                            )
                           : 'Mobilis Partner';
                       final providerName = isPartnerVehicle
                           ? 'PSDC Partner'
@@ -4010,8 +3964,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 8),
-                                        // ✅ FIX: Show vehicleType, color, seats
-                                        // then transmission on second row
+                                        // Keep all primary specs in one row.
                                         SingleChildScrollView(
                                           scrollDirection: Axis.horizontal,
                                           child: Row(
@@ -4075,29 +4028,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                   ),
                                                 ],
                                               ),
+                                              const SizedBox(width: 12),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  _buildFeatureIcon(
+                                                    Icons.settings_outlined,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    transmission,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    maxLines: 1,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: secondaryTextColor,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ],
                                           ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        // ✅ FIX: Transmission row with correct icon & value
-                                        Row(
-                                          children: [
-                                            _buildFeatureIcon(
-                                              Icons.settings_outlined,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Flexible(
-                                              child: Text(
-                                                transmission.toString(),
-                                                overflow: TextOverflow.ellipsis,
-                                                maxLines: 1,
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: secondaryTextColor,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
                                         ),
                                         if (distanceKm != null) ...[
                                           const SizedBox(height: 6),
@@ -4248,119 +4200,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     },
                   ),
             const SizedBox(height: 24),
-
-            if (_topRentalPartners().isEmpty && _isLoadingVehicles) ...[
-              // Legacy placement; the visible section now appears above cars.
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Partners Near You',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () {},
-                      child: const Text(
-                        'See all',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: SizedBox(
-                  height: 120,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _topRentalPartners().length,
-                    itemBuilder: (context, index) {
-                      final partner = _topRentalPartners()[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 12),
-                        child: Container(
-                          width: 160,
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBgSecondary,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.borderColor),
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primary,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Icon(
-                                      partner['image'] as IconData? ??
-                                          Icons.person,
-                                      color: Colors.black,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      partner['name'] as String,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textPrimary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.star,
-                                    color: AppColors.ratingGold,
-                                    size: 12,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    (partner['rating'] as double)
-                                        .toStringAsFixed(1),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-            ],
           ],
         ),
       ),
@@ -4439,14 +4278,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
               itemBuilder: (context, index) {
                 final vehicle = partnerVehicles[index];
                 final vehicleId = vehicle['id']?.toString() ?? '';
-                final title =
-                    '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
-                        .trim();
+                final title = toProfessionalTitleCase(
+                  '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}',
+                );
                 final partnerName =
                     vehicle['partner_name']?.toString().trim().isNotEmpty ==
                         true
-                    ? vehicle['partner_name'].toString()
-                    : vehicle['owner_name']?.toString() ?? 'Mobilis Partner';
+                    ? toProfessionalTitleCase(
+                        vehicle['partner_name'].toString(),
+                      )
+                    : toProfessionalTitleCase(
+                        vehicle['owner_name']?.toString() ?? 'Mobilis Partner',
+                      );
                 final dailyPrice =
                     (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
                 final hourlyPrice =
@@ -4780,10 +4623,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             child: Container(
                               padding: const EdgeInsets.all(18),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF2A3548),
+                                color:
+                                    notificationItems[index]['isRead'] == true
+                                    ? const Color(0xFF2A3548)
+                                    : const Color(0xFF354156),
                                 borderRadius: BorderRadius.circular(20),
                                 border: Border.all(
-                                  color: AppColors.borderColor,
+                                  color:
+                                      notificationItems[index]['isRead'] == true
+                                      ? AppColors.borderColor
+                                      : Colors.white70,
                                 ),
                               ),
                               child: Row(
@@ -4841,6 +4690,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ],
                                     ),
                                   ),
+                                  if (notificationItems[index]['isRead'] !=
+                                      true) ...[
+                                    const SizedBox(width: 10),
+                                    Container(
+                                      width: 9,
+                                      height: 9,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

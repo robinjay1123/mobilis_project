@@ -2949,6 +2949,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             message: notif['message'] ?? '',
                             timestamp: _formatTime(notif['created_at']),
                             iconColor: visual.color,
+                            isRead: notif['is_read'] == true,
                             onTap: () => _handlePartnerNotificationTap(notif),
                           );
                         },

@@ -6,6 +6,7 @@ create table if not exists public.renter_loyalty_rewards (
   membership_expires_at timestamptz not null default (now() + interval '6 months'),
   reward_status text not null default 'locked'
     check (reward_status in ('locked', 'redeemed')),
+  redeemed_milestones integer[] not null default '{}',
   redeemed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -17,7 +18,8 @@ grant select, insert, update on public.renter_loyalty_rewards to authenticated;
 grant all on public.renter_loyalty_rewards to service_role;
 
 create or replace function public.redeem_renter_loyalty_reward(
-  p_renter_id uuid
+  p_renter_id uuid,
+  p_milestone integer
 )
 returns public.renter_loyalty_rewards
 language plpgsql
@@ -38,8 +40,12 @@ begin
   where renter_id = p_renter_id
     and lower(coalesce(status, '')) = 'completed';
 
-  if completed_trip_count < 12 then
-    raise exception 'Complete 12 successful trips before redeeming this reward';
+  if p_milestone not in (3, 6, 8, 10, 12, 15, 18) then
+    raise exception 'Invalid loyalty reward milestone';
+  end if;
+
+  if completed_trip_count < p_milestone then
+    raise exception 'Complete % successful trips before redeeming this reward', p_milestone;
   end if;
 
   insert into public.renter_loyalty_rewards (renter_id)
@@ -56,9 +62,10 @@ begin
     raise exception 'This loyalty membership has expired';
   end if;
 
-  if loyalty_record.reward_status <> 'redeemed' then
+  if not (p_milestone = any(loyalty_record.redeemed_milestones)) then
     update public.renter_loyalty_rewards
-    set reward_status = 'redeemed',
+    set redeemed_milestones = array_append(redeemed_milestones, p_milestone),
+        reward_status = case when p_milestone = 18 then 'redeemed' else 'locked' end,
         redeemed_at = now(),
         updated_at = now()
     where renter_id = p_renter_id
@@ -69,6 +76,6 @@ begin
 end;
 $$;
 
-revoke all on function public.redeem_renter_loyalty_reward(uuid) from public;
-grant execute on function public.redeem_renter_loyalty_reward(uuid) to authenticated;
-grant execute on function public.redeem_renter_loyalty_reward(uuid) to service_role;
+revoke all on function public.redeem_renter_loyalty_reward(uuid, integer) from public;
+grant execute on function public.redeem_renter_loyalty_reward(uuid, integer) to authenticated;
+grant execute on function public.redeem_renter_loyalty_reward(uuid, integer) to service_role;

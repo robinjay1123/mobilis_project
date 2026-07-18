@@ -23,6 +23,40 @@ String toTitleCaseName(String value) {
   return buffer.toString();
 }
 
+/// Formats user-facing labels while preserving common vehicle and system
+/// acronyms. This is display-only and does not alter stored records.
+String toProfessionalTitleCase(String value) {
+  final compact = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (compact.isEmpty) return '';
+
+  const preservedWords = <String, String>{
+    'psdc': 'PSDC',
+    'suv': 'SUV',
+    'mpv': 'MPV',
+    'ev': 'EV',
+    'bmw': 'BMW',
+    'id': 'ID',
+    'n/a': 'N/A',
+  };
+
+  return compact
+      .split(' ')
+      .map((word) {
+        final preserved = preservedWords[word.toLowerCase()];
+        if (preserved != null) return preserved;
+        return word
+            .split('-')
+            .map((part) {
+              final preservedPart = preservedWords[part.toLowerCase()];
+              if (preservedPart != null) return preservedPart;
+              if (part.isEmpty || RegExp(r'^\d').hasMatch(part)) return part;
+              return '${part[0].toUpperCase()}${part.substring(1).toLowerCase()}';
+            })
+            .join('-');
+      })
+      .join(' ');
+}
+
 String digitsOnly(String value) => value.replaceAll(RegExp(r'\D'), '');
 
 String normalizePhilippineMobile(String value) {

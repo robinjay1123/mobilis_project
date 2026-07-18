@@ -62,6 +62,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _bookingSearchQuery = '';
   String _vehicleView = 'company';
   String _vehicleSearchQuery = '';
+  int _dashboardQueuePage = 0;
+  static const int _dashboardQueuePageSize = 10;
 
   // Stats
   int _totalUsers = 0;
@@ -109,6 +111,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _seatsController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
+  final ScrollController _dashboardQueueScrollController = ScrollController();
   final TextEditingController _bookingSearchController =
       TextEditingController();
   final TextEditingController _vehicleSearchController =
@@ -155,6 +158,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _seatsController.dispose();
     _messageController.dispose();
     _messageScrollController.dispose();
+    _dashboardQueueScrollController.dispose();
     _bookingSearchController.dispose();
     _vehicleSearchController.dispose();
     super.dispose();
@@ -366,9 +370,50 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _canTrackBooking(Map<String, dynamic> booking) {
-    final status = (booking['status'] as String? ?? '').toLowerCase();
     return _isCompanyOwnedBooking(booking) &&
-        (status == 'active' || status == 'approved' || status == 'confirmed');
+        bookingStatusGroup(booking['status']) == BookingStatusGroup.ongoing;
+  }
+
+  Future<void> _openBookingConversation(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    Map<String, dynamic>? conversation;
+    for (final item in _conversations) {
+      if (item['booking_id']?.toString() == bookingId) {
+        conversation = item;
+        break;
+      }
+    }
+
+    if (conversation == null) {
+      await _loadConversations();
+      for (final item in _conversations) {
+        if (item['booking_id']?.toString() == bookingId) {
+          conversation = item;
+          break;
+        }
+      }
+    }
+
+    if (!mounted) return;
+    final conversationId = conversation?['id']?.toString() ?? '';
+    if (conversationId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The booking conversation is not ready yet. Refresh and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _selectedIndex = 2;
+      _selectedConversationId = conversationId;
+    });
+    await _loadConversationMessages(conversationId);
   }
 
   Future<void> _openTrackingForBooking(Map<String, dynamic> booking) async {
@@ -2093,6 +2138,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       Icons.route_outlined,
                       _operatorNavy,
                       isDark,
+                      onTap: () => _openDashboardSection(
+                        selectedIndex: 1,
+                        bookingFilter: 'ongoing',
+                      ),
                     ),
                   ),
                   SizedBox(
@@ -2110,6 +2159,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       Icons.assignment_late_outlined,
                       const Color(0xFFC62828),
                       isDark,
+                      onTap: () => _openDashboardSection(
+                        selectedIndex: 1,
+                        bookingFilter: 'pending',
+                      ),
                     ),
                   ),
                   SizedBox(
@@ -2120,6 +2173,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       Icons.directions_car_outlined,
                       const Color(0xFF2E7D32),
                       isDark,
+                      onTap: () => _openDashboardSection(selectedIndex: 4),
                     ),
                   ),
                   SizedBox(
@@ -2130,6 +2184,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       Icons.fact_check_outlined,
                       const Color(0xFF886A00),
                       isDark,
+                      onTap: () => _openDashboardSection(
+                        selectedIndex: 1,
+                        bookingFilter: 'all',
+                      ),
                     ),
                   ),
                 ],
@@ -2150,9 +2208,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: _buildBookingsTable(isDark),
+                Scrollbar(
+                  controller: _dashboardQueueScrollController,
+                  thumbVisibility: true,
+                  trackVisibility: true,
+                  scrollbarOrientation: ScrollbarOrientation.bottom,
+                  child: SingleChildScrollView(
+                    controller: _dashboardQueueScrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _buildBookingsTable(isDark),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Align(
@@ -2184,58 +2250,95 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String value,
     IconData icon,
     Color color,
-    bool isDark,
-  ) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 132),
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
+    bool isDark, {
+    VoidCallback? onTap,
+  }) {
+    final borderRadius = BorderRadius.circular(18);
+    return Semantics(
+      button: onTap != null,
+      label: onTap == null ? null : 'Open $title',
+      child: Material(
         color: isDark ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
+        borderRadius: borderRadius,
+        child: InkWell(
+          onTap: onTap,
+          mouseCursor: onTap == null
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.click,
+          borderRadius: borderRadius,
+          hoverColor: _operatorGold.withOpacity(0.08),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 132),
+            padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: borderRadius,
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
             ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+            child: Row(
               children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white : _operatorInk,
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color, size: 24),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : _operatorInk,
+                        ),
+                      ),
+                      Text(
+                        title.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 0.6,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  title.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 11,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                if (onTap != null)
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 14,
+                    color: isDark ? Colors.grey[500] : Colors.grey.shade400,
                   ),
-                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  void _openDashboardSection({
+    required int selectedIndex,
+    String? bookingFilter,
+  }) {
+    setState(() {
+      _selectedIndex = selectedIndex;
+      if (bookingFilter != null) {
+        _bookingFilter = bookingFilter;
+        _bookingSearchQuery = '';
+        _bookingSearchController.clear();
+      }
+    });
   }
 
   Widget _buildCard(String title, Widget content, bool isDark) {
@@ -2947,9 +3050,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
     }
 
-    final visible = queueBookings.take(8).toList();
+    final totalPages = (queueBookings.length / _dashboardQueuePageSize).ceil();
+    final safePage = _dashboardQueuePage.clamp(0, totalPages - 1);
+    final firstRecord = safePage * _dashboardQueuePageSize;
+    final visible = queueBookings
+        .skip(firstRecord)
+        .take(_dashboardQueuePageSize)
+        .toList();
     return SizedBox(
-      width: 1360,
+      width: 1430,
       child: Column(
         children: [
           Container(
@@ -2972,14 +3081,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 _buildQueueHeader('Driver', 3, isDark),
                 _buildQueueHeader('Amount', 2, isDark),
                 _buildQueueHeader('Status', 2, isDark),
-                _buildQueueHeader('Actions', 4, isDark),
+                _buildQueueHeader('Actions', 5, isDark),
               ],
             ),
           ),
           ...visible.map((booking) => _buildDetailedQueueRow(booking, isDark)),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
               color: isDark
                   ? Colors.white.withOpacity(0.02)
@@ -2988,12 +3097,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 bottom: Radius.circular(12),
               ),
             ),
-            child: Text(
-              'Showing ${visible.length} of ${queueBookings.length} active queue records',
-              style: TextStyle(
-                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                fontSize: 10,
-              ),
+            child: Row(
+              children: [
+                Text(
+                  'Showing ${firstRecord + 1}-${firstRecord + visible.length} of ${queueBookings.length} bookings',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                _buildDashboardQueuePagination(
+                  currentPage: safePage,
+                  totalPages: totalPages,
+                  isDark: isDark,
+                ),
+              ],
             ),
           ),
         ],
@@ -3194,10 +3314,132 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             2,
           ),
-          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 4),
+          cell(_buildOperatorBookingActions(booking, isDark, compact: true), 5),
         ],
       ),
     );
+  }
+
+  Widget _buildDashboardQueuePagination({
+    required int currentPage,
+    required int totalPages,
+    required bool isDark,
+  }) {
+    final pageItems = _dashboardQueuePageItems(currentPage, totalPages);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _dashboardQueuePageButton(
+          icon: Icons.chevron_left_rounded,
+          tooltip: 'Previous page',
+          enabled: currentPage > 0,
+          isDark: isDark,
+          onTap: () => setState(() => _dashboardQueuePage = currentPage - 1),
+        ),
+        const SizedBox(width: 5),
+        for (final page in pageItems) ...[
+          if (page == -1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 7),
+              child: Text(
+                '...',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            _dashboardQueuePageButton(
+              label: '${page + 1}',
+              selected: page == currentPage,
+              enabled: true,
+              isDark: isDark,
+              onTap: () => setState(() => _dashboardQueuePage = page),
+            ),
+          const SizedBox(width: 5),
+        ],
+        _dashboardQueuePageButton(
+          icon: Icons.chevron_right_rounded,
+          tooltip: 'Next page',
+          enabled: currentPage < totalPages - 1,
+          isDark: isDark,
+          onTap: () => setState(() => _dashboardQueuePage = currentPage + 1),
+        ),
+      ],
+    );
+  }
+
+  List<int> _dashboardQueuePageItems(int currentPage, int totalPages) {
+    if (totalPages <= 7)
+      return List<int>.generate(totalPages, (index) => index);
+
+    final pages = <int>{0, totalPages - 1};
+    for (var page = currentPage - 1; page <= currentPage + 1; page++) {
+      if (page > 0 && page < totalPages - 1) pages.add(page);
+    }
+    final sorted = pages.toList()..sort();
+    final items = <int>[];
+    for (var index = 0; index < sorted.length; index++) {
+      if (index > 0 && sorted[index] - sorted[index - 1] > 1) items.add(-1);
+      items.add(sorted[index]);
+    }
+    return items;
+  }
+
+  Widget _dashboardQueuePageButton({
+    String? label,
+    IconData? icon,
+    String? tooltip,
+    required bool enabled,
+    required bool isDark,
+    bool selected = false,
+    required VoidCallback onTap,
+  }) {
+    final foreground = selected
+        ? _operatorNavyDeep
+        : isDark
+        ? Colors.grey.shade300
+        : _operatorInk;
+    final button = InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? _operatorGold
+              : isDark
+              ? Colors.white.withOpacity(0.04)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: selected
+                ? _operatorGold
+                : isDark
+                ? Colors.white12
+                : Colors.grey.shade300,
+          ),
+        ),
+        child: icon != null
+            ? Icon(
+                icon,
+                size: 18,
+                color: enabled ? foreground : foreground.withOpacity(0.3),
+              )
+            : Text(
+                label ?? '',
+                style: TextStyle(
+                  color: enabled ? foreground : foreground.withOpacity(0.3),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+      ),
+    );
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
   }
 
   Widget _buildStatusBadge(String status) {
@@ -3651,6 +3893,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       flex: flex,
       child: Text(
         text.toUpperCase(),
+        textAlign: TextAlign.center,
         style: TextStyle(
           color: isDark ? Colors.grey[400] : Colors.grey.shade600,
           fontSize: 10,
@@ -3695,7 +3938,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
     final driverName = driverUser?['full_name']?.toString().trim();
 
-    Widget cell(Widget child, int flex) => Expanded(flex: flex, child: child);
+    Widget cell(Widget child, int flex) => Expanded(
+      flex: flex,
+      child: Align(alignment: Alignment.center, child: child),
+    );
     final primaryColor = isDark ? Colors.white : _operatorInk;
     final Color mutedColor = isDark
         ? Colors.grey.shade400
@@ -3715,6 +3961,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           cell(
             Text(
               displayId,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: primaryColor,
                 fontSize: 12,
@@ -3730,11 +3977,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               primaryColor,
               mutedColor,
               avatarUrl: _operatorUserAvatarUrl(renter),
+              centered: true,
             ),
             3,
           ),
           cell(
             Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(
                   Icons.directions_car_outlined,
@@ -3742,9 +3991,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   color: isDark ? _operatorGold : _operatorNavy,
                 ),
                 const SizedBox(width: 8),
-                Expanded(
+                Flexible(
                   child: Text(
                     _vehicleTitle(vehicle),
+                    textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -3765,6 +4015,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ? 'Unassigned'
                         : driverName)
                   : 'Self-drive',
+              textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -3780,6 +4031,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           cell(
             Text(
               _formatBookingDateTime(start),
+              textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: primaryColor, fontSize: 11),
@@ -3788,7 +4040,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           cell(
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: Alignment.center,
               child: _buildStatusBadge(
                 booking['status']?.toString() ?? 'pending',
               ),
@@ -3807,6 +4059,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Color primaryColor,
     Color mutedColor, {
     String? avatarUrl,
+    bool centered = false,
   }) {
     final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
     final avatarFallback = Container(
@@ -3827,6 +4080,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
     );
     return Row(
+      mainAxisAlignment: centered
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
       children: [
         if (avatarUrl != null && avatarUrl.isNotEmpty)
           OptimizedNetworkImage(
@@ -3840,12 +4096,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         else
           avatarFallback,
         const SizedBox(width: 9),
-        Expanded(
+        Flexible(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: centered
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
             children: [
               Text(
                 name,
+                textAlign: centered ? TextAlign.center : TextAlign.start,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -3856,6 +4115,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
               Text(
                 detail,
+                textAlign: centered ? TextAlign.center : TextAlign.start,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(color: mutedColor, fontSize: 10),
@@ -3946,7 +4206,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driverAccepted = assignmentStatus == 'accepted';
 
     final buttons = <Widget>[
-      OutlinedButton(
+      OutlinedButton.icon(
         onPressed: () => _showOperatorBookingDetailsDialog(booking),
         style: OutlinedButton.styleFrom(
           foregroundColor: isDark ? Colors.white : _operatorInk,
@@ -3956,13 +4216,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           minimumSize: Size.zero,
         ),
-        child: Text(compact ? 'Details' : 'View Details'),
+        icon: const Icon(Icons.visibility_outlined, size: 15),
+        label: Text(compact ? 'Details' : 'View Details'),
       ),
     ];
 
     if (group == BookingStatusGroup.pending) {
       buttons.add(
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: waitingForDriver
               ? null
               : () => _handleQuickApproveBooking(
@@ -3981,11 +4242,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             minimumSize: Size.zero,
           ),
-          child: Text(waitingForDriver ? 'Awaiting' : 'Approve'),
+          icon: Icon(
+            waitingForDriver
+                ? Icons.hourglass_top_rounded
+                : needsDriver && !driverAccepted
+                ? Icons.person_search_rounded
+                : Icons.check_rounded,
+            size: 15,
+          ),
+          label: Text(waitingForDriver ? 'Awaiting' : 'Approve'),
         ),
       );
       buttons.add(
-        OutlinedButton(
+        OutlinedButton.icon(
           onPressed: () => _showRejectDialog(booking['id'].toString()),
           style: OutlinedButton.styleFrom(
             foregroundColor: Colors.red.shade400,
@@ -3996,12 +4265,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             minimumSize: Size.zero,
           ),
-          child: const Text('Reject'),
+          icon: const Icon(Icons.close_rounded, size: 15),
+          label: const Text('Reject'),
+        ),
+      );
+    } else if (group == BookingStatusGroup.approved) {
+      buttons.add(
+        ElevatedButton.icon(
+          onPressed: () => _openBookingConversation(booking),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _operatorGold,
+            foregroundColor: _operatorNavyDeep,
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 11 : 16,
+              vertical: 12,
+            ),
+            minimumSize: Size.zero,
+          ),
+          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
+          label: const Text('Message'),
         ),
       );
     } else if (_canTrackBooking(booking)) {
       buttons.add(
-        ElevatedButton(
+        ElevatedButton.icon(
           onPressed: () => _openTrackingForBooking(booking),
           style: ElevatedButton.styleFrom(
             backgroundColor: _operatorGold,
@@ -4012,12 +4299,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             minimumSize: Size.zero,
           ),
-          child: const Text('Track'),
+          icon: const Icon(Icons.location_on_outlined, size: 15),
+          label: const Text('Track'),
         ),
       );
     }
 
-    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: buttons,
+    );
   }
 
   Future<void> _handleQuickApproveBooking(
@@ -9174,9 +9468,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             'year': int.parse(_yearController.text.trim()),
             'seats': int.parse(_seatsController.text.trim()),
             'price_per_day': double.parse(_priceController.text.trim()),
-            'price_per_hour': double.parse(
-              _pricePerHourController.text.trim(),
-            ),
+            'price_per_hour': double.parse(_pricePerHourController.text.trim()),
             'location': _locationController.text.trim(),
             'latitude': double.tryParse(_latitudeController.text.trim()),
             'longitude': double.tryParse(_longitudeController.text.trim()),
@@ -9279,10 +9571,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               vertical: 20,
             ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 1120,
-                maxHeight: 820,
-              ),
+              constraints: const BoxConstraints(maxWidth: 1120, maxHeight: 820),
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
@@ -9643,9 +9932,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     top: 3,
                     right: 3,
                     child: InkWell(
-                      onTap: () => setDialogState(
-                        () => _selectedImages.removeAt(index),
-                      ),
+                      onTap: () =>
+                          setDialogState(() => _selectedImages.removeAt(index)),
                       child: Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(

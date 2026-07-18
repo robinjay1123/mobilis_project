@@ -8,6 +8,7 @@ class NotificationItem extends StatelessWidget {
   final String timestamp;
   final Color iconColor;
   final VoidCallback? onTap;
+  final bool isRead;
 
   const NotificationItem({
     super.key,
@@ -17,6 +18,7 @@ class NotificationItem extends StatelessWidget {
     required this.timestamp,
     this.iconColor = AppColors.primary,
     this.onTap,
+    this.isRead = true,
   });
 
   @override
@@ -27,9 +29,11 @@ class NotificationItem extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: const Color(0xFF2A3548),
+          color: isRead ? const Color(0xFF2A3548) : const Color(0xFF354156),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.borderColor),
+          border: Border.all(
+            color: isRead ? AppColors.borderColor : Colors.white70,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -78,6 +82,17 @@ class NotificationItem extends StatelessWidget {
                 ],
               ),
             ),
+            if (!isRead) ...[
+              const SizedBox(width: 10),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
           ],
         ),
       ),

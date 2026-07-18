@@ -57,7 +57,6 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   bool _isRedeemingReward = false;
   late final ScrollController _scrollController;
   late final AnimationController _photoController;
-  final GlobalKey _loyaltySectionKey = GlobalKey();
   RealtimeChannel? _loyaltyBookingsSubscription;
 
   @override
@@ -485,10 +484,6 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                     avatarUrl: avatarUrl,
                   ),
                   const SizedBox(height: 18),
-                  if (_isRenter) ...[
-                    _loyaltyRewardsCard(),
-                    const SizedBox(height: 18),
-                  ],
                   _settingsTile(
                     icon: widget.isDarkMode
                         ? Icons.dark_mode
@@ -922,10 +917,10 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     final fallbackAction = normalizedLabel.contains('rating')
         ? _openRatings
         : isLoyalty
-        ? _scrollToLoyalty
+        ? _openLoyaltyRewards
         : null;
     final displayValue = isLoyalty && _loyaltyReward != null
-        ? '${_loyaltyReward!.progressTrips}/12'
+        ? '${_loyaltyReward!.progressTrips}/18'
         : item.value;
     return InkWell(
       onTap: item.onTap ?? fallbackAction,
@@ -962,34 +957,109 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     );
   }
 
-  void _scrollToLoyalty() {
-    final targetContext = _loyaltySectionKey.currentContext;
-    if (targetContext == null) return;
-    Scrollable.ensureVisible(
-      targetContext,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-      alignment: 0.08,
+  Future<void> _openLoyaltyRewards() async {
+    await _refreshLoyaltyReward();
+    if (!mounted) return;
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (routeContext) => StatefulBuilder(
+          builder: (routeContext, refreshRoute) {
+            Future<void> refreshReward() async {
+              await _refreshLoyaltyReward();
+              if (routeContext.mounted) refreshRoute(() {});
+            }
+
+            return Scaffold(
+              backgroundColor: AppColors.darkBg,
+              body: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    color: AppColors.primary,
+                    padding: EdgeInsets.fromLTRB(
+                      8,
+                      MediaQuery.of(routeContext).padding.top + 4,
+                      8,
+                      4,
+                    ),
+                    child: SizedBox(
+                      height: 40,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const Text(
+                            'Loyalty & Rewards',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: IconButton(
+                              tooltip: 'Back',
+                              onPressed: () => Navigator.pop(routeContext),
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: refreshReward,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(18),
+                        children: [
+                          _loyaltyRewardsCard(
+                            feedbackContext: routeContext,
+                            onStateChanged: () {
+                              if (routeContext.mounted) refreshRoute(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
-  Widget _loyaltyRewardsCard() {
+  Widget _loyaltyRewardsCard({
+    BuildContext? feedbackContext,
+    VoidCallback? onStateChanged,
+  }) {
     final reward = _loyaltyReward;
     final successfulTrips = reward?.successfulTrips ?? 0;
     final progressTrips = reward?.progressTrips ?? 0;
-    final remainingTrips = reward?.remainingTrips ?? 12;
     final progress = reward?.progress ?? 0;
     final isRedeemed = reward?.isRedeemed ?? false;
     final isExpired = reward?.isExpired ?? false;
     final canRedeem = reward?.canRedeem ?? false;
+    final nextClaimable = reward?.nextClaimableMilestone;
+    final nextMilestone = reward?.nextMilestone;
     final storageReady = reward?.storageReady ?? true;
     final expiryText = reward == null
         ? 'Loading membership...'
         : _formatProfileDate(reward.membershipExpiresAt);
     final statusText = isRedeemed
-        ? 'Redeemed'
+        ? 'Completed'
         : isExpired
         ? 'Expired'
+        : nextClaimable != null
+        ? 'Reward ready'
         : 'Active';
     final statusColor = isRedeemed
         ? AppColors.success
@@ -997,15 +1067,26 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         ? AppColors.error
         : AppColors.primary;
     final helperText = isRedeemed
-        ? 'Reward claimed. Keep completing trips for your next cycle.'
+        ? 'All rewards on this loyalty card have been redeemed.'
+        : isExpired
+        ? 'This six-month loyalty card has expired.'
+        : nextClaimable != null
+        ? '${nextClaimable.label} is ready to redeem.'
         : successfulTrips == 0
-        ? 'Complete your first successful trip to start earning your reward.'
-        : remainingTrips == 0
-        ? 'Your reward is ready to claim.'
-        : 'Complete $remainingTrips more trip${remainingTrips == 1 ? '' : 's'} to unlock your reward.';
+        ? 'Complete your first rental to earn your first stamp.'
+        : nextMilestone != null
+        ? 'Complete ${nextMilestone.stamp - successfulTrips} more trip${nextMilestone.stamp - successfulTrips == 1 ? '' : 's'} to unlock ${nextMilestone.label}.'
+        : 'You completed all 18 stamps. Redeem your remaining rewards.';
+    final profile = _profile ?? const <String, dynamic>{};
+    final holderName = _displayName(profile);
+    final holderAddress =
+        _value(profile['location'] ?? profile['address']) ?? 'Address not set';
+    final userId = AuthService().currentUser?.id ?? '';
+    final cardNumber = userId.isEmpty
+        ? 'PSDC-LOYALTY'
+        : 'PSDC-${userId.replaceAll('-', '').substring(0, 8).toUpperCase()}';
 
     return Container(
-      key: _loyaltySectionKey,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.darkBgSecondary,
@@ -1066,11 +1147,73 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
             ],
           ),
           const SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF042D53), Color(0xFF0A4B86)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.65),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'PSDC CAR RENTAL LOYALTY CARD',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  holderName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  holderAddress,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFB9CEE2),
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  cardNumber,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
                 child: Text(
-                  '$progressTrips / 12 Successful Trips',
+                  '$progressTrips / 18 Successful Trips',
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 17,
@@ -1100,43 +1243,31 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: [
-              for (var index = 1; index <= 12; index++)
-                Container(
-                  width: 22,
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: index <= progressTrips
-                        ? AppColors.primary
-                        : AppColors.darkBg,
-                    borderRadius: BorderRadius.circular(7),
-                    border: Border.all(
-                      color: index <= progressTrips
-                          ? AppColors.primary
-                          : AppColors.borderColor,
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 7.0;
+              final stampSize = (constraints.maxWidth - (spacing * 5)) / 6;
+              return Wrap(
+                spacing: spacing,
+                runSpacing: 10,
+                children: [
+                  for (
+                    var stamp = 1;
+                    stamp <= LoyaltyRewardState.maximumStamps;
+                    stamp++
+                  )
+                    _loyaltyStamp(
+                      stamp: stamp,
+                      size: stampSize,
+                      earned: stamp <= progressTrips,
+                      milestone: _loyaltyMilestoneFor(stamp),
+                      redeemed:
+                          reward?.redeemedMilestones.contains(stamp) ?? false,
                     ),
-                  ),
-                  child: index <= progressTrips
-                      ? const Icon(
-                          Icons.check_rounded,
-                          color: Colors.black,
-                          size: 14,
-                        )
-                      : Text(
-                          '$index',
-                          style: const TextStyle(
-                            color: AppColors.textTertiary,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 14),
           Text(
@@ -1158,12 +1289,48 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
               ),
             ),
           ],
+          const SizedBox(height: 12),
+          Theme(
+            data: Theme.of(context).copyWith(
+              dividerColor: Colors.transparent,
+              splashColor: Colors.transparent,
+            ),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              iconColor: AppColors.primary,
+              collapsedIconColor: AppColors.textTertiary,
+              title: const Text(
+                'How stamps and rewards work',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              children: const [
+                _LoyaltyRule(text: '1 completed rental earns 1 stamp.'),
+                _LoyaltyRule(text: 'Only one stamp is awarded per booking.'),
+                _LoyaltyRule(
+                  text:
+                      'The card is valid for six months and is non-transferable.',
+                ),
+                _LoyaltyRule(
+                  text:
+                      'Rewards are valid only at PSDC Car Rental and cannot be combined with other promos unless stated.',
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: canRedeem && !_isRedeemingReward
-                  ? _redeemLoyaltyReward
+                  ? () => _redeemLoyaltyReward(
+                      feedbackContext: feedbackContext,
+                      onStateChanged: onStateChanged,
+                    )
                   : null,
               icon: _isRedeemingReward
                   ? const SizedBox(
@@ -1178,7 +1345,11 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                       size: 18,
                     ),
               label: Text(
-                isRedeemed ? 'Reward Redeemed' : 'Redeem Your Reward',
+                isRedeemed
+                    ? 'All Rewards Redeemed'
+                    : nextClaimable == null
+                    ? 'Redeem Your Reward'
+                    : 'Redeem ${nextClaimable.label}',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
@@ -1198,20 +1369,123 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     );
   }
 
-  Future<void> _redeemLoyaltyReward() async {
+  Widget _loyaltyStamp({
+    required int stamp,
+    required double size,
+    required bool earned,
+    required LoyaltyRewardMilestone? milestone,
+    required bool redeemed,
+  }) {
+    final ready = earned && milestone != null && !redeemed;
+    final fillColor = redeemed
+        ? AppColors.success
+        : ready || (earned && milestone == null)
+        ? AppColors.primary
+        : AppColors.darkBg;
+    final textColor = redeemed || ready || (earned && milestone == null)
+        ? Colors.black
+        : milestone != null
+        ? AppColors.primary
+        : AppColors.textTertiary;
+
+    return Semantics(
+      label: milestone == null
+          ? 'Stamp $stamp${earned ? ', earned' : ''}'
+          : 'Stamp $stamp, ${milestone.label}${redeemed
+                ? ', redeemed'
+                : ready
+                ? ', ready to redeem'
+                : ''}',
+      child: Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: fillColor,
+          border: Border.all(
+            color: milestone != null || earned
+                ? AppColors.primary
+                : AppColors.borderColor,
+            width: milestone != null ? 1.5 : 1,
+          ),
+        ),
+        child: Center(
+          child: redeemed
+              ? const Icon(Icons.check_rounded, size: 18, color: Colors.black)
+              : milestone == null
+              ? earned
+                    ? const Icon(
+                        Icons.directions_car_rounded,
+                        size: 15,
+                        color: Colors.black,
+                      )
+                    : Text(
+                        '$stamp',
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      ready ? 'READY' : milestone.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: ready ? 7.5 : 7,
+                        height: 1.0,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (!ready)
+                      Text(
+                        '$stamp',
+                        style: TextStyle(
+                          color: textColor.withValues(alpha: 0.8),
+                          fontSize: 7,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  LoyaltyRewardMilestone? _loyaltyMilestoneFor(int stamp) {
+    for (final milestone in LoyaltyRewardState.milestones) {
+      if (milestone.stamp == stamp) return milestone;
+    }
+    return null;
+  }
+
+  Future<void> _redeemLoyaltyReward({
+    BuildContext? feedbackContext,
+    VoidCallback? onStateChanged,
+  }) async {
     final userId = AuthService().currentUser?.id;
     if (userId == null || _isRedeemingReward) return;
+    final milestone = _loyaltyReward?.nextClaimableMilestone;
+    if (milestone == null) return;
+    final activeContext = feedbackContext ?? context;
     final confirmed = await showDialog<bool>(
-      context: context,
+      context: activeContext,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.darkBgSecondary,
         title: const Text(
           'Redeem reward?',
           style: TextStyle(color: AppColors.textPrimary),
         ),
-        content: const Text(
-          'This will mark your current loyalty reward as redeemed.',
-          style: TextStyle(color: AppColors.textSecondary),
+        content: Text(
+          'Claim ${milestone.label} from stamp ${milestone.stamp}? This reward will be marked as redeemed.',
+          style: const TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
@@ -1234,20 +1508,26 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     if (confirmed != true) return;
 
     setState(() => _isRedeemingReward = true);
+    onStateChanged?.call();
     try {
-      final reward = await LoyaltyRewardService().redeem(userId);
+      final reward = await LoyaltyRewardService().redeem(userId, milestone);
       if (!mounted) return;
       setState(() => _loyaltyReward = reward);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Loyalty reward redeemed.')));
+      onStateChanged?.call();
+      if (!activeContext.mounted) return;
+      ScaffoldMessenger.of(activeContext).showSnackBar(
+        SnackBar(content: Text('${milestone.label} redeemed successfully.')),
+      );
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted || !activeContext.mounted) return;
+      ScaffoldMessenger.of(activeContext).showSnackBar(
         SnackBar(content: Text('Failed to redeem reward: $error')),
       );
     } finally {
-      if (mounted) setState(() => _isRedeemingReward = false);
+      if (mounted) {
+        setState(() => _isRedeemingReward = false);
+        onStateChanged?.call();
+      }
     }
   }
 
@@ -1554,14 +1834,53 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   }
 
   String _displayName(Map<String, dynamic> profile) {
-    return _value(profile['full_name'] ?? profile['name']) ??
-        AuthService().currentUser?.email?.split('@').first ??
-        'Profile';
+    return toProfessionalTitleCase(
+      _value(profile['full_name'] ?? profile['name']) ??
+          AuthService().currentUser?.email?.split('@').first ??
+          'Profile',
+    );
   }
 
   String? _value(dynamic value) {
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? null : text;
+  }
+}
+
+class _LoyaltyRule extends StatelessWidget {
+  final String text;
+
+  const _LoyaltyRule({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.check_circle_outline_rounded,
+              color: AppColors.primary,
+              size: 14,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
