@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
@@ -1290,13 +1291,21 @@ class BookingService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAvailableVerifiedDrivers() async {
+  Future<List<Map<String, dynamic>>> getAvailableVerifiedDrivers({
+    DateTime? bookingDate,
+    List<Map<String, double>> proximityTargets = const [],
+    bool prioritizeProximity = false,
+  }) async {
     try {
-      final today = DateTime.now().toIso8601String().split('T')[0];
+      final targetDate = (bookingDate ?? DateTime.now()).toLocal();
+      final scheduleDate =
+          '${targetDate.year.toString().padLeft(4, '0')}-'
+          '${targetDate.month.toString().padLeft(2, '0')}-'
+          '${targetDate.day.toString().padLeft(2, '0')}';
       final todayScheduleResponse = await supabase
           .from('driver_availability_schedule')
           .select('driver_id')
-          .eq('date', today)
+          .eq('date', scheduleDate)
           .eq('is_available', true);
       final anyScheduleResponse = await supabase
           .from('driver_availability_schedule')
@@ -1312,33 +1321,67 @@ class BookingService {
       final response = await supabase
           .from('drivers')
           .select(
-            'id, user_id, verification_status, driver_tier, users!drivers_user_id_fkey(id, full_name, email, role, is_available, id_verified, verification_status, application_status)',
+            'id, user_id, verification_status, driver_tier, rating, total_trips, users!drivers_user_id_fkey(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude)',
           );
 
-      final drivers = List<Map<String, dynamic>>.from(response).where((driver) {
-        final user = driver['users'] as Map<String, dynamic>?;
-        if (user == null) return false;
+      final drivers = List<Map<String, dynamic>>.from(response)
+          .where((driver) {
+            final user = driver['users'] as Map<String, dynamic>?;
+            if (user == null) return false;
 
-        final role = user['role']?.toString().trim().toLowerCase() ?? '';
-        if (role.isNotEmpty && role != 'driver') return false;
+            final role = user['role']?.toString().trim().toLowerCase() ?? '';
+            if (role.isNotEmpty && role != 'driver') return false;
 
-        final driverUserId = driver['user_id']?.toString();
-        final hasDateSchedule = scheduledDriverIds.contains(driverUserId);
-        final isAvailable = hasDateSchedule
-            ? availableTodayDriverIds.contains(driverUserId)
-            : user['is_available'] == true;
-        final isVerified =
-            _isVerifiedDriverStatus(driver['verification_status']) ||
-            _isVerifiedDriverStatus(user['verification_status']) ||
-            user['id_verified'] == true;
-        final isCertified =
-            user['application_status']?.toString().trim().toLowerCase() ==
-            'approved';
+            final driverUserId = driver['user_id']?.toString();
+            final hasDateSchedule = scheduledDriverIds.contains(driverUserId);
+            final isAvailable = hasDateSchedule
+                ? availableTodayDriverIds.contains(driverUserId)
+                : user['is_available'] == true;
+            final isVerified =
+                _isVerifiedDriverStatus(driver['verification_status']) ||
+                _isVerifiedDriverStatus(user['verification_status']) ||
+                user['id_verified'] == true;
+            final isCertified =
+                user['application_status']?.toString().trim().toLowerCase() ==
+                'approved';
 
-        return isAvailable && isVerified && isCertified;
-      }).toList();
+            return isAvailable && isVerified && isCertified;
+          })
+          .map((driver) {
+            final normalized = Map<String, dynamic>.from(driver);
+            final user = driver['users'] as Map<String, dynamic>? ?? {};
+            final latitude = (user['latitude'] as num?)?.toDouble();
+            final longitude = (user['longitude'] as num?)?.toDouble();
+            if (latitude != null &&
+                longitude != null &&
+                proximityTargets.isNotEmpty) {
+              final distances = proximityTargets.map(
+                (target) => _distanceInKilometers(
+                  latitude,
+                  longitude,
+                  target['latitude']!,
+                  target['longitude']!,
+                ),
+              );
+              normalized['distance_km'] = distances.reduce(math.min);
+            }
+            return normalized;
+          })
+          .toList();
 
       drivers.sort((a, b) {
+        if (prioritizeProximity) {
+          final aDistance = (a['distance_km'] as num?)?.toDouble();
+          final bDistance = (b['distance_km'] as num?)?.toDouble();
+          if (aDistance != null && bDistance != null) {
+            final comparison = aDistance.compareTo(bDistance);
+            if (comparison != 0) return comparison;
+          } else if (aDistance != null) {
+            return -1;
+          } else if (bDistance != null) {
+            return 1;
+          }
+        }
         final aUser = a['users'] as Map<String, dynamic>?;
         final bUser = b['users'] as Map<String, dynamic>?;
         final aName = aUser?['full_name']?.toString() ?? '';
@@ -1355,6 +1398,26 @@ class BookingService {
       return [];
     }
   }
+
+  double _distanceInKilometers(
+    double latitudeA,
+    double longitudeA,
+    double latitudeB,
+    double longitudeB,
+  ) {
+    const earthRadiusKm = 6371.0;
+    final latitudeDelta = _degreesToRadians(latitudeB - latitudeA);
+    final longitudeDelta = _degreesToRadians(longitudeB - longitudeA);
+    final a =
+        math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2) +
+        math.cos(_degreesToRadians(latitudeA)) *
+            math.cos(_degreesToRadians(latitudeB)) *
+            math.sin(longitudeDelta / 2) *
+            math.sin(longitudeDelta / 2);
+    return earthRadiusKm * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double _degreesToRadians(double degrees) => degrees * math.pi / 180;
 
   /// Mark a confirmed booking as picked up and active.
   Future<void> markBookingPickedUp(String bookingId) async {

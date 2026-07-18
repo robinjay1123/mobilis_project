@@ -586,14 +586,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 owner_id,
                 owner_role,
                 operator_id,
+                location,
+                latitude,
+                longitude,
                 vehicle_name,
                 price_per_day,
+                transmission,
+                vehicle_type,
+                category,
+                seats,
+                owner:owner_id (
+                  id,
+                  full_name,
+                  email,
+                  phone,
+                  location,
+                  latitude,
+                  longitude
+                ),
                 vehicle_images(id, image_url, display_order)
               ),
               renter:users!bookings_renter_id_fkey (
                 id,
                 full_name,
                 email,
+                phone,
+                location,
+                latitude,
+                longitude,
                 avatar_url,
                 profile_picture_url
               ),
@@ -1137,13 +1157,63 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return year.isEmpty ? name : '$name ($year)';
   }
 
+  double? _coordinateValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString().trim() ?? '');
+  }
+
+  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) =>
+      vehicle['owner_role']?.toString().trim().toLowerCase() == 'partner';
+
+  List<Map<String, double>> _driverProximityTargets(
+    Map<String, dynamic> vehicle,
+    Map<String, dynamic> renter,
+  ) {
+    final targets = <Map<String, double>>[];
+
+    void addTarget(dynamic latitudeValue, dynamic longitudeValue) {
+      final latitude = _coordinateValue(latitudeValue);
+      final longitude = _coordinateValue(longitudeValue);
+      if (latitude == null || longitude == null) return;
+      final duplicate = targets.any(
+        (target) =>
+            (target['latitude']! - latitude).abs() < 0.000001 &&
+            (target['longitude']! - longitude).abs() < 0.000001,
+      );
+      if (!duplicate) {
+        targets.add({'latitude': latitude, 'longitude': longitude});
+      }
+    }
+
+    addTarget(vehicle['latitude'], vehicle['longitude']);
+    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
+    addTarget(owner['latitude'], owner['longitude']);
+    addTarget(renter['latitude'], renter['longitude']);
+    return targets;
+  }
+
   void _showApproveDialog(Map<String, dynamic> booking) {
+    final withDriver = _bookingNeedsDriver(booking['with_driver']);
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final partnerVehicle = _isPartnerBookingVehicle(vehicle);
+    final bookingDate = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+    final proximityTargets = partnerVehicle
+        ? _driverProximityTargets(vehicle, renter)
+        : const <Map<String, double>>[];
+    final mapTargets = _driverProximityTargets(vehicle, renter);
+    final driversFuture = BookingService().getAvailableVerifiedDrivers(
+      bookingDate: bookingDate,
+      proximityTargets: proximityTargets,
+      prioritizeProximity: partnerVehicle,
+    );
+
     showDialog(
       context: context,
       builder: (context) {
         String? selectedDriverId;
-        final withDriver = _bookingNeedsDriver(booking['with_driver']);
-        final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -1186,9 +1256,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       color: _operatorGold,
                                       borderRadius: BorderRadius.circular(20),
                                     ),
-                                    child: const Text(
-                                      'PSDC VEHICLE',
-                                      style: TextStyle(
+                                    child: Text(
+                                      partnerVehicle
+                                          ? 'PSDC PARTNER VEHICLE'
+                                          : 'PSDC VEHICLE',
+                                      style: const TextStyle(
                                         color: _operatorNavyDeep,
                                         fontSize: 9,
                                         fontWeight: FontWeight.w900,
@@ -1209,7 +1281,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   const SizedBox(height: 4),
                                   Text(
                                     withDriver
-                                        ? 'Available Mobilis by PSDC certified drivers for ${_vehicleTitle(vehicle)}'
+                                        ? partnerVehicle
+                                              ? 'Certified drivers ranked near the partner vehicle and renter for ${_vehicleTitle(vehicle)}.'
+                                              : 'Available Mobilis by PSDC certified drivers for ${_vehicleTitle(vehicle)}.'
                                         : 'Confirm the reservation and create its booking conversation.',
                                     style: const TextStyle(
                                       color: Color(0xFF87A0B7),
@@ -1233,8 +1307,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       Expanded(
                         child: withDriver
                             ? FutureBuilder<List<Map<String, dynamic>>>(
-                                future: BookingService()
-                                    .getAvailableVerifiedDrivers(),
+                                future: driversFuture,
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState ==
                                       ConnectionState.waiting) {
@@ -1255,11 +1328,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   }
                                   return ListView.separated(
                                     padding: const EdgeInsets.all(24),
-                                    itemCount: drivers.length,
+                                    itemCount: drivers.length + 1,
                                     separatorBuilder: (_, __) =>
                                         const SizedBox(height: 10),
                                     itemBuilder: (context, index) {
-                                      final driver = drivers[index];
+                                      if (index == 0) {
+                                        return _buildDriverCoverageSummary(
+                                          booking: booking,
+                                          vehicle: vehicle,
+                                          partnerVehicle: partnerVehicle,
+                                          drivers: drivers,
+                                          mapTargets: mapTargets,
+                                        );
+                                      }
+                                      final driver = drivers[index - 1];
                                       final driverId = driver['id'].toString();
                                       final user =
                                           driver['users']
@@ -1275,9 +1357,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                               ?.toDouble() ??
                                           0;
                                       final trips =
-                                          (driver['completed_trips'] as num?)
+                                          (driver['total_trips'] as num?)
                                               ?.toInt() ??
                                           0;
+                                      final distance =
+                                          (driver['distance_km'] as num?)
+                                              ?.toDouble();
                                       return InkWell(
                                         onTap: () => setDialogState(
                                           () => selectedDriverId = driverId,
@@ -1347,7 +1432,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                     ),
                                                     const SizedBox(height: 5),
                                                     Text(
-                                                      '$trips completed trips  •  ${rating.toStringAsFixed(1)} rating',
+                                                      [
+                                                        '$trips completed trips',
+                                                        '${rating.toStringAsFixed(1)} rating',
+                                                        if (distance != null)
+                                                          '${distance.toStringAsFixed(1)} km away',
+                                                      ].join('  |  '),
                                                       style: TextStyle(
                                                         color: selected
                                                             ? _operatorNavy
@@ -1438,7 +1528,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               icon: const Icon(Icons.arrow_forward_rounded),
                               label: Text(
                                 withDriver
-                                    ? 'Send Driver Offer'
+                                    ? 'Finalize Assignment'
                                     : 'Finalize Booking',
                               ),
                             ),
@@ -1454,6 +1544,155 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
       },
     );
+  }
+
+  Widget _buildDriverCoverageSummary({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> vehicle,
+    required bool partnerVehicle,
+    required List<Map<String, dynamic>> drivers,
+    required List<Map<String, double>> mapTargets,
+  }) {
+    final pickup = booking['pickup_location']?.toString().trim();
+    final vehicleLocation = vehicle['location']?.toString().trim();
+    final referenceLocation = pickup?.isNotEmpty == true
+        ? pickup!
+        : vehicleLocation?.isNotEmpty == true
+        ? vehicleLocation!
+        : 'Location coordinates are not yet available';
+    final mapUrl = _buildDriverAssignmentMapUrl(mapTargets, drivers);
+    return Container(
+      height: 220,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: const Color(0xFF082944),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 5,
+            child: mapUrl == null
+                ? Container(
+                    color: const Color(0xFF06233A),
+                    child: const Center(
+                      child: Icon(
+                        Icons.map_outlined,
+                        color: Color(0xFF46677F),
+                        size: 50,
+                      ),
+                    ),
+                  )
+                : OptimizedNetworkImage(
+                    imageUrl: mapUrl,
+                    fit: BoxFit.cover,
+                    isThumbnail: false,
+                    errorWidget: const Center(
+                      child: Icon(
+                        Icons.map_outlined,
+                        color: Color(0xFF46677F),
+                        size: 50,
+                      ),
+                    ),
+                  ),
+          ),
+          Expanded(
+            flex: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: _operatorGold.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.location_searching_rounded,
+                      color: _operatorGold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    partnerVehicle
+                        ? 'Partner and renter proximity'
+                        : 'PSDC certified driver pool',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    referenceLocation,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF91A9BE),
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '${drivers.length} eligible  |  '
+                    '${partnerVehicle && mapTargets.isNotEmpty ? 'Nearest first' : 'Availability verified'}',
+                    style: const TextStyle(
+                      color: _operatorGold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _buildDriverAssignmentMapUrl(
+    List<Map<String, double>> targets,
+    List<Map<String, dynamic>> drivers,
+  ) {
+    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
+    if (token.isEmpty) return null;
+    final points = <({double latitude, double longitude, bool target})>[];
+    for (final target in targets) {
+      points.add((
+        latitude: target['latitude']!,
+        longitude: target['longitude']!,
+        target: true,
+      ));
+    }
+    for (final driver in drivers.take(8)) {
+      final user = driver['users'] as Map<String, dynamic>? ?? {};
+      final latitude = _coordinateValue(user['latitude']);
+      final longitude = _coordinateValue(user['longitude']);
+      if (latitude != null && longitude != null) {
+        points.add((latitude: latitude, longitude: longitude, target: false));
+      }
+    }
+    if (points.isEmpty) return null;
+    final overlays = points
+        .map(
+          (point) => point.target
+              ? 'pin-s-car+facc15(${point.longitude},${point.latitude})'
+              : 'pin-s+21c77a(${point.longitude},${point.latitude})',
+        )
+        .join(',');
+    final center = points.first;
+    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/'
+        '$overlays/${center.longitude},${center.latitude},11/700x420'
+        '?access_token=$token';
   }
 
   void _showRejectDialog(String bookingId) {
@@ -4848,26 +5087,70 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          Text(
-            renter['full_name']?.toString() ?? 'Unknown renter',
-            style: TextStyle(
-              color: foreground,
-              fontWeight: FontWeight.w800,
-              fontSize: 14,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: _operatorGold.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child:
+                    (renter['avatar_url'] ?? renter['profile_picture_url'])
+                            ?.toString()
+                            .trim()
+                            .isNotEmpty ==
+                        true
+                    ? OptimizedNetworkImage(
+                        imageUrl:
+                            (renter['avatar_url'] ??
+                                    renter['profile_picture_url'])
+                                .toString(),
+                        fit: BoxFit.cover,
+                        errorWidget: const Icon(
+                          Icons.person_outline_rounded,
+                          color: _operatorGold,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.person_outline_rounded,
+                        color: _operatorGold,
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      renter['full_name']?.toString() ?? 'Unknown renter',
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      renter['email']?.toString() ?? 'No email provided',
+                      style: TextStyle(color: muted, fontSize: 11),
+                    ),
+                    if (renter['phone']?.toString().trim().isNotEmpty ==
+                        true) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        renter['phone'].toString(),
+                        style: TextStyle(color: muted, fontSize: 11),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            renter['email']?.toString() ?? 'No email provided',
-            style: TextStyle(color: muted, fontSize: 11),
-          ),
-          if (renter['phone']?.toString().trim().isNotEmpty == true) ...[
-            const SizedBox(height: 4),
-            Text(
-              renter['phone'].toString(),
-              style: TextStyle(color: muted, fontSize: 11),
-            ),
-          ],
         ],
       ),
     );
@@ -4886,6 +5169,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }) {
     final foreground = isDark ? Colors.white : _operatorInk;
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+    final pickup = booking['pickup_location']?.toString().trim() ?? '';
+    final destination = booking['dropoff_location']?.toString().trim() ?? '';
+    final route = pickup.isNotEmpty && destination.isNotEmpty
+        ? '$pickup to $destination'
+        : destination.isNotEmpty
+        ? destination
+        : pickup.isNotEmpty
+        ? pickup
+        : 'PSDC Urdaneta';
+    final needsDriver = _bookingNeedsDriver(booking['with_driver']);
+    final service = needsDriver
+        ? driverName == 'Unassigned'
+              ? 'Professional driver required'
+              : 'Professional driver - $driverName'
+        : 'Self-drive';
     return SingleChildScrollView(
       padding: const EdgeInsets.all(26),
       child: Column(
@@ -4954,21 +5252,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             runSpacing: 12,
             children: [
               _buildOperatorDetailTile(
+                Icons.map_outlined,
+                'ROUTE',
+                route,
+                isDark,
+              ),
+              _buildOperatorDetailTile(
                 Icons.calendar_month_outlined,
-                'START',
-                _formatBookingDateTime(start),
+                'SCHEDULE',
+                '${_formatBookingDateTime(start)} - ${_formatBookingDateTime(end)}',
                 isDark,
               ),
               _buildOperatorDetailTile(
-                Icons.event_available_outlined,
-                'RETURN',
-                _formatBookingDateTime(end),
-                isDark,
-              ),
-              _buildOperatorDetailTile(
-                Icons.person_pin_circle_outlined,
-                'DRIVER',
-                driverName,
+                Icons.airport_shuttle_outlined,
+                'SERVICE',
+                service,
                 isDark,
               ),
             ],
@@ -5021,11 +5319,73 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       : 'Not provided',
                 ),
                 _buildOperatorSafetyLine(
+                  'Contact phone',
+                  booking['emergency_contact_phone']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true
+                      ? booking['emergency_contact_phone'].toString()
+                      : 'Not provided',
+                ),
+                _buildOperatorSafetyLine(
                   'Co-traveler',
                   booking['co_traveler_name']?.toString().trim().isNotEmpty ==
                           true
                       ? booking['co_traveler_name'].toString()
                       : 'Not provided',
+                ),
+                _buildOperatorSafetyLine(
+                  'Co-traveler license',
+                  booking['co_traveler_license']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true
+                      ? booking['co_traveler_license'].toString()
+                      : 'Not provided',
+                ),
+                _buildOperatorSafetyLine(
+                  'Co-traveler signature',
+                  booking['co_traveler_signature_url']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true
+                      ? 'Captured'
+                      : 'Not provided',
+                ),
+                Divider(color: Colors.white.withOpacity(0.12), height: 22),
+                const Text(
+                  'VERIFICATION EVIDENCE',
+                  style: TextStyle(
+                    color: Color(0xFF91A9BE),
+                    fontSize: 9,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildOperatorEvidenceChip(
+                      Icons.draw_outlined,
+                      'Signature',
+                      booking['renter_signature_url'],
+                    ),
+                    _buildOperatorEvidenceChip(
+                      Icons.badge_outlined,
+                      'Valid ID',
+                      booking['renter_valid_id_url'],
+                    ),
+                    _buildOperatorEvidenceChip(
+                      Icons.camera_alt_outlined,
+                      'Selfie',
+                      booking['renter_selfie_url'],
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -5112,6 +5472,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorEvidenceChip(IconData icon, String label, dynamic url) {
+    final available = url?.toString().trim().isNotEmpty == true;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 132),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: available
+              ? _operatorGold.withOpacity(0.45)
+              : Colors.white.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            available ? icon : Icons.warning_amber_rounded,
+            size: 15,
+            color: available ? _operatorGold : Colors.orangeAccent,
+          ),
+          const SizedBox(width: 7),
+          Text(
+            available ? label : '$label missing',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
