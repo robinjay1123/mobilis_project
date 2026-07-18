@@ -64,6 +64,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _vehicleSearchQuery = '';
   int _dashboardQueuePage = 0;
   static const int _dashboardQueuePageSize = 10;
+  int _bookingPage = 0;
+  static const int _bookingPageSize = 10;
 
   // Stats
   int _totalUsers = 0;
@@ -2335,6 +2337,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _selectedIndex = selectedIndex;
       if (bookingFilter != null) {
         _bookingFilter = bookingFilter;
+        _bookingPage = 0;
         _bookingSearchQuery = '';
         _bookingSearchController.clear();
       }
@@ -3610,6 +3613,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ].whereType<Object>().join(' ').toLowerCase();
       return haystack.contains(query);
     }).toList();
+    final totalPages = filteredBookings.isEmpty
+        ? 1
+        : ((filteredBookings.length - 1) ~/ _bookingPageSize) + 1;
+    final safePage = _bookingPage.clamp(0, totalPages - 1);
+    final pagedBookings = filteredBookings
+        .skip(safePage * _bookingPageSize)
+        .take(_bookingPageSize)
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -3695,8 +3706,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 Expanded(
                   child: TextField(
                     controller: _bookingSearchController,
-                    onChanged: (value) =>
-                        setState(() => _bookingSearchQuery = value.trim()),
+                    onChanged: (value) => setState(() {
+                      _bookingSearchQuery = value.trim();
+                      _bookingPage = 0;
+                    }),
                     decoration: InputDecoration(
                       hintText: 'Search booking ID, renter, or vehicle',
                       prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -3724,7 +3737,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           const SizedBox(height: 18),
-          _buildOperatorBookingsResult(filteredBookings, isDark),
+          _buildOperatorBookingsResult(
+            pagedBookings,
+            isDark,
+            totalFiltered: filteredBookings.length,
+            currentPage: safePage,
+            totalPages: totalPages,
+          ),
         ],
       ),
     );
@@ -3754,7 +3773,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: InkWell(
-        onTap: () => setState(() => _bookingFilter = value),
+        onTap: () => setState(() {
+          _bookingFilter = value;
+          _bookingPage = 0;
+        }),
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
@@ -3782,8 +3804,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildOperatorBookingsResult(
     List<Map<String, dynamic>> bookings,
-    bool isDark,
-  ) {
+    bool isDark, {
+    required int totalFiltered,
+    required int currentPage,
+    required int totalPages,
+  }) {
     if (bookings.isEmpty) {
       return Container(
         width: double.infinity,
@@ -3836,14 +3861,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       builder: (context, constraints) {
         if (constraints.maxWidth < 980) {
           return Column(
-            children: bookings
-                .map(
-                  (booking) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildOperatorBookingCard(booking, isDark),
-                  ),
-                )
-                .toList(),
+            children: [
+              ...bookings.map(
+                (booking) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _buildOperatorBookingCard(booking, isDark),
+                ),
+              ),
+              _buildOperatorBookingPaginationFooter(
+                visibleCount: bookings.length,
+                totalFiltered: totalFiltered,
+                currentPage: currentPage,
+                totalPages: totalPages,
+                isDark: isDark,
+              ),
+            ],
           );
         }
 
@@ -3862,29 +3894,116 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ...bookings.map(
                 (booking) => _buildOperatorBookingTableRow(booking, isDark),
               ),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 16,
-                ),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withOpacity(0.025)
-                      : const Color(0xFFFAFBFC),
-                ),
-                child: Text(
-                  'Showing ${bookings.length} of ${_recentBookings.length} bookings',
-                  style: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-                    fontSize: 11,
-                  ),
-                ),
+              _buildOperatorBookingPaginationFooter(
+                visibleCount: bookings.length,
+                totalFiltered: totalFiltered,
+                currentPage: currentPage,
+                totalPages: totalPages,
+                isDark: isDark,
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildOperatorBookingPaginationFooter({
+    required int visibleCount,
+    required int totalFiltered,
+    required int currentPage,
+    required int totalPages,
+    required bool isDark,
+  }) {
+    final firstItem = totalFiltered == 0
+        ? 0
+        : (currentPage * _bookingPageSize) + 1;
+    final lastItem = totalFiltered == 0 ? 0 : firstItem + visibleCount - 1;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.025)
+            : const Color(0xFFFAFBFC),
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white10 : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 12,
+        children: [
+          Text(
+            'Showing $firstItem-$lastItem of $totalFiltered bookings',
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (totalPages > 1)
+            _buildOperatorBookingPagination(
+              currentPage: currentPage,
+              totalPages: totalPages,
+              isDark: isDark,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorBookingPagination({
+    required int currentPage,
+    required int totalPages,
+    required bool isDark,
+  }) {
+    final pageItems = _dashboardQueuePageItems(currentPage, totalPages);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _dashboardQueuePageButton(
+          icon: Icons.chevron_left_rounded,
+          tooltip: 'Previous page',
+          enabled: currentPage > 0,
+          isDark: isDark,
+          onTap: () => setState(() => _bookingPage = currentPage - 1),
+        ),
+        const SizedBox(width: 5),
+        for (final page in pageItems) ...[
+          if (page == -1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 7),
+              child: Text(
+                '...',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          else
+            _dashboardQueuePageButton(
+              label: '${page + 1}',
+              selected: page == currentPage,
+              enabled: true,
+              isDark: isDark,
+              onTap: () => setState(() => _bookingPage = page),
+            ),
+          const SizedBox(width: 5),
+        ],
+        _dashboardQueuePageButton(
+          icon: Icons.chevron_right_rounded,
+          tooltip: 'Next page',
+          enabled: currentPage < totalPages - 1,
+          isDark: isDark,
+          onTap: () => setState(() => _bookingPage = currentPage + 1),
+        ),
+      ],
     );
   }
 
@@ -4206,24 +4325,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driverAccepted = assignmentStatus == 'accepted';
 
     final buttons = <Widget>[
-      OutlinedButton.icon(
+      _buildOperatorBookingActionButton(
         onPressed: () => _showOperatorBookingDetailsDialog(booking),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: isDark ? Colors.white : _operatorInk,
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 11 : 16,
-            vertical: 12,
-          ),
-          minimumSize: Size.zero,
-        ),
-        icon: const Icon(Icons.visibility_outlined, size: 15),
-        label: Text(compact ? 'Details' : 'View Details'),
+        icon: Icons.visibility_rounded,
+        label: compact ? 'Details' : 'View Details',
+        foregroundColor: isDark ? Colors.white : _operatorInk,
+        borderColor: isDark ? Colors.white24 : Colors.grey.shade400,
+        compact: compact,
       ),
     ];
 
     if (group == BookingStatusGroup.pending) {
       buttons.add(
-        ElevatedButton.icon(
+        _buildOperatorBookingActionButton(
           onPressed: waitingForDriver
               ? null
               : () => _handleQuickApproveBooking(
@@ -4231,76 +4345,63 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   needsDriver: needsDriver,
                   driverAccepted: driverAccepted,
                 ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green.shade600,
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: Colors.grey.shade700,
-            disabledForegroundColor: Colors.grey.shade300,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 10 : 16,
-              vertical: 12,
-            ),
-            minimumSize: Size.zero,
-          ),
-          icon: Icon(
-            waitingForDriver
-                ? Icons.hourglass_top_rounded
-                : needsDriver && !driverAccepted
-                ? Icons.person_search_rounded
-                : Icons.check_rounded,
-            size: 15,
-          ),
-          label: Text(waitingForDriver ? 'Awaiting' : 'Approve'),
+          icon: waitingForDriver
+              ? Icons.hourglass_top_rounded
+              : needsDriver && !driverAccepted
+              ? Icons.person_search_rounded
+              : Icons.check_circle_outline_rounded,
+          label: waitingForDriver ? 'Awaiting' : 'Approve',
+          foregroundColor: Colors.white,
+          backgroundColor: Colors.green.shade600,
+          compact: compact,
         ),
       );
       buttons.add(
-        OutlinedButton.icon(
+        _buildOperatorBookingActionButton(
           onPressed: () => _showRejectDialog(booking['id'].toString()),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.red.shade400,
-            side: BorderSide(color: Colors.red.shade400),
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 10 : 16,
-              vertical: 12,
-            ),
-            minimumSize: Size.zero,
-          ),
-          icon: const Icon(Icons.close_rounded, size: 15),
-          label: const Text('Reject'),
+          icon: Icons.cancel_outlined,
+          label: 'Reject',
+          foregroundColor: Colors.red.shade400,
+          borderColor: Colors.red.shade400,
+          compact: compact,
         ),
       );
     } else if (group == BookingStatusGroup.approved) {
       buttons.add(
-        ElevatedButton.icon(
+        _buildOperatorBookingActionButton(
           onPressed: () => _openBookingConversation(booking),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _operatorGold,
-            foregroundColor: _operatorNavyDeep,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 11 : 16,
-              vertical: 12,
-            ),
-            minimumSize: Size.zero,
-          ),
-          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
-          label: const Text('Message'),
+          icon: Icons.chat_bubble_outline_rounded,
+          label: 'Message',
+          foregroundColor: _operatorNavyDeep,
+          backgroundColor: _operatorGold,
+          compact: compact,
         ),
       );
     } else if (_canTrackBooking(booking)) {
       buttons.add(
-        ElevatedButton.icon(
+        _buildOperatorBookingActionButton(
           onPressed: () => _openTrackingForBooking(booking),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _operatorGold,
-            foregroundColor: _operatorNavyDeep,
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 11 : 16,
-              vertical: 12,
-            ),
-            minimumSize: Size.zero,
-          ),
-          icon: const Icon(Icons.location_on_outlined, size: 15),
-          label: const Text('Track'),
+          icon: Icons.near_me_outlined,
+          label: 'Track',
+          foregroundColor: _operatorNavyDeep,
+          backgroundColor: _operatorGold,
+          compact: compact,
+        ),
+      );
+    }
+
+    if (compact) {
+      return FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < buttons.length; index++) ...[
+              if (index > 0) const SizedBox(width: 7),
+              buttons[index],
+            ],
+          ],
         ),
       );
     }
@@ -4311,6 +4412,65 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       spacing: 8,
       runSpacing: 8,
       children: buttons,
+    );
+  }
+
+  Widget _buildOperatorBookingActionButton({
+    required VoidCallback? onPressed,
+    required IconData icon,
+    required String label,
+    required Color foregroundColor,
+    Color? backgroundColor,
+    Color? borderColor,
+    required bool compact,
+  }) {
+    final enabled = onPressed != null;
+    final effectiveForeground = enabled
+        ? foregroundColor
+        : Colors.grey.shade400;
+    final effectiveBackground = enabled
+        ? (backgroundColor ?? Colors.transparent)
+        : Colors.grey.shade700.withOpacity(0.45);
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: effectiveBackground,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            height: compact ? 34 : 40,
+            padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: enabled
+                    ? (borderColor ?? backgroundColor ?? Colors.transparent)
+                    : Colors.grey.shade600,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: compact ? 14 : 16, color: effectiveForeground),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    color: effectiveForeground,
+                    fontSize: compact ? 11 : 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -4432,6 +4592,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         total: total,
                         status: status,
                         isDark: isDark,
+                        onClose: () => Navigator.pop(dialogContext),
                       );
                       if (compact) {
                         return SingleChildScrollView(
@@ -4462,13 +4623,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                   child: Wrap(
                     alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        child: const Text('Close'),
-                      ),
                       OutlinedButton.icon(
                         onPressed: () {
                           Navigator.pop(dialogContext);
@@ -4478,7 +4636,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           Icons.verified_user_outlined,
                           size: 17,
                         ),
-                        label: const Text('Review Documents'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        ),
+                        label: const Text(
+                          'Review Documents',
+                          maxLines: 1,
+                          softWrap: false,
+                        ),
                       ),
                       if (group == BookingStatusGroup.pending)
                         OutlinedButton.icon(
@@ -4489,6 +4655,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
                             side: const BorderSide(color: Colors.red),
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           icon: const Icon(Icons.close_rounded, size: 17),
                           label: const Text('Decline'),
@@ -4503,6 +4671,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _operatorGold,
                             foregroundColor: _operatorNavyDeep,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(Icons.check_rounded, size: 17),
                           label: const Text('Finalize Booking'),
@@ -4519,6 +4689,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _operatorNavy,
                             foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(Icons.person_search, size: 17),
                           label: Text(
@@ -4538,8 +4710,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               inspectionType: 'before',
                             );
                           },
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
                           icon: const Icon(Icons.fact_check_outlined, size: 17),
-                          label: const Text('Before Checklist'),
+                          label: const Text(
+                            'Before Checklist',
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
                         ),
                       if (statusLower == 'active' || statusLower == 'completed')
                         OutlinedButton.icon(
@@ -4550,6 +4730,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               inspectionType: 'after',
                             );
                           },
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
                           icon: const Icon(
                             Icons.assignment_turned_in_outlined,
                             size: 17,
@@ -4565,6 +4749,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _operatorGold,
                             foregroundColor: _operatorNavyDeep,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(Icons.explore_outlined, size: 17),
                           label: const Text('Track Trip'),
@@ -4579,6 +4765,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _operatorNavy,
                             foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(Icons.task_alt, size: 17),
                           label: const Text('Confirm Successful Trip'),
@@ -4694,6 +4882,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     required double total,
     required String status,
     required bool isDark,
+    required VoidCallback onClose,
   }) {
     final foreground = isDark ? Colors.white : _operatorInk;
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
@@ -4743,6 +4932,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(width: 12),
+              IconButton(
+                tooltip: 'Close booking details',
+                onPressed: onClose,
+                style: IconButton.styleFrom(
+                  foregroundColor: foreground,
+                  backgroundColor: isDark
+                      ? Colors.white.withOpacity(0.06)
+                      : Colors.grey.shade100,
+                  minimumSize: const Size(42, 42),
+                ),
+                icon: const Icon(Icons.close_rounded, size: 22),
               ),
             ],
           ),
