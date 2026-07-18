@@ -7962,6 +7962,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
 
       const activeStatuses = ['approved', 'confirmed', 'active', 'ongoing'];
+      final participantConversationIds = <String>{};
+      try {
+        final participations = await _supabase
+            .from('conversation_participants')
+            .select('conversation_id')
+            .eq('user_id', currentUserId);
+        participantConversationIds.addAll(
+          List<Map<String, dynamic>>.from(participations)
+              .map((row) => row['conversation_id']?.toString().trim())
+              .whereType<String>()
+              .where((id) => id.isNotEmpty),
+        );
+      } on PostgrestException catch (error) {
+        debugPrint('[Messages] Participant lookup skipped: ${error.message}');
+      }
+      final participantBookingIds = <String>{};
+      if (participantConversationIds.isNotEmpty) {
+        final participantConversationRows = await _supabase
+            .from('conversations')
+            .select('booking_id')
+            .inFilter('id', participantConversationIds.toList());
+        for (final row in List<Map<String, dynamic>>.from(
+          participantConversationRows,
+        )) {
+          final bookingId = row['booking_id']?.toString().trim() ?? '';
+          if (bookingId.isNotEmpty) participantBookingIds.add(bookingId);
+        }
+      }
+
       final bookingRows = await _supabase
           .from('bookings')
           .select('id, status, operator_id')
@@ -7969,8 +7998,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .order('updated_at', ascending: false);
       final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
           .where((booking) {
+            final bookingId = booking['id']?.toString().trim() ?? '';
             final operatorId = booking['operator_id']?.toString().trim() ?? '';
-            return operatorId.isEmpty || operatorId == currentUserId;
+            return operatorId.isEmpty ||
+                operatorId == currentUserId ||
+                participantBookingIds.contains(bookingId);
           })
           .toList();
       final bookingIds = eligibleBookings
@@ -7984,17 +8016,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         if (mounted) setState(() {});
         return;
       }
-
-      final participations = await _supabase
-          .from('conversation_participants')
-          .select('conversation_id')
-          .eq('user_id', currentUserId);
-
-      final participantConversationIds =
-          List<Map<String, dynamic>>.from(participations)
-              .map((row) => row['conversation_id']?.toString())
-              .whereType<String>()
-              .toSet();
 
       final existingRows = await _supabase
           .from('conversations')

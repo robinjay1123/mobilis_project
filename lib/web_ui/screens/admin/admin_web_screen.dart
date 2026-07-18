@@ -346,16 +346,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return;
       }
 
-      final participations = await _supabase
-          .from('conversation_participants')
-          .select('conversation_id')
-          .inFilter('user_id', adminIds);
+      final conversationIds = <String>{};
+      try {
+        final participations = await _supabase
+            .from('conversation_participants')
+            .select('conversation_id')
+            .inFilter('user_id', adminIds);
+        conversationIds.addAll(
+          List<Map<String, dynamic>>.from(participations)
+              .map((row) => row['conversation_id']?.toString().trim() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      } on PostgrestException catch (error) {
+        debugPrint('Normalized admin support lookup skipped: ${error.message}');
+      }
 
-      final conversationIds = List<Map<String, dynamic>>.from(participations)
-          .map((row) => row['conversation_id']?.toString().trim() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet()
-          .toList();
+      // Legacy customer-service threads may predate the normalized
+      // conversation_participants rows but still reference the admin through
+      // conversations.user_id/other_user_id.
+      for (final adminId in adminIds) {
+        try {
+          final directRows = await _supabase
+              .from('conversations')
+              .select('id')
+              .or('user_id.eq.$adminId,other_user_id.eq.$adminId')
+              .isFilter('booking_id', null);
+          for (final row in List<Map<String, dynamic>>.from(directRows)) {
+            final id = row['id']?.toString().trim() ?? '';
+            if (id.isNotEmpty) conversationIds.add(id);
+          }
+        } on PostgrestException catch (error) {
+          debugPrint(
+            'Legacy admin support conversation lookup skipped: ${error.message}',
+          );
+        }
+      }
 
       if (conversationIds.isEmpty) {
         _supportConversations = [];
@@ -366,7 +391,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final rows = await _supabase
           .from('conversations')
           .select('id, status, created_at, updated_at, booking_id')
-          .inFilter('id', conversationIds)
+          .inFilter('id', conversationIds.toList())
           .isFilter('booking_id', null)
           .order('updated_at', ascending: false);
 

@@ -66,13 +66,19 @@ class ChatService {
   Future<List<String>> _conversationIdsForUser(String userId) async {
     final conversationIds = <String>{};
 
-    final participantRows = await supabase
-        .from('conversation_participants')
-        .select('conversation_id')
-        .eq('user_id', userId);
-    for (final row in List<Map<String, dynamic>>.from(participantRows)) {
-      final id = row['conversation_id']?.toString().trim() ?? '';
-      if (id.isNotEmpty) conversationIds.add(id);
+    try {
+      final participantRows = await supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .eq('user_id', userId);
+      for (final row in List<Map<String, dynamic>>.from(participantRows)) {
+        final id = row['conversation_id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) conversationIds.add(id);
+      }
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'Normalized participant conversation lookup skipped: ${error.message}',
+      );
     }
 
     // Older direct/support conversations retain these columns even when their
@@ -90,18 +96,11 @@ class ChatService {
       debugPrint('Legacy direct conversation lookup skipped: ${error.message}');
     }
 
-    // Booking chats are owned by bookings.renter_id. This fallback keeps
-    // legacy renter chats visible without exposing unrelated conversations.
+    // Older booking chats can be missing their normalized participant rows.
+    // Resolve them through every booking relationship used by the app so the
+    // Messages tab and direct booking chat always discover the same threads.
     try {
-      final bookingRows = await supabase
-          .from('bookings')
-          .select('id')
-          .eq('renter_id', userId);
-      final bookingIds = List<Map<String, dynamic>>.from(bookingRows)
-          .map((row) => row['id']?.toString().trim())
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toList();
+      final bookingIds = await _bookingIdsForConversationUser(userId);
       if (bookingIds.isNotEmpty) {
         final bookingConversationRows = await supabase
             .from('conversations')
@@ -116,12 +115,50 @@ class ChatService {
       }
     } on PostgrestException catch (error) {
       debugPrint(
-        'Renter booking conversation lookup skipped: ${error.message}',
+        'Related booking conversation lookup skipped: ${error.message}',
       );
     }
 
     debugPrint('Resolved ${conversationIds.length} conversations for $userId');
     return conversationIds.toList();
+  }
+
+  Future<List<String>> _bookingIdsForConversationUser(String userId) async {
+    final bookingIds = <String>{};
+
+    final directBookingRows = await supabase
+        .from('bookings')
+        .select('id')
+        .or('renter_id.eq.$userId,driver_id.eq.$userId,operator_id.eq.$userId');
+    for (final row in List<Map<String, dynamic>>.from(directBookingRows)) {
+      final id = row['id']?.toString().trim() ?? '';
+      if (id.isNotEmpty) bookingIds.add(id);
+    }
+
+    // Partner chats are linked through vehicles.owner_id. Some PSDC records
+    // also carry vehicles.operator_id instead of bookings.operator_id.
+    final vehicleRows = await supabase
+        .from('vehicles')
+        .select('id')
+        .or('owner_id.eq.$userId,operator_id.eq.$userId');
+    final vehicleIds = List<Map<String, dynamic>>.from(vehicleRows)
+        .map((row) => row['id']?.toString().trim())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (vehicleIds.isNotEmpty) {
+      final vehicleBookingRows = await supabase
+          .from('bookings')
+          .select('id')
+          .inFilter('vehicle_id', vehicleIds);
+      for (final row in List<Map<String, dynamic>>.from(vehicleBookingRows)) {
+        final id = row['id']?.toString().trim() ?? '';
+        if (id.isNotEmpty) bookingIds.add(id);
+      }
+    }
+
+    return bookingIds.toList();
   }
 
   Future<List<Map<String, dynamic>>> _getConversationsWithoutEmbed(
