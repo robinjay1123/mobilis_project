@@ -1629,6 +1629,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         return;
       }
 
+      final detailsConfirmed = await _showBookingDetailsReviewDialog(
+        startAt: startAtLocal,
+        endAt: endAtLocal,
+        coTravelerName: coTravelerName,
+        coTravelerPhone: coTravelerPhone,
+        coTravelerLicense: coTravelerLicense,
+      );
+
+      if (!mounted || !detailsConfirmed) return;
+
       reservationPaymentProof = await _showReservationPaymentDialog(
         userId: currentUser.id,
       );
@@ -1973,6 +1983,337 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         false;
 
     return acceptedTerms ? terms : null;
+  }
+
+  Future<bool> _showBookingDetailsReviewDialog({
+    required DateTime startAt,
+    required DateTime endAt,
+    required String coTravelerName,
+    required String coTravelerPhone,
+    required String coTravelerLicense,
+  }) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final vehicle = _vehicle ?? widget.vehicleData ?? const <String, dynamic>{};
+    final vehicleName = [
+      vehicle['brand']?.toString().trim() ?? '',
+      vehicle['model']?.toString().trim() ?? '',
+    ].where((part) => part.isNotEmpty).join(' ');
+    final emergencyName =
+        _defaultEmergencyContact?['full_name']?.toString().trim() ?? '';
+    final emergencyPhone =
+        _defaultEmergencyContact?['phone_number']?.toString().trim() ?? '';
+    final pickup = _getPickupLocation().trim();
+    final destination = _getDropoffLocation().trim();
+    final service = _withDriver
+        ? 'Professional driver'
+        : _vehicleDelivery
+        ? 'Self-drive with vehicle delivery'
+        : 'Self-pickup';
+
+    String formatDateTime(DateTime value) {
+      final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+      final minute = value.minute.toString().padLeft(2, '0');
+      final period = value.hour < 12 ? 'AM' : 'PM';
+      final time = '$hour:$minute $period';
+      return '${_formatDate(value)}, ${value.year} at $time';
+    }
+
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => Dialog(
+            backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540, maxHeight: 720),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 12, 14),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.fact_check_outlined,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Review Booking Details',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? AppColors.textPrimary
+                                      : AppColors.lightTextPrimary,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Double-check every detail before payment.',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? AppColors.textSecondary
+                                      : AppColors.lightTextSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          icon: const Icon(Icons.close_rounded),
+                          color: isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(
+                    height: 1,
+                    color: isDark
+                        ? AppColors.borderColor
+                        : AppColors.lightBorderColor,
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        children: [
+                          _buildBookingReviewSection(
+                            context,
+                            title: 'Trip Details',
+                            icon: Icons.directions_car_filled_outlined,
+                            rows: [
+                              MapEntry(
+                                'Vehicle',
+                                vehicleName.isEmpty
+                                    ? 'Selected vehicle'
+                                    : vehicleName,
+                              ),
+                              MapEntry('Start', formatDateTime(startAt)),
+                              MapEntry('Return', formatDateTime(endAt)),
+                              MapEntry('Service', service),
+                              MapEntry(
+                                'Pickup',
+                                pickup.isEmpty ? 'PSDC Urdaneta' : pickup,
+                              ),
+                              MapEntry(
+                                'Destination',
+                                destination.isEmpty
+                                    ? 'Not provided'
+                                    : destination,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _buildBookingReviewSection(
+                            context,
+                            title: 'Safety Information',
+                            icon: Icons.health_and_safety_outlined,
+                            rows: [
+                              MapEntry(
+                                'Emergency contact',
+                                [emergencyName, emergencyPhone]
+                                    .where((value) => value.isNotEmpty)
+                                    .join(' • '),
+                              ),
+                              MapEntry('Co-traveler', coTravelerName),
+                              MapEntry('Co-traveler phone', coTravelerPhone),
+                              MapEntry('Driver license', coTravelerLicense),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          _buildBookingReviewSection(
+                            context,
+                            title: 'Price Breakdown',
+                            icon: Icons.receipt_long_outlined,
+                            rows: [
+                              MapEntry(
+                                'Rental subtotal',
+                                'PHP ${formatAmount(_rentalSubtotal)}',
+                              ),
+                              if (_requiresPickupMap)
+                                MapEntry(
+                                  'Delivery fee',
+                                  'PHP ${formatAmount(_deliveryFee)}',
+                                ),
+                              MapEntry(
+                                'Total',
+                                'PHP ${formatAmount(_totalPrice)}',
+                              ),
+                            ],
+                            emphasizeLast: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Divider(
+                    height: 1,
+                    color: isDark
+                        ? AppColors.borderColor
+                        : AppColors.lightBorderColor,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              foregroundColor: isDark
+                                  ? AppColors.textPrimary
+                                  : AppColors.lightTextPrimary,
+                              side: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderColor
+                                    : AppColors.lightBorderColor,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('Back & Edit'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Proceed to Payment',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ) ??
+        false;
+  }
+
+  Widget _buildBookingReviewSection(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<MapEntry<String, String>> rows,
+    bool emphasizeLast = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgTertiary : AppColors.lightBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: AppColors.primary, size: 19),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  color: isDark
+                      ? AppColors.textPrimary
+                      : AppColors.lightTextPrimary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (var index = 0; index < rows.length; index++) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 112,
+                    child: Text(
+                      rows[index].key,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      rows[index].value.isEmpty
+                          ? 'Not provided'
+                          : rows[index].value,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: emphasizeLast && index == rows.length - 1
+                            ? AppColors.primary
+                            : isDark
+                            ? AppColors.textPrimary
+                            : AppColors.lightTextPrimary,
+                        fontSize: emphasizeLast && index == rows.length - 1
+                            ? 14
+                            : 12,
+                        fontWeight: emphasizeLast && index == rows.length - 1
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<ReservationPaymentProof?> _showReservationPaymentDialog({
@@ -5342,9 +5683,7 @@ class _ExpandedLocationMapScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            error.toString().replaceFirst('Exception: ', ''),
-          ),
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
           backgroundColor: AppColors.error,
         ),
       );
@@ -5390,17 +5729,12 @@ class _ExpandedLocationMapScreenState
       );
       if (!mounted) return;
       setState(() => _selectedPin = pin);
-      _mapController.move(
-        LatLng(position.latitude, position.longitude),
-        17,
-      );
+      _mapController.move(LatLng(position.latitude, position.longitude), 17);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            error.toString().replaceFirst('Exception: ', ''),
-          ),
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
           backgroundColor: AppColors.error,
         ),
       );
@@ -5447,8 +5781,7 @@ class _ExpandedLocationMapScreenState
                       TileLayer(
                         urlTemplate:
                             'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${widget.mapboxToken}',
-                        userAgentPackageName:
-                            'com.example.mobilis_by_psdc_app',
+                        userAgentPackageName: 'com.example.mobilis_by_psdc_app',
                       ),
                       if (_selectedPin != null)
                         MarkerLayer(

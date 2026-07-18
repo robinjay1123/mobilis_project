@@ -79,12 +79,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       AuthService().currentUser?.userMetadata?['location'],
       AuthService().currentUser?.userMetadata?['address'],
     ]);
-    final updated = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => _MyAddressesScreen(initialAddress: currentAddress),
       ),
     );
-    if (updated == true && mounted) {
+    if (mounted) {
       await _loadAccount();
       widget.onProfileUpdated?.call();
     }
@@ -243,100 +243,106 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: _backgroundColor(context),
-      child: Column(
-        children: [
-          _SettingsHeader(title: 'Settings', onBack: _goBack),
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
-                    children: [
-                      _SettingsSection(
-                        title: 'My Account',
-                        children: [
-                          _SettingsMenuRow(
-                            icon: Icons.shield_outlined,
-                            title: 'Account & Security',
-                            subtitle: 'Email, password, and account protection',
-                            onTap: _openAccountSecurity,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.location_on_outlined,
-                            title: 'My Addresses',
-                            subtitle: _addressSubtitle,
-                            onTap: _openAddresses,
-                          ),
-                        ],
+    return DefaultTextStyle.merge(
+      style: const TextStyle(decoration: TextDecoration.none),
+      child: ColoredBox(
+        color: _backgroundColor(context),
+        child: Column(
+          children: [
+            _SettingsHeader(title: 'Settings', onBack: _goBack),
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
                       ),
-                      const SizedBox(height: 24),
-                      _SettingsSection(
-                        title: 'Settings',
-                        children: [
-                          _SettingsMenuRow(
-                            icon: Icons.notifications_none_rounded,
-                            title: 'Notification Settings',
-                            subtitle: 'Push and email preferences',
-                            onTap: _openNotificationSettings,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.lock_outline_rounded,
-                            title: 'Privacy Settings',
-                            subtitle: 'Location and data preferences',
-                            onTap: _openPrivacySettings,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      _SettingsSection(
-                        title: 'Support',
-                        children: [
-                          _SettingsMenuRow(
-                            icon: Icons.help_outline_rounded,
-                            title: 'Help Centre',
-                            subtitle: 'FAQs and customer service',
-                            onTap: _openHelpCentre,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.person_remove_outlined,
-                            title: 'Request Account Deletion',
-                            subtitle:
-                                'Ask admin support to review and delete your account',
-                            foregroundColor: AppColors.error,
-                            onTap: _openAccountDeletionRequest,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.article_outlined,
-                            title: 'Terms and Conditions',
-                            onTap: _openTerms,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.privacy_tip_outlined,
-                            title: 'Privacy Policy',
-                            onTap: _openPrivacyPolicy,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.star_outline_rounded,
-                            title: 'Rate Mobilis',
-                            subtitle: 'Share your experience',
-                            onTap: _rateMobilis,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.info_outline_rounded,
-                            title: 'About Mobilis',
-                            subtitle: 'Version 1.0.0',
-                            onTap: _openAbout,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-          ),
-        ],
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
+                      children: [
+                        _SettingsSection(
+                          title: 'My Account',
+                          children: [
+                            _SettingsMenuRow(
+                              icon: Icons.shield_outlined,
+                              title: 'Account & Security',
+                              subtitle:
+                                  'Email, password, and account protection',
+                              onTap: _openAccountSecurity,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.location_on_outlined,
+                              title: 'My Addresses',
+                              subtitle: _addressSubtitle,
+                              onTap: _openAddresses,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        _SettingsSection(
+                          title: 'Settings',
+                          children: [
+                            _SettingsMenuRow(
+                              icon: Icons.notifications_none_rounded,
+                              title: 'Notification Settings',
+                              subtitle: 'Push and email preferences',
+                              onTap: _openNotificationSettings,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.lock_outline_rounded,
+                              title: 'Privacy Settings',
+                              subtitle: 'Location and data preferences',
+                              onTap: _openPrivacySettings,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        _SettingsSection(
+                          title: 'Support',
+                          children: [
+                            _SettingsMenuRow(
+                              icon: Icons.help_outline_rounded,
+                              title: 'Help Centre',
+                              subtitle: 'FAQs and customer service',
+                              onTap: _openHelpCentre,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.person_remove_outlined,
+                              title: 'Request Account Deletion',
+                              subtitle:
+                                  'Ask admin support to review and delete your account',
+                              foregroundColor: AppColors.error,
+                              onTap: _openAccountDeletionRequest,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.article_outlined,
+                              title: 'Terms and Conditions',
+                              onTap: _openTerms,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.privacy_tip_outlined,
+                              title: 'Privacy Policy',
+                              onTap: _openPrivacyPolicy,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.star_outline_rounded,
+                              title: 'Rate Mobilis',
+                              subtitle: 'Share your experience',
+                              onTap: _rateMobilis,
+                            ),
+                            _SettingsMenuRow(
+                              icon: Icons.info_outline_rounded,
+                              title: 'About Mobilis',
+                              subtitle: 'Version 1.0.0',
+                              onTap: _openAbout,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -392,6 +398,7 @@ class _SettingsHeader extends StatelessWidget {
               color: _primaryTextColor(context),
               fontSize: 19,
               fontWeight: FontWeight.w800,
+              decoration: TextDecoration.none,
             ),
           ),
         ],
@@ -420,6 +427,7 @@ class _SettingsSection extends StatelessWidget {
               fontSize: 13,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.4,
+              decoration: TextDecoration.none,
             ),
           ),
         ),
@@ -504,6 +512,7 @@ class _SettingsMenuRow extends StatelessWidget {
                           color: foregroundColor ?? _primaryTextColor(context),
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                       if (subtitle?.trim().isNotEmpty == true) ...[
@@ -516,6 +525,7 @@ class _SettingsMenuRow extends StatelessWidget {
                             color: _secondaryTextColor(context),
                             fontSize: 11.5,
                             height: 1.25,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -652,149 +662,597 @@ class _MyAddressesScreen extends StatefulWidget {
 }
 
 class _MyAddressesScreenState extends State<_MyAddressesScreen> {
-  late final TextEditingController _controller;
+  List<Map<String, dynamic>> _addresses = [];
+  int _defaultIndex = 0;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.initialAddress);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveAddress() async {
-    final address = _controller.text.trim();
     final user = AuthService().currentUser;
-    if (address.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your complete address.')),
-      );
-      return;
+    final saved = user?.userMetadata?['saved_addresses'];
+    if (saved is List) {
+      _addresses = saved
+          .whereType<Map>()
+          .map((entry) {
+            return entry.map((key, value) => MapEntry(key.toString(), value));
+          })
+          .where((entry) {
+            return (entry['address']?.toString().trim() ?? '').isNotEmpty;
+          })
+          .toList();
     }
-    if (user == null) return;
+
+    if (widget.initialAddress.trim().isNotEmpty &&
+        !_addresses.any(
+          (entry) =>
+              entry['address']?.toString().trim() ==
+              widget.initialAddress.trim(),
+        )) {
+      _addresses.insert(0, {
+        'label': 'Home',
+        'recipient_name': _firstText([
+          user?.userMetadata?['full_name'],
+          user?.userMetadata?['name'],
+        ]),
+        'phone': _firstText([
+          user?.userMetadata?['phone_number'],
+          user?.userMetadata?['phone'],
+        ]),
+        'address': widget.initialAddress.trim(),
+        'is_default': true,
+      });
+    }
+
+    final savedDefault = _addresses.indexWhere(
+      (entry) => entry['is_default'] == true,
+    );
+    _defaultIndex = savedDefault < 0 ? 0 : savedDefault;
+  }
+
+  Future<bool> _persistAddresses(
+    List<Map<String, dynamic>> addresses,
+    int defaultIndex,
+  ) async {
+    final user = AuthService().currentUser;
+    if (user == null || addresses.isEmpty) return false;
+
+    final safeDefaultIndex = defaultIndex.clamp(0, addresses.length - 1);
+    final normalized = <Map<String, dynamic>>[
+      for (var index = 0; index < addresses.length; index++)
+        {...addresses[index], 'is_default': index == safeDefaultIndex},
+    ];
+    final defaultAddress =
+        normalized[safeDefaultIndex]['address']?.toString().trim() ?? '';
 
     setState(() => _isSaving = true);
     try {
       await Supabase.instance.client
           .from('users')
-          .update({'location': address})
+          .update({'location': defaultAddress})
           .eq('id', user.id);
       await Supabase.instance.client.auth.updateUser(
         UserAttributes(
           data: {
             ...?user.userMetadata,
-            'default_address': address,
-            'location': address,
-            'address': address,
+            'saved_addresses': normalized,
+            'default_address': defaultAddress,
+            'location': defaultAddress,
+            'address': defaultAddress,
           },
         ),
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Default address updated'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      Navigator.of(context).pop(true);
+      if (!mounted) return false;
+      setState(() {
+        _addresses = normalized;
+        _defaultIndex = safeDefaultIndex;
+      });
+      return true;
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not update address: $error')),
       );
+      return false;
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
+  Future<void> _selectDefaultAddress(int index) async {
+    if (_isSaving || index == _defaultIndex) return;
+    final saved = await _persistAddresses(
+      List<Map<String, dynamic>>.from(_addresses),
+      index,
+    );
+    if (!mounted || !saved) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Default address updated'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  }
+
+  Future<void> _openAddressEditor({int? index}) async {
+    if (_isSaving) return;
+    final user = AuthService().currentUser;
+    final existing = index == null ? null : _addresses[index];
+    final formKey = GlobalKey<FormState>();
+    final recipientController = TextEditingController(
+      text:
+          existing?['recipient_name']?.toString() ??
+          _firstText([
+            user?.userMetadata?['full_name'],
+            user?.userMetadata?['name'],
+          ]),
+    );
+    final phoneController = TextEditingController(
+      text:
+          existing?['phone']?.toString() ??
+          _firstText([
+            user?.userMetadata?['phone_number'],
+            user?.userMetadata?['phone'],
+          ]),
+    );
+    final addressController = TextEditingController(
+      text: existing?['address']?.toString() ?? '',
+    );
+    var label = existing?['label']?.toString() ?? 'Home';
+    var setAsDefault = index == null
+        ? _addresses.isEmpty
+        : index == _defaultIndex;
+
+    InputDecoration decoration(String labelText, IconData icon) {
+      return InputDecoration(
+        labelText: labelText,
+        prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
+        filled: true,
+        fillColor: _backgroundColor(context),
+        labelStyle: TextStyle(color: _secondaryTextColor(context)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: _borderColor(context)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: _borderColor(context)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+        ),
+      );
+    }
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _surfaceColor(context),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            14,
+            20,
+            MediaQuery.viewInsetsOf(context).bottom + 20,
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: _borderColor(context),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      index == null ? 'Add New Address' : 'Edit Address',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    DropdownButtonFormField<String>(
+                      initialValue: label,
+                      dropdownColor: _surfaceColor(context),
+                      style: TextStyle(color: _primaryTextColor(context)),
+                      decoration: decoration(
+                        'Address label',
+                        Icons.bookmark_border_rounded,
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Home', child: Text('Home')),
+                        DropdownMenuItem(value: 'Work', child: Text('Work')),
+                        DropdownMenuItem(value: 'Other', child: Text('Other')),
+                      ],
+                      onChanged: (value) => label = value ?? 'Home',
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: recipientController,
+                      textCapitalization: TextCapitalization.words,
+                      style: TextStyle(color: _primaryTextColor(context)),
+                      decoration: decoration(
+                        'Recipient full name',
+                        Icons.person_outline_rounded,
+                      ),
+                      validator: (value) => value?.trim().isEmpty == true
+                          ? 'Enter the recipient name.'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      maxLength: 11,
+                      style: TextStyle(color: _primaryTextColor(context)),
+                      decoration: decoration(
+                        'Mobile number',
+                        Icons.phone_outlined,
+                      ).copyWith(counterText: ''),
+                      validator: (value) {
+                        final phone = value?.trim() ?? '';
+                        return RegExp(r'^09\d{9}$').hasMatch(phone)
+                            ? null
+                            : 'Use an 11-digit mobile number starting with 09.';
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: addressController,
+                      minLines: 3,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.words,
+                      style: TextStyle(color: _primaryTextColor(context)),
+                      decoration:
+                          decoration(
+                            'Complete address',
+                            Icons.location_on_outlined,
+                          ).copyWith(
+                            hintText:
+                                'House number, street, barangay, city, province',
+                          ),
+                      validator: (value) => (value?.trim().length ?? 0) < 10
+                          ? 'Enter a complete address.'
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      activeTrackColor: AppColors.primary,
+                      value: setAsDefault,
+                      title: Text(
+                        'Set as default address',
+                        style: TextStyle(
+                          color: _primaryTextColor(context),
+                          fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                      onChanged: (value) {
+                        setSheetState(() => setAsDefault = value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () {
+                        if (formKey.currentState?.validate() != true) return;
+                        Navigator.pop(sheetContext, {
+                          'label': label,
+                          'recipient_name': recipientController.text.trim(),
+                          'phone': phoneController.text.trim(),
+                          'address': addressController.text.trim(),
+                          'is_default': setAsDefault,
+                        });
+                      },
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      child: const Text('Save Address'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    recipientController.dispose();
+    phoneController.dispose();
+    addressController.dispose();
+    if (!mounted || result == null) return;
+
+    final updated = List<Map<String, dynamic>>.from(_addresses);
+    final resultIndex = index ?? updated.length;
+    if (index == null) {
+      updated.add(result);
+    } else {
+      updated[index] = result;
+    }
+    final nextDefault = result['is_default'] == true
+        ? resultIndex
+        : _defaultIndex.clamp(0, updated.length - 1);
+    final saved = await _persistAddresses(updated, nextDefault);
+    if (!mounted || !saved) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(index == null ? 'Address added' : 'Address updated'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return _SettingsDetailScaffold(
-      title: 'My Addresses',
-      child: ListView(
-        padding: const EdgeInsets.all(18),
+      title: 'Address Selection',
+      child: Column(
         children: [
-          Text(
-            'Default Address',
-            style: TextStyle(
-              color: _primaryTextColor(context),
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'This is your default account and booking address. You can update it whenever your location changes.',
-            style: TextStyle(
-              color: _secondaryTextColor(context),
-              fontSize: 12,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _controller,
-            minLines: 3,
-            maxLines: 5,
-            style: TextStyle(color: _primaryTextColor(context)),
-            decoration: InputDecoration(
-              hintText: 'House number, street, barangay, city, province',
-              hintStyle: TextStyle(color: _secondaryTextColor(context)),
-              prefixIcon: const Padding(
-                padding: EdgeInsets.only(bottom: 54),
-                child: Icon(
-                  Icons.location_on_outlined,
-                  color: AppColors.primary,
-                ),
-              ),
-              filled: true,
-              fillColor: _surfaceColor(context),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: _borderColor(context)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: _borderColor(context)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 1.5,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          FilledButton.icon(
-            onPressed: _isSaving ? null : _saveAddress,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(13),
-              ),
-            ),
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.black,
+          Expanded(
+            child: _addresses.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 68,
+                            height: 68,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: const Icon(
+                              Icons.location_off_outlined,
+                              color: AppColors.primary,
+                              size: 32,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No saved addresses yet',
+                            style: TextStyle(
+                              color: _primaryTextColor(context),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Add an address and set it as your default for faster bookings.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _secondaryTextColor(context),
+                              height: 1.4,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   )
-                : const Icon(Icons.save_outlined),
-            label: Text(_isSaving ? 'Saving...' : 'Save Address'),
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+                    itemCount: _addresses.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final address = _addresses[index];
+                      final selected = index == _defaultIndex;
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => _selectDefaultAddress(index),
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: _surfaceColor(context),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: selected
+                                    ? AppColors.primary
+                                    : _borderColor(context),
+                                width: selected ? 1.4 : 1,
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 9),
+                                  child: Icon(
+                                    selected
+                                        ? Icons.radio_button_checked_rounded
+                                        : Icons.radio_button_unchecked_rounded,
+                                    color: selected
+                                        ? AppColors.primary
+                                        : _secondaryTextColor(context),
+                                    size: 23,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              address['recipient_name']
+                                                          ?.toString()
+                                                          .trim()
+                                                          .isNotEmpty ==
+                                                      true
+                                                  ? address['recipient_name']
+                                                        .toString()
+                                                  : address['label']
+                                                            ?.toString() ??
+                                                        'Saved Address',
+                                              style: TextStyle(
+                                                color: _primaryTextColor(
+                                                  context,
+                                                ),
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 14,
+                                                decoration: TextDecoration.none,
+                                              ),
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed: _isSaving
+                                                ? null
+                                                : () => _openAddressEditor(
+                                                    index: index,
+                                                  ),
+                                            child: const Text('Edit'),
+                                          ),
+                                        ],
+                                      ),
+                                      if ((address['phone']
+                                                  ?.toString()
+                                                  .trim() ??
+                                              '')
+                                          .isNotEmpty)
+                                        Text(
+                                          address['phone'].toString(),
+                                          style: TextStyle(
+                                            color: _secondaryTextColor(context),
+                                            fontSize: 12,
+                                            decoration: TextDecoration.none,
+                                          ),
+                                        ),
+                                      const SizedBox(height: 7),
+                                      Text(
+                                        address['address']?.toString() ?? '',
+                                        style: TextStyle(
+                                          color: _primaryTextColor(context),
+                                          fontSize: 13,
+                                          height: 1.35,
+                                          decoration: TextDecoration.none,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 6,
+                                        children: [
+                                          _AddressBadge(
+                                            label:
+                                                address['label']?.toString() ??
+                                                'Address',
+                                          ),
+                                          if (selected)
+                                            const _AddressBadge(
+                                              label: 'Default',
+                                              emphasized: true,
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
+            decoration: BoxDecoration(
+              color: _surfaceColor(context),
+              border: Border(top: BorderSide(color: _borderColor(context))),
+            ),
+            child: SafeArea(
+              top: false,
+              child: OutlinedButton.icon(
+                onPressed: _isSaving ? null : _openAddressEditor,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary, width: 1.3),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                ),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : const Icon(Icons.add_rounded),
+                label: const Text('Add a New Address'),
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AddressBadge extends StatelessWidget {
+  const _AddressBadge({required this.label, this.emphasized = false});
+
+  final String label;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: emphasized
+            ? AppColors.primary.withValues(alpha: 0.14)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: emphasized ? AppColors.primary : _borderColor(context),
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: emphasized ? AppColors.primary : _secondaryTextColor(context),
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          decoration: TextDecoration.none,
+        ),
       ),
     );
   }
