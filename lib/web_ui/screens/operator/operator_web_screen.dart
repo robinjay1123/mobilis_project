@@ -87,6 +87,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
   List<Map<String, dynamic>> _conversations = [];
+  bool _isLoadingConversations = false;
+  String? _conversationLoadError;
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
@@ -134,7 +136,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void initState() {
     super.initState();
     _loadDashboardData();
-    _loadConversations();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadConversations();
+    });
     _setupBookingFlowListener();
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
@@ -2399,7 +2403,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: InkWell(
-        onTap: () => setState(() => _selectedIndex = index),
+        onTap: () => _selectNavigationIndex(index),
         borderRadius: BorderRadius.circular(12),
         child: Container(
           height: 48,
@@ -2459,6 +2463,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ),
     );
+  }
+
+  void _selectNavigationIndex(int index) {
+    if (_selectedIndex != index) {
+      setState(() => _selectedIndex = index);
+    }
+    if (index == 2) {
+      _loadConversations();
+    }
+  }
+
+  Future<void> _refreshCurrentSection() async {
+    if (_selectedIndex == 2) {
+      await _loadConversations();
+      return;
+    }
+    await _loadDashboardData(showLoading: false);
   }
 
   Widget _buildTopBar(bool isDark) {
@@ -2526,7 +2547,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(width: 6),
           IconButton(
-            onPressed: _loadDashboardData,
+            onPressed: _refreshCurrentSection,
             icon: Icon(
               Icons.refresh,
               color: isDark ? Colors.white : Colors.black,
@@ -7953,10 +7974,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _loadConversations() async {
-    try {
-      final currentUserId = _supabase.auth.currentUser?.id;
-      if (currentUserId == null) return;
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) {
+      if (mounted) {
+        setState(() {
+          _isLoadingConversations = false;
+          _conversationLoadError = 'Your operator session is not ready yet.';
+        });
+      }
+      return;
+    }
 
+    if (mounted) {
+      setState(() {
+        _isLoadingConversations = true;
+        _conversationLoadError = null;
+      });
+    }
+
+    try {
       debugPrint(
         '[Messages] Loading conversations for operator: $currentUserId',
       );
@@ -8013,7 +8049,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       if (bookingIds.isEmpty) {
         _conversations = [];
-        if (mounted) setState(() {});
+        if (mounted) {
+          setState(() {
+            _isLoadingConversations = false;
+            _conversationLoadError = null;
+          });
+        }
         return;
       }
 
@@ -8077,7 +8118,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   brand,
                   model,
                   year,
-                  image_url,
                   vehicle_images(image_url, display_order)
                 ),
                 renter:users!bookings_renter_id_fkey (id, full_name, email)
@@ -8106,12 +8146,72 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
       }
       _conversations = conversationsByBooking.values.toList();
+      if (_conversations.isEmpty) {
+        _conversations = await _loadOperatorConversationFallback(
+          currentUserId,
+          activeStatuses,
+        );
+      }
       debugPrint('[Messages] Loaded ${_conversations.length} conversations');
 
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {
+          _isLoadingConversations = false;
+          _conversationLoadError = null;
+        });
+      }
     } catch (e) {
       debugPrint('[Messages] Error loading conversations: $e');
+      try {
+        _conversations = await _loadOperatorConversationFallback(
+          currentUserId,
+          const ['approved', 'confirmed', 'active', 'ongoing'],
+        );
+        if (mounted) {
+          setState(() {
+            _isLoadingConversations = false;
+            _conversationLoadError = _conversations.isEmpty
+                ? 'No active booking conversations were found.'
+                : null;
+          });
+        }
+      } catch (fallbackError) {
+        debugPrint(
+          '[Messages] Fallback conversation loading failed: $fallbackError',
+        );
+        if (mounted) {
+          setState(() {
+            _isLoadingConversations = false;
+            _conversationLoadError =
+                'Unable to load booking conversations. Please retry.';
+          });
+        }
+      }
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadOperatorConversationFallback(
+    String currentUserId,
+    List<String> activeStatuses,
+  ) async {
+    final rows = await ChatService().getConversations(currentUserId);
+    final conversationsByBooking = <String, Map<String, dynamic>>{};
+    for (final conversation in rows) {
+      final conversationStatus =
+          conversation['status']?.toString().trim().toLowerCase() ?? 'active';
+      final booking = conversation['bookings'];
+      final bookingStatus = booking is Map
+          ? booking['status']?.toString().trim().toLowerCase() ?? ''
+          : '';
+      final bookingId = conversation['booking_id']?.toString().trim() ?? '';
+      if (bookingId.isEmpty ||
+          conversationStatus != 'active' ||
+          !activeStatuses.contains(bookingStatus)) {
+        continue;
+      }
+      conversationsByBooking.putIfAbsent(bookingId, () => conversation);
+    }
+    return conversationsByBooking.values.toList();
   }
 
   Future<void> _loadConversationMessages(String conversationId) async {
@@ -8443,6 +8543,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildMessagesContent(bool isDark) {
+    if (_isLoadingConversations && _conversations.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+
     if (_conversations.isEmpty) {
       return Center(
         child: Container(
@@ -8473,7 +8579,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'No booking conversations yet',
+                _conversationLoadError ?? 'No booking conversations yet',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isDark ? Colors.white : _operatorInk,
@@ -8483,11 +8589,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
               const SizedBox(height: 7),
               Text(
-                'A group conversation appears after a booking is finalized.',
+                _conversationLoadError == null
+                    ? 'A group conversation appears after a booking is finalized.'
+                    : 'The conversations already in the database were not removed. Try loading them again.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                   fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: _isLoadingConversations ? null : _loadConversations,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 14,
+                  ),
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],

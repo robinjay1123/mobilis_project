@@ -40,7 +40,6 @@ class ChatService {
                 brand,
                 model,
                 vehicle_name,
-                image_url,
                 vehicle_images(image_url, display_order)
               )
             )
@@ -192,7 +191,6 @@ class ChatService {
               brand,
               model,
               vehicle_name,
-              image_url,
               vehicle_images(image_url, display_order)
             )
           ''')
