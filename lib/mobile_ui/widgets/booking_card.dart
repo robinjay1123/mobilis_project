@@ -24,6 +24,7 @@ class BookingCard extends StatelessWidget {
   final String detailsButtonLabel;
   final bool isActive;
   final String? carImageUrl;
+  final Widget? ongoingSummary;
 
   const BookingCard({
     super.key,
@@ -47,6 +48,7 @@ class BookingCard extends StatelessWidget {
     this.detailsButtonLabel = 'View Details',
     this.isActive = false,
     this.carImageUrl,
+    this.ongoingSummary,
   });
 
   @override
@@ -270,6 +272,10 @@ class BookingCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (ongoingSummary != null) ...[
+              ongoingSummary!,
+              const SizedBox(height: 10),
+            ],
             if (showTrackButton) ...[
               SizedBox(
                 width: double.infinity,

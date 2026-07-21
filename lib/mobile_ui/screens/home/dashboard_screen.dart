@@ -28,6 +28,7 @@ import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../widgets/relative_time_text.dart';
+import '../../widgets/booking_return_countdown.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
@@ -4566,6 +4567,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   totalCost: (booking['totalCost'] as num?)?.toInt() ?? 0,
                   rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
                   isActive: booking['statusGroup'] == 'Ongoing',
+                  ongoingSummary: booking['statusGroup'] == 'Ongoing'
+                      ? BookingReturnCountdown(booking: booking)
+                      : null,
                   carImageUrl: booking['imageUrl'] as String?,
                   showRating:
                       booking['statusGroup'] == 'Completed' &&
@@ -5304,9 +5308,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (completionState['pendingRoles'] as List<dynamic>? ?? const [])
             .map((role) => role.toString())
             .toList();
-    final renterCanConfirm = completionState['renterCanConfirm'] == true;
-    final renterConfirmed = completionState['renterConfirmed'] == true;
-    final isCompletedTrip = completionState['status'] == 'completed';
+    final completionStage =
+        completionState['completionStage']?.toString() ?? 'not_started';
+    final isCompletedTrip =
+        completionStage == 'completed' ||
+        completionState['status'] == 'completed';
 
     if (isPendingTrip) {
       _showPendingBookingDetails(booking);
@@ -5319,6 +5325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           booking: booking,
           isApprovedTrip: isApprovedTrip,
           isCompletedTrip: isCompletedTrip,
+          completionStage: completionStage,
           pendingRoles: pendingRoles,
           paymentTypeLabel: _bookingPaymentTypeLabel(booking),
           amountPaidLabel: _bookingAmountPaidLabel(booking),
@@ -5335,9 +5342,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onSuccessfulTrip: isApprovedTrip || isCompletedTrip
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
-                  isCompletedTrip: isCompletedTrip,
-                  renterCanConfirm: renterCanConfirm,
-                  renterConfirmed: renterConfirmed,
+                  completionStage: completionStage,
                   pendingRoles: pendingRoles,
                 )
               : null,
@@ -5619,77 +5624,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     final bookingId = booking['id']?.toString() ?? '';
                     if (bookingId.isEmpty) return;
 
-                    if (!isCompletedTrip) {
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'This trip is still ongoing. You can confirm it after the return is completed.',
-                          ),
-                          backgroundColor: AppColors.warning,
-                        ),
-                      );
-                      return;
-                    }
-
-                    if (!renterCanConfirm) {
-                      if (renterConfirmed) {
-                        Navigator.pop(context);
-                        await Navigator.of(this.context).push(
-                          MaterialPageRoute(
-                            builder: (_) => TripRatingFlowScreen(
-                              bookingId: bookingId,
-                              reviewerRole: 'renter',
-                              subtitle:
-                                  'Leave ratings for the people involved in this completed trip.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      final waitingFor = pendingRoles.isEmpty
-                          ? 'the other trip participants'
-                          : _formatRoleList(pendingRoles);
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'You can finish this trip once $waitingFor confirm it as successful.',
-                          ),
-                          backgroundColor: AppColors.warning,
-                        ),
-                      );
-                      return;
-                    }
-
-                    try {
-                      await BookingService().confirmSuccessfulTrip(
-                        bookingId: bookingId,
-                        actorRole: 'renter',
-                      );
-                      if (!this.context.mounted) return;
-                      Navigator.pop(context);
-                      await _loadBookings();
-                      if (!this.context.mounted) return;
-                      await Navigator.of(this.context).push(
-                        MaterialPageRoute(
-                          builder: (_) => TripRatingFlowScreen(
-                            bookingId: bookingId,
-                            reviewerRole: 'renter',
-                            subtitle:
-                                'Leave ratings for the people involved in this completed trip.',
-                          ),
-                        ),
-                      );
-                    } catch (e) {
-                      if (!this.context.mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            e.toString().replaceFirst('Exception: ', ''),
-                          ),
-                          backgroundColor: AppColors.error,
-                        ),
-                      );
-                    }
+                    await _handleSuccessfulTripFromDetails(
+                      booking: booking,
+                      completionStage: completionStage,
+                      pendingRoles: pendingRoles,
+                    );
                   },
                   icon: const Icon(Icons.star_rate_rounded, size: 18),
                   label: Text(
@@ -5859,81 +5798,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _handleSuccessfulTripFromDetails({
     required Map<String, dynamic> booking,
-    required bool isCompletedTrip,
-    required bool renterCanConfirm,
-    required bool renterConfirmed,
+    required String completionStage,
     required List<String> pendingRoles,
   }) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
-    if (!isCompletedTrip) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'This trip is still ongoing. You can confirm it after the return is completed.',
-          ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    if (!renterCanConfirm) {
-      if (renterConfirmed) {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TripRatingFlowScreen(
-              bookingId: bookingId,
-              reviewerRole: 'renter',
-              subtitle:
-                  'Leave ratings for the people involved in this completed trip.',
-            ),
-          ),
-        );
-        return;
-      }
-      final waitingFor = pendingRoles.isEmpty
-          ? 'the other trip participants'
-          : _formatRoleList(pendingRoles);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'You can finish this trip once $waitingFor confirm it as successful.',
-          ),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    try {
-      await BookingService().confirmSuccessfulTrip(
-        bookingId: bookingId,
-        actorRole: 'renter',
-      );
-      if (!mounted) return;
-      await _loadBookings();
-      if (!mounted) return;
-      await Navigator.of(context).push(
+    if (completionStage == 'renter_rating') {
+      final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => TripRatingFlowScreen(
             bookingId: bookingId,
             reviewerRole: 'renter',
+            title: 'Complete Trip Ratings',
             subtitle:
-                'Leave ratings for the people involved in this completed trip.',
+                'Rate every required trip participant to complete this booking.',
           ),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
+      if (submitted == true) {
+        await _loadBookings();
+      }
+      return;
+    }
+
+    if (completionStage == 'completed') {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: AppColors.error,
+        const SnackBar(
+          content: Text('This trip is already completed successfully.'),
+          backgroundColor: AppColors.success,
         ),
       );
+      return;
     }
+
+    final waitingFor = pendingRoles.isEmpty
+        ? 'the required return steps'
+        : _formatRoleList(pendingRoles);
+    final message = switch (completionStage) {
+      'awaiting_after_checklist' =>
+        'Waiting for the vehicle owner to submit the after-return checklist and evidence.',
+      'awaiting_payment' =>
+        'Waiting for the vehicle owner to confirm the full payment and any late fees.',
+      'operator_rating' =>
+        'Waiting for the PSDC operator to submit the required renter rating.',
+      'partner_rating' =>
+        'Waiting for the vehicle partner to submit the required renter rating.',
+      'driver_rating' =>
+        'Waiting for the driver to submit the required renter rating.',
+      _ =>
+        'This trip is still ongoing. Complete the return before final ratings. Pending: $waitingFor.',
+    };
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppColors.warning),
+    );
   }
 
   void _showPendingBookingDetails(Map<String, dynamic> booking) {
@@ -5943,6 +5861,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           booking: booking,
           isApprovedTrip: false,
           isCompletedTrip: false,
+          completionStage: 'not_started',
           pendingRoles: const [],
           paymentTypeLabel: _bookingPaymentTypeLabel(booking),
           amountPaidLabel: _bookingAmountPaidLabel(booking),
@@ -7553,6 +7472,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final Map<String, dynamic> booking;
   final bool isApprovedTrip;
   final bool isCompletedTrip;
+  final String completionStage;
   final List<String> pendingRoles;
   final String paymentTypeLabel;
   final String amountPaidLabel;
@@ -7566,6 +7486,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     required this.booking,
     required this.isApprovedTrip,
     required this.isCompletedTrip,
+    required this.completionStage,
     required this.pendingRoles,
     required this.paymentTypeLabel,
     required this.amountPaidLabel,
@@ -7581,6 +7502,21 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     final status = booking['status']?.toString() ?? 'Pending';
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
+    final completionActionLabel = switch (completionStage) {
+      'renter_rating' => 'Rate Your Trip',
+      'completed' => 'Trip Completed',
+      'awaiting_after_checklist' => 'Waiting for After Checklist',
+      'awaiting_payment' => 'Waiting for Full Payment',
+      'operator_rating' ||
+      'partner_rating' ||
+      'driver_rating' => 'Trip Ratings Pending',
+      _ => 'Trip Ongoing',
+    };
+    final completionActionIcon = switch (completionStage) {
+      'renter_rating' => Icons.star_rate_rounded,
+      'completed' => Icons.check_circle_outline_rounded,
+      _ => Icons.hourglass_bottom_rounded,
+    };
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -7605,6 +7541,10 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 16),
+              if (isApprovedTrip) ...[
+                BookingReturnCountdown(booking: booking),
+                const SizedBox(height: 12),
+              ],
               if (onTrack != null) ...[
                 _buildPrimaryButton(
                   icon: Icons.near_me_outlined,
@@ -7613,9 +7553,10 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
               ],
-              if (pendingRoles.isNotEmpty) ...[
+              if (pendingRoles.isNotEmpty &&
+                  completionStage != 'not_started') ...[
                 _buildNotice(
-                  'Waiting for ${pendingRoles.join(', ')} to confirm this trip before final rating.',
+                  'Required ratings remaining: ${pendingRoles.join(', ')}.',
                 ),
                 const SizedBox(height: 12),
               ],
@@ -7669,10 +7610,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
               const SizedBox(height: 18),
               if (onSuccessfulTrip != null)
                 _buildPrimaryButton(
-                  icon: isCompletedTrip
-                      ? Icons.star_rate_rounded
-                      : Icons.hourglass_bottom_rounded,
-                  label: isCompletedTrip ? 'Successful Trip' : 'Trip Ongoing',
+                  icon: completionActionIcon,
+                  label: completionActionLabel,
                   onPressed: onSuccessfulTrip!,
                 ),
               if (onSuccessfulTrip != null) const SizedBox(height: 12),

@@ -1,5 +1,6 @@
 class PricingPolicy {
   static const double deliveryRatePerKm = 75;
+  static const double lateReturnRatePerHour = 300;
   static const double longBookingReservationRate = 0.20;
   static const int longBookingReservationThresholdDays = 7;
 

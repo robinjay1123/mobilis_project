@@ -24,6 +24,8 @@ import '../../widgets/restriction_ui.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/relative_time_text.dart';
+import '../../widgets/booking_return_countdown.dart';
+import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../../../utils/booking_status.dart';
@@ -3244,6 +3246,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             .where((part) => part != null && part.toString().trim().isNotEmpty)
             .join(' ');
     final bookingStatus = _bookingStatusLabel(booking, tracking);
+    final statusGroup = bookingStatusGroup(booking['status']);
     final dateRange = _formatBookingRange(
       booking['start_at']?.toString() ?? booking['start_date']?.toString(),
       booking['end_at']?.toString() ?? booking['end_date']?.toString(),
@@ -3413,6 +3416,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
             ),
           ],
+          if (statusGroup == BookingStatusGroup.ongoing) ...[
+            const SizedBox(height: 14),
+            BookingReturnCountdown(booking: booking),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -3437,26 +3444,28 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _openTrackingScreen(booking),
-                  icon: const Icon(Icons.map_outlined, size: 18),
-                  label: const Text('Track'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: BorderSide(
-                      color: tracking != null
-                          ? const Color(0xFF4172A0)
-                          : const Color(0xFF2C5379),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+              if (statusGroup == BookingStatusGroup.ongoing) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openTrackingScreen(booking),
+                    icon: const Icon(Icons.map_outlined, size: 18),
+                    label: const Text('Track'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: BorderSide(
+                        color: tracking != null
+                            ? const Color(0xFF4172A0)
+                            : const Color(0xFF2C5379),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
+              ],
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => _openBookingConversation(booking),
@@ -3657,6 +3666,76 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   /// 🎯 Show booking detail modal with approve/reject and driver assignment
+  Future<void> _confirmPartnerFinalPayment(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final actorId = AuthService().currentUser?.id;
+    if (bookingId.isEmpty || actorId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Full Payment'),
+        content: const Text(
+          'Confirm that the full rental balance and any late-return fee have been paid. You will rate the renter after this.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not Yet'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm Payment'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await BookingService().confirmFinalPayment(
+        bookingId: bookingId,
+        actorId: actorId,
+        actorRole: 'partner',
+      );
+      await _loadPartnerData();
+      if (!mounted) return;
+      _showSuccessSnackBar(
+        'Full payment confirmed. Please rate the renter next.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _openPartnerRenterRating(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final submitted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TripRatingFlowScreen(
+          bookingId: booking['id'].toString(),
+          reviewerRole: 'partner',
+          title: 'Rate Renter',
+          subtitle:
+              'Your renter rating is required before this trip can continue to final completion.',
+        ),
+      ),
+    );
+    if (submitted == true) {
+      await _loadPartnerData();
+      if (!mounted) return;
+      _showSuccessSnackBar(
+        'Renter rating saved. Waiting for the remaining required ratings.',
+      );
+    }
+  }
+
   void _showBookingDetailModal(
     BuildContext context,
     Map<String, dynamic> booking,
@@ -3667,6 +3746,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final withDriver = _bookingNeedsDriver(booking['with_driver']);
     final driverId = booking['driver_id'];
     final status = (booking['status'] as String? ?? 'pending').toLowerCase();
+    final completionState = BookingService().getTripCompletionState(booking);
+    final completionStage = completionState['completionStage']?.toString();
     final canAssignDriver =
         withDriver &&
         driverId == null &&
@@ -3706,42 +3787,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       inspectionType: 'before',
                     )
                   : null,
-              onAfterInspection: status == 'active' || status == 'completed'
+              onAfterInspection:
+                  status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
                   ? () => _showPartnerInspectionDialog(
                       booking,
                       inspectionType: 'after',
                     )
                   : null,
-              onRateTrip: status == 'completed'
-                  ? () async {
-                      try {
-                        await BookingService().confirmSuccessfulTrip(
-                          bookingId: booking['id'].toString(),
-                          actorRole: 'partner',
-                        );
-                        if (!mounted) return;
-                        Navigator.of(parentContext).push(
-                          MaterialPageRoute(
-                            builder: (_) => TripRatingFlowScreen(
-                              bookingId: booking['id'].toString(),
-                              reviewerRole: 'partner',
-                              subtitle:
-                                  'Leave ratings for the renter, operator, and driver if applicable.',
-                            ),
-                          ),
-                        );
-                      } catch (e) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(parentContext).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              e.toString().replaceFirst('Exception: ', ''),
-                            ),
-                            backgroundColor: AppColors.error,
-                          ),
-                        );
-                      }
-                    }
+              onConfirmPayment: completionStage == 'awaiting_payment'
+                  ? () => _confirmPartnerFinalPayment(parentContext, booking)
+                  : null,
+              onRateTrip: completionStage == 'partner_rating'
+                  ? () => _openPartnerRenterRating(parentContext, booking)
                   : null,
             ),
           ),
@@ -3897,6 +3956,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final dentsController = TextEditingController();
     final damagesController = TextEditingController();
     final remarksController = TextEditingController();
+    final releasedByController = TextEditingController();
+    final receivedByController = TextEditingController();
+    final checklistItems = <String, bool>{
+      for (final key in BookingInspectionService.requiredChecklistKeys)
+        key: false,
+    };
     final selectedEvidence = <PlatformFile>[];
 
     final shouldSave = await showModalBottomSheet<bool>(
@@ -3930,6 +3995,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  VehicleInspectionChecklistFields(
+                    values: checklistItems,
+                    isDark: true,
+                    onChanged: (entry) => setSheetState(
+                      () => checklistItems[entry.key] = entry.value,
+                    ),
+                  ),
                   _buildPartnerInspectionField(fuelController, 'Fuel level'),
                   _buildPartnerInspectionField(
                     mileageController,
@@ -3950,6 +4022,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     remarksController,
                     'Other remarks',
                     maxLines: 3,
+                  ),
+                  _buildPartnerInspectionField(
+                    releasedByController,
+                    'Released by',
+                  ),
+                  _buildPartnerInspectionField(
+                    receivedByController,
+                    'Received by (client)',
                   ),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -4003,12 +4083,39 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.pop(sheetContext, true),
+                      onPressed: () {
+                        final allChecked = BookingInspectionService
+                            .requiredChecklistKeys
+                            .every((key) => checklistItems[key] == true);
+                        final requiredFieldsReady =
+                            fuelController.text.trim().isNotEmpty &&
+                            mileageController.text.trim().isNotEmpty &&
+                            cleanlinessController.text.trim().isNotEmpty &&
+                            releasedByController.text.trim().isNotEmpty &&
+                            receivedByController.text.trim().isNotEmpty;
+                        if (!allChecked ||
+                            !requiredFieldsReady ||
+                            selectedEvidence.isEmpty) {
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Complete all checklist items, handover names, and attach at least one photo or video.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        Navigator.pop(sheetContext, true);
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
                       ),
-                      child: const Text('Save Checklist'),
+                      child: Text(
+                        inspectionType == 'before'
+                            ? 'Submit and Start Trip'
+                            : 'Submit Return Checklist',
+                      ),
                     ),
                   ),
                 ],
@@ -4027,18 +4134,22 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       dentsController.dispose();
       damagesController.dispose();
       remarksController.dispose();
+      releasedByController.dispose();
+      receivedByController.dispose();
       return;
     }
 
     final missingRequiredFields =
         fuelController.text.trim().isEmpty ||
         mileageController.text.trim().isEmpty ||
-        cleanlinessController.text.trim().isEmpty;
+        cleanlinessController.text.trim().isEmpty ||
+        releasedByController.text.trim().isEmpty ||
+        receivedByController.text.trim().isEmpty;
     if (missingRequiredFields || selectedEvidence.isEmpty) {
       _showErrorSnackBar(
         selectedEvidence.isEmpty
             ? 'Please attach at least one checklist photo or video'
-            : 'Please complete fuel level, mileage, and cleanliness',
+            : 'Please complete the required condition and handover fields',
       );
       fuelController.dispose();
       mileageController.dispose();
@@ -4047,6 +4158,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       dentsController.dispose();
       damagesController.dispose();
       remarksController.dispose();
+      releasedByController.dispose();
+      receivedByController.dispose();
       return;
     }
 
@@ -4079,9 +4192,28 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         damages: damagesController.text.trim(),
         remarks: remarksController.text.trim(),
         evidenceUrls: evidenceUrls,
+        checklistItems: checklistItems,
+        releasedBy: releasedByController.text,
+        receivedBy: receivedByController.text,
       );
+      if (inspectionType == 'before') {
+        await BookingService().startBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: currentUserId,
+        );
+      } else {
+        await BookingService().completeBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: currentUserId,
+        );
+      }
       if (!mounted) return;
-      _showSuccessSnackBar('Vehicle checklist saved');
+      _showSuccessSnackBar(
+        inspectionType == 'before'
+            ? 'Checklist submitted. The booking is now ongoing.'
+            : 'Return checklist submitted. Confirm payment and complete the required ratings next.',
+      );
+      await _loadPartnerData();
     } catch (e) {
       if (!mounted) return;
       _showErrorSnackBar('Failed to save checklist: $e');
@@ -4093,6 +4225,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       dentsController.dispose();
       damagesController.dispose();
       remarksController.dispose();
+      releasedByController.dispose();
+      receivedByController.dispose();
     }
   }
 
@@ -4560,6 +4694,7 @@ class BookingDetailModal extends StatelessWidget {
   final VoidCallback? onReviewDocs;
   final VoidCallback? onBeforeInspection;
   final VoidCallback? onAfterInspection;
+  final VoidCallback? onConfirmPayment;
   final VoidCallback? onRateTrip;
   final bool showHeader;
 
@@ -4574,6 +4709,7 @@ class BookingDetailModal extends StatelessWidget {
     this.onReviewDocs,
     this.onBeforeInspection,
     this.onAfterInspection,
+    this.onConfirmPayment,
     this.onRateTrip,
     this.showHeader = true,
   });
@@ -4958,7 +5094,30 @@ class BookingDetailModal extends StatelessWidget {
                   ),
                 ],
               ),
-            ] else if (status == 'completed' && onRateTrip != null) ...[
+            ] else if (onConfirmPayment != null) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    onConfirmPayment?.call();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.payments_outlined, size: 18),
+                  label: const Text(
+                    'Confirm Full Payment',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ] else if (onRateTrip != null) ...[
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -4976,7 +5135,7 @@ class BookingDetailModal extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.star_rate_rounded, size: 18),
                   label: const Text(
-                    'Successful Trips',
+                    'Rate Renter',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),

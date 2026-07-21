@@ -464,10 +464,11 @@ class ChatService {
           .from('conversations')
           .select()
           .eq('booking_id', bookingId)
-          .maybeSingle();
+          .order('updated_at', ascending: false)
+          .limit(1);
 
-      if (response == null) return null;
-      return Map<String, dynamic>.from(response);
+      if (response.isEmpty) return null;
+      return Map<String, dynamic>.from(response.first);
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching booking conversation: ${e.message}');
       rethrow;
@@ -610,6 +611,60 @@ class ChatService {
       debugPrint('Unexpected error sending message: $e');
       rethrow;
     }
+  }
+
+  /// Adds an immutable lifecycle record to a booking group conversation.
+  /// The audit key prevents duplicate checklist records when a transition is
+  /// retried after a network interruption.
+  Future<Map<String, dynamic>> sendBookingAuditMessage({
+    required String conversationId,
+    required String senderId,
+    required String content,
+    required String auditKey,
+    String? attachmentUrl,
+    String? attachmentType,
+    String? attachmentName,
+  }) async {
+    final marker = '[Audit: $auditKey]';
+    final existing = await supabase
+        .from('messages')
+        .select()
+        .eq('conversation_id', conversationId)
+        .order('created_at', ascending: false)
+        .limit(100);
+    for (final raw in List<Map<String, dynamic>>.from(existing)) {
+      final message = (raw['content'] ?? raw['message'])?.toString() ?? '';
+      if (message.contains(marker)) return raw;
+    }
+
+    final messageContent = '$content\n\n$marker';
+    final response = await supabase
+        .from('messages')
+        .insert({
+          'conversation_id': conversationId,
+          'sender_id': senderId,
+          'message': messageContent,
+          'content': messageContent,
+          'is_auto_generated': true,
+          if (attachmentUrl != null) 'attachment_url': attachmentUrl,
+          if (attachmentType != null) 'attachment_type': attachmentType,
+          if (attachmentName != null) 'attachment_name': attachmentName,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+          'is_read': false,
+        })
+        .select()
+        .single();
+
+    await supabase
+        .from('conversations')
+        .update({'updated_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', conversationId);
+    await _notifyMessageRecipients(
+      conversationId: conversationId,
+      senderId: senderId,
+      content: content,
+    );
+    return Map<String, dynamic>.from(response);
   }
 
   Future<Map<String, dynamic>> softDeleteMessage({

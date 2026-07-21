@@ -17,7 +17,15 @@ BookingStatusGroup bookingStatusGroup(dynamic value) {
   if ({'approved', 'confirmed', 'assigned'}.contains(status)) {
     return BookingStatusGroup.approved;
   }
-  if ({'active', 'ongoing', 'picked_up', 'in_progress'}.contains(status)) {
+  if ({
+    'active',
+    'ongoing',
+    'picked_up',
+    'in_progress',
+    'return_pending_inspection',
+    'awaiting_completion',
+    'awaiting_ratings',
+  }.contains(status)) {
     return BookingStatusGroup.ongoing;
   }
   if ({'completed', 'returned', 'successful', 'success'}.contains(status)) {

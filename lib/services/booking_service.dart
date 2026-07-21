@@ -5,6 +5,7 @@ import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'vehicle_service.dart';
+import 'booking_inspection_service.dart';
 import '../utils/pricing_policy.dart';
 
 class BookingService {
@@ -670,7 +671,13 @@ class BookingService {
   }
 
   Map<String, dynamic> getTripCompletionState(Map<String, dynamic> booking) {
-    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final vehicleValue = booking['vehicles'] ?? booking['vehicle'];
+    final vehicle = vehicleValue is Map<String, dynamic>
+        ? Map<String, dynamic>.from(vehicleValue)
+        : <String, dynamic>{};
+    final owner = vehicle['owner'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(vehicle['owner'])
+        : <String, dynamic>{};
     final rawStatus =
         (booking['rawStatus']?.toString() ??
                 booking['status']?.toString() ??
@@ -681,12 +688,15 @@ class BookingService {
         booking['withDriver'] == true ||
         (booking['driver_id']?.toString().trim().isNotEmpty == true) ||
         booking['driver'] != null;
-    final ownerRole = vehicle?['owner_role']?.toString().trim().toLowerCase();
-    final ownerId = vehicle?['owner_id']?.toString().trim();
+    final ownerRole = (vehicle['owner_role'] ?? owner['role'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    final ownerId = (vehicle['owner_id'] ?? owner['id'])?.toString().trim();
     final operatorId =
         booking['operator_id']?.toString().trim().isNotEmpty == true
         ? booking['operator_id']?.toString().trim()
-        : vehicle?['operator_id']?.toString().trim();
+        : vehicle['operator_id']?.toString().trim();
     final requiresPartner =
         ownerRole == 'partner' ||
         (ownerId != null &&
@@ -708,14 +718,26 @@ class BookingService {
       booking['renter_trip_confirmed_at'],
     );
 
+    final completionStage =
+        booking['completion_stage']?.toString().trim().toLowerCase() ??
+        'not_started';
+    final finalPaymentStatus =
+        booking['final_payment_status']?.toString().trim().toLowerCase() ??
+        'pending';
+    final firstReviewerRole = requiresPartner ? 'partner' : 'operator';
     final pendingRoles = <String>[
-      if (!operatorConfirmed) 'operator',
       if (requiresPartner && !partnerConfirmed) 'partner',
+      if (!requiresPartner && !operatorConfirmed) 'operator',
       if (hasDriver && !driverConfirmed) 'driver',
+      if (!renterConfirmed) 'renter',
     ];
 
     return {
       'status': rawStatus,
+      'completionStage': completionStage,
+      'finalPaymentStatus': finalPaymentStatus,
+      'isFullyPaid': finalPaymentStatus == 'paid',
+      'firstReviewerRole': firstReviewerRole,
       'hasDriver': hasDriver,
       'requiresPartner': requiresPartner,
       'operatorConfirmed': operatorConfirmed,
@@ -723,10 +745,80 @@ class BookingService {
       'driverConfirmed': driverConfirmed,
       'renterConfirmed': renterConfirmed,
       'pendingRoles': pendingRoles,
-      'allNonRenterConfirmed': rawStatus == 'completed' && pendingRoles.isEmpty,
+      'allNonRenterConfirmed':
+          (requiresPartner ? partnerConfirmed : operatorConfirmed) &&
+          (!hasDriver || driverConfirmed),
       'renterCanConfirm':
-          rawStatus == 'completed' && pendingRoles.isEmpty && !renterConfirmed,
+          completionStage == 'renter_rating' && !renterConfirmed,
+      'canConfirmPayment': completionStage == 'awaiting_payment',
+      'canRate': <String, bool>{
+        'operator': completionStage == 'operator_rating',
+        'partner': completionStage == 'partner_rating',
+        'driver': completionStage == 'driver_rating',
+        'renter': completionStage == 'renter_rating',
+      },
     };
+  }
+
+  /// Confirms that the final rental balance and late-return charges have been
+  /// settled. The responsible operator handles PSDC vehicles, while the
+  /// vehicle owner handles partner vehicles.
+  Future<Map<String, dynamic>> confirmFinalPayment({
+    required String bookingId,
+    required String actorId,
+    required String actorRole,
+  }) async {
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final state = getTripCompletionState(booking);
+    final expectedRole = state['firstReviewerRole']?.toString() ?? 'operator';
+    final normalizedRole = actorRole.trim().toLowerCase();
+    if (normalizedRole != expectedRole) {
+      throw Exception(
+        expectedRole == 'partner'
+            ? 'Only the vehicle partner can confirm this final payment'
+            : 'Only the PSDC operator can confirm this final payment',
+      );
+    }
+    final stage = state['completionStage']?.toString() ?? '';
+    if (stage != 'awaiting_payment' && stage != '${expectedRole}_rating') {
+      throw Exception('The vehicle return checklist is not ready for payment');
+    }
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase
+        .from('bookings')
+        .update({
+          'final_payment_status': 'paid',
+          'final_payment_confirmed_at': now,
+          'final_payment_confirmed_by': actorId,
+          'completion_stage': '${expectedRole}_rating',
+          'updated_at': now,
+        })
+        .eq('id', bookingId);
+
+    final vehicle = booking['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    String? reviewerId;
+    if (expectedRole == 'partner') {
+      reviewerId = vehicle['owner_id']?.toString();
+    } else {
+      reviewerId = booking['operator_id']?.toString().trim();
+      if (reviewerId == null || reviewerId.isEmpty) reviewerId = actorId;
+    }
+    if (reviewerId?.isNotEmpty == true) {
+      await NotificationService().createNotification(
+        userId: reviewerId!,
+        title: 'Rate The Renter',
+        message:
+            'The final balance is fully paid. Submit the mandatory renter rating to continue completion.',
+        type: 'trip_rating_required',
+        data: {'booking_id': bookingId, 'reviewer_role': expectedRole},
+      );
+    }
+    return await getBookingById(bookingId) ?? booking;
   }
 
   Future<Map<String, dynamic>> confirmSuccessfulTrip({
@@ -734,8 +826,7 @@ class BookingService {
     required String actorRole,
   }) async {
     final normalizedRole = actorRole.trim().toLowerCase();
-    final confirmationColumn = _tripConfirmationColumnForRole(normalizedRole);
-    if (confirmationColumn == null) {
+    if (_tripConfirmationColumnForRole(normalizedRole) == null) {
       throw Exception('Unsupported trip confirmation role: $actorRole');
     }
 
@@ -745,62 +836,15 @@ class BookingService {
     }
 
     final completionState = getTripCompletionState(booking);
-    final status = completionState['status']?.toString() ?? '';
-    if (status != 'completed') {
-      throw Exception('Trip is still ongoing and cannot be confirmed yet');
-    }
-
-    if (normalizedRole == 'renter' &&
-        completionState['renterCanConfirm'] != true) {
-      final pendingRoles =
-          (completionState['pendingRoles'] as List<dynamic>? ?? const [])
-              .map((role) => role.toString())
-              .toList();
-      final pendingText = pendingRoles.isEmpty
-          ? 'the trip still needs processing'
-          : pendingRoles.join(', ');
+    final canRate = completionState['canRate'] as Map<String, bool>?;
+    if (canRate?[normalizedRole] != true) {
       throw Exception(
-        'You can confirm this trip after $pendingText finishes their successful trip confirmation',
+        'This confirmation is not available yet. Complete payment and the required ratings in order.',
       );
     }
-
-    final nowIso = DateTime.now().toIso8601String();
-    await supabase
-        .from('bookings')
-        .update({confirmationColumn: nowIso, 'updated_at': nowIso})
-        .eq('id', bookingId);
-
-    final updatedBooking = await getBookingById(bookingId);
-    if (updatedBooking == null) {
-      throw Exception(
-        'Trip confirmation was saved, but the booking reload failed',
-      );
-    }
-
-    final updatedState = getTripCompletionState(updatedBooking);
-    if (normalizedRole != 'renter' &&
-        updatedState['allNonRenterConfirmed'] == true &&
-        updatedState['renterConfirmed'] != true) {
-      final renterId = updatedBooking['renter_id']?.toString();
-      if (renterId != null && renterId.isNotEmpty) {
-        final vehicle = updatedBooking['vehicles'] as Map<String, dynamic>?;
-        final vehicleTitle = _vehicleTitle(vehicle);
-        try {
-          await NotificationService().createNotification(
-            userId: renterId,
-            title: 'Trip Ready For Final Confirmation',
-            message:
-                '$vehicleTitle is now ready for your successful trip confirmation and rating.',
-            type: 'trip_completion',
-            data: {'booking_id': bookingId},
-          );
-        } catch (e) {
-          debugPrint('Could not notify renter about trip confirmation: $e');
-        }
-      }
-    }
-
-    return updatedBooking;
+    throw Exception(
+      'A mandatory star rating is required. Open the Rate Trip screen to continue.',
+    );
   }
 
   // Get booking counts by status for partner
@@ -1512,6 +1556,17 @@ class BookingService {
         throw Exception('Only the assigned driver can mark pickup time');
       }
 
+      final inspection = await BookingInspectionService()
+          .getCompletedInspection(
+            bookingId: bookingId,
+            inspectionType: 'before',
+          );
+      await _postInspectionAuditToBookingChat(
+        booking: booking,
+        inspection: inspection,
+        inspectionType: 'before',
+      );
+
       await supabase
           .from('bookings')
           .update({
@@ -1566,8 +1621,8 @@ class BookingService {
       }
 
       final status = (booking['status'] as String? ?? '').toLowerCase();
-      if (status != 'active' && status != 'confirmed' && status != 'approved') {
-        throw Exception('Only confirmed or active bookings can be returned');
+      if (status != 'active' && status != 'ongoing') {
+        throw Exception('Only ongoing bookings can be marked as returned');
       }
 
       final currentUserId = supabase.auth.currentUser?.id;
@@ -1584,46 +1639,17 @@ class BookingService {
         throw Exception('Only the assigned driver can mark return time');
       }
 
-      final startDate = DateTime.tryParse(
-        booking['start_date']?.toString() ?? '',
-      );
-      final scheduledEndDate = DateTime.tryParse(
-        booking['end_date']?.toString() ?? '',
-      );
-      if (startDate == null || scheduledEndDate == null) {
-        throw Exception('Booking dates are incomplete');
-      }
-
-      final originalTotal =
-          (booking['total_price'] as num?)?.toDouble() ??
-          (booking['total_cost'] as num?)?.toDouble() ??
-          0.0;
-      final bookedDays = _inclusiveRentalDays(startDate, scheduledEndDate);
-      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-      final dailyRate =
-          _asDouble(vehicle?['price_per_day']) ??
-          (bookedDays > 0 ? originalTotal / bookedDays : originalTotal);
-      final actualDays = _inclusiveRentalDays(startDate, returnedAt);
-      final lateDays = actualDays > bookedDays ? actualDays - bookedDays : 0;
-      final lateReturnFee = lateDays * dailyRate;
-      final rentalSubtotal = bookedDays > 0
-          ? dailyRate * bookedDays
-          : originalTotal;
-      final deliveryFee = _asDouble(booking['delivery_fee']) ?? 0.0;
-      final recalculatedTotal = rentalSubtotal + lateReturnFee + deliveryFee;
+      final lateReturn = _lateReturnValues(booking, returnedAt);
+      final lateReturnFee = lateReturn['late_return_fee'] as double;
+      final recalculatedTotal = lateReturn['total_price'] as double;
 
       await supabase
           .from('bookings')
           .update({
-            'status': 'completed',
+            'status': 'return_pending_inspection',
             'returned_at': returnedAt.toIso8601String(),
-            'completed_at': DateTime.now().toIso8601String(),
-            'driver_trip_confirmed_at': DateTime.now().toIso8601String(),
-            'total_price': recalculatedTotal,
-            'total_cost': recalculatedTotal,
-            'rental_subtotal': rentalSubtotal,
-            'late_return_days': lateDays,
-            'late_return_fee': lateReturnFee,
+            'completion_stage': 'awaiting_after_checklist',
+            ...lateReturn,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -1640,30 +1666,24 @@ class BookingService {
         await supabase
             .from('driver_job_assignments')
             .update({
-              'status': 'completed',
+              'status': 'awaiting_completion',
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('booking_id', bookingId)
             .eq('driver_id', currentUserId);
       } catch (e) {
-        debugPrint('Could not update assignment status to completed: $e');
+        debugPrint('Could not update assignment return status: $e');
       }
 
       await _notifyOperatorsForBooking(
         booking,
-        title: 'Unit Returned',
+        title: 'Unit Ready For Return Inspection',
         message:
-            'The driver marked the unit as returned. Late fee: ${PricingPolicy.peso(lateReturnFee)}. Final total: ${PricingPolicy.peso(recalculatedTotal)}.',
+            'The driver marked the unit as returned. Complete the after-return checklist, evidence, payment, and ratings. Late fee: ${PricingPolicy.peso(lateReturnFee)}. Final total: ${PricingPolicy.peso(recalculatedTotal)}.',
         action: 'returned',
       );
 
-      try {
-        await ChatService().closeConversation(bookingId);
-      } catch (e) {
-        debugPrint('Could not close booking conversation: $e');
-      }
-
-      debugPrint('Booking completed with total: $recalculatedTotal');
+      debugPrint('Booking return is awaiting the after checklist');
       return recalculatedTotal;
     } on PostgrestException catch (e) {
       debugPrint('Database error completing return: ${e.message}');
@@ -1672,6 +1692,310 @@ class BookingService {
       debugPrint('Error completing return: $e');
       rethrow;
     }
+  }
+
+  /// Starts a booking after the responsible operator or partner completes the
+  /// release checklist. This is also used for self-drive bookings that do not
+  /// have a driver pickup action.
+  Future<void> startBookingAfterInspection({
+    required String bookingId,
+    required String inspectorId,
+  }) async {
+    final inspectionService = BookingInspectionService();
+    await inspectionService.assertResponsibleInspector(
+      bookingId: bookingId,
+      inspectorId: inspectorId,
+    );
+    final inspection = await inspectionService.getCompletedInspection(
+      bookingId: bookingId,
+      inspectionType: 'before',
+    );
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (status != 'approved' && status != 'confirmed') {
+      if (status == 'active' || status == 'ongoing') return;
+      throw Exception('Only approved bookings can begin their trip');
+    }
+    await _postInspectionAuditToBookingChat(
+      booking: booking,
+      inspection: inspection,
+      inspectionType: 'before',
+    );
+
+    final now = DateTime.now().toIso8601String();
+    await supabase
+        .from('bookings')
+        .update({'status': 'active', 'picked_up_at': now, 'updated_at': now})
+        .eq('id', bookingId);
+
+    final driverId = booking['driver_id']?.toString();
+    if (driverId?.isNotEmpty == true) {
+      try {
+        await supabase
+            .from('driver_job_assignments')
+            .update({'status': 'in_progress', 'updated_at': now})
+            .eq('booking_id', bookingId)
+            .eq('driver_id', driverId!);
+      } catch (e) {
+        debugPrint('Could not start driver assignment: $e');
+      }
+    }
+
+    final renterId = booking['renter_id']?.toString();
+    if (renterId?.isNotEmpty == true) {
+      await NotificationService().createNotification(
+        userId: renterId!,
+        title: 'Trip Started',
+        message:
+            'The release checklist is complete and your booking is now ongoing.',
+        type: 'booking_ongoing',
+        data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
+      );
+    }
+  }
+
+  /// Records the returned vehicle after the responsible operator or partner
+  /// submits the after checklist. Completion waits for payment and ratings.
+  Future<void> completeBookingAfterInspection({
+    required String bookingId,
+    required String inspectorId,
+  }) async {
+    final inspectionService = BookingInspectionService();
+    await inspectionService.assertResponsibleInspector(
+      bookingId: bookingId,
+      inspectorId: inspectorId,
+    );
+    final inspection = await inspectionService.getCompletedInspection(
+      bookingId: bookingId,
+      inspectionType: 'after',
+    );
+
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (status != 'active' &&
+        status != 'ongoing' &&
+        status != 'return_pending_inspection') {
+      if (status == 'completed') return;
+      throw Exception('Only ongoing bookings can complete a return checklist');
+    }
+    await _postInspectionAuditToBookingChat(
+      booking: booking,
+      inspection: inspection,
+      inspectionType: 'after',
+    );
+
+    final returnedAt = DateTime.now();
+    final now = returnedAt.toIso8601String();
+    final lateReturn = _lateReturnValues(booking, returnedAt);
+    final actor = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', inspectorId)
+        .maybeSingle();
+    final actorRole = actor?['role']?.toString().trim().toLowerCase();
+    final firstReviewerRole = actorRole == 'partner' ? 'partner' : 'operator';
+    final coversTotal = booking['reservation_payment_covers_total'] == true;
+    final lateFee = lateReturn['late_return_fee'] as double;
+    final isFullyPaid = coversTotal && lateFee <= 0;
+    final completionStage = isFullyPaid
+        ? '${firstReviewerRole}_rating'
+        : 'awaiting_payment';
+
+    await supabase
+        .from('bookings')
+        .update({
+          'status': 'awaiting_completion',
+          'returned_at': now,
+          'completed_at': null,
+          'completion_stage': completionStage,
+          'final_payment_status': isFullyPaid ? 'paid' : 'pending',
+          if (isFullyPaid) 'final_payment_confirmed_at': now,
+          if (isFullyPaid) 'final_payment_confirmed_by': inspectorId,
+          ...lateReturn,
+          'updated_at': now,
+        })
+        .eq('id', bookingId);
+
+    final driverId = booking['driver_id']?.toString();
+    if (driverId?.isNotEmpty == true) {
+      await supabase
+          .from('users')
+          .update({'is_available': true})
+          .eq('id', driverId!);
+      try {
+        await supabase
+            .from('driver_job_assignments')
+            .update({'status': 'awaiting_completion', 'updated_at': now})
+            .eq('booking_id', bookingId)
+            .eq('driver_id', driverId);
+      } catch (e) {
+        debugPrint('Could not complete driver assignment: $e');
+      }
+    }
+
+    final renterId = booking['renter_id']?.toString();
+    if (renterId?.isNotEmpty == true) {
+      await NotificationService().createNotification(
+        userId: renterId!,
+        title: isFullyPaid
+            ? 'Vehicle Returned - Rating Required'
+            : 'Vehicle Returned - Final Payment Required',
+        message:
+            'The after-return checklist is complete. The trip will be completed after full payment and all required ratings. Late fee: ${PricingPolicy.peso(lateFee)}.',
+        type: 'booking_awaiting_completion',
+        data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
+      );
+    }
+
+    final vehicle = booking['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    String? firstReviewerId;
+    if (firstReviewerRole == 'partner') {
+      firstReviewerId = vehicle['owner_id']?.toString();
+    } else {
+      firstReviewerId = booking['operator_id']?.toString().trim();
+      if (firstReviewerId == null || firstReviewerId.isEmpty) {
+        firstReviewerId = inspectorId;
+      }
+    }
+    if (isFullyPaid && firstReviewerId?.isNotEmpty == true) {
+      await NotificationService().createNotification(
+        userId: firstReviewerId!,
+        title: 'Mandatory Renter Rating Required',
+        message:
+            'The return checklist and payment are complete. Rate the renter to continue trip completion.',
+        type: 'trip_rating_required',
+        data: {'booking_id': bookingId, 'reviewer_role': firstReviewerRole},
+      );
+    }
+  }
+
+  Future<void> _postInspectionAuditToBookingChat({
+    required Map<String, dynamic> booking,
+    required Map<String, dynamic> inspection,
+    required String inspectionType,
+  }) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final inspectorId = inspection['inspector_id']?.toString() ?? '';
+    if (bookingId.isEmpty || inspectorId.isEmpty) return;
+
+    await _ensureBookingGroupChatAndSummary(
+      booking: booking,
+      vehicleTitle: _vehicleTitle(booking['vehicles'] as Map<String, dynamic>?),
+      summaryTitle: 'Booking Confirmed',
+    );
+    final conversation = await ChatService().getConversationByBookingId(
+      bookingId,
+    );
+    final conversationId = conversation?['id']?.toString() ?? '';
+    if (conversationId.isEmpty) {
+      throw Exception('The booking conversation could not be prepared');
+    }
+
+    final inspector = await _getUserById(inspectorId);
+    final inspectorName =
+        inspector?['full_name']?.toString().trim().isNotEmpty == true
+        ? inspector!['full_name'].toString().trim()
+        : 'Responsible inspector';
+    final inspectorRole = inspector?['role']?.toString().trim().toLowerCase();
+    final roleLabel = inspectorRole == 'partner' ? 'Partner' : 'Operator';
+    final normalizedType = inspectionType.trim().toLowerCase();
+    final isBefore = normalizedType == 'before';
+    final evidence = inspection['evidence_urls'] is List
+        ? List<dynamic>.from(inspection['evidence_urls'] as List)
+        : const <dynamic>[];
+    final checklist = inspection['checklist_items'] is Map
+        ? Map<String, dynamic>.from(inspection['checklist_items'] as Map)
+        : const <String, dynamic>{};
+    final checkedCount = checklist.values
+        .where((value) => value == true)
+        .length;
+    final evidenceUrl = evidence.isEmpty ? null : evidence.first.toString();
+    final lowerEvidenceUrl = evidenceUrl?.toLowerCase() ?? '';
+    final evidenceType =
+        lowerEvidenceUrl.contains('.mp4') ||
+            lowerEvidenceUrl.contains('.mov') ||
+            lowerEvidenceUrl.contains('.webm')
+        ? 'video'
+        : 'image';
+    final inspectionId =
+        inspection['id']?.toString() ??
+        '$bookingId-$normalizedType-$inspectorId';
+    final title = isBefore
+        ? 'Before-Release Checklist Submitted'
+        : 'After-Return Checklist Submitted';
+    final content = <String>[
+      title,
+      'Submitted by: $inspectorName ($roleLabel)',
+      'Fuel level: ${inspection['fuel_level'] ?? 'Recorded'}',
+      'Mileage: ${inspection['mileage'] ?? 'Recorded'} km',
+      'Cleanliness: ${inspection['cleanliness'] ?? 'Recorded'}',
+      'Checklist: $checkedCount/${BookingInspectionService.requiredChecklistKeys.length} items confirmed',
+      'Evidence: ${evidence.length} photo/video file${evidence.length == 1 ? '' : 's'} attached',
+      'Released by: ${inspection['released_by'] ?? 'N/A'}',
+      'Received by: ${inspection['received_by'] ?? 'N/A'}',
+      if (inspection['scratches']?.toString().trim().isNotEmpty == true)
+        'Scratches: ${inspection['scratches']}',
+      if (inspection['dents']?.toString().trim().isNotEmpty == true)
+        'Dents: ${inspection['dents']}',
+      if (inspection['damages']?.toString().trim().isNotEmpty == true)
+        'Damages: ${inspection['damages']}',
+      if (inspection['remarks']?.toString().trim().isNotEmpty == true)
+        'Remarks: ${inspection['remarks']}',
+      '',
+      isBefore
+          ? 'The vehicle release record is now visible to every booking participant.'
+          : 'The vehicle return record is now visible to every booking participant.',
+    ].join('\n');
+
+    await ChatService().sendBookingAuditMessage(
+      conversationId: conversationId,
+      senderId: inspectorId,
+      content: content,
+      auditKey: 'vehicle-checklist:$normalizedType:$inspectionId',
+      attachmentUrl: evidenceUrl,
+      attachmentType: evidenceUrl == null ? null : evidenceType,
+      attachmentName: evidenceUrl == null
+          ? null
+          : '${isBefore ? 'before-release' : 'after-return'}-evidence',
+    );
+  }
+
+  Map<String, dynamic> _lateReturnValues(
+    Map<String, dynamic> booking,
+    DateTime returnedAt,
+  ) {
+    final scheduledReturn =
+        DateTime.tryParse(booking['end_at']?.toString() ?? '') ??
+        DateTime.tryParse(booking['end_date']?.toString() ?? '');
+    final lateSeconds = scheduledReturn == null
+        ? 0
+        : returnedAt.difference(scheduledReturn).inSeconds;
+    final lateHours = lateSeconds <= 0
+        ? 0
+        : math.max(1, (lateSeconds / Duration.secondsPerHour).ceil());
+    final lateFee = lateHours * PricingPolicy.lateReturnRatePerHour;
+    final existingLateFee = _asDouble(booking['late_return_fee']) ?? 0.0;
+    final currentTotal =
+        _asDouble(booking['total_price']) ??
+        _asDouble(booking['total_cost']) ??
+        0.0;
+    final totalWithoutPreviousLateFee = math.max(
+      0.0,
+      currentTotal - existingLateFee,
+    );
+    final finalTotal = totalWithoutPreviousLateFee + lateFee;
+    return {
+      'late_return_hours': lateHours,
+      'late_return_days': lateHours == 0 ? 0 : (lateHours / 24).ceil(),
+      'late_return_fee': lateFee,
+      'total_price': finalTotal,
+      'total_cost': finalTotal,
+    };
   }
 
   int _inclusiveRentalDays(DateTime startDate, DateTime endDate) {

@@ -129,10 +129,6 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     }
   }
 
-  void _skipCurrent() {
-    _moveNextOrFinish();
-  }
-
   void _moveNextOrFinish() {
     if (_currentIndex >= _targets.length - 1) {
       Navigator.pop(context, true);
@@ -332,16 +328,14 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Center(
-                    child: TextButton(
-                      onPressed: _isSubmitting ? null : _skipCurrent,
-                      child: const Text(
-                        'Skip for now',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                  const SizedBox(height: 10),
+                  const Center(
+                    child: Text(
+                      'A rating is required to complete this trip.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/notification_permission_service.dart';
@@ -16,6 +17,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/relative_time_text.dart';
+import '../../widgets/booking_return_countdown.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
@@ -2347,7 +2349,15 @@ class __JobsTabState extends State<_JobsTab> {
     if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status)) {
       return 'cancelled';
     }
-    if (['active', 'ongoing', 'picked_up', 'in_progress'].contains(status)) {
+    if ([
+      'active',
+      'ongoing',
+      'picked_up',
+      'in_progress',
+      'return_pending_inspection',
+      'awaiting_completion',
+      'awaiting_ratings',
+    ].contains(status)) {
       return 'ongoing';
     }
     if (['approved', 'confirmed', 'assigned'].contains(status)) {
@@ -2577,25 +2587,13 @@ class _TripCardState extends State<_TripCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Trip completed. Final total: PHP ${total.toStringAsFixed(0)}',
+              'Vehicle return recorded. Final total: PHP ${total.toStringAsFixed(0)}. Waiting for the after checklist, payment, and required ratings.',
             ),
             backgroundColor: AppColors.success,
           ),
         );
       }
       await TrackingService().stopTracking();
-      if (context.mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => TripRatingFlowScreen(
-              bookingId: trip['id'].toString(),
-              reviewerRole: 'driver',
-              subtitle:
-                  'Leave ratings for the renter, operator, and partner if applicable.',
-            ),
-          ),
-        );
-      }
       widget.onChanged();
     } catch (e) {
       if (context.mounted) {
@@ -2603,6 +2601,30 @@ class _TripCardState extends State<_TripCard> {
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
+    }
+  }
+
+  Future<void> _rateRenter(BuildContext context) async {
+    final submitted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TripRatingFlowScreen(
+          bookingId: trip['id'].toString(),
+          reviewerRole: 'driver',
+          title: 'Rate Renter',
+          subtitle:
+              'Your renter rating is required before the renter can complete the trip.',
+        ),
+      ),
+    );
+    if (submitted == true) {
+      widget.onChanged();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Renter rating saved. Waiting for the renter review.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
     }
   }
 
@@ -2667,6 +2689,8 @@ class _TripCardState extends State<_TripCard> {
   Widget _buildLegacyRevenueView(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final status = (trip['status']?.toString() ?? 'assigned').toLowerCase();
+    final completionState = BookingService().getTripCompletionState(trip);
+    final completionStage = completionState['completionStage']?.toString();
     final isTrackingThisTrip =
         TrackingService().activeBookingId == (trip['id']?.toString() ?? '');
     final vehicle = trip['vehicles'] as Map<String, dynamic>?;
@@ -2790,9 +2814,11 @@ class _TripCardState extends State<_TripCard> {
                 ),
               ),
             ),
-          if (status == 'active')
+          if (status == 'active' || status == 'ongoing')
             Column(
               children: [
+                BookingReturnCountdown(booking: trip),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -2837,6 +2863,67 @@ class _TripCardState extends State<_TripCard> {
                 ),
               ],
             ),
+          if (status == 'return_pending_inspection')
+            const _DriverWaitingAction(
+              icon: Icons.fact_check_outlined,
+              message:
+                  'Waiting for the vehicle owner to submit the after checklist.',
+            ),
+          if (status == 'awaiting_completion' &&
+              completionStage != 'driver_rating')
+            const _DriverWaitingAction(
+              icon: Icons.hourglass_bottom_rounded,
+              message: 'Waiting for payment or the previous required rating.',
+            ),
+          if (completionStage == 'driver_rating')
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _rateRenter(context),
+                icon: const Icon(Icons.star_rate_rounded, size: 17),
+                label: const Text('Rate Renter'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverWaitingAction extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _DriverWaitingAction({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.warning.withOpacity(0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.warning),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? AppColors.textSecondary : Colors.black87,
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
+import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/notification_target.dart';
@@ -20,6 +21,8 @@ import '../../../utils/notification_visual.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
+import '../../../mobile_ui/widgets/booking_return_countdown.dart';
+import '../../../mobile_ui/widgets/vehicle_inspection_checklist_fields.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
@@ -433,15 +436,77 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     setState(() => _trackingLocations = locations);
   }
 
-  Future<void> _confirmOperatorSuccessfulTrip(
-    Map<String, dynamic> booking,
-  ) async {
+  Future<void> _openOperatorRenterRating(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
     try {
-      await BookingService().confirmSuccessfulTrip(
+      final submitted = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => TripRatingFlowScreen(
+            bookingId: bookingId,
+            reviewerRole: 'operator',
+            title: 'Rate Renter',
+            subtitle:
+                'Your renter rating is required before this trip can continue to final completion.',
+          ),
+        ),
+      );
+      if (submitted != true) return;
+      await _loadRecentBookings();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Renter rating saved. Waiting for the remaining required ratings.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmOperatorFinalPayment(
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final actorId = _supabase.auth.currentUser?.id;
+    if (bookingId.isEmpty || actorId == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirm Full Payment'),
+        content: const Text(
+          'Confirm that the full rental balance and any late-return fee have been paid. This action unlocks the mandatory renter rating.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not Yet'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm Payment'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await BookingService().confirmFinalPayment(
         bookingId: bookingId,
+        actorId: actorId,
         actorRole: 'operator',
       );
       await _loadRecentBookings();
@@ -449,7 +514,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Operator successful trip confirmation saved'),
+          content: Text('Full payment confirmed. Please rate the renter next.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -472,6 +537,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       return false;
     }
     return ownerId == currentUserId;
+  }
+
+  bool _isPartnerOwnedBooking(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final owner = vehicle?['owner'] as Map<String, dynamic>?;
+    return owner?['role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle?['is_partner_vehicle'] == true ||
+        vehicle?['partner_vehicle_id'] != null;
   }
 
   bool _canTrackBooking(Map<String, dynamic> booking) {
@@ -4993,12 +5066,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             3,
           ),
           cell(
-            Text(
-              _formatBookingDateTime(start),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: primaryColor, fontSize: 11),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _formatBookingDateTime(start),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: primaryColor, fontSize: 11),
+                ),
+                if (_canTrackBooking(booking)) ...[
+                  const SizedBox(height: 5),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: BookingReturnCountdown(
+                      booking: booking,
+                      compact: true,
+                      lightBackground: !isDark,
+                    ),
+                  ),
+                ],
+              ],
             ),
             3,
           ),
@@ -5377,7 +5466,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final driverAccepted = assignmentStatus == 'accepted';
     final driverDeclined = assignmentStatus == 'rejected';
     final completionState = BookingService().getTripCompletionState(booking);
-    final operatorConfirmed = completionState['operatorConfirmed'] == true;
+    final completionStage = completionState['completionStage']?.toString();
     final start = DateTime.tryParse(
       (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
     );
@@ -5525,9 +5614,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 : 'Assign Driver',
                           ),
                         ),
-                      if (statusLower == 'confirmed' ||
-                          statusLower == 'approved' ||
-                          statusLower == 'active')
+                      if ((statusLower == 'confirmed' ||
+                              statusLower == 'approved' ||
+                              statusLower == 'active') &&
+                          !_isPartnerOwnedBooking(booking))
                         OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -5547,7 +5637,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             softWrap: false,
                           ),
                         ),
-                      if (statusLower == 'active' || statusLower == 'completed')
+                      if ((statusLower == 'active' ||
+                              statusLower == 'ongoing' ||
+                              statusLower == 'return_pending_inspection') &&
+                          !_isPartnerOwnedBooking(booking))
                         OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -5581,12 +5674,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.explore_outlined, size: 17),
                           label: const Text('Track Trip'),
                         ),
-                      if (group == BookingStatusGroup.completed &&
-                          !operatorConfirmed)
+                      if (completionStage == 'awaiting_payment' &&
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
-                            _confirmOperatorSuccessfulTrip(booking);
+                            _confirmOperatorFinalPayment(booking);
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _operatorNavy,
@@ -5594,8 +5687,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             minimumSize: const Size(0, 44),
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
-                          icon: const Icon(Icons.task_alt, size: 17),
-                          label: const Text('Confirm Successful Trip'),
+                          icon: const Icon(Icons.payments_outlined, size: 17),
+                          label: const Text('Confirm Full Payment'),
+                        ),
+                      if (completionStage == 'operator_rating' &&
+                          !_isPartnerOwnedBooking(booking))
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _openOperatorRenterRating(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorNavy,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                          ),
+                          icon: const Icon(Icons.star_rate_rounded, size: 17),
+                          label: const Text('Rate Renter'),
                         ),
                     ],
                   ),
@@ -5858,6 +5967,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+          if (_canTrackBooking(booking)) ...[
+            const SizedBox(height: 14),
+            BookingReturnCountdown(booking: booking, lightBackground: !isDark),
+          ],
           const SizedBox(height: 18),
           _buildBookingPaymentDetails(booking, isDark),
           const SizedBox(height: 18),
@@ -6343,8 +6456,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final completionState = BookingService().getTripCompletionState(
                   booking,
                 );
-                final operatorConfirmed =
-                    completionState['operatorConfirmed'] == true;
+                final completionStage = completionState['completionStage']
+                    ?.toString();
                 final total =
                     (booking['total_price'] as num?)?.toDouble() ??
                     (booking['total_cost'] as num?)?.toDouble() ??
@@ -6810,9 +6923,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   ),
                                 ),
-                                if (statusLower == 'confirmed' ||
-                                    statusLower == 'approved' ||
-                                    statusLower == 'active')
+                                if ((statusLower == 'confirmed' ||
+                                        statusLower == 'approved' ||
+                                        statusLower == 'active') &&
+                                    !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(
                                     onPressed: () => _showInspectionDialog(
                                       booking,
@@ -6834,8 +6948,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if (statusLower == 'active' ||
-                                    statusLower == 'completed')
+                                if ((statusLower == 'active' ||
+                                        statusLower == 'ongoing' ||
+                                        statusLower ==
+                                            'return_pending_inspection') &&
+                                    !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(
                                     onPressed: () => _showInspectionDialog(
                                       booking,
@@ -6882,13 +6999,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           : Colors.grey.shade600,
                                     ),
                                   ),
-                                if (statusLower == 'completed' &&
-                                    !operatorConfirmed)
+                                if (completionStage == 'awaiting_payment' &&
+                                    !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
                                     onPressed: () =>
-                                        _confirmOperatorSuccessfulTrip(booking),
-                                    icon: const Icon(Icons.task_alt, size: 16),
-                                    label: const Text('Successful Trip'),
+                                        _confirmOperatorFinalPayment(booking),
+                                    icon: const Icon(
+                                      Icons.payments_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Confirm Full Payment'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary,
                                       foregroundColor: Colors.black,
@@ -6898,10 +7018,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if (statusLower == 'completed' &&
-                                    operatorConfirmed)
+                                if (completionStage == 'operator_rating' &&
+                                    !_isPartnerOwnedBooking(booking))
+                                  ElevatedButton.icon(
+                                    onPressed: () =>
+                                        _openOperatorRenterRating(booking),
+                                    icon: const Icon(
+                                      Icons.star_rate_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Rate Renter'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if (completionStage == 'completed')
                                   Text(
-                                    'Successful trip confirmed',
+                                    'Trip completed after all required ratings',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: isDark
@@ -7342,6 +7480,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final dentsController = TextEditingController();
     final damagesController = TextEditingController();
     final remarksController = TextEditingController();
+    final releasedByController = TextEditingController();
+    final receivedByController = TextEditingController();
+    final checklistItems = <String, bool>{
+      for (final key in BookingInspectionService.requiredChecklistKeys)
+        key: false,
+    };
     final selectedEvidence = <PlatformFile>[];
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -7361,6 +7505,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  VehicleInspectionChecklistFields(
+                    values: checklistItems,
+                    isDark: isDark,
+                    onChanged: (entry) => setDialogState(
+                      () => checklistItems[entry.key] = entry.value,
+                    ),
+                  ),
                   _buildInspectionTextField(fuelController, 'Fuel level'),
                   _buildInspectionTextField(
                     mileageController,
@@ -7378,6 +7529,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     remarksController,
                     'Other remarks',
                     maxLines: 3,
+                  ),
+                  _buildInspectionTextField(
+                    releasedByController,
+                    'Released by',
+                  ),
+                  _buildInspectionTextField(
+                    receivedByController,
+                    'Received by (client)',
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -7435,8 +7594,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Save Checklist'),
+              onPressed: () {
+                final allChecked = BookingInspectionService
+                    .requiredChecklistKeys
+                    .every((key) => checklistItems[key] == true);
+                final requiredFieldsReady =
+                    fuelController.text.trim().isNotEmpty &&
+                    mileageController.text.trim().isNotEmpty &&
+                    cleanlinessController.text.trim().isNotEmpty &&
+                    releasedByController.text.trim().isNotEmpty &&
+                    receivedByController.text.trim().isNotEmpty;
+                if (!allChecked ||
+                    !requiredFieldsReady ||
+                    selectedEvidence.isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Complete all checklist items, handover names, and attach at least one photo or video.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
+              child: Text(
+                inspectionType == 'before'
+                    ? 'Submit and Start Trip'
+                    : 'Submit Return Checklist',
+              ),
             ),
           ],
         ),
@@ -7451,6 +7637,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       dentsController.dispose();
       damagesController.dispose();
       remarksController.dispose();
+      releasedByController.dispose();
+      receivedByController.dispose();
       return;
     }
 
@@ -7485,15 +7673,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         damages: damagesController.text.trim(),
         remarks: remarksController.text.trim(),
         evidenceUrls: evidenceUrls,
+        checklistItems: checklistItems,
+        releasedBy: releasedByController.text,
+        receivedBy: receivedByController.text,
       );
+
+      if (inspectionType == 'before') {
+        await BookingService().startBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: currentUserId,
+        );
+      } else {
+        await BookingService().completeBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: currentUserId,
+        );
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vehicle checklist saved'),
+        SnackBar(
+          content: Text(
+            inspectionType == 'before'
+                ? 'Checklist submitted. The booking is now ongoing.'
+                : 'Return checklist submitted. Confirm payment and complete the required ratings next.',
+          ),
           backgroundColor: AppColors.success,
         ),
       );
+      await _loadDashboardData(showLoading: false);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -7510,6 +7718,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       dentsController.dispose();
       damagesController.dispose();
       remarksController.dispose();
+      releasedByController.dispose();
+      receivedByController.dispose();
     }
   }
 
