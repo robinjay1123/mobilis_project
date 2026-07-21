@@ -17,6 +17,35 @@ class ChatService {
 
   final supabase = Supabase.instance.client;
 
+  /// Loads the booking state separately from the conversation query to avoid
+  /// PostgREST relationship ambiguity in projects with legacy foreign keys.
+  Future<Map<String, dynamic>?> getConversationBookingContext(
+    String conversationId,
+  ) async {
+    try {
+      final conversation = await supabase
+          .from('conversations')
+          .select('booking_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+      final bookingId = conversation?['booking_id']?.toString().trim() ?? '';
+      if (bookingId.isEmpty) return null;
+
+      final booking = await supabase
+          .from('bookings')
+          .select(
+            'id, status, start_at, end_at, start_date, end_date, vehicle_id, '
+            'vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name)',
+          )
+          .eq('id', bookingId)
+          .maybeSingle();
+      return booking == null ? null : Map<String, dynamic>.from(booking);
+    } catch (error) {
+      debugPrint('Could not load conversation booking context: $error');
+      return null;
+    }
+  }
+
   // Get all conversations for a user
   // Uses conversation_participants table for many-to-many relationship
   Future<List<Map<String, dynamic>>> getConversations(String userId) async {

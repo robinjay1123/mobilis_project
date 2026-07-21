@@ -1,21 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:typed_data';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
+import '../../../utils/csv_export.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
@@ -89,6 +89,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _pendingApplications = [];
   List<Map<String, dynamic>> _recentBookings = [];
   List<Map<String, dynamic>> _operatorRevenueBookings = [];
+  List<Map<String, dynamic>> _operatorSettlements = [];
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
   List<Map<String, dynamic>> _conversations = [];
@@ -271,6 +272,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
+          table: 'booking_settlements',
+          callback: refreshDashboard,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
           table: 'notifications',
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
@@ -397,6 +404,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
+        _loadOperatorSettlements(),
         _loadTrackingLocations(),
       ]);
     } catch (e) {
@@ -822,6 +830,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               co_traveler_signature_url,
               co_traveler_valid_id_url,
               co_traveler_selfie_url,
+              final_payment_status,
+              final_payment_confirmed_at,
+              completion_stage,
+              commission_status,
               with_driver,
               pickup_location,
               dropoff_location,
@@ -886,6 +898,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 id,
                 driver_id,
                 status,
+                trip_fee,
                 offered_at,
                 replied_at,
                 created_at,
@@ -943,6 +956,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     } catch (e) {
       debugPrint('Error loading operator revenue analytics: $e');
       _operatorRevenueBookings = [];
+    }
+  }
+
+  Future<void> _loadOperatorSettlements() async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) {
+      _operatorSettlements = [];
+      return;
+    }
+    try {
+      final response = await _supabase
+          .from('booking_settlements')
+          .select('''
+            id,
+            booking_id,
+            gross_amount,
+            operator_managed_amount,
+            platform_commission,
+            partner_amount,
+            driver_amount,
+            status,
+            released_at
+          ''')
+          .eq('operator_user_id', operatorId)
+          .order('released_at', ascending: false);
+      _operatorSettlements = List<Map<String, dynamic>>.from(response);
+    } catch (error) {
+      // The dashboard remains usable before the new migration is deployed.
+      debugPrint('Error loading operator settlement summary: $error');
+      _operatorSettlements = [];
     }
   }
 
@@ -2939,6 +2982,145 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             isDark,
           ),
+          const SizedBox(height: 22),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth >= 820
+                  ? (constraints.maxWidth - 18) / 2
+                  : constraints.maxWidth;
+              final releasedSettlements = _operatorSettlements
+                  .where(
+                    (settlement) =>
+                        settlement['status']?.toString() == 'released',
+                  )
+                  .toList();
+              final managedValue = releasedSettlements.fold<double>(
+                0,
+                (total, settlement) =>
+                    total +
+                    ((settlement['operator_managed_amount'] as num?)
+                            ?.toDouble() ??
+                        0),
+              );
+              final tracked = _visibleTrackingLocations();
+              return Wrap(
+                spacing: 18,
+                runSpacing: 18,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: _buildDashboardInsightCard(
+                      title: 'Revenue Snapshot',
+                      value: 'PHP ${managedValue.toStringAsFixed(2)}',
+                      description:
+                          '${releasedSettlements.length} settled trips managed by this operator',
+                      icon: Icons.account_balance_wallet_outlined,
+                      accent: const Color(0xFF2E7D32),
+                      buttonLabel: 'Open Revenue Analytics',
+                      onTap: () => _openDashboardSection(selectedIndex: 7),
+                      isDark: isDark,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: _buildDashboardInsightCard(
+                      title: 'Live Tracking Snapshot',
+                      value: '${tracked.length} Active',
+                      description: tracked.isEmpty
+                          ? 'No company vehicles are transmitting an active trip location.'
+                          : 'Authorized company trips are currently transmitting location data.',
+                      icon: Icons.my_location_rounded,
+                      accent: const Color(0xFF1976D2),
+                      buttonLabel: 'Open Live Tracking',
+                      onTap: () => _openDashboardSection(selectedIndex: 6),
+                      isDark: isDark,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardInsightCard({
+    required String title,
+    required String value,
+    required String description,
+    required IconData icon,
+    required Color accent,
+    required String buttonLabel,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 205),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: accent, size: 23),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            value,
+            style: TextStyle(
+              color: isDark ? Colors.white : _operatorInk,
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            description,
+            style: TextStyle(
+              color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+              height: 1.35,
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: onTap,
+            icon: const Icon(Icons.arrow_forward_rounded, size: 17),
+            label: Text(buttonLabel),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: isDark ? Colors.white : _operatorInk,
+              minimumSize: const Size(0, 43),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+            ),
+          ),
         ],
       ),
     );
@@ -3085,6 +3267,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildRevenueContent(bool isDark) {
     final managed = _operatorManagedBookings();
+    final releasedSettlements = _operatorSettlements
+        .where(
+          (settlement) =>
+              settlement['status']?.toString().trim().toLowerCase() ==
+              'released',
+        )
+        .toList();
     final completed = managed
         .where(
           (booking) =>
@@ -3097,16 +3286,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       return group == BookingStatusGroup.approved ||
           group == BookingStatusGroup.ongoing;
     }).length;
-    final processedRevenue = completed.fold<double>(
+    final historicalCompletedValue = completed.fold<double>(
       0,
       (total, booking) => total + _bookingAmount(booking),
     );
+    final releasedGross = releasedSettlements.fold<double>(
+      0,
+      (total, settlement) =>
+          total + ((settlement['gross_amount'] as num?)?.toDouble() ?? 0),
+    );
+    final managedValue = releasedSettlements.fold<double>(
+      0,
+      (total, settlement) =>
+          total +
+          ((settlement['operator_managed_amount'] as num?)?.toDouble() ?? 0),
+    );
+    final platformCommission = releasedSettlements.fold<double>(
+      0,
+      (total, settlement) =>
+          total +
+          ((settlement['platform_commission'] as num?)?.toDouble() ?? 0),
+    );
+    final processedRevenue = releasedSettlements.isEmpty
+        ? historicalCompletedValue
+        : releasedGross;
     final averageValue = completed.isEmpty
         ? 0.0
         : processedRevenue / completed.length;
     final now = DateTime.now();
     final monthly = List.generate(6, (index) {
       final monthDate = DateTime(now.year, now.month - (5 - index));
+      final monthSettlements = releasedSettlements.where((settlement) {
+        final date = DateTime.tryParse(
+          settlement['released_at']?.toString() ?? '',
+        )?.toLocal();
+        return date != null &&
+            date.year == monthDate.year &&
+            date.month == monthDate.month;
+      }).toList();
       final monthBookings = managed.where((booking) {
         final date = DateTime.tryParse(
           (booking['completed_at'] ?? booking['created_at'])?.toString() ?? '',
@@ -3117,11 +3334,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }).toList();
       return <String, dynamic>{
         'label': _getMonthName(monthDate.month),
-        'count': monthBookings.length,
-        'amount': monthBookings.fold<double>(
-          0,
-          (total, booking) => total + _bookingAmount(booking),
-        ),
+        'count': releasedSettlements.isEmpty
+            ? monthBookings.length
+            : monthSettlements.length,
+        'amount': releasedSettlements.isEmpty
+            ? monthBookings.fold<double>(
+                0,
+                (total, booking) => total + _bookingAmount(booking),
+              )
+            : monthSettlements.fold<double>(
+                0,
+                (total, settlement) =>
+                    total +
+                    ((settlement['gross_amount'] as num?)?.toDouble() ?? 0),
+              ),
       };
     });
     final maxMonthly = monthly.fold<double>(
@@ -3191,9 +3417,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   SizedBox(
                     width: width,
                     child: _buildRevenueMetricCard(
-                      'Processed Value',
+                      'Released Value',
                       'PHP ${processedRevenue.toStringAsFixed(2)}',
-                      '${completed.length} completed transactions',
+                      releasedSettlements.isEmpty
+                          ? '${completed.length} historical completed transactions'
+                          : '${releasedSettlements.length} released settlements',
                       Icons.account_balance_wallet_outlined,
                       const Color(0xFF2E7D32),
                       isDark,
@@ -3202,9 +3430,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   SizedBox(
                     width: width,
                     child: _buildRevenueMetricCard(
-                      'Average Booking',
-                      'PHP ${averageValue.toStringAsFixed(2)}',
-                      'Completed bookings only',
+                      releasedSettlements.isEmpty
+                          ? 'Average Booking'
+                          : 'PSDC Managed Value',
+                      'PHP ${(releasedSettlements.isEmpty ? averageValue : managedValue).toStringAsFixed(2)}',
+                      releasedSettlements.isEmpty
+                          ? 'Completed bookings only'
+                          : 'Company vehicle value handled by this operator',
                       Icons.insights_outlined,
                       const Color(0xFF886A00),
                       isDark,
@@ -3241,7 +3473,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Last six months based on your managed bookings',
+                      releasedSettlements.isEmpty
+                          ? 'Last six months from historical completed bookings'
+                          : 'Last six months from released settlement records',
                       style: TextStyle(
                         color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                         fontSize: 11,
@@ -3307,6 +3541,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               final breakdown = _buildOperatorRevenueBreakdown(
                 managed,
                 completed,
+                releasedSettlements: releasedSettlements,
+                platformCommission: platformCommission,
                 isDark,
               );
               if (constraints.maxWidth < 900) {
@@ -3402,8 +3638,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Widget _buildOperatorRevenueBreakdown(
     List<Map<String, dynamic>> managed,
     List<Map<String, dynamic>> completed,
-    bool isDark,
-  ) {
+    bool isDark, {
+    required List<Map<String, dynamic>> releasedSettlements,
+    required double platformCommission,
+  }) {
     final pending = managed
         .where(
           (booking) =>
@@ -3437,13 +3675,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(height: 20),
           _buildRevenueBreakdownLine('Completed', completed.length),
+          _buildRevenueBreakdownLine(
+            'Released settlements',
+            releasedSettlements.length,
+          ),
           _buildRevenueBreakdownLine('Pending review', pending),
           _buildRevenueBreakdownLine('Cancelled', cancelled),
           _buildRevenueBreakdownLine('All managed', managed.length),
           const SizedBox(height: 14),
-          const Text(
-            'Analytics are operational records, not operator commission or payout.',
-            style: TextStyle(
+          Text(
+            releasedSettlements.isEmpty
+                ? 'Deploy the settlement migration to record released funds automatically.'
+                : 'Recorded platform commission: PHP ${platformCommission.toStringAsFixed(2)}. Operator analytics represent managed value, not personal payout.',
+            style: const TextStyle(
               color: Color(0xFF9CB1C3),
               fontSize: 10,
               height: 1.4,
@@ -4663,15 +4907,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         'Vehicle',
         'Vehicle Type',
         'Plate Number',
-        'Schedule',
+        'Renter Email',
+        'Driver',
+        'Start',
+        'Return',
+        'Service',
+        'Pickup',
+        'Destination',
         'Status',
+        'Payment Status',
+        'Settlement Status',
         'Total',
+        'Completed At',
       ].map(csvCell).join(','),
       ...bookings.map((booking) {
         final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
         final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+        final driver = booking['driver'] as Map<String, dynamic>? ?? {};
+        final driverUser = driver['user'] as Map<String, dynamic>? ?? {};
         final start = DateTime.tryParse(
           (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+        );
+        final end = DateTime.tryParse(
+          (booking['end_at'] ?? booking['end_date'])?.toString() ?? '',
+        );
+        final completedAt = DateTime.tryParse(
+          booking['completed_at']?.toString() ?? '',
         );
         return [
           booking['id'],
@@ -4679,9 +4940,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           _vehicleTitle(vehicle),
           vehicle['vehicle_type'] ?? vehicle['category'],
           vehicle['plate_number'],
+          renter['email'],
+          driverUser['full_name'] ??
+              (_bookingNeedsDriver(booking['with_driver'])
+                  ? 'Unassigned'
+                  : 'Self-drive'),
           _formatBookingDateTime(start),
+          _formatBookingDateTime(end),
+          _bookingNeedsDriver(booking['with_driver'])
+              ? 'With professional driver'
+              : 'Self-drive',
+          booking['pickup_location'],
+          booking['dropoff_location'],
           bookingStatusLabel(bookingStatusGroup(booking['status'])),
+          booking['final_payment_status'] ?? 'pending',
+          booking['commission_status'] ?? 'not_ready',
           booking['total_price'] ?? booking['total_cost'] ?? 0,
+          completedAt == null ? '' : _formatBookingDateTime(completedAt),
         ].map(csvCell).join(',');
       }),
     ];
@@ -4689,23 +4964,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final date = DateTime.now().toIso8601String().split('T').first;
 
     try {
-      if (kIsWeb) {
-        await FilePicker.platform.saveFile(
-          dialogTitle: 'Export booking report',
-          fileName: 'mobilis-bookings-$date.csv',
-          bytes: bytes,
-        );
-      } else {
-        await Clipboard.setData(ClipboardData(text: rows.join('\r\n')));
-      }
+      await exportCsvFile(fileName: 'mobilis-bookings-$date.csv', bytes: bytes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              kIsWeb
-                  ? 'Booking report exported successfully.'
-                  : 'Booking report copied to the clipboard.',
-            ),
+          const SnackBar(
+            content: Text('Booking report exported successfully.'),
           ),
         );
       }
@@ -7612,14 +7875,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (currentUserId == null || bookingId.isEmpty) return;
 
     final fuelController = TextEditingController();
-    final mileageController = TextEditingController();
-    final cleanlinessController = TextEditingController(text: 'Good');
-    final scratchesController = TextEditingController(text: 'Good');
-    final dentsController = TextEditingController(text: 'Good');
-    final damagesController = TextEditingController(text: 'Good');
-    final remarksController = TextEditingController();
+    final tiresController = TextEditingController();
+    final magsController = TextEditingController();
+    final exteriorRemarksController = TextEditingController(text: 'Good');
+    final interiorRemarksController = TextEditingController(text: 'Good');
+    final autosweepBalanceController = TextEditingController(text: 'N/A');
+    final easytripBalanceController = TextEditingController(text: 'N/A');
+    final toolsRemarksController = TextEditingController(text: 'Good');
+    final cleanlinessRemarksController = TextEditingController(text: 'Good');
+    final otherItemsController = TextEditingController(text: 'N/A');
+    final othersRemarksController = TextEditingController(text: 'Good');
     final releasedByController = TextEditingController();
     final receivedByController = TextEditingController();
+    final inspectionControllers = <TextEditingController>[
+      fuelController,
+      tiresController,
+      magsController,
+      exteriorRemarksController,
+      interiorRemarksController,
+      autosweepBalanceController,
+      easytripBalanceController,
+      toolsRemarksController,
+      cleanlinessRemarksController,
+      otherItemsController,
+      othersRemarksController,
+      releasedByController,
+      receivedByController,
+    ];
     final checklistItems = <String, bool>{
       for (final key in BookingInspectionService.requiredChecklistKeys)
         key: false,
@@ -7692,54 +7974,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     }),
                   ),
                   const SizedBox(height: 4),
-                  _buildInspectionTextField(
-                    fuelController,
-                    'Fuel level',
-                    hintText: 'Enter level, for example 75% or Full',
-                  ),
-                  _buildInspectionTextField(
-                    mileageController,
-                    'Mileage',
-                    keyboardType: TextInputType.number,
-                    hintText: 'Current odometer reading',
-                  ),
-                  _buildInspectionConditionSelector(
-                    cleanlinessController,
-                    'Cleanliness condition',
+                  VehicleInspectionSupplementalFields(
                     isDark: isDark,
-                    refresh: () => setDialogState(() {}),
-                  ),
-                  _buildInspectionConditionSelector(
-                    scratchesController,
-                    'Scratches',
-                    isDark: isDark,
-                    refresh: () => setDialogState(() {}),
-                  ),
-                  _buildInspectionConditionSelector(
-                    dentsController,
-                    'Dents',
-                    isDark: isDark,
-                    refresh: () => setDialogState(() {}),
-                  ),
-                  _buildInspectionConditionSelector(
-                    damagesController,
-                    'Other damage',
-                    isDark: isDark,
-                    refresh: () => setDialogState(() {}),
-                  ),
-                  _buildInspectionTextField(
-                    remarksController,
-                    'Additional remarks (optional)',
-                    maxLines: 3,
-                    hintText: 'Add notes that support the selected conditions',
-                  ),
-                  _buildInspectionTextField(
-                    releasedByController,
-                    'Released by',
-                  ),
-                  _buildInspectionTextField(
-                    receivedByController,
-                    'Received by (client)',
+                    fuelLevelController: fuelController,
+                    tiresController: tiresController,
+                    magsController: magsController,
+                    exteriorRemarksController: exteriorRemarksController,
+                    interiorRemarksController: interiorRemarksController,
+                    autosweepBalanceController: autosweepBalanceController,
+                    easytripBalanceController: easytripBalanceController,
+                    toolsRemarksController: toolsRemarksController,
+                    cleanlinessRemarksController: cleanlinessRemarksController,
+                    otherItemsController: otherItemsController,
+                    othersRemarksController: othersRemarksController,
+                    releasedByController: releasedByController,
+                    receivedByController: receivedByController,
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -7803,8 +8052,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     .every((key) => checklistItems[key] == true);
                 final requiredFieldsReady =
                     fuelController.text.trim().isNotEmpty &&
-                    mileageController.text.trim().isNotEmpty &&
-                    cleanlinessController.text.trim().isNotEmpty &&
+                    tiresController.text.trim().isNotEmpty &&
+                    magsController.text.trim().isNotEmpty &&
                     releasedByController.text.trim().isNotEmpty &&
                     receivedByController.text.trim().isNotEmpty;
                 if (!allChecked ||
@@ -7833,15 +8082,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
 
     if (shouldSave != true) {
-      fuelController.dispose();
-      mileageController.dispose();
-      cleanlinessController.dispose();
-      scratchesController.dispose();
-      dentsController.dispose();
-      damagesController.dispose();
-      remarksController.dispose();
-      releasedByController.dispose();
-      receivedByController.dispose();
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
       return;
     }
 
@@ -7869,12 +8112,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         inspectionType: inspectionType,
         inspectorId: currentUserId,
         fuelLevel: fuelController.text.trim(),
-        mileage: double.tryParse(mileageController.text.trim()),
-        cleanliness: cleanlinessController.text.trim(),
-        scratches: scratchesController.text.trim(),
-        dents: dentsController.text.trim(),
-        damages: damagesController.text.trim(),
-        remarks: remarksController.text.trim(),
+        cleanliness: cleanlinessRemarksController.text.trim(),
+        scratches: exteriorRemarksController.text.trim(),
+        remarks: othersRemarksController.text.trim(),
+        tiresDetails: tiresController.text.trim(),
+        magsDetails: magsController.text.trim(),
+        autosweepBalance: autosweepBalanceController.text.trim(),
+        easytripBalance: easytripBalanceController.text.trim(),
+        otherItems: otherItemsController.text.trim(),
+        sectionRemarks: {
+          'exterior': exteriorRemarksController.text.trim(),
+          'interior': interiorRemarksController.text.trim(),
+          'tools_accessories': toolsRemarksController.text.trim(),
+          'cleanliness': cleanlinessRemarksController.text.trim(),
+          'others': othersRemarksController.text.trim(),
+        },
         evidenceUrls: evidenceUrls,
         checklistItems: checklistItems,
         releasedBy: releasedByController.text,
@@ -7914,15 +8166,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
     } finally {
-      fuelController.dispose();
-      mileageController.dispose();
-      cleanlinessController.dispose();
-      scratchesController.dispose();
-      dentsController.dispose();
-      damagesController.dispose();
-      remarksController.dispose();
-      releasedByController.dispose();
-      receivedByController.dispose();
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
     }
   }
 
@@ -9185,6 +9431,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 compact,
                                 isDark,
                               ),
+                              _buildOperatorOngoingConversationBanner(
+                                selectedBooking,
+                                selectedVehicle,
+                                isDark,
+                              ),
                               _buildOperatorParticipantReference(
                                 _conversationParticipants[_selectedConversationId] ??
                                     [],
@@ -9465,6 +9716,92 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           _buildStatusBadge(status),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOperatorOngoingConversationBanner(
+    Map<String, dynamic>? booking,
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final status = booking?['status']?.toString().trim().toLowerCase();
+    if (status != 'ongoing' && status != 'active') {
+      return const SizedBox.shrink();
+    }
+
+    final vehicleName = [
+      vehicle['brand']?.toString().trim(),
+      vehicle['model']?.toString().trim(),
+    ].whereType<String>().where((value) => value.isNotEmpty).join(' ');
+    final returnAt = DateTime.tryParse(
+      (booking?['end_at'] ?? booking?['end_date'])?.toString() ?? '',
+    );
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: isDark ? 0.13 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.38)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 31,
+            height: 31,
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(
+              Icons.route_rounded,
+              size: 17,
+              color: AppColors.success,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(
+                    text: 'ONGOING BOOKING  ',
+                    style: TextStyle(
+                      color: AppColors.success,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                  TextSpan(
+                    text: vehicleName.isEmpty ? 'Active rental' : vehicleName,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : _operatorInk,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (returnAt != null) ...[
+            const SizedBox(width: 12),
+            Text(
+              'Return ${_formatBookingDateTime(returnAt)}',
+              style: TextStyle(
+                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ],
       ),
     );

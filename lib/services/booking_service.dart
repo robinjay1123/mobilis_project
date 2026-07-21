@@ -26,10 +26,35 @@ class BookingService {
     'ongoing',
   ];
 
+  /// App-side fallback for projects where the scheduled database job is not
+  /// available. The database function is idempotent and only touches overdue
+  /// pending bookings.
+  Future<int> processExpiredPendingBookings() async {
+    try {
+      final response = await supabase.rpc('process_expired_pending_bookings');
+      if (response is int) return response;
+      return int.tryParse(response?.toString() ?? '') ?? 0;
+    } on PostgrestException catch (error) {
+      final functionIsMissing =
+          error.code == '42883' ||
+          error.message.toLowerCase().contains(
+            'process_expired_pending_bookings',
+          );
+      if (!functionIsMissing) {
+        debugPrint('Could not process expired bookings: ${error.message}');
+      }
+      return 0;
+    } catch (error) {
+      debugPrint('Could not process expired bookings: $error');
+      return 0;
+    }
+  }
+
   // Get bookings for a partner (via their vehicles)
   // Note: vehicles use owner_id which references users.id
   Future<List<Map<String, dynamic>>> getPartnerBookings(String userId) async {
     try {
+      await processExpiredPendingBookings();
       debugPrint('Fetching bookings for owner: $userId');
 
       // First get owner's vehicles
@@ -69,6 +94,7 @@ class BookingService {
     String status,
   ) async {
     try {
+      await processExpiredPendingBookings();
       debugPrint('Fetching $status bookings for owner: $userId');
 
       // First get owner's vehicles
@@ -106,6 +132,7 @@ class BookingService {
   // Note: bookings use renter_id which references users.id
   Future<List<Map<String, dynamic>>> getRenterBookings(String userId) async {
     try {
+      await processExpiredPendingBookings();
       debugPrint('Fetching bookings for renter: $userId');
 
       final response = await supabase
@@ -903,6 +930,7 @@ class BookingService {
     int limit = 5,
   }) async {
     try {
+      await processExpiredPendingBookings();
       debugPrint('Fetching recent bookings for owner: $userId');
 
       final vehicles = await supabase
@@ -939,6 +967,7 @@ class BookingService {
   /// Get all pending bookings for operator approval
   Future<List<Map<String, dynamic>>> getPendingBookings() async {
     try {
+      await processExpiredPendingBookings();
       debugPrint('Fetching pending bookings');
       final response = await supabase
           .from('bookings')

@@ -49,6 +49,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late TextEditingController _messageController;
   late Stream<List<Map<String, dynamic>>> _messageStream;
   late Future<List<Map<String, dynamic>>> _participantsFuture;
+  late Future<Map<String, dynamic>?> _bookingContextFuture;
   String? _warningMessage;
   bool _isLoading = false;
   bool _isUploadingAttachment = false;
@@ -168,6 +169,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _messageController = TextEditingController();
     _messageStream = _buildMessageStream();
     _loadParticipants();
+    _bookingContextFuture = widget.isCustomerService
+        ? Future<Map<String, dynamic>?>.value(null)
+        : ChatService().getConversationBookingContext(widget.conversationId);
     _loadRestrictionState();
     _messageController.addListener(_handleTypingChanged);
     _setupTypingChannel();
@@ -968,8 +972,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         children: [
           if (widget.isCustomerService)
             _buildCustomerServicePanel()
-          else
+          else ...[
             _buildParticipantReference(isDark, cardColor, textColor),
+            _buildBookingActivityBanner(isDark),
+          ],
           if (_restrictionState.isMessagingRestricted)
             _buildRestrictionBanner(),
 
@@ -1719,6 +1725,130 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         );
       },
     );
+  }
+
+  Widget _buildBookingActivityBanner(bool isDark) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _bookingContextFuture,
+      builder: (context, snapshot) {
+        final booking = snapshot.data;
+        final status = booking?['status']?.toString().trim().toLowerCase();
+        if (status != 'ongoing' && status != 'active') {
+          return const SizedBox.shrink();
+        }
+
+        final vehicle = booking?['vehicles'] is Map
+            ? Map<String, dynamic>.from(booking!['vehicles'] as Map)
+            : const <String, dynamic>{};
+        final vehicleName = [
+          vehicle['brand']?.toString().trim(),
+          vehicle['model']?.toString().trim(),
+        ].whereType<String>().where((value) => value.isNotEmpty).join(' ');
+        final fallbackName = vehicle['vehicle_name']?.toString().trim() ?? '';
+        final returnAt = DateTime.tryParse(
+          (booking?['end_at'] ?? booking?['end_date'])?.toString() ?? '',
+        );
+        final muted = isDark
+            ? AppColors.textTertiary
+            : AppColors.lightTextTertiary;
+
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: AppColors.success.withValues(alpha: isDark ? 0.13 : 0.09),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppColors.success.withValues(alpha: 0.42),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.route_rounded,
+                  color: AppColors.success,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ONGOING BOOKING',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      vehicleName.isNotEmpty
+                          ? vehicleName
+                          : (fallbackName.isNotEmpty
+                                ? fallbackName
+                                : 'Active vehicle rental'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.textPrimary
+                            : AppColors.lightTextPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (returnAt != null)
+                Text(
+                  'Return ${_formatBookingReturn(returnAt)}',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _formatBookingReturn(DateTime value) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = value.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final suffix = local.hour >= 12 ? 'PM' : 'AM';
+    return '${months[local.month - 1]} ${local.day}, $hour:$minute $suffix';
   }
 
   Widget _buildParticipantCard(

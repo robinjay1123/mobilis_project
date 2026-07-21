@@ -15,42 +15,43 @@ class BookingInspectionService {
 
   static const Map<String, Map<String, String>> checklistSections = {
     'Exterior': {
-      'headlights_taillights': 'Headlights and taillights working',
+      'headlights_taillights': 'Headlights & taillights working',
       'side_mirrors': 'Side mirrors intact',
-      'windshield_wipers': 'Windshield wipers working',
-      'tires': 'Tires checked',
-      'mags': 'Mags checked',
-      'body_scratches_dents': 'Body scratches or dents documented',
-      'engine_bay': 'Engine bay checked',
+      'windshield_wipers': 'Windshield wipers ok',
+      'tires': 'Tires',
+      'mags': 'Mags',
+      'body_scratches_dents': 'Gasgas or dents (take photo/video)',
+      'engine_bay': 'Engine Bay (take photo/video)',
     },
     'Interior': {
-      'aircon': 'Air conditioning working',
-      'dashboard_radio_charger': 'Dashboard, radio, and charger port working',
-      'mattings': 'Mattings present and checked',
+      'aircon': 'Aircon working',
+      'dashboard_radio_charger': 'Dashboard / radio / charger port ok',
+      'mattings': 'Mattings',
       'seatbelts': 'Seatbelts working',
     },
-    'Tools and Accessories': {
-      'spare_tire': 'Spare tire present',
-      'jack': 'Jack present',
-      'wrench_tools': 'Wrench and tools present',
-      'early_warning_device': 'Early warning device present',
-      'orcr_copy': 'Copy of OR/CR present',
-      'autosweep_card': 'Autosweep card and balance checked',
-      'easytrip_card': 'Easytrip card and balance checked',
+    'Tools & Accessories': {
+      'spare_tire': 'Spare tire',
+      'jack': 'Jack',
+      'wrench_tools': 'Wrench & Tools',
+      'early_warning_device': 'Early warning device',
+      'orcr_copy': 'Copy of ORCR',
+      'autosweep_card': 'Autosweep card',
+      'easytrip_card': 'Easytrip card',
     },
     'Cleanliness': {
-      'exterior_cleaned': 'Exterior cleaned',
-      'interior_cleaned': 'Interior cleaned and vacuumed',
+      'exterior_cleaned': 'Exterior cleaned (carwash)',
+      'interior_cleaned': 'Interior cleaned (no trash, vacuumed)',
       'mats_seat_covers_clean': 'Mats and seat covers clean',
     },
-    'Other Safety Items': {
-      'fuel_level_checked': 'Fuel level recorded',
-      'car_charger': 'Car charger checked',
-      'car_diffuser': 'Car diffuser checked',
-      'phone_holder': 'Phone holder checked',
-      'umbrella': 'Umbrella checked',
-      'airbag': 'Airbag indicator checked',
-      'series_box': 'Series box checked',
+    'Others': {
+      'fuel_level_checked': 'Fuel Level',
+      'car_charger': 'Car Charger',
+      'car_diffuser': 'Car Diffuser',
+      'phone_holder': 'Phone Holder',
+      'umbrella': 'Umbrella',
+      'airtag': 'Airtag',
+      'series_box': 'Series Box',
+      'other_item_checked': 'Other item recorded',
     },
   };
 
@@ -98,6 +99,12 @@ class BookingInspectionService {
     String? dents,
     String? damages,
     String? remarks,
+    String? tiresDetails,
+    String? magsDetails,
+    String? autosweepBalance,
+    String? easytripBalance,
+    String? otherItems,
+    Map<String, String> sectionRemarks = const {},
     List<String> evidenceUrls = const [],
     Map<String, bool> checklistItems = const {},
     String? releasedBy,
@@ -108,9 +115,11 @@ class BookingInspectionService {
       throw Exception('Inspection type must be before or after');
     }
     if (fuelLevel?.trim().isEmpty != false ||
-        mileage == null ||
-        cleanliness?.trim().isEmpty != false) {
-      throw Exception('Fuel level, mileage, and cleanliness are required');
+        tiresDetails?.trim().isEmpty != false ||
+        magsDetails?.trim().isEmpty != false) {
+      throw Exception(
+        'Fuel level, tire details, and mags details are required',
+      );
     }
     if (releasedBy?.trim().isEmpty != false ||
         receivedBy?.trim().isEmpty != false) {
@@ -142,6 +151,12 @@ class BookingInspectionService {
       'dents': dents,
       'damages': damages,
       'remarks': remarks,
+      'tires_details': tiresDetails?.trim(),
+      'mags_details': magsDetails?.trim(),
+      'autosweep_balance': autosweepBalance?.trim(),
+      'easytrip_balance': easytripBalance?.trim(),
+      'other_items': otherItems?.trim(),
+      'section_remarks': sectionRemarks,
       'evidence_urls': evidenceUrls,
       'checklist_items': checklistItems,
       'released_by': releasedBy?.trim(),
@@ -271,12 +286,20 @@ class BookingInspectionService {
     final items = rawItems is Map
         ? Map<String, dynamic>.from(rawItems)
         : <String, dynamic>{};
-    final allChecked = requiredChecklistKeys.every((key) => items[key] == true);
+    bool isChecked(String key) {
+      if (key == 'airtag') {
+        return items['airtag'] == true || items['airbag'] == true;
+      }
+      if (key == 'other_item_checked' && !items.containsKey(key)) {
+        return true;
+      }
+      return items[key] == true;
+    }
+
+    final allChecked = requiredChecklistKeys.every(isChecked);
     return hasEvidence &&
         allChecked &&
         row['fuel_level']?.toString().trim().isNotEmpty == true &&
-        row['mileage'] != null &&
-        row['cleanliness']?.toString().trim().isNotEmpty == true &&
         row['released_by']?.toString().trim().isNotEmpty == true &&
         row['received_by']?.toString().trim().isNotEmpty == true;
   }

@@ -4001,14 +4001,33 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     if (currentUserId == null || bookingId.isEmpty) return;
 
     final fuelController = TextEditingController();
-    final mileageController = TextEditingController();
-    final cleanlinessController = TextEditingController(text: 'Good');
-    final scratchesController = TextEditingController(text: 'Good');
-    final dentsController = TextEditingController(text: 'Good');
-    final damagesController = TextEditingController(text: 'Good');
-    final remarksController = TextEditingController();
+    final tiresController = TextEditingController();
+    final magsController = TextEditingController();
+    final exteriorRemarksController = TextEditingController(text: 'Good');
+    final interiorRemarksController = TextEditingController(text: 'Good');
+    final autosweepBalanceController = TextEditingController(text: 'N/A');
+    final easytripBalanceController = TextEditingController(text: 'N/A');
+    final toolsRemarksController = TextEditingController(text: 'Good');
+    final cleanlinessRemarksController = TextEditingController(text: 'Good');
+    final otherItemsController = TextEditingController(text: 'N/A');
+    final othersRemarksController = TextEditingController(text: 'Good');
     final releasedByController = TextEditingController();
     final receivedByController = TextEditingController();
+    final inspectionControllers = <TextEditingController>[
+      fuelController,
+      tiresController,
+      magsController,
+      exteriorRemarksController,
+      interiorRemarksController,
+      autosweepBalanceController,
+      easytripBalanceController,
+      toolsRemarksController,
+      cleanlinessRemarksController,
+      otherItemsController,
+      othersRemarksController,
+      releasedByController,
+      receivedByController,
+    ];
     final checklistItems = <String, bool>{
       for (final key in BookingInspectionService.requiredChecklistKeys)
         key: false,
@@ -4093,50 +4112,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     }),
                   ),
                   const SizedBox(height: 4),
-                  _buildPartnerInspectionField(
-                    fuelController,
-                    'Fuel level',
-                    hintText: 'Enter level, for example 75% or Full',
-                  ),
-                  _buildPartnerInspectionField(
-                    mileageController,
-                    'Mileage',
-                    keyboardType: TextInputType.number,
-                    hintText: 'Current odometer reading',
-                  ),
-                  _buildPartnerInspectionCondition(
-                    cleanlinessController,
-                    'Cleanliness condition',
-                    refresh: () => setSheetState(() {}),
-                  ),
-                  _buildPartnerInspectionCondition(
-                    scratchesController,
-                    'Scratches',
-                    refresh: () => setSheetState(() {}),
-                  ),
-                  _buildPartnerInspectionCondition(
-                    dentsController,
-                    'Dents',
-                    refresh: () => setSheetState(() {}),
-                  ),
-                  _buildPartnerInspectionCondition(
-                    damagesController,
-                    'Other damage',
-                    refresh: () => setSheetState(() {}),
-                  ),
-                  _buildPartnerInspectionField(
-                    remarksController,
-                    'Additional remarks (optional)',
-                    maxLines: 3,
-                    hintText: 'Add notes that support the selected conditions',
-                  ),
-                  _buildPartnerInspectionField(
-                    releasedByController,
-                    'Released by',
-                  ),
-                  _buildPartnerInspectionField(
-                    receivedByController,
-                    'Received by (client)',
+                  VehicleInspectionSupplementalFields(
+                    isDark: true,
+                    fuelLevelController: fuelController,
+                    tiresController: tiresController,
+                    magsController: magsController,
+                    exteriorRemarksController: exteriorRemarksController,
+                    interiorRemarksController: interiorRemarksController,
+                    autosweepBalanceController: autosweepBalanceController,
+                    easytripBalanceController: easytripBalanceController,
+                    toolsRemarksController: toolsRemarksController,
+                    cleanlinessRemarksController: cleanlinessRemarksController,
+                    otherItemsController: otherItemsController,
+                    othersRemarksController: othersRemarksController,
+                    releasedByController: releasedByController,
+                    receivedByController: receivedByController,
                   ),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -4196,8 +4186,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             .every((key) => checklistItems[key] == true);
                         final requiredFieldsReady =
                             fuelController.text.trim().isNotEmpty &&
-                            mileageController.text.trim().isNotEmpty &&
-                            cleanlinessController.text.trim().isNotEmpty &&
+                            tiresController.text.trim().isNotEmpty &&
+                            magsController.text.trim().isNotEmpty &&
                             releasedByController.text.trim().isNotEmpty &&
                             receivedByController.text.trim().isNotEmpty;
                         if (!allChecked ||
@@ -4234,22 +4224,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
 
     if (shouldSave != true) {
-      fuelController.dispose();
-      mileageController.dispose();
-      cleanlinessController.dispose();
-      scratchesController.dispose();
-      dentsController.dispose();
-      damagesController.dispose();
-      remarksController.dispose();
-      releasedByController.dispose();
-      receivedByController.dispose();
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
       return;
     }
 
     final missingRequiredFields =
         fuelController.text.trim().isEmpty ||
-        mileageController.text.trim().isEmpty ||
-        cleanlinessController.text.trim().isEmpty ||
+        tiresController.text.trim().isEmpty ||
+        magsController.text.trim().isEmpty ||
         releasedByController.text.trim().isEmpty ||
         receivedByController.text.trim().isEmpty;
     if (missingRequiredFields || selectedEvidence.isEmpty) {
@@ -4258,15 +4242,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             ? 'Please attach at least one checklist photo or video'
             : 'Please complete the required condition and handover fields',
       );
-      fuelController.dispose();
-      mileageController.dispose();
-      cleanlinessController.dispose();
-      scratchesController.dispose();
-      dentsController.dispose();
-      damagesController.dispose();
-      remarksController.dispose();
-      releasedByController.dispose();
-      receivedByController.dispose();
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
       return;
     }
 
@@ -4292,12 +4270,21 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         inspectionType: inspectionType,
         inspectorId: currentUserId,
         fuelLevel: fuelController.text.trim(),
-        mileage: double.tryParse(mileageController.text.trim()),
-        cleanliness: cleanlinessController.text.trim(),
-        scratches: scratchesController.text.trim(),
-        dents: dentsController.text.trim(),
-        damages: damagesController.text.trim(),
-        remarks: remarksController.text.trim(),
+        cleanliness: cleanlinessRemarksController.text.trim(),
+        scratches: exteriorRemarksController.text.trim(),
+        remarks: othersRemarksController.text.trim(),
+        tiresDetails: tiresController.text.trim(),
+        magsDetails: magsController.text.trim(),
+        autosweepBalance: autosweepBalanceController.text.trim(),
+        easytripBalance: easytripBalanceController.text.trim(),
+        otherItems: otherItemsController.text.trim(),
+        sectionRemarks: {
+          'exterior': exteriorRemarksController.text.trim(),
+          'interior': interiorRemarksController.text.trim(),
+          'tools_accessories': toolsRemarksController.text.trim(),
+          'cleanliness': cleanlinessRemarksController.text.trim(),
+          'others': othersRemarksController.text.trim(),
+        },
         evidenceUrls: evidenceUrls,
         checklistItems: checklistItems,
         releasedBy: releasedByController.text,
@@ -4325,15 +4312,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       if (!mounted) return;
       _showErrorSnackBar('Failed to save checklist: $e');
     } finally {
-      fuelController.dispose();
-      mileageController.dispose();
-      cleanlinessController.dispose();
-      scratchesController.dispose();
-      dentsController.dispose();
-      damagesController.dispose();
-      remarksController.dispose();
-      releasedByController.dispose();
-      receivedByController.dispose();
+      for (final controller in inspectionControllers) {
+        controller.dispose();
+      }
     }
   }
 

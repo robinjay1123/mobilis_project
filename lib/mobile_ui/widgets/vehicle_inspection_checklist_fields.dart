@@ -66,7 +66,7 @@ class VehicleInspectionChecklistFields extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Vehicle release checklist',
+                          'Unit Releasing Checklist',
                           style: TextStyle(
                             color: textColor,
                             fontSize: 16,
@@ -183,6 +183,166 @@ class VehicleInspectionChecklistFields extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class VehicleInspectionSupplementalFields extends StatelessWidget {
+  const VehicleInspectionSupplementalFields({
+    super.key,
+    required this.isDark,
+    required this.fuelLevelController,
+    required this.tiresController,
+    required this.magsController,
+    required this.exteriorRemarksController,
+    required this.interiorRemarksController,
+    required this.autosweepBalanceController,
+    required this.easytripBalanceController,
+    required this.toolsRemarksController,
+    required this.cleanlinessRemarksController,
+    required this.otherItemsController,
+    required this.othersRemarksController,
+    required this.releasedByController,
+    required this.receivedByController,
+  });
+
+  final bool isDark;
+  final TextEditingController fuelLevelController;
+  final TextEditingController tiresController;
+  final TextEditingController magsController;
+  final TextEditingController exteriorRemarksController;
+  final TextEditingController interiorRemarksController;
+  final TextEditingController autosweepBalanceController;
+  final TextEditingController easytripBalanceController;
+  final TextEditingController toolsRemarksController;
+  final TextEditingController cleanlinessRemarksController;
+  final TextEditingController otherItemsController;
+  final TextEditingController othersRemarksController;
+  final TextEditingController releasedByController;
+  final TextEditingController receivedByController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _section('Exterior details', [
+          _field(tiresController, 'Tires *', 'Condition, pressure, or notes'),
+          _field(magsController, 'Mags *', 'Condition or identifying notes'),
+          _field(
+            exteriorRemarksController,
+            'Exterior remarks',
+            'Describe scratches, dents, engine bay, or other findings',
+            maxLines: 2,
+          ),
+        ]),
+        _section('Interior', [
+          _field(
+            interiorRemarksController,
+            'Interior remarks',
+            'Add interior findings or write Good',
+            maxLines: 2,
+          ),
+        ]),
+        _section('Tools & Accessories', [
+          _field(
+            autosweepBalanceController,
+            'Autosweep balance',
+            'Enter balance or N/A',
+          ),
+          _field(
+            easytripBalanceController,
+            'Easytrip balance',
+            'Enter balance or N/A',
+          ),
+          _field(
+            toolsRemarksController,
+            'Tools & accessories remarks',
+            'Add findings or write Good',
+            maxLines: 2,
+          ),
+        ]),
+        _section('Cleanliness', [
+          _field(
+            cleanlinessRemarksController,
+            'Cleanliness remarks',
+            'Add findings or write Good',
+            maxLines: 2,
+          ),
+        ]),
+        _section('Others', [
+          _field(
+            fuelLevelController,
+            'Fuel level *',
+            'For example: Full or 75%',
+          ),
+          _field(otherItemsController, 'Other item', 'Specify item or N/A'),
+          _field(
+            othersRemarksController,
+            'Other remarks',
+            'Add findings or write Good',
+            maxLines: 2,
+          ),
+        ]),
+        _section('Handover', [
+          _field(releasedByController, 'Released By *', 'Full name'),
+          _field(receivedByController, 'Received By (Client) *', 'Full name'),
+        ]),
+      ],
+    );
+  }
+
+  Widget _section(String title, List<Widget> fields) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF172337) : const Color(0xFFF6F8FB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? Colors.white12 : const Color(0xFFDCE3EC),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF10233B),
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...fields,
+        ],
+      ),
+    );
+  }
+
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    String hint, {
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextField(
+        controller: controller,
+        maxLines: maxLines,
+        style: TextStyle(
+          color: isDark ? Colors.white : const Color(0xFF10233B),
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          filled: true,
+          fillColor: isDark ? const Color(0xFF0D1E32) : Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
     );
   }
 }

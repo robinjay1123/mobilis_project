@@ -87,6 +87,10 @@ class VehicleInspectionRecordView extends StatelessWidget {
         .map((item) => item.toString())
         .where((item) => item.isNotEmpty)
         .toList();
+    final rawRemarks = record['section_remarks'];
+    final sectionRemarks = rawRemarks is Map
+        ? Map<String, dynamic>.from(rawRemarks)
+        : <String, dynamic>{};
     final textColor = isDark ? Colors.white : const Color(0xFF10233B);
 
     return SingleChildScrollView(
@@ -100,20 +104,37 @@ class VehicleInspectionRecordView extends StatelessWidget {
             readOnly: true,
           ),
           const SizedBox(height: 4),
-          _sectionTitle('Recorded condition', textColor),
+          _sectionTitle('Recorded release details', textColor),
           const SizedBox(height: 10),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
               _recordTile('Fuel level', record['fuel_level']),
-              _recordTile('Mileage', record['mileage']),
-              _recordTile('Cleanliness', record['cleanliness']),
-              _recordTile('Scratches', record['scratches']),
-              _recordTile('Dents', record['dents']),
-              _recordTile('Other damage', record['damages']),
+              _recordTile('Tires', record['tires_details']),
+              _recordTile('Mags', record['mags_details']),
+              _recordTile('Autosweep balance', record['autosweep_balance']),
+              _recordTile('Easytrip balance', record['easytrip_balance']),
+              _recordTile('Other items', record['other_items']),
               _recordTile('Released by', record['released_by']),
               _recordTile('Received by', record['received_by']),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _sectionTitle('Section remarks', textColor),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _recordTile('Exterior', sectionRemarks['exterior']),
+              _recordTile('Interior', sectionRemarks['interior']),
+              _recordTile(
+                'Tools & accessories',
+                sectionRemarks['tools_accessories'],
+              ),
+              _recordTile('Cleanliness', sectionRemarks['cleanliness']),
+              _recordTile('Others', sectionRemarks['others']),
             ],
           ),
           if (record['remarks']?.toString().trim().isNotEmpty == true) ...[

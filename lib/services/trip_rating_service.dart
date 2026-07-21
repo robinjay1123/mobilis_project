@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'chat_service.dart';
+import 'booking_settlement_service.dart';
 import 'image_optimization_service.dart';
 import 'notification_service.dart';
 
@@ -466,20 +467,34 @@ class TripRatingService {
               ) /
               ratingCount;
 
-    await supabase
-        .from('bookings')
-        .update({
-          'status': 'completed',
-          'completed_at': completedAt,
-          'renter_trip_confirmed_at': completedAt,
-          'completion_stage': 'completed',
-          'completion_rating_average': ratingAverage,
-          'completion_rating_count': ratingCount,
-          'commission_status': 'ready_for_calculation',
-          'commission_eligible_at': completedAt,
-          'updated_at': completedAt,
-        })
-        .eq('id', bookingId);
+    try {
+      await BookingSettlementService().releaseForCompletedBooking(bookingId);
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'completed',
+            'completed_at': completedAt,
+            'renter_trip_confirmed_at': completedAt,
+            'completion_stage': 'completed',
+            'completion_rating_average': ratingAverage,
+            'completion_rating_count': ratingCount,
+            'commission_status': 'released',
+            'commission_eligible_at': completedAt,
+            'updated_at': completedAt,
+          })
+          .eq('id', bookingId);
+    } catch (error) {
+      await supabase
+          .from('bookings')
+          .update({
+            'commission_status': 'settlement_failed',
+            'updated_at': completedAt,
+          })
+          .eq('id', bookingId);
+      throw Exception(
+        'The trip could not be completed because its earnings were not released: $error',
+      );
+    }
 
     final driverUserId = completionContext['driver_id']?.toString();
     if (driverUserId?.isNotEmpty == true) {
