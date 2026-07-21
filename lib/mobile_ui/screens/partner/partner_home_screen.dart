@@ -26,6 +26,7 @@ import '../../widgets/optimized_network_image.dart';
 import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/vehicle_inspection_checklist_fields.dart';
+import '../../widgets/vehicle_inspection_record_view.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../../../utils/booking_status.dart';
@@ -3626,6 +3627,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
   }
 
+  Future<void> _openPartnerInspectionRecordOrForm(
+    Map<String, dynamic> booking, {
+    required String inspectionType,
+    required bool allowCreate,
+  }) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      final record = await BookingInspectionService().getCompletedInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+      );
+      if (!mounted) return;
+      await showVehicleInspectionRecordDialog(
+        context,
+        record: record,
+        title: inspectionType == 'before'
+            ? 'Submitted Pre-Trip Checklist'
+            : 'Submitted Return Checklist',
+      );
+    } catch (_) {
+      if (allowCreate) {
+        await _showPartnerInspectionDialog(
+          booking,
+          inspectionType: inspectionType,
+        );
+        return;
+      }
+      if (!mounted) return;
+      _showErrorSnackBar('No submitted checklist is available yet');
+    }
+  }
+
   Future<void> _openTrackingScreen(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) {
@@ -3778,13 +3813,29 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ? () => _showDriverAssignmentModal(pageContext, booking)
                   : null,
               onReviewDocs: () => _showPartnerBookingSafetyReview(booking),
-              onBeforeInspection:
+              onMessage:
                   status == 'approved' ||
                       status == 'confirmed' ||
-                      status == 'active'
-                  ? () => _showPartnerInspectionDialog(
+                      status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
+                  ? () => _openBookingConversation(booking)
+                  : null,
+              onBeforeInspection: status == 'approved' || status == 'confirmed'
+                  ? () => _openPartnerInspectionRecordOrForm(
                       booking,
                       inspectionType: 'before',
+                      allowCreate: true,
+                    )
+                  : null,
+              onViewBeforeInspection:
+                  status == 'active' ||
+                      status == 'ongoing' ||
+                      status == 'return_pending_inspection'
+                  ? () => _openPartnerInspectionRecordOrForm(
+                      booking,
+                      inspectionType: 'before',
+                      allowCreate: false,
                     )
                   : null,
               onAfterInspection:
@@ -3951,10 +4002,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
     final fuelController = TextEditingController();
     final mileageController = TextEditingController();
-    final cleanlinessController = TextEditingController();
-    final scratchesController = TextEditingController();
-    final dentsController = TextEditingController();
-    final damagesController = TextEditingController();
+    final cleanlinessController = TextEditingController(text: 'Good');
+    final scratchesController = TextEditingController(text: 'Good');
+    final dentsController = TextEditingController(text: 'Good');
+    final damagesController = TextEditingController(text: 'Good');
     final remarksController = TextEditingController();
     final releasedByController = TextEditingController();
     final receivedByController = TextEditingController();
@@ -3984,15 +4035,49 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    inspectionType == 'before'
-                        ? 'Before Rental Checklist'
-                        : 'After Return Checklist',
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Icon(
+                          Icons.fact_check_outlined,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              inspectionType == 'before'
+                                  ? 'Pre-Trip Vehicle Release Inspection'
+                                  : 'Post-Trip Vehicle Return Inspection',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              inspectionType == 'before'
+                                  ? 'Required before this booking can move to Ongoing.'
+                                  : 'Record the condition returned by the renter.',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   VehicleInspectionChecklistFields(
@@ -4001,27 +4086,49 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     onChanged: (entry) => setSheetState(
                       () => checklistItems[entry.key] = entry.value,
                     ),
+                    onSelectAll: (selected) => setSheetState(() {
+                      for (final key in checklistItems.keys) {
+                        checklistItems[key] = selected;
+                      }
+                    }),
                   ),
-                  _buildPartnerInspectionField(fuelController, 'Fuel level'),
+                  const SizedBox(height: 4),
+                  _buildPartnerInspectionField(
+                    fuelController,
+                    'Fuel level',
+                    hintText: 'Enter level, for example 75% or Full',
+                  ),
                   _buildPartnerInspectionField(
                     mileageController,
                     'Mileage',
                     keyboardType: TextInputType.number,
+                    hintText: 'Current odometer reading',
                   ),
-                  _buildPartnerInspectionField(
+                  _buildPartnerInspectionCondition(
                     cleanlinessController,
-                    'Cleanliness',
+                    'Cleanliness condition',
+                    refresh: () => setSheetState(() {}),
                   ),
-                  _buildPartnerInspectionField(
+                  _buildPartnerInspectionCondition(
                     scratchesController,
                     'Scratches',
+                    refresh: () => setSheetState(() {}),
                   ),
-                  _buildPartnerInspectionField(dentsController, 'Dents'),
-                  _buildPartnerInspectionField(damagesController, 'Damages'),
+                  _buildPartnerInspectionCondition(
+                    dentsController,
+                    'Dents',
+                    refresh: () => setSheetState(() {}),
+                  ),
+                  _buildPartnerInspectionCondition(
+                    damagesController,
+                    'Other damage',
+                    refresh: () => setSheetState(() {}),
+                  ),
                   _buildPartnerInspectionField(
                     remarksController,
-                    'Other remarks',
+                    'Additional remarks (optional)',
                     maxLines: 3,
+                    hintText: 'Add notes that support the selected conditions',
                   ),
                   _buildPartnerInspectionField(
                     releasedByController,
@@ -4235,6 +4342,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     String label, {
     TextInputType keyboardType = TextInputType.text,
     int maxLines = 1,
+    String? hintText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -4245,11 +4353,64 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         style: const TextStyle(color: AppColors.textPrimary),
         decoration: InputDecoration(
           labelText: label,
+          hintText: hintText,
           labelStyle: const TextStyle(color: AppColors.textSecondary),
           filled: true,
           fillColor: AppColors.darkBg,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPartnerInspectionCondition(
+    TextEditingController controller,
+    String label, {
+    required VoidCallback refresh,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final option in const ['Good', 'Bad']) ...[
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: Text(option),
+              selected: controller.text == option,
+              onSelected: (_) {
+                controller.text = option;
+                refresh();
+              },
+              selectedColor: option == 'Good'
+                  ? AppColors.success.withValues(alpha: 0.22)
+                  : AppColors.error.withValues(alpha: 0.2),
+              labelStyle: TextStyle(
+                color: controller.text == option
+                    ? option == 'Good'
+                          ? AppColors.success
+                          : AppColors.error
+                    : AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -4692,7 +4853,9 @@ class BookingDetailModal extends StatelessWidget {
   final VoidCallback onReject;
   final VoidCallback? onAssignDriver;
   final VoidCallback? onReviewDocs;
+  final VoidCallback? onMessage;
   final VoidCallback? onBeforeInspection;
+  final VoidCallback? onViewBeforeInspection;
   final VoidCallback? onAfterInspection;
   final VoidCallback? onConfirmPayment;
   final VoidCallback? onRateTrip;
@@ -4707,7 +4870,9 @@ class BookingDetailModal extends StatelessWidget {
     required this.onReject,
     this.onAssignDriver,
     this.onReviewDocs,
+    this.onMessage,
     this.onBeforeInspection,
+    this.onViewBeforeInspection,
     this.onAfterInspection,
     this.onConfirmPayment,
     this.onRateTrip,
@@ -5016,7 +5181,9 @@ class BookingDetailModal extends StatelessWidget {
             ],
 
             if (onReviewDocs != null ||
+                onMessage != null ||
                 onBeforeInspection != null ||
+                onViewBeforeInspection != null ||
                 onAfterInspection != null) ...[
               Wrap(
                 spacing: 10,
@@ -5031,6 +5198,15 @@ class BookingDetailModal extends StatelessWidget {
                       icon: const Icon(Icons.verified_user_outlined, size: 16),
                       label: const Text('Review Docs'),
                     ),
+                  if (onMessage != null)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onMessage?.call();
+                      },
+                      icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                      label: const Text('Message'),
+                    ),
                   if (onBeforeInspection != null)
                     OutlinedButton.icon(
                       onPressed: () {
@@ -5038,7 +5214,16 @@ class BookingDetailModal extends StatelessWidget {
                         onBeforeInspection?.call();
                       },
                       icon: const Icon(Icons.fact_check_outlined, size: 16),
-                      label: const Text('Before Check'),
+                      label: const Text('Submit Checklist & Start Trip'),
+                    ),
+                  if (onViewBeforeInspection != null)
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onViewBeforeInspection?.call();
+                      },
+                      icon: const Icon(Icons.visibility_outlined, size: 16),
+                      label: const Text('View Pre-Trip Checklist'),
                     ),
                   if (onAfterInspection != null)
                     OutlinedButton.icon(

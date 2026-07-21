@@ -27,8 +27,19 @@ class MobilisMapMarker {
   LatLng get point => LatLng(latitude, longitude);
 }
 
+class MobilisMapPoint {
+  final double latitude;
+  final double longitude;
+
+  const MobilisMapPoint({required this.latitude, required this.longitude});
+
+  LatLng get point => LatLng(latitude, longitude);
+}
+
 class MobilisLeafletMap extends StatelessWidget {
   final List<MobilisMapMarker> markers;
+  final List<MobilisMapPoint> routePoints;
+  final Color routeColor;
   final double fallbackLatitude;
   final double fallbackLongitude;
   final double? initialZoom;
@@ -41,6 +52,8 @@ class MobilisLeafletMap extends StatelessWidget {
   const MobilisLeafletMap({
     super.key,
     this.markers = const [],
+    this.routePoints = const [],
+    this.routeColor = AppColors.primary,
     this.fallbackLatitude = 15.9758,
     this.fallbackLongitude = 120.5719,
     this.initialZoom,
@@ -52,33 +65,41 @@ class MobilisLeafletMap extends StatelessWidget {
   });
 
   LatLng get _center {
-    if (markers.isEmpty) {
+    final points = <LatLng>[
+      ...markers.map((marker) => marker.point),
+      ...routePoints.map((point) => point.point),
+    ];
+    if (points.isEmpty) {
       return LatLng(fallbackLatitude, fallbackLongitude);
     }
 
     final latitude =
-        markers.fold<double>(0, (sum, marker) => sum + marker.latitude) /
-        markers.length;
+        points.fold<double>(0, (sum, point) => sum + point.latitude) /
+        points.length;
     final longitude =
-        markers.fold<double>(0, (sum, marker) => sum + marker.longitude) /
-        markers.length;
+        points.fold<double>(0, (sum, point) => sum + point.longitude) /
+        points.length;
     return LatLng(latitude, longitude);
   }
 
   double get _zoom {
-    if (initialZoom != null || markers.length < 2) {
-      return initialZoom ?? (markers.isEmpty ? 12 : 15);
+    final points = <LatLng>[
+      ...markers.map((marker) => marker.point),
+      ...routePoints.map((point) => point.point),
+    ];
+    if (initialZoom != null || points.length < 2) {
+      return initialZoom ?? (points.isEmpty ? 12 : 15);
     }
 
-    var minLatitude = markers.first.latitude;
-    var maxLatitude = markers.first.latitude;
-    var minLongitude = markers.first.longitude;
-    var maxLongitude = markers.first.longitude;
-    for (final marker in markers.skip(1)) {
-      minLatitude = math.min(minLatitude, marker.latitude);
-      maxLatitude = math.max(maxLatitude, marker.latitude);
-      minLongitude = math.min(minLongitude, marker.longitude);
-      maxLongitude = math.max(maxLongitude, marker.longitude);
+    var minLatitude = points.first.latitude;
+    var maxLatitude = points.first.latitude;
+    var minLongitude = points.first.longitude;
+    var maxLongitude = points.first.longitude;
+    for (final point in points.skip(1)) {
+      minLatitude = math.min(minLatitude, point.latitude);
+      maxLatitude = math.max(maxLatitude, point.latitude);
+      minLongitude = math.min(minLongitude, point.longitude);
+      maxLongitude = math.max(maxLongitude, point.longitude);
     }
     final span = math.max(
       maxLatitude - minLatitude,
@@ -115,6 +136,18 @@ class MobilisLeafletMap extends StatelessWidget {
             urlTemplate: mobilisOsmTileUrl,
             userAgentPackageName: mobilisMapUserAgent,
           ),
+          if (routePoints.length >= 2)
+            PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: routePoints.map((point) => point.point).toList(),
+                  color: routeColor,
+                  strokeWidth: 5,
+                  borderColor: Colors.black54,
+                  borderStrokeWidth: 2,
+                ),
+              ],
+            ),
           if (markers.isNotEmpty)
             MarkerLayer(
               markers: markers

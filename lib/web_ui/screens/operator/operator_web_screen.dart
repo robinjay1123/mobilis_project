@@ -23,6 +23,7 @@ import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../mobile_ui/widgets/booking_return_countdown.dart';
 import '../../../mobile_ui/widgets/vehicle_inspection_checklist_fields.dart';
+import '../../../mobile_ui/widgets/vehicle_inspection_record_view.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
@@ -530,19 +531,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _isCompanyOwnedBooking(Map<String, dynamic> booking) {
-    final currentUserId = _supabase.auth.currentUser?.id;
+    if (_isPartnerOwnedBooking(booking)) return false;
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-    final ownerId = vehicle?['owner_id']?.toString();
-    if (currentUserId == null || ownerId == null || ownerId.isEmpty) {
-      return false;
-    }
-    return ownerId == currentUserId;
+    return vehicle != null;
   }
 
   bool _isPartnerOwnedBooking(Map<String, dynamic> booking) {
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final owner = vehicle?['owner'] as Map<String, dynamic>?;
     return owner?['role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle?['owner_role']?.toString().trim().toLowerCase() == 'partner' ||
         vehicle?['is_partner_vehicle'] == true ||
         vehicle?['partner_vehicle_id'] != null;
   }
@@ -636,6 +634,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             'Unable to open the booking conversation right now.',
           ),
           backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openOperatorInspectionRecordOrForm(
+    Map<String, dynamic> booking, {
+    required String inspectionType,
+    required bool allowCreate,
+  }) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      final record = await BookingInspectionService().getCompletedInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+      );
+      if (!mounted) return;
+      await showVehicleInspectionRecordDialog(
+        context,
+        record: record,
+        title: inspectionType == 'before'
+            ? 'Submitted Pre-Trip Checklist'
+            : 'Submitted Return Checklist',
+      );
+    } catch (_) {
+      if (allowCreate) {
+        await _showInspectionDialog(booking, inspectionType: inspectionType);
+        return;
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No submitted checklist is available yet'),
         ),
       );
     }
@@ -820,6 +853,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 seats,
                 owner:owner_id (
                   id,
+                  role,
                   full_name,
                   email,
                   phone,
@@ -5300,7 +5334,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           compact: compact,
         ),
       );
-    } else if (group == BookingStatusGroup.approved) {
+    }
+
+    if (group == BookingStatusGroup.approved ||
+        group == BookingStatusGroup.ongoing) {
       buttons.add(
         _buildOperatorBookingActionButton(
           onPressed: () => _openBookingConversation(booking),
@@ -5311,7 +5348,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           compact: compact,
         ),
       );
-    } else if (_canTrackBooking(booking)) {
+    }
+
+    if (_canTrackBooking(booking)) {
       buttons.add(
         _buildOperatorBookingActionButton(
           onPressed: () => _openTrackingForBooking(booking),
@@ -5615,15 +5654,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                         ),
                       if ((statusLower == 'confirmed' ||
-                              statusLower == 'approved' ||
-                              statusLower == 'active') &&
+                              statusLower == 'approved') &&
                           !_isPartnerOwnedBooking(booking))
                         OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
-                            _showInspectionDialog(
+                            _openOperatorInspectionRecordOrForm(
                               booking,
                               inspectionType: 'before',
+                              allowCreate: true,
                             );
                           },
                           style: OutlinedButton.styleFrom(
@@ -5632,10 +5671,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                           icon: const Icon(Icons.fact_check_outlined, size: 17),
                           label: const Text(
-                            'Before Checklist',
+                            'Submit Checklist & Start Trip',
                             maxLines: 1,
                             softWrap: false,
                           ),
+                        ),
+                      if ((statusLower == 'active' ||
+                              statusLower == 'ongoing' ||
+                              statusLower == 'return_pending_inspection') &&
+                          !_isPartnerOwnedBooking(booking))
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _openOperatorInspectionRecordOrForm(
+                              booking,
+                              inspectionType: 'before',
+                              allowCreate: false,
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          icon: const Icon(Icons.visibility_outlined, size: 17),
+                          label: const Text('View Pre-Trip Checklist'),
                         ),
                       if ((statusLower == 'active' ||
                               statusLower == 'ongoing' ||
@@ -5658,6 +5717,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             size: 17,
                           ),
                           label: const Text('After Checklist'),
+                        ),
+                      if (statusLower == 'approved' ||
+                          statusLower == 'confirmed' ||
+                          statusLower == 'active' ||
+                          statusLower == 'ongoing' ||
+                          statusLower == 'return_pending_inspection')
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _openBookingConversation(booking);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          icon: const Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 17,
+                          ),
+                          label: const Text('Message'),
                         ),
                       if (_canTrackBooking(booking))
                         ElevatedButton.icon(
@@ -6924,19 +7003,52 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                                 if ((statusLower == 'confirmed' ||
-                                        statusLower == 'approved' ||
-                                        statusLower == 'active') &&
+                                        statusLower == 'approved') &&
                                     !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(
-                                    onPressed: () => _showInspectionDialog(
-                                      booking,
-                                      inspectionType: 'before',
-                                    ),
+                                    onPressed: () =>
+                                        _openOperatorInspectionRecordOrForm(
+                                          booking,
+                                          inspectionType: 'before',
+                                          allowCreate: true,
+                                        ),
                                     icon: const Icon(
                                       Icons.fact_check_outlined,
                                       size: 16,
                                     ),
-                                    label: const Text('Before Check'),
+                                    label: const Text(
+                                      'Submit Checklist & Start Trip',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.blue,
+                                      side: const BorderSide(
+                                        color: Colors.blue,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if ((statusLower == 'active' ||
+                                        statusLower == 'ongoing' ||
+                                        statusLower ==
+                                            'return_pending_inspection') &&
+                                    !_isPartnerOwnedBooking(booking))
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _openOperatorInspectionRecordOrForm(
+                                          booking,
+                                          inspectionType: 'before',
+                                          allowCreate: false,
+                                        ),
+                                    icon: const Icon(
+                                      Icons.visibility_outlined,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      'View Pre-Trip Checklist',
+                                    ),
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: Colors.blue,
                                       side: const BorderSide(
@@ -6967,6 +7079,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       foregroundColor: Colors.green,
                                       side: const BorderSide(
                                         color: Colors.green,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                  ),
+                                if ({
+                                  'approved',
+                                  'confirmed',
+                                  'active',
+                                  'ongoing',
+                                  'return_pending_inspection',
+                                }.contains(statusLower))
+                                  OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _openBookingConversation(booking),
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Message'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                      side: const BorderSide(
+                                        color: AppColors.primary,
                                       ),
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
@@ -7475,10 +7613,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     final fuelController = TextEditingController();
     final mileageController = TextEditingController();
-    final cleanlinessController = TextEditingController();
-    final scratchesController = TextEditingController();
-    final dentsController = TextEditingController();
-    final damagesController = TextEditingController();
+    final cleanlinessController = TextEditingController(text: 'Good');
+    final scratchesController = TextEditingController(text: 'Good');
+    final dentsController = TextEditingController(text: 'Good');
+    final damagesController = TextEditingController(text: 'Good');
     final remarksController = TextEditingController();
     final releasedByController = TextEditingController();
     final receivedByController = TextEditingController();
@@ -7494,13 +7632,49 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-          title: Text(
-            inspectionType == 'before'
-                ? 'Before Rental Checklist'
-                : 'After Return Checklist',
+          title: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  Icons.fact_check_outlined,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      inspectionType == 'before'
+                          ? 'Pre-Trip Vehicle Release Inspection'
+                          : 'Post-Trip Vehicle Return Inspection',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      inspectionType == 'before'
+                          ? 'Complete this inspection before the booking can move to Ongoing.'
+                          : 'Record the returned condition before final payment and ratings.',
+                      style: TextStyle(
+                        color: isDark ? Colors.white60 : Colors.black54,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           content: SizedBox(
-            width: 560,
+            width: 680,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -7511,24 +7685,53 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     onChanged: (entry) => setDialogState(
                       () => checklistItems[entry.key] = entry.value,
                     ),
+                    onSelectAll: (selected) => setDialogState(() {
+                      for (final key in checklistItems.keys) {
+                        checklistItems[key] = selected;
+                      }
+                    }),
                   ),
-                  _buildInspectionTextField(fuelController, 'Fuel level'),
+                  const SizedBox(height: 4),
+                  _buildInspectionTextField(
+                    fuelController,
+                    'Fuel level',
+                    hintText: 'Enter level, for example 75% or Full',
+                  ),
                   _buildInspectionTextField(
                     mileageController,
                     'Mileage',
                     keyboardType: TextInputType.number,
+                    hintText: 'Current odometer reading',
                   ),
-                  _buildInspectionTextField(
+                  _buildInspectionConditionSelector(
                     cleanlinessController,
-                    'Cleanliness',
+                    'Cleanliness condition',
+                    isDark: isDark,
+                    refresh: () => setDialogState(() {}),
                   ),
-                  _buildInspectionTextField(scratchesController, 'Scratches'),
-                  _buildInspectionTextField(dentsController, 'Dents'),
-                  _buildInspectionTextField(damagesController, 'Damages'),
+                  _buildInspectionConditionSelector(
+                    scratchesController,
+                    'Scratches',
+                    isDark: isDark,
+                    refresh: () => setDialogState(() {}),
+                  ),
+                  _buildInspectionConditionSelector(
+                    dentsController,
+                    'Dents',
+                    isDark: isDark,
+                    refresh: () => setDialogState(() {}),
+                  ),
+                  _buildInspectionConditionSelector(
+                    damagesController,
+                    'Other damage',
+                    isDark: isDark,
+                    refresh: () => setDialogState(() {}),
+                  ),
                   _buildInspectionTextField(
                     remarksController,
-                    'Other remarks',
+                    'Additional remarks (optional)',
                     maxLines: 3,
+                    hintText: 'Add notes that support the selected conditions',
                   ),
                   _buildInspectionTextField(
                     releasedByController,
@@ -7728,6 +7931,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String label, {
     TextInputType keyboardType = TextInputType.text,
     int maxLines = 1,
+    String? hintText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -7737,8 +7941,66 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         maxLines: maxLines,
         decoration: InputDecoration(
           labelText: label,
+          hintText: hintText,
           border: const OutlineInputBorder(),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInspectionConditionSelector(
+    TextEditingController controller,
+    String label, {
+    required bool isDark,
+    required VoidCallback refresh,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF172337) : const Color(0xFFF6F8FB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? Colors.white12 : const Color(0xFFDCE3EC),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF10233B),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final option in const ['Good', 'Bad']) ...[
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: Text(option),
+              selected: controller.text == option,
+              onSelected: (_) {
+                controller.text = option;
+                refresh();
+              },
+              selectedColor: option == 'Good'
+                  ? AppColors.success.withValues(alpha: 0.22)
+                  : AppColors.error.withValues(alpha: 0.2),
+              labelStyle: TextStyle(
+                color: controller.text == option
+                    ? option == 'Good'
+                          ? AppColors.success
+                          : AppColors.error
+                    : isDark
+                    ? Colors.white70
+                    : Colors.black54,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'notification_service.dart';
+
 class TrackingService {
   static final TrackingService _instance = TrackingService._internal();
 
@@ -14,6 +16,11 @@ class TrackingService {
   final SupabaseClient supabase = Supabase.instance.client;
   StreamSubscription<Position>? _positionSubscription;
   String? _activeBookingId;
+  final Map<String, DateTime> _stationarySinceByBooking = {};
+
+  static const double overspeedThresholdKph = 100;
+  static const double geofenceRadiusMeters = 75000;
+  static const Duration unauthorizedStopThreshold = Duration(minutes: 15);
 
   bool get isTracking => _positionSubscription != null;
   String? get activeBookingId => _activeBookingId;
@@ -88,10 +95,430 @@ class TrackingService {
       'recorded_at': DateTime.now().toUtc().toIso8601String(),
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'booking_id,tracked_user_id');
+
+    try {
+      await supabase.from('tracking_location_logs').insert({
+        'booking_id': bookingId,
+        'vehicle_id': vehicleId,
+        'tracked_user_id': trackedUserId,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'accuracy_meters': position.accuracy,
+        'speed_mps': position.speed,
+        'heading_degrees': position.heading,
+        'source': source,
+        'recorded_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      await _evaluateSafetySignals(
+        bookingId: bookingId,
+        vehicleId: vehicleId,
+        position: position,
+      );
+    } on PostgrestException catch (error) {
+      debugPrint(
+        'Trip evidence logging is unavailable until its migration is pushed: ${error.message}',
+      );
+    } catch (error) {
+      debugPrint(
+        'Trip safety evaluation failed without stopping tracking: $error',
+      );
+    }
   }
+
+  /// Participant-safe navigation data. This intentionally exposes only the
+  /// current renter's or assigned driver's own active booking.
+  Future<Map<String, dynamic>?> getParticipantNavigationLocationForBooking(
+    String bookingId,
+  ) async {
+    final currentUserId = supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) return null;
+
+    try {
+      final bookingResponse = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            status,
+            renter_id,
+            driver_id,
+            vehicle_id,
+            start_at,
+            end_at,
+            pickup_location,
+            dropoff_location,
+            pickup_latitude,
+            pickup_longitude,
+            dropoff_latitude,
+            dropoff_longitude,
+            vehicles:vehicle_id (id, brand, model, plate_number)
+          ''')
+          .eq('id', bookingId)
+          .maybeSingle();
+      if (bookingResponse == null) return null;
+
+      final booking = Map<String, dynamic>.from(bookingResponse);
+      final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+      if (!{'active', 'ongoing'}.contains(status)) return null;
+
+      final isRenter = booking['renter_id']?.toString() == currentUserId;
+      final driverReference = booking['driver_id']?.toString() ?? '';
+      var isAssignedDriver = driverReference == currentUserId;
+      if (!isAssignedDriver && driverReference.isNotEmpty) {
+        final driver = await supabase
+            .from('drivers')
+            .select('id,user_id')
+            .or('id.eq.$driverReference,user_id.eq.$driverReference')
+            .maybeSingle();
+        isAssignedDriver = driver?['user_id']?.toString() == currentUserId;
+      }
+      if (!isRenter && !isAssignedDriver) return null;
+
+      final rows = await supabase
+          .from('tracking_locations')
+          .select()
+          .eq('booking_id', bookingId)
+          .order('recorded_at', ascending: false)
+          .limit(1);
+
+      return {
+        'booking': booking,
+        'location': rows.isEmpty ? null : Map<String, dynamic>.from(rows.first),
+        'participant_role': isRenter ? 'renter' : 'driver',
+      };
+    } on PostgrestException catch (error) {
+      debugPrint('Unable to load participant navigation: ${error.message}');
+      return null;
+    }
+  }
+
+  Future<void> reportEmergency({
+    required String bookingId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final participant = await getParticipantNavigationLocationForBooking(
+      bookingId,
+    );
+    if (participant == null || participant['participant_role'] != 'renter') {
+      throw Exception(
+        'Emergency assistance can only be requested by the renter during their ongoing trip.',
+      );
+    }
+    final context = await _loadSafetyBookingContext(bookingId);
+    if (context == null) throw Exception('Active booking not found');
+    await _recordSafetyEvent(
+      context: context,
+      eventType: 'emergency_${DateTime.now().millisecondsSinceEpoch}',
+      severity: 'critical',
+      title: 'Emergency assistance requested',
+      message: 'A renter requested immediate assistance during the trip.',
+      latitude: latitude,
+      longitude: longitude,
+      notifyParticipants: true,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getTripLocationEvidence(
+    String bookingId,
+  ) async {
+    final rows = await supabase
+        .from('tracking_location_logs')
+        .select()
+        .eq('booking_id', bookingId)
+        .order('recorded_at', ascending: true);
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<void> _evaluateSafetySignals({
+    required String bookingId,
+    required String vehicleId,
+    required Position position,
+  }) async {
+    final context = await _loadSafetyBookingContext(bookingId);
+    if (context == null) return;
+
+    final speedKph = position.speed < 0 ? 0.0 : position.speed * 3.6;
+    if (speedKph >= overspeedThresholdKph) {
+      await _recordSafetyEvent(
+        context: context,
+        eventType:
+            'overspeed_${DateTime.now().millisecondsSinceEpoch ~/ 300000}',
+        severity: 'high',
+        title: 'Overspeed alert',
+        message: 'Vehicle speed reached ${speedKph.toStringAsFixed(0)} km/h.',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speedKph: speedKph,
+        notifyParticipants: true,
+      );
+    }
+
+    final pickupLat = _asDouble(context['pickup_latitude']);
+    final pickupLng = _asDouble(context['pickup_longitude']);
+    final dropoffLat = _asDouble(context['dropoff_latitude']);
+    final dropoffLng = _asDouble(context['dropoff_longitude']);
+    final pickupDistance = pickupLat == null || pickupLng == null
+        ? 0.0
+        : Geolocator.distanceBetween(
+            pickupLat,
+            pickupLng,
+            position.latitude,
+            position.longitude,
+          );
+    final destinationDistance = dropoffLat == null || dropoffLng == null
+        ? 0.0
+        : Geolocator.distanceBetween(
+            dropoffLat,
+            dropoffLng,
+            position.latitude,
+            position.longitude,
+          );
+    final hasBothAnchors =
+        pickupLat != null &&
+        pickupLng != null &&
+        dropoffLat != null &&
+        dropoffLng != null;
+    final outsideAllowedArea = hasBothAnchors
+        ? pickupDistance > geofenceRadiusMeters &&
+              destinationDistance > geofenceRadiusMeters
+        : (pickupLat != null &&
+              pickupLng != null &&
+              pickupDistance > geofenceRadiusMeters);
+    if (outsideAllowedArea) {
+      await _recordSafetyEvent(
+        context: context,
+        eventType:
+            'geofence_${DateTime.now().millisecondsSinceEpoch ~/ 1800000}',
+        severity: 'high',
+        title: 'Geofence alert',
+        message: 'The vehicle moved outside the permitted trip area.',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speedKph: speedKph,
+        notifyParticipants: true,
+      );
+    }
+
+    if (speedKph <= 1) {
+      final stoppedAt = _stationarySinceByBooking.putIfAbsent(
+        bookingId,
+        DateTime.now,
+      );
+      if (DateTime.now().difference(stoppedAt) >= unauthorizedStopThreshold) {
+        await _recordSafetyEvent(
+          context: context,
+          eventType:
+              'unauthorized_stop_${DateTime.now().millisecondsSinceEpoch ~/ 1800000}',
+          severity: 'warning',
+          title: 'Extended stop detected',
+          message: 'The vehicle has remained stopped for at least 15 minutes.',
+          latitude: position.latitude,
+          longitude: position.longitude,
+          speedKph: speedKph,
+          notifyParticipants: true,
+        );
+      }
+    } else {
+      _stationarySinceByBooking.remove(bookingId);
+    }
+
+    await _evaluateReturnReminder(context);
+  }
+
+  Future<Map<String, dynamic>?> _loadSafetyBookingContext(
+    String bookingId,
+  ) async {
+    final response = await supabase
+        .from('bookings')
+        .select('''
+          id,
+          status,
+          renter_id,
+          driver_id,
+          operator_id,
+          vehicle_id,
+          end_at,
+          pickup_latitude,
+          pickup_longitude,
+          dropoff_latitude,
+          dropoff_longitude,
+          vehicles:vehicle_id (
+            id,
+            brand,
+            model,
+            owner_id,
+            owner_role,
+            is_partner_vehicle,
+            partner_vehicle_id
+          )
+        ''')
+        .eq('id', bookingId)
+        .maybeSingle();
+    if (response == null) return null;
+    final context = Map<String, dynamic>.from(response);
+    final status = context['status']?.toString().trim().toLowerCase() ?? '';
+    return {'active', 'ongoing'}.contains(status) ? context : null;
+  }
+
+  Future<void> _evaluateReturnReminder(Map<String, dynamic> context) async {
+    final endAt = DateTime.tryParse(context['end_at']?.toString() ?? '');
+    if (endAt == null) return;
+    final remaining = endAt.toLocal().difference(DateTime.now());
+    if (remaining > const Duration(hours: 2)) return;
+
+    late final String bucket;
+    late final String message;
+    if (remaining.isNegative) {
+      bucket = 'overdue_${DateTime.now().millisecondsSinceEpoch ~/ 1800000}';
+      message = 'The scheduled return time has passed. Late fees may apply.';
+    } else if (remaining <= const Duration(minutes: 30)) {
+      bucket = '30_minutes';
+      message = 'The vehicle is due for return in 30 minutes.';
+    } else if (remaining <= const Duration(hours: 1)) {
+      bucket = '1_hour';
+      message = 'The vehicle is due for return in 1 hour.';
+    } else {
+      bucket = '2_hours';
+      message = 'The vehicle is due for return in 2 hours.';
+    }
+    await _recordSafetyEvent(
+      context: context,
+      eventType: 'return_reminder_$bucket',
+      severity: remaining.isNegative ? 'high' : 'info',
+      title: remaining.isNegative
+          ? 'Vehicle return overdue'
+          : 'Return reminder',
+      message: message,
+      notifyParticipants: true,
+    );
+  }
+
+  Future<void> _recordSafetyEvent({
+    required Map<String, dynamic> context,
+    required String eventType,
+    required String severity,
+    required String title,
+    required String message,
+    double? latitude,
+    double? longitude,
+    double? speedKph,
+    bool notifyParticipants = false,
+  }) async {
+    final bookingId = context['id']?.toString() ?? '';
+    if (bookingId.isEmpty || await _eventExists(bookingId, eventType)) return;
+    await supabase.from('trip_safety_events').insert({
+      'booking_id': bookingId,
+      'vehicle_id': context['vehicle_id'],
+      'event_type': eventType,
+      'severity': severity,
+      'title': title,
+      'message': message,
+      'latitude': latitude,
+      'longitude': longitude,
+      'speed_kph': speedKph,
+      'details': {'generated_by': 'mobilis_tracking_service'},
+    });
+
+    final recipients = await _safetyNotificationRecipients(
+      context,
+      includeParticipants: notifyParticipants,
+    );
+    for (final userId in recipients) {
+      try {
+        await NotificationService().createNotification(
+          userId: userId,
+          title: title,
+          message: message,
+          type: 'trip_safety',
+          data: {
+            'booking_id': bookingId,
+            'event': eventType,
+            'severity': severity,
+          },
+        );
+      } catch (error) {
+        debugPrint('Safety notification failed for $userId: $error');
+      }
+    }
+  }
+
+  Future<bool> _eventExists(String bookingId, String eventType) async {
+    final rows = await supabase
+        .from('trip_safety_events')
+        .select('id')
+        .eq('booking_id', bookingId)
+        .eq('event_type', eventType)
+        .limit(1);
+    return rows.isNotEmpty;
+  }
+
+  Future<Set<String>> _safetyNotificationRecipients(
+    Map<String, dynamic> context, {
+    required bool includeParticipants,
+  }) async {
+    final recipients = <String>{};
+    final vehicle = context['vehicles'] as Map<String, dynamic>?;
+    final ownerRole = vehicle?['owner_role']?.toString().toLowerCase();
+    final isPartner =
+        ownerRole == 'partner' ||
+        vehicle?['is_partner_vehicle'] == true ||
+        vehicle?['partner_vehicle_id'] != null;
+    if (isPartner) {
+      final ownerId = vehicle?['owner_id']?.toString() ?? '';
+      if (ownerId.isNotEmpty) recipients.add(ownerId);
+    } else {
+      final operatorId = context['operator_id']?.toString() ?? '';
+      if (operatorId.isNotEmpty) {
+        recipients.add(operatorId);
+      } else {
+        final operators = await supabase
+            .from('users')
+            .select('id')
+            .eq('role', 'operator');
+        recipients.addAll(
+          List<Map<String, dynamic>>.from(operators)
+              .map((row) => row['id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      }
+    }
+    final admins = await supabase.from('users').select('id').inFilter('role', [
+      'admin',
+      'super_admin',
+    ]);
+    recipients.addAll(
+      List<Map<String, dynamic>>.from(
+        admins,
+      ).map((row) => row['id']?.toString() ?? '').where((id) => id.isNotEmpty),
+    );
+
+    if (includeParticipants) {
+      final renterId = context['renter_id']?.toString() ?? '';
+      if (renterId.isNotEmpty) recipients.add(renterId);
+      final driverReference = context['driver_id']?.toString() ?? '';
+      if (driverReference.isNotEmpty) {
+        final driver = await supabase
+            .from('drivers')
+            .select('user_id')
+            .or('id.eq.$driverReference,user_id.eq.$driverReference')
+            .maybeSingle();
+        final driverUserId = driver?['user_id']?.toString() ?? '';
+        if (driverUserId.isNotEmpty) recipients.add(driverUserId);
+      }
+    }
+    return recipients;
+  }
+
+  double? _asDouble(dynamic value) => value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString() ?? '');
 
   Future<List<Map<String, dynamic>>> getActiveTrackingLocations() async {
     try {
+      final access = await _currentTrackingAccess();
+      if (access == null || {'renter', 'driver'}.contains(access.role)) {
+        return [];
+      }
       final response = await supabase
           .from('tracking_locations')
           .select('''
@@ -99,9 +526,20 @@ class TrackingService {
             bookings:booking_id (
               id,
               status,
+              operator_id,
               pickup_location,
               dropoff_location,
-              vehicles:vehicle_id (id, brand, model, plate_number),
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                plate_number,
+                owner_id,
+                operator_id,
+                is_partner_vehicle,
+                partner_vehicle_id,
+                owner:owner_id (id, role)
+              ),
               renter:renter_id (id, full_name, email),
               drivers:drivers!bookings_driver_id_fkey (
                 id,
@@ -115,9 +553,8 @@ class TrackingService {
       return List<Map<String, dynamic>>.from(response).where((location) {
         final booking = location['bookings'] as Map<String, dynamic>?;
         final status = booking?['status']?.toString().toLowerCase();
-        return status == 'active' ||
-            status == 'approved' ||
-            status == 'confirmed';
+        return (status == 'active' || status == 'ongoing') &&
+            _canViewTracking(access, booking);
       }).toList();
     } catch (e) {
       debugPrint('Error loading tracking locations: $e');
@@ -129,6 +566,10 @@ class TrackingService {
     String bookingId,
   ) async {
     try {
+      final access = await _currentTrackingAccess();
+      if (access == null || {'renter', 'driver'}.contains(access.role)) {
+        return null;
+      }
       final response = await supabase
           .from('tracking_locations')
           .select('''
@@ -140,7 +581,17 @@ class TrackingService {
               operator_id,
               pickup_location,
               dropoff_location,
-              vehicles:vehicle_id (id, brand, model, plate_number, owner_id, operator_id),
+              vehicles:vehicle_id (
+                id,
+                brand,
+                model,
+                plate_number,
+                owner_id,
+                operator_id,
+                is_partner_vehicle,
+                partner_vehicle_id,
+                owner:owner_id (id, role)
+              ),
               renter:renter_id (id, full_name, email, phone),
               drivers:drivers!bookings_driver_id_fkey (
                 id,
@@ -158,27 +609,49 @@ class TrackingService {
       final location = Map<String, dynamic>.from(response);
       final booking = location['bookings'] as Map<String, dynamic>?;
       final status = booking?['status']?.toString().toLowerCase() ?? '';
-      if (!{'active', 'approved', 'confirmed'}.contains(status)) return null;
-
-      final currentUserId = supabase.auth.currentUser?.id;
-      if (currentUserId == null || currentUserId.isEmpty) return null;
-
-      final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
-      final driver = booking?['drivers'] as Map<String, dynamic>?;
-      final allowedUserIds = {
-        booking?['renter_id']?.toString(),
-        booking?['operator_id']?.toString(),
-        vehicle?['owner_id']?.toString(),
-        vehicle?['operator_id']?.toString(),
-        driver?['user_id']?.toString(),
-      }..removeWhere((id) => id == null || id.isEmpty);
-
-      if (!allowedUserIds.contains(currentUserId)) return null;
+      if (!{'active', 'ongoing'}.contains(status)) return null;
+      if (!_canViewTracking(access, booking)) return null;
       return location;
     } catch (e) {
       debugPrint('Error loading tracking location for booking $bookingId: $e');
       return null;
     }
+  }
+
+  Future<_TrackingAccess?> _currentTrackingAccess() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null || userId.isEmpty) return null;
+    final user = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+    final role = user?['role']?.toString().trim().toLowerCase() ?? '';
+    if (role.isEmpty) return null;
+    return _TrackingAccess(userId: userId, role: role);
+  }
+
+  bool _canViewTracking(_TrackingAccess access, Map<String, dynamic>? booking) {
+    if (booking == null) return false;
+    if (access.role == 'admin' || access.role == 'super_admin') return true;
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    if (vehicle == null) return false;
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final ownerRole = owner?['role']?.toString().trim().toLowerCase();
+    final ownerId = vehicle['owner_id']?.toString();
+    final partnerVehicle =
+        ownerRole == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
+
+    if (access.role == 'partner') {
+      return partnerVehicle && ownerId == access.userId;
+    }
+    if (access.role == 'operator') {
+      return !partnerVehicle;
+    }
+    return false;
   }
 
   Future<void> _ensureLocationPermission() async {
@@ -200,4 +673,11 @@ class TrackingService {
       throw Exception('Location permission permanently denied');
     }
   }
+}
+
+class _TrackingAccess {
+  final String userId;
+  final String role;
+
+  const _TrackingAccess({required this.userId, required this.role});
 }

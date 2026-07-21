@@ -1432,6 +1432,10 @@ class DriverService {
             total_cost,
             pickup_location,
             dropoff_location,
+            pickup_latitude,
+            pickup_longitude,
+            dropoff_latitude,
+            dropoff_longitude,
             picked_up_at,
             returned_at,
             vehicles:vehicle_id (
@@ -1439,7 +1443,8 @@ class DriverService {
               brand,
               model,
               year,
-              vehicle_name
+              vehicle_name,
+              plate_number
             ),
             renter:renter_id (
               id,
@@ -1449,7 +1454,14 @@ class DriverService {
             )
           ''')
           .eq('driver_id', userId)
-          .inFilter('status', ['confirmed', 'approved', 'active'])
+          .inFilter('status', [
+            'confirmed',
+            'approved',
+            'active',
+            'ongoing',
+            'return_pending_inspection',
+            'awaiting_completion',
+          ])
           .order('start_date', ascending: true);
 
       return List<Map<String, dynamic>>.from(response);

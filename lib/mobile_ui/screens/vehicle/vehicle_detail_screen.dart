@@ -1716,6 +1716,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         withDriver: _withDriver,
         pickupLocation: _getPickupLocation(),
         dropoffLocation: _getDropoffLocation(),
+        pickupLatitude: _pickupMapPin?.latitude,
+        pickupLongitude: _pickupMapPin?.longitude,
+        dropoffLatitude: _dropoffMapPin?.latitude,
+        dropoffLongitude: _dropoffMapPin?.longitude,
         rentalTermsAcceptedAt: requireTermsAgreement ? DateTime.now() : null,
         rentalTermsSnapshot: requireTermsAgreement
             ? _acceptedTermsSnapshot

@@ -34,7 +34,7 @@ import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
-import '../partner/partner_tracking_screen.dart';
+import '../tracking/trip_navigation_screen.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/notification_target.dart';
@@ -2181,6 +2181,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             booking['pickup_location']?.toString() ?? 'Pickup not specified',
         'dropoffLocation':
             booking['dropoff_location']?.toString() ?? 'Drop-off not specified',
+        'pickupLatitude': booking['pickup_latitude'],
+        'pickupLongitude': booking['pickup_longitude'],
+        'dropoffLatitude': booking['dropoff_latitude'],
+        'dropoffLongitude': booking['dropoff_longitude'],
         'totalCost': totalCost,
         'days': days,
         'rentalPartner': rentalPartner,
@@ -2398,7 +2402,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
     if (target.destination == NotificationDestination.tracking &&
         booking.isNotEmpty) {
-      _openBookingTracking(booking);
+      setState(() => selectedNavIndex = 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showBookingDetails(booking);
+      });
       return;
     }
     if ((target.destination == NotificationDestination.booking ||
@@ -2534,52 +2541,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     }
-  }
-
-  Future<void> _openBookingTracking(Map<String, dynamic> booking) async {
-    final rawStatus = booking['rawStatus']?.toString().toLowerCase() ?? '';
-    if (rawStatus != 'active') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tracking is available once the trip is ongoing.'),
-          backgroundColor: AppColors.warning,
-        ),
-      );
-      return;
-    }
-
-    final conversationId = await _findBookingConversationId(booking);
-    if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PartnerTrackingScreen(
-          booking: booking,
-          conversationId: conversationId ?? '',
-          recipientName: '${booking['carName']} Booking',
-        ),
-      ),
-    );
-  }
-
-  Future<String?> _findBookingConversationId(
-    Map<String, dynamic> booking,
-  ) async {
-    final bookingId = booking['id']?.toString() ?? '';
-    if (bookingId.isEmpty) return null;
-
-    final existingConversation = _conversations.firstWhere(
-      (conversation) => conversation['booking_id']?.toString() == bookingId,
-      orElse: () => {},
-    );
-    final existingId = existingConversation['id']?.toString();
-    if (existingId != null && existingId.isNotEmpty) return existingId;
-
-    final conversation = await Supabase.instance.client
-        .from('conversations')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .maybeSingle();
-    return conversation?['id']?.toString();
   }
 
   // ---------------------------------------------------------------------------
@@ -4574,8 +4535,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   showRating:
                       booking['statusGroup'] == 'Completed' &&
                       ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
-                  showTrackButton: booking['statusGroup'] == 'Ongoing',
-                  onTrack: () => _openBookingTracking(booking),
+                  showTrackButton: false,
                   detailsButtonLabel: isCompleted
                       ? 'View Receipt'
                       : isCancelled
@@ -5329,11 +5289,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           pendingRoles: pendingRoles,
           paymentTypeLabel: _bookingPaymentTypeLabel(booking),
           amountPaidLabel: _bookingAmountPaidLabel(booking),
-          onTrack: booking['rawStatus'] == 'active'
-              ? () => _openBookingTracking(booking)
-              : null,
           onMessage: _canOpenBookingConversation(booking)
               ? () => _openBookingConversation(booking)
+              : null,
+          onNavigate:
+              {
+                'active',
+                'ongoing',
+              }.contains(booking['rawStatus']?.toString().toLowerCase())
+              ? () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => TripNavigationScreen(
+                      bookingId: booking['id'].toString(),
+                      participantRole: 'renter',
+                    ),
+                  ),
+                )
               : null,
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
@@ -5387,28 +5358,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             if (isApprovedTrip) ...[
               _buildActiveTripHero(booking),
               const SizedBox(height: 16),
-              if (booking['rawStatus'] == 'active') ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _openBookingTracking(booking);
-                    },
-                    icon: const Icon(Icons.near_me_outlined, size: 18),
-                    label: const Text('Track Ongoing Trip'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
             ],
             Container(
               padding: const EdgeInsets.all(12),
@@ -7476,8 +7425,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final List<String> pendingRoles;
   final String paymentTypeLabel;
   final String amountPaidLabel;
-  final VoidCallback? onTrack;
   final VoidCallback? onMessage;
+  final VoidCallback? onNavigate;
   final VoidCallback? onCancel;
   final VoidCallback? onExtend;
   final VoidCallback? onSuccessfulTrip;
@@ -7490,8 +7439,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     required this.pendingRoles,
     required this.paymentTypeLabel,
     required this.amountPaidLabel,
-    this.onTrack,
     this.onMessage,
+    this.onNavigate,
     this.onCancel,
     this.onExtend,
     this.onSuccessfulTrip,
@@ -7543,14 +7492,6 @@ class _RenterBookingDetailsPage extends StatelessWidget {
               const SizedBox(height: 16),
               if (isApprovedTrip) ...[
                 BookingReturnCountdown(booking: booking),
-                const SizedBox(height: 12),
-              ],
-              if (onTrack != null) ...[
-                _buildPrimaryButton(
-                  icon: Icons.near_me_outlined,
-                  label: 'Track Ongoing Trip',
-                  onPressed: onTrack!,
-                ),
                 const SizedBox(height: 12),
               ],
               if (pendingRoles.isNotEmpty &&
@@ -7622,6 +7563,13 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   onPressed: onExtend!,
                 ),
               if (onExtend != null) const SizedBox(height: 12),
+              if (onNavigate != null)
+                _buildPrimaryButton(
+                  icon: Icons.navigation_rounded,
+                  label: 'Navigate',
+                  onPressed: onNavigate!,
+                ),
+              if (onNavigate != null) const SizedBox(height: 12),
               if (onMessage != null)
                 _buildSecondaryButton(
                   icon: Icons.chat_bubble_outline,

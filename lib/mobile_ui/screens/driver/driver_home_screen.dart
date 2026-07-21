@@ -21,6 +21,7 @@ import '../../widgets/booking_return_countdown.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
+import '../tracking/trip_navigation_screen.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 
@@ -2448,7 +2449,7 @@ class __JobsTabState extends State<_JobsTab> {
         children: [
           const RoleTabHeader(
             title: 'Assigned Trips',
-            subtitle: 'Accepted trips, pickups, returns, and tracking controls',
+            subtitle: 'Accepted trips, pickups, and vehicle returns',
             icon: Icons.calendar_month_outlined,
           ),
           const SizedBox(height: 12),
@@ -2526,41 +2527,57 @@ class _TripCard extends StatefulWidget {
 }
 
 class _TripCardState extends State<_TripCard> {
-  bool _isTogglingTracking = false;
-
   Map<String, dynamic> get trip => widget.trip;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startActiveTracking());
+  }
+
+  @override
+  void didUpdateWidget(covariant _TripCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.trip['status'] != widget.trip['status']) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _startActiveTracking(),
+      );
+    }
+  }
+
+  Future<void> _startActiveTracking() async {
+    final status = trip['status']?.toString().trim().toLowerCase() ?? '';
+    if (!mounted || !{'active', 'ongoing'}.contains(status)) return;
+    final bookingId = trip['id']?.toString() ?? '';
+    final vehicleId = trip['vehicle_id']?.toString() ?? '';
+    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    if (bookingId.isEmpty || vehicleId.isEmpty || userId.isEmpty) return;
+    final tracker = TrackingService();
+    if (tracker.activeBookingId == bookingId) return;
+    try {
+      await tracker.startBookingTracking(
+        bookingId: bookingId,
+        vehicleId: vehicleId,
+        trackedUserId: userId,
+        source: 'driver_active_trip',
+      );
+    } catch (error) {
+      debugPrint('Unable to start active-trip GPS evidence: $error');
+    }
+  }
 
   String _displayTripStatus(String status) {
     switch (status.trim().toLowerCase()) {
       case 'approved':
       case 'confirmed':
+        return 'Approved';
       case 'active':
+      case 'ongoing':
         return 'Ongoing';
       case 'completed':
         return 'Completed';
       default:
         return status;
-    }
-  }
-
-  Future<void> _markPickedUp(BuildContext context) async {
-    try {
-      await DriverService().markAssignedBookingPickedUp(trip['id'].toString());
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Trip marked as picked up'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-      widget.onChanged();
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
     }
   }
 
@@ -2628,57 +2645,42 @@ class _TripCardState extends State<_TripCard> {
     }
   }
 
-  Future<void> _toggleTracking(BuildContext context) async {
-    final userId = AuthService().currentUser?.id;
-    final bookingId = trip['id']?.toString() ?? '';
-    final vehicleId = trip['vehicle_id']?.toString() ?? '';
-    if (userId == null || bookingId.isEmpty || vehicleId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Trip tracking details are incomplete'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isTogglingTracking = true);
+  Future<void> _openConversation(BuildContext context) async {
     try {
-      final trackingService = TrackingService();
-      if (trackingService.activeBookingId == bookingId) {
-        await trackingService.stopTracking();
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location tracking stopped')),
-          );
-        }
-      } else {
-        await trackingService.startBookingTracking(
-          bookingId: bookingId,
-          vehicleId: vehicleId,
-          trackedUserId: userId,
-        );
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location tracking started for this trip'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        }
+      final conversation = await ChatService().getConversationByBookingId(
+        trip['id'].toString(),
+      );
+      final conversationId = conversation?['id']?.toString() ?? '';
+      if (conversationId.isEmpty) {
+        throw Exception('The booking conversation is not ready yet.');
       }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Tracking error: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isTogglingTracking = false);
+      if (!context.mounted) return;
+      await Navigator.of(context).pushNamed(
+        '/chat-detail',
+        arguments: {
+          'conversationId': conversationId,
+          'recipientName': 'Booking Conversation',
+          'isAutoGenerated': false,
+          'userRole': 'driver',
+        },
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
+  }
+
+  Future<void> _openNavigation(BuildContext context) {
+    return Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TripNavigationScreen(
+          bookingId: trip['id'].toString(),
+          participantRole: 'driver',
+        ),
+      ),
+    );
   }
 
   @override
@@ -2691,8 +2693,6 @@ class _TripCardState extends State<_TripCard> {
     final status = (trip['status']?.toString() ?? 'assigned').toLowerCase();
     final completionState = BookingService().getTripCompletionState(trip);
     final completionStage = completionState['completionStage']?.toString();
-    final isTrackingThisTrip =
-        TrackingService().activeBookingId == (trip['id']?.toString() ?? '');
     final vehicle = trip['vehicles'] as Map<String, dynamic>?;
     final renter = trip['renter'] as Map<String, dynamic>?;
     final renterName = renter?['full_name']?.toString().trim();
@@ -2802,19 +2802,30 @@ class _TripCardState extends State<_TripCard> {
           ],
           const SizedBox(height: 12),
           if (status == 'confirmed' || status == 'approved')
+            const _DriverWaitingAction(
+              icon: Icons.fact_check_outlined,
+              message:
+                  'Waiting for the vehicle owner to submit the pre-trip checklist and start the trip.',
+            ),
+          if ({
+            'approved',
+            'confirmed',
+            'active',
+            'ongoing',
+            'return_pending_inspection',
+          }.contains(status)) ...[
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => _markPickedUp(context),
-                icon: const Icon(Icons.key, size: 16),
-                label: const Text('Mark Picked Up'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  foregroundColor: Colors.white,
-                ),
+              child: OutlinedButton.icon(
+                onPressed: () => _openConversation(context),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
+                label: const Text('Message'),
               ),
             ),
-          if (status == 'active' || status == 'ongoing')
+          ],
+          if (status == 'active' || status == 'ongoing') ...[
+            const SizedBox(height: 10),
             Column(
               children: [
                 BookingReturnCountdown(booking: trip),
@@ -2822,33 +2833,16 @@ class _TripCardState extends State<_TripCard> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: _isTogglingTracking
-                        ? null
-                        : () => _toggleTracking(context),
-                    icon: Icon(
-                      isTrackingThisTrip
-                          ? Icons.location_disabled
-                          : Icons.my_location,
-                      size: 16,
-                    ),
-                    label: Text(
-                      _isTogglingTracking
-                          ? 'Updating Tracking...'
-                          : isTrackingThisTrip
-                          ? 'Stop Location Tracking'
-                          : 'Start Location Tracking',
-                    ),
+                    onPressed: () => _openNavigation(context),
+                    icon: const Icon(Icons.navigation_rounded, size: 17),
+                    label: const Text('Navigate'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isTrackingThisTrip
-                          ? AppColors.warning
-                          : AppColors.success,
-                      foregroundColor: isTrackingThisTrip
-                          ? Colors.black
-                          : Colors.white,
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -2863,6 +2857,7 @@ class _TripCardState extends State<_TripCard> {
                 ),
               ],
             ),
+          ],
           if (status == 'return_pending_inspection')
             const _DriverWaitingAction(
               icon: Icons.fact_check_outlined,
