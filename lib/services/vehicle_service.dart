@@ -167,14 +167,15 @@ class VehicleService {
   }
 
   Future<Map<String, Set<String>>> _getApprovedPartnerVehicleLinks() async {
+    final partnerVehicleIds = <String>{};
+    final vehicleIds = <String>{};
+    final plateNumbers = <String>{};
+    final partnerOwnerIds = <String>{};
+
     try {
       final response = await supabase
           .from('partner_vehicle_applications')
           .select('*');
-      final partnerVehicleIds = <String>{};
-      final vehicleIds = <String>{};
-      final plateNumbers = <String>{};
-      final partnerOwnerIds = <String>{};
 
       for (final raw in List<Map<String, dynamic>>.from(response)) {
         final partnerOwnerId = raw['partner_id']?.toString().trim();
@@ -203,22 +204,71 @@ class VehicleService {
           plateNumbers.add(plateNumber);
         }
       }
-
-      return {
-        'partner_vehicle_ids': partnerVehicleIds,
-        'vehicle_ids': vehicleIds,
-        'plate_numbers': plateNumbers,
-        'partner_owner_ids': partnerOwnerIds,
-      };
     } catch (e) {
-      debugPrint('Unable to verify partner vehicle approvals: $e');
-      return {
-        'partner_vehicle_ids': <String>{},
-        'vehicle_ids': <String>{},
-        'plate_numbers': <String>{},
-        'partner_owner_ids': <String>{},
-      };
+      debugPrint('Application approval lookup unavailable: $e');
     }
+
+    // Renters cannot read other partners' full applications. The linked
+    // partner vehicle row is created by the admin approval flow, so it is the
+    // safe renter-facing source for resolving approved canonical vehicles.
+    try {
+      List response;
+      try {
+        response =
+            await supabase
+                    .from('partner_vehicles')
+                    .select(
+                      'id,vehicle_id,partner_id,plate_number,status,'
+                      'partners:partner_id(user_id)',
+                    )
+                as List;
+      } catch (_) {
+        response =
+            await supabase
+                    .from('partner_vehicles')
+                    .select('id,vehicle_id,partner_id,plate_number,status')
+                as List;
+      }
+
+      const blockedStatuses = {'pending', 'disabled', 'sold', 'rejected'};
+      for (final raw in response.whereType<Map<String, dynamic>>()) {
+        final status = (raw['status'] ?? '').toString().trim().toLowerCase();
+        if (status.isEmpty || blockedStatuses.contains(status)) continue;
+
+        final partnerVehicleId = raw['id']?.toString().trim();
+        final vehicleId = raw['vehicle_id']?.toString().trim();
+        final plateNumber = raw['plate_number']
+            ?.toString()
+            .trim()
+            .toUpperCase();
+        final partner = raw['partners'];
+        final partnerUserId = partner is Map<String, dynamic>
+            ? partner['user_id']?.toString().trim()
+            : null;
+
+        if (partnerVehicleId != null && partnerVehicleId.isNotEmpty) {
+          partnerVehicleIds.add(partnerVehicleId);
+        }
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          vehicleIds.add(vehicleId);
+        }
+        if (plateNumber != null && plateNumber.isNotEmpty) {
+          plateNumbers.add(plateNumber);
+        }
+        if (partnerUserId != null && partnerUserId.isNotEmpty) {
+          partnerOwnerIds.add(partnerUserId);
+        }
+      }
+    } catch (e) {
+      debugPrint('Approved partner vehicle link lookup failed: $e');
+    }
+
+    return {
+      'partner_vehicle_ids': partnerVehicleIds,
+      'vehicle_ids': vehicleIds,
+      'plate_numbers': plateNumbers,
+      'partner_owner_ids': partnerOwnerIds,
+    };
   }
 
   bool _hasApprovedPartnerApplication(
@@ -330,8 +380,8 @@ class VehicleService {
           _cleanText(partnerVehicle['vehicle_type']) ??
           _cleanText(partnerVehicle['category']) ??
           'Partner Vehicle',
-      'is_posted': partnerVehicle['is_posted'] == true,
-      'is_available': partnerVehicle['is_available'] == true,
+      'is_posted': partnerVehicle['is_posted'] != false,
+      'is_available': partnerVehicle['is_available'] != false,
       'status': partnerVehicle['status'] ?? 'pending',
     });
 
@@ -509,15 +559,23 @@ class VehicleService {
             (vehicle) => _isApprovedForRenterListing(vehicle, approvedLinks),
           )
           .toList();
+      final linkedPartnerVehicles = await _getAvailablePartnerVehicles(
+        approvedLinks,
+      );
       final allVehicles = <Map<String, dynamic>>[];
       final seenVehicleKeys = <String>{};
-      for (final vehicle in normalized) {
+      for (final vehicle in [...normalized, ...linkedPartnerVehicles]) {
         final plate = vehicle['plate_number']?.toString().trim().toUpperCase();
         final id = vehicle['id']?.toString().trim() ?? '';
-        final key = plate != null && plate.isNotEmpty
-            ? 'plate:$plate'
-            : 'id:$id';
-        if (seenVehicleKeys.add(key)) allVehicles.add(vehicle);
+        final idKey = id.isEmpty ? null : 'id:$id';
+        final plateKey = plate == null || plate.isEmpty ? null : 'plate:$plate';
+        if ((idKey != null && seenVehicleKeys.contains(idKey)) ||
+            (plateKey != null && seenVehicleKeys.contains(plateKey))) {
+          continue;
+        }
+        if (idKey != null) seenVehicleKeys.add(idKey);
+        if (plateKey != null) seenVehicleKeys.add(plateKey);
+        allVehicles.add(vehicle);
       }
 
       final categoryFiltered = category == null || category.isEmpty

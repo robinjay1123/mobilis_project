@@ -677,14 +677,60 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
     return base64UrlEncode(bytes);
   }
 
-  Future<void> _configureMpin() async {
+  Future<void> _configureMpin({bool isRecovery = false}) async {
     final wasConfigured = _hasMpin;
+    if (isRecovery) {
+      final identifier = await showDialog<String>(
+        context: context,
+        builder: (_) => const _AccountIdentifierDialog(
+          title: 'Reset MPIN',
+          description:
+              'Enter the email or mobile number linked to this account before creating a new MPIN.',
+        ),
+      );
+      if (identifier == null || !mounted) return;
+
+      setState(() => _isSavingMpin = true);
+      try {
+        final matches = await AuthService().matchesCurrentAccountIdentifier(
+          identifier,
+        );
+        if (!matches) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'That email or mobile number does not match this account.',
+              ),
+            ),
+          );
+          return;
+        }
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not verify this account: ${AuthService().getErrorMessage(error)}',
+            ),
+          ),
+        );
+        return;
+      } finally {
+        if (mounted) setState(() => _isSavingMpin = false);
+      }
+    }
+
+    if (!mounted) return;
     final result = await showDialog<_MpinSetupResult>(
       context: context,
-      builder: (_) => _MpinSetupDialog(requiresCurrentMpin: wasConfigured),
+      builder: (_) =>
+          _MpinSetupDialog(requiresCurrentMpin: wasConfigured && !isRecovery),
     );
     if (result == null || !mounted) return;
-    if (wasConfigured && !_matchesCurrentMpin(result.currentMpin ?? '')) {
+    if (wasConfigured &&
+        !isRecovery &&
+        !_matchesCurrentMpin(result.currentMpin ?? '')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('The current MPIN is incorrect.')),
       );
@@ -783,6 +829,16 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
   }
 
   Future<void> _sendPasswordReset() async {
+    final identifier = await showDialog<String>(
+      context: context,
+      builder: (_) => const _AccountIdentifierDialog(
+        title: 'Reset Password',
+        description:
+            'Enter the email or mobile number linked to this account to continue.',
+      ),
+    );
+    if (identifier == null || !mounted) return;
+
     final email = AuthService().currentUser?.email?.trim() ?? '';
     if (email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -794,6 +850,20 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
     }
     setState(() => _isSending = true);
     try {
+      final matches = await AuthService().matchesCurrentAccountIdentifier(
+        identifier,
+      );
+      if (!matches) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'That email or mobile number does not match this account.',
+            ),
+          ),
+        );
+        return;
+      }
       await AuthService().resetPassword(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -877,11 +947,90 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                     onPressed: _isSavingMpin ? null : _removeMpin,
                     child: const Text('Remove'),
                   ),
+                if (_hasMpin)
+                  TextButton(
+                    onPressed: _isSavingMpin
+                        ? null
+                        : () => _configureMpin(isRecovery: true),
+                    child: const Text('Forgot MPIN?'),
+                  ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AccountIdentifierDialog extends StatefulWidget {
+  const _AccountIdentifierDialog({
+    required this.title,
+    required this.description,
+  });
+
+  final String title;
+  final String description;
+
+  @override
+  State<_AccountIdentifierDialog> createState() =>
+      _AccountIdentifierDialogState();
+}
+
+class _AccountIdentifierDialogState extends State<_AccountIdentifierDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.description),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _controller,
+              keyboardType: TextInputType.text,
+              autofillHints: const [
+                AutofillHints.email,
+                AutofillHints.telephoneNumber,
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Email or Mobile Number',
+                hintText: 'name@gmail.com or 09XXXXXXXXX',
+                prefixIcon: Icon(Icons.contact_mail_outlined),
+              ),
+              validator: (value) => (value?.trim().isEmpty ?? true)
+                  ? 'Enter your email or mobile number.'
+                  : null,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.of(context).pop(_controller.text.trim());
+          },
+          child: const Text('Continue'),
+        ),
+      ],
     );
   }
 }

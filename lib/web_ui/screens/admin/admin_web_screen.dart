@@ -12,6 +12,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
+import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
@@ -3730,7 +3731,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildTrackingContent(bool isDark) {
     final visibleLocations = _visibleTrackingLocations();
-    final mapUrl = _buildMapboxStaticUrl(visibleLocations);
+    final mapMarkers = visibleLocations
+        .where(
+          (location) =>
+              location['latitude'] is num && location['longitude'] is num,
+        )
+        .take(50)
+        .map(
+          (location) => MobilisMapMarker(
+            latitude: (location['latitude'] as num).toDouble(),
+            longitude: (location['longitude'] as num).toDouble(),
+            icon: Icons.directions_car_filled_rounded,
+            color: AppColors.primary,
+            size: 40,
+          ),
+        )
+        .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -3796,14 +3812,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     height: 360,
                     width: double.infinity,
                     color: isDark ? AppColors.darkBg : Colors.grey.shade100,
-                    child: mapUrl == null
+                    child: mapMarkers.isEmpty
                         ? Center(
                             child: Text(
-                              visibleLocations.isEmpty
-                                  ? (_focusedTrackingBookingId == null
-                                        ? 'No active tracking locations yet'
-                                        : 'No live location yet for this booking')
-                                  : 'Add MAPBOX_ACCESS_TOKEN with --dart-define to show the map',
+                              _focusedTrackingBookingId == null
+                                  ? 'No active tracking locations yet'
+                                  : 'No live location yet for this booking',
                               style: TextStyle(
                                 color: isDark
                                     ? Colors.grey[400]
@@ -3811,20 +3825,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               ),
                             ),
                           )
-                        : OptimizedNetworkImage(
-                            imageUrl: mapUrl,
-                            fit: BoxFit.cover,
-                            isThumbnail: false,
-                            errorWidget: Center(
-                              child: Text(
-                                'Mapbox map failed to load',
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.grey[400]
-                                      : Colors.grey[700],
-                                ),
-                              ),
-                            ),
+                        : MobilisLeafletMap(
+                            markers: mapMarkers,
+                            initialZoom: mapMarkers.length > 1 ? 10 : 14,
                           ),
                   ),
                 ),
@@ -3925,31 +3928,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ],
       ),
     );
-  }
-
-  String? _buildMapboxStaticUrl(List<Map<String, dynamic>> locations) {
-    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
-    if (token.isEmpty || locations.isEmpty) return null;
-
-    final valid = locations
-        .where((location) {
-          return location['latitude'] is num && location['longitude'] is num;
-        })
-        .take(10)
-        .toList();
-    if (valid.isEmpty) return null;
-
-    final overlays = valid
-        .map((location) {
-          final lat = (location['latitude'] as num).toDouble();
-          final lng = (location['longitude'] as num).toDouble();
-          return 'pin-s-car+facc15($lng,$lat)';
-        })
-        .join(',');
-
-    final firstLat = (valid.first['latitude'] as num).toDouble();
-    final firstLng = (valid.first['longitude'] as num).toDouble();
-    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/$overlays/$firstLng,$firstLat,12/1100x360?access_token=$token';
   }
 
   Widget _buildVerificationsContent(bool isDark) {

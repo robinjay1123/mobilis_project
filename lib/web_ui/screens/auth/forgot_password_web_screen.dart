@@ -39,12 +39,7 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
     }
 
     if (emailController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your email address');
-      return;
-    }
-
-    if (!_isValidEmail(emailController.text.trim())) {
-      _showErrorSnackBar('Please enter a valid email address');
+      _showErrorSnackBar('Please enter your email or mobile number');
       return;
     }
 
@@ -58,8 +53,11 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
         '🔐 [ForgotPasswordWebScreen] Sending reset email to: ${emailController.text.trim()}',
       );
 
+      final resetEmail = await authService.resolvePasswordResetEmail(
+        emailController.text,
+      );
       await authService.resetPassword(
-        email: emailController.text.trim(),
+        email: resetEmail,
         redirectTo: '${Uri.base.origin}/#/reset-password',
       );
 
@@ -110,13 +108,6 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
-  }
-
-  bool _isValidEmail(String email) {
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-    return emailRegex.hasMatch(email);
   }
 
   @override
@@ -172,7 +163,7 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'No problem! Enter your email address and we\'ll send you a link to reset your password.',
+                          'Enter your email address or mobile number. The reset link will be sent to your registered email.',
                           style: TextStyle(
                             fontSize: 16,
                             color: AppColors.textSecondary,
@@ -189,12 +180,12 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
                     child: Column(
                       children: [
                         CustomTextField(
-                          label: 'Email Address',
-                          hintText: 'name@gmail.com',
+                          label: 'Email or Mobile Number',
+                          hintText: 'name@gmail.com or 09XXXXXXXXX',
                           controller: emailController,
-                          keyboardType: TextInputType.emailAddress,
+                          keyboardType: TextInputType.text,
                           prefixIcon: const Icon(
-                            Icons.email_outlined,
+                            Icons.contact_mail_outlined,
                             color: AppColors.textTertiary,
                           ),
                         ),
@@ -235,7 +226,7 @@ class _ForgotPasswordWebScreenState extends State<ForgotPasswordWebScreen> {
                               SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Check your email (including spam folder) for the password reset link. The link will expire in 24 hours.',
+                                  'The reset link is sent to the registered email, even when a mobile number is used.',
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: AppColors.textSecondary,

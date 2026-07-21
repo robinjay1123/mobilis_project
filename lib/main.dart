@@ -489,6 +489,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
       debugPrint('═══════════════════════════════════════════════════════════');
       if (!mounted) return;
 
+      if (state.event == AuthChangeEvent.passwordRecovery) {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil('/reset-password', (route) => false);
+        return;
+      }
+
       if ((state.event == AuthChangeEvent.signedIn ||
               state.event == AuthChangeEvent.initialSession ||
               state.event == AuthChangeEvent.tokenRefreshed) &&

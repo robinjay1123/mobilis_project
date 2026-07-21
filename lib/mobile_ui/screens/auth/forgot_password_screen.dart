@@ -40,15 +40,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       return;
     }
 
-    // Validate input
     if (emailController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter your email address');
-      return;
-    }
-
-    // Validate email format
-    if (!_isValidEmail(emailController.text.trim())) {
-      _showErrorSnackBar('Please enter a valid email address');
+      _showErrorSnackBar('Please enter your email or mobile number');
       return;
     }
 
@@ -62,7 +55,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         '🔐 [ForgotPasswordScreen] Sending reset email to: ${emailController.text.trim()}',
       );
 
-      await authService.resetPassword(email: emailController.text.trim());
+      final resetEmail = await authService.resolvePasswordResetEmail(
+        emailController.text,
+      );
+      await authService.resetPassword(email: resetEmail);
 
       debugPrint('✅ [ForgotPasswordScreen] Reset email sent successfully!');
 
@@ -115,13 +111,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
-  }
-
-  bool _isValidEmail(String email) {
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-    return emailRegex.hasMatch(email);
   }
 
   @override
@@ -183,7 +172,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
               // Description
               const Text(
-                'Enter the email address associated with your account and we\'ll send you a link to reset your password.',
+                'Enter the email address or mobile number associated with your account. We will send the reset link to your registered email.',
                 style: TextStyle(
                   fontSize: 14,
                   color: AppColors.textSecondary,
@@ -194,12 +183,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
               // Email field
               CustomTextField(
-                label: 'Email Address',
-                hintText: 'name@gmail.com',
+                label: 'Email or Mobile Number',
+                hintText: 'name@gmail.com or 09XXXXXXXXX',
                 controller: emailController,
-                keyboardType: TextInputType.emailAddress,
+                keyboardType: TextInputType.text,
                 prefixIcon: const Icon(
-                  Icons.email_outlined,
+                  Icons.contact_mail_outlined,
                   color: AppColors.textTertiary,
                 ),
               ),
@@ -242,7 +231,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Check your email (including spam folder) for the password reset link.',
+                        'The reset link is sent to the registered email, even when you enter your mobile number.',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,

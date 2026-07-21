@@ -12,6 +12,8 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
+import '../../widgets/leaflet_map.dart';
+import '../../widgets/mpin_verification_dialog.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
@@ -1638,6 +1640,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
 
       if (!mounted || !detailsConfirmed) return;
+
+      final mpinAuthorized =
+          await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const MpinVerificationDialog(),
+          ) ??
+          false;
+
+      if (!mounted || !mpinAuthorized) return;
 
       reservationPaymentProof = await _showReservationPaymentDialog(
         userId: currentUser.id,
@@ -4421,20 +4433,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     await _refreshDeliveryEstimate();
   }
 
-  String? _buildStaticBookingMapUrl(_BookingLocationPin? pin) {
-    const configuredToken = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
-    final token = configuredToken.trim().replaceAll(
-      RegExp(r'''^["']|["']$'''),
-      '',
-    );
-    if (token.isEmpty || pin == null) return null;
-    final lat = pin.latitude;
-    final lng = pin.longitude;
-    return 'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/'
-        'pin-s+facc15($lng,$lat)/$lng,$lat,15/720x360'
-        '?access_token=$token';
-  }
-
   Widget _buildLocationMapCard({
     required String title,
     required _BookingLocationPin? pin,
@@ -4445,8 +4443,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final cleanAddress = pin?.address.trim().isNotEmpty == true
         ? pin!.address
         : fallbackAddress;
-    final mapUrl = _buildStaticBookingMapUrl(pin);
-
     return Container(
       decoration: BoxDecoration(
         color: AppColors.darkBgSecondary,
@@ -4458,20 +4454,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (mapUrl != null)
+          if (pin != null)
             ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
-              child: OptimizedNetworkImage(
-                imageUrl: mapUrl,
+              child: SizedBox(
                 height: 170,
                 width: double.infinity,
-                fit: BoxFit.cover,
-                isThumbnail: true,
-                errorWidget: _buildMapPreviewFallback(
-                  hasPin: true,
-                  compact: true,
+                child: MobilisLeafletMap(
+                  interactive: false,
+                  initialZoom: 15,
+                  markers: [
+                    MobilisMapMarker(
+                      latitude: pin.latitude,
+                      longitude: pin.longitude,
+                    ),
+                  ],
                 ),
               ),
             )
@@ -5155,10 +5154,6 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
 
   static const _fallbackCenter = LatLng(15.9758, 120.5719);
 
-  String get _mapboxToken => const String.fromEnvironment(
-    'MAPBOX_ACCESS_TOKEN',
-  ).trim().replaceAll(RegExp(r'''^["']|["']$'''), '');
-
   LatLng get _mapCenter => _selectedPin == null
       ? _fallbackCenter
       : LatLng(_selectedPin!.latitude, _selectedPin!.longitude);
@@ -5176,7 +5171,6 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
         fullscreenDialog: true,
         builder: (context) => _ExpandedLocationMapScreen(
           title: widget.title,
-          mapboxToken: _mapboxToken,
           initialPin: _selectedPin,
           fallbackCenter: _mapCenter,
           resolveAddress: widget.resolveAddress,
@@ -5438,104 +5432,78 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
                   height: 230,
                   width: double.infinity,
                   color: AppColors.darkBgTertiary,
-                  child: _mapboxToken.isEmpty
-                      ? const _LocationMapError()
-                      : Stack(
-                          children: [
-                            FlutterMap(
-                              mapController: _mapController,
-                              options: MapOptions(
-                                initialCenter: _mapCenter,
-                                initialZoom: _selectedPin == null ? 12 : 16,
-                                minZoom: 5,
-                                maxZoom: 19,
-                                onTap: (_, point) => _selectMapPoint(point),
-                              ),
-                              children: [
-                                TileLayer(
-                                  urlTemplate:
-                                      'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=$_mapboxToken',
-                                  userAgentPackageName:
-                                      'com.example.mobilis_by_psdc_app',
+                  child: Stack(
+                    children: [
+                      MobilisLeafletMap(
+                        mapController: _mapController,
+                        fallbackLatitude: _mapCenter.latitude,
+                        fallbackLongitude: _mapCenter.longitude,
+                        initialZoom: _selectedPin == null ? 12 : 16,
+                        onTap: (latitude, longitude) =>
+                            _selectMapPoint(LatLng(latitude, longitude)),
+                        markers: _selectedPin == null
+                            ? const []
+                            : [
+                                MobilisMapMarker(
+                                  latitude: _selectedPin!.latitude,
+                                  longitude: _selectedPin!.longitude,
+                                  size: 46,
                                 ),
-                                if (_selectedPin != null)
-                                  MarkerLayer(
-                                    markers: [
-                                      Marker(
-                                        point: _mapCenter,
-                                        width: 48,
-                                        height: 48,
-                                        child: const Icon(
-                                          Icons.location_pin,
-                                          size: 46,
-                                          color: AppColors.primary,
-                                          shadows: [
-                                            Shadow(
-                                              color: Colors.black54,
-                                              blurRadius: 8,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
                               ],
+                      ),
+                      const Positioned(
+                        left: 10,
+                        bottom: 10,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(0xDD111827),
+                            borderRadius: BorderRadius.all(Radius.circular(8)),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 6,
                             ),
-                            const Positioned(
-                              left: 10,
-                              bottom: 10,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Color(0xDD111827),
-                                  borderRadius: BorderRadius.all(
-                                    Radius.circular(8),
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 9,
-                                    vertical: 6,
-                                  ),
-                                  child: Text(
-                                    'Tap the map to place the pin',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
+                            child: Text(
+                              'Tap the map to place the pin',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Positioned(
-                              top: 10,
-                              right: 10,
-                              child: Material(
-                                color: const Color(0xDD111827),
-                                borderRadius: BorderRadius.circular(10),
-                                child: IconButton(
-                                  tooltip: 'Expand map',
-                                  onPressed: _openExpandedMap,
-                                  icon: const Icon(
-                                    Icons.fullscreen_rounded,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (_isResolving)
-                              const Positioned.fill(
-                                child: ColoredBox(
-                                  color: Color(0x33000000),
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
+                      ),
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Material(
+                          color: const Color(0xDD111827),
+                          borderRadius: BorderRadius.circular(10),
+                          child: IconButton(
+                            tooltip: 'Expand map',
+                            onPressed: _openExpandedMap,
+                            icon: const Icon(
+                              Icons.fullscreen_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_isResolving)
+                        const Positioned.fill(
+                          child: ColoredBox(
+                            color: Color(0x33000000),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               if (_selectedPin != null) ...[
@@ -5616,7 +5584,6 @@ class _LocationPinPickerSheetState extends State<_LocationPinPickerSheet> {
 
 class _ExpandedLocationMapScreen extends StatefulWidget {
   final String title;
-  final String mapboxToken;
   final _BookingLocationPin? initialPin;
   final LatLng fallbackCenter;
   final Future<String> Function(
@@ -5628,7 +5595,6 @@ class _ExpandedLocationMapScreen extends StatefulWidget {
 
   const _ExpandedLocationMapScreen({
     required this.title,
-    required this.mapboxToken,
     required this.initialPin,
     required this.fallbackCenter,
     required this.resolveAddress,
@@ -5766,43 +5732,23 @@ class _ExpandedLocationMapScreenState
       body: Stack(
         children: [
           Positioned.fill(
-            child: widget.mapboxToken.isEmpty
-                ? const _LocationMapError()
-                : FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _center,
-                      initialZoom: _selectedPin == null ? 12 : 16,
-                      minZoom: 5,
-                      maxZoom: 19,
-                      onTap: (_, point) => _selectPoint(point),
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${widget.mapboxToken}',
-                        userAgentPackageName: 'com.example.mobilis_by_psdc_app',
+            child: MobilisLeafletMap(
+              mapController: _mapController,
+              fallbackLatitude: _center.latitude,
+              fallbackLongitude: _center.longitude,
+              initialZoom: _selectedPin == null ? 12 : 16,
+              onTap: (latitude, longitude) =>
+                  _selectPoint(LatLng(latitude, longitude)),
+              markers: _selectedPin == null
+                  ? const []
+                  : [
+                      MobilisMapMarker(
+                        latitude: _selectedPin!.latitude,
+                        longitude: _selectedPin!.longitude,
+                        size: 54,
                       ),
-                      if (_selectedPin != null)
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: _center,
-                              width: 56,
-                              height: 56,
-                              child: const Icon(
-                                Icons.location_pin,
-                                size: 54,
-                                color: AppColors.primary,
-                                shadows: [
-                                  Shadow(color: Colors.black54, blurRadius: 9),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
                     ],
-                  ),
+            ),
           ),
           Positioned(
             left: 16,
@@ -5835,7 +5781,7 @@ class _ExpandedLocationMapScreenState
                         Expanded(
                           child: Text(
                             _selectedPin?.address ??
-                                'Tap the terrain map to place a pin.',
+                                'Tap the map to place a pin.',
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -5917,34 +5863,6 @@ class _ExpandedLocationMapScreenState
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _LocationMapError extends StatelessWidget {
-  const _LocationMapError();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: AppColors.darkBgTertiary,
-      child: Center(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.map_outlined, color: AppColors.primary, size: 38),
-              SizedBox(height: 8),
-              Text(
-                'Map preview could not load. Check your connection or Mapbox token.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

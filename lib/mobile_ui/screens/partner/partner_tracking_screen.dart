@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/tracking_service.dart';
 import '../../theme/app_colors.dart';
-import '../../widgets/optimized_network_image.dart';
+import '../../widgets/leaflet_map.dart';
 import '../home/chat_detail_screen.dart';
 
 class PartnerTrackingScreen extends StatefulWidget {
@@ -277,17 +277,23 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     required double? lng,
     required String destination,
   }) {
-    final staticMapUrl = _buildStaticMapUrl(lat: lat, lng: lng);
-
-    if (staticMapUrl != null) {
+    if (lat != null && lng != null) {
       return Stack(
         fit: StackFit.expand,
         children: [
-          OptimizedNetworkImage(
-            imageUrl: staticMapUrl,
-            fit: BoxFit.cover,
-            errorWidget: _buildMapFallback(destination),
-            isThumbnail: false,
+          MobilisLeafletMap(
+            key: ValueKey('partner-tracking-$lat-$lng-$_zoom'),
+            fallbackLatitude: lat,
+            fallbackLongitude: lng,
+            initialZoom: _zoom,
+            markers: [
+              MobilisMapMarker(
+                latitude: lat,
+                longitude: lng,
+                icon: Icons.directions_car_filled_rounded,
+                size: 46,
+              ),
+            ],
           ),
           Container(
             decoration: const BoxDecoration(
@@ -696,15 +702,6 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     final minute = parsed.minute.toString().padLeft(2, '0');
     final suffix = parsed.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $suffix';
-  }
-
-  String? _buildStaticMapUrl({required double? lat, required double? lng}) {
-    const token = String.fromEnvironment('MAPBOX_ACCESS_TOKEN');
-    if (token.isEmpty || lat == null || lng == null) return null;
-
-    return 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/'
-        'pin-s-car+facc15($lng,$lat)/$lng,$lat,${_zoom.toStringAsFixed(1)}/900x1400'
-        '?access_token=$token';
   }
 }
 

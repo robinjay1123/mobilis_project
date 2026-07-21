@@ -862,7 +862,9 @@ class AuthService {
 
       final response = await supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: 'io.supabase.flutter://login-callback/',
+        redirectTo: kIsWeb
+            ? Uri.base.origin
+            : 'io.supabase.flutter://login-callback/',
       );
 
       debugPrint('Google OAuth login successful');
@@ -931,7 +933,10 @@ class AuthService {
 
       // Use provided redirectTo or default based on platform
       final finalRedirectTo =
-          redirectTo ?? 'io.supabase.flutter://reset-password/';
+          redirectTo ??
+          (kIsWeb
+              ? '${Uri.base.origin}/#/reset-password'
+              : 'io.supabase.flutter://reset-password/');
 
       await supabase.auth.resetPasswordForEmail(
         email,
@@ -946,6 +951,114 @@ class AuthService {
       debugPrint('Unexpected error during password reset: $e');
       rethrow;
     }
+  }
+
+  /// Resolves an email address or Philippine mobile number to the account's
+  /// reset email. Phone lookup uses the existing public user profile record.
+  Future<String> resolvePasswordResetEmail(String identifier) async {
+    final value = identifier.trim();
+    if (value.isEmpty) {
+      throw const FormatException('Enter your email or mobile number.');
+    }
+
+    if (value.contains('@')) {
+      final email = value.toLowerCase();
+      final isValid = RegExp(
+        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+      ).hasMatch(email);
+      if (!isValid) throw const FormatException('Enter a valid email address.');
+      return email;
+    }
+
+    final canonicalPhone = _canonicalPhilippinePhone(value);
+    if (canonicalPhone == null) {
+      throw const FormatException(
+        'Enter a valid 11-digit Philippine mobile number.',
+      );
+    }
+
+    final variants = <String>{
+      canonicalPhone,
+      '+63${canonicalPhone.substring(1)}',
+      '63${canonicalPhone.substring(1)}',
+      canonicalPhone.substring(1),
+    };
+
+    for (final column in const ['phone', 'phone_number']) {
+      for (final phone in variants) {
+        try {
+          final profile = await supabase
+              .from('users')
+              .select('email')
+              .eq(column, phone)
+              .limit(1)
+              .maybeSingle();
+          final email = profile?['email']?.toString().trim() ?? '';
+          if (email.isNotEmpty) return email.toLowerCase();
+        } on PostgrestException catch (error) {
+          // Older deployments use either `phone` or `phone_number`.
+          if (error.code != '42703' && error.code != 'PGRST204') rethrow;
+          break;
+        }
+      }
+    }
+
+    throw const AuthException(
+      'No account with that mobile number was found. Check the number or use your email address.',
+    );
+  }
+
+  /// Confirms that an identifier belongs to the currently authenticated user.
+  Future<bool> matchesCurrentAccountIdentifier(String identifier) async {
+    final user = currentUser;
+    if (user == null) throw const AuthException('No signed-in user found.');
+
+    final value = identifier.trim();
+    if (value.contains('@')) {
+      return value.toLowerCase() == (user.email ?? '').trim().toLowerCase();
+    }
+
+    final enteredPhone = _canonicalPhilippinePhone(value);
+    if (enteredPhone == null) return false;
+
+    final metadataCandidates = [
+      user.phone,
+      user.userMetadata?['phone'],
+      user.userMetadata?['phone_number'],
+    ];
+    for (final candidate in metadataCandidates) {
+      if (_canonicalPhilippinePhone(candidate?.toString() ?? '') ==
+          enteredPhone) {
+        return true;
+      }
+    }
+
+    try {
+      final profile = await supabase
+          .from('users')
+          .select()
+          .eq('id', user.id)
+          .maybeSingle();
+      for (final key in const ['phone', 'phone_number']) {
+        if (_canonicalPhilippinePhone(profile?[key]?.toString() ?? '') ==
+            enteredPhone) {
+          return true;
+        }
+      }
+    } on PostgrestException {
+      return false;
+    }
+    return false;
+  }
+
+  String? _canonicalPhilippinePhone(String value) {
+    var digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('63') && digits.length == 12) {
+      digits = '0${digits.substring(2)}';
+    } else if (digits.length == 10 && digits.startsWith('9')) {
+      digits = '0$digits';
+    }
+    return RegExp(r'^09\d{9}$').hasMatch(digits) ? digits : null;
   }
 
   // Update password with token (for password reset flow)
@@ -975,6 +1088,8 @@ class AuthService {
     if (error is AuthException) {
       errorMessage = error.message;
     } else if (error is PostgrestException) {
+      errorMessage = error.message;
+    } else if (error is FormatException) {
       errorMessage = error.message;
     } else {
       errorMessage = error.toString();
