@@ -28,6 +28,7 @@ import '../../../mobile_ui/widgets/vehicle_inspection_record_view.dart';
 import '../../../mobile_ui/widgets/restriction_ui.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/booking_receipt_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
@@ -526,10 +527,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Full payment confirmed. Please rate the renter next.'),
+          content: Text('Full payment confirmed. Opening renter rating...'),
           backgroundColor: Colors.green,
         ),
       );
+      // Keep the completion flow moving forward instead of returning the
+      // operator to the booking list after every required action.
+      await _openOperatorRenterRating(booking);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -6036,6 +6040,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.explore_outlined, size: 17),
                           label: const Text('Track Trip'),
                         ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          try {
+                            await BookingReceiptService.shareReceipt(booking);
+                          } catch (error) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Could not download receipt: $error',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        ),
+                        icon: const Icon(Icons.download_rounded, size: 17),
+                        label: const Text('Receipt'),
+                      ),
                       if (completionStage == 'awaiting_payment' &&
                           !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
@@ -6334,8 +6361,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
           ],
-          const SizedBox(height: 18),
-          _buildRenterReviewCard(booking, isDark),
           const SizedBox(height: 18),
           _buildBookingPaymentDetails(booking, isDark),
           const SizedBox(height: 18),
@@ -8517,6 +8542,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
       await _loadDashboardData(showLoading: false);
+      if (inspectionType == 'after' && mounted) {
+        await _confirmOperatorFinalPayment(booking);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

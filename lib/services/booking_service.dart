@@ -167,6 +167,14 @@ class BookingService {
                 phone
               )
             ),
+            job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
+              id,
+              driver_id,
+              status,
+              trip_fee,
+              created_at,
+              updated_at
+            ),
             trip_ratings(rating)
           ''')
           .eq('renter_id', userId)

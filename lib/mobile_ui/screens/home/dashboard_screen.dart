@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../../../services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -2131,6 +2134,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ? 0.0
           : tripRatings.reduce((total, value) => total + value) /
                 tripRatings.length;
+      final assignments = (booking['job_assignments'] as List? ?? const [])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      Map<String, dynamic>? acceptedAssignment;
+      for (final assignment in assignments.reversed) {
+        final assignmentStatus = assignment['status']
+            ?.toString()
+            .trim()
+            .toLowerCase();
+        if (const {
+          'accepted',
+          'ongoing',
+          'awaiting_completion',
+          'completed',
+        }.contains(assignmentStatus)) {
+          acceptedAssignment = assignment;
+          break;
+        }
+      }
+      final rentalSubtotal =
+          (booking['rental_subtotal'] as num?)?.toDouble() ?? totalCost;
+      final deliveryFee = (booking['delivery_fee'] as num?)?.toDouble() ?? 0.0;
+      final driverFee =
+          (acceptedAssignment?['trip_fee'] as num?)?.toDouble() ?? 0.0;
+      final lateReturnFee =
+          (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
 
       return {
         'id': booking['id']?.toString() ?? '',
@@ -2146,7 +2176,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'withDriver': withDriver,
         'driverName': driverName == null || driverName.isEmpty
             ? (withDriver ? 'To be assigned' : 'Not requested')
-            : driverName,
+            : toProfessionalTitleCase(driverName),
         'paymentStatus': paymentStatus,
         'reservationPaymentType': booking['reservation_payment_type']
             ?.toString()
@@ -2155,6 +2185,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             booking['reservation_payment_covers_total'] == true,
         'reservationFeeAmount': (booking['reservation_fee_amount'] as num?)
             ?.toDouble(),
+        'reservationPaymentReference': booking['reservation_payment_reference']
+            ?.toString()
+            .trim(),
+        'reservationPaymentMethod': booking['reservation_payment_method']
+            ?.toString()
+            .trim(),
+        'reservationPaymentProofUrl': booking['reservation_payment_proof_url']
+            ?.toString()
+            .trim(),
         'cancellationReason':
             booking['cancellation_reason']?.toString().trim().isNotEmpty == true
             ? booking['cancellation_reason'].toString().trim()
@@ -2167,7 +2206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'partner_trip_confirmed_at': booking['partner_trip_confirmed_at'],
         'driver_trip_confirmed_at': booking['driver_trip_confirmed_at'],
         'renter_trip_confirmed_at': booking['renter_trip_confirmed_at'],
-        'carName': _vehicleTitle(vehicle),
+        'carName': toProfessionalTitleCase(_vehicleTitle(vehicle)),
         'carImage': Icons.directions_car,
         'imageUrl': vehicle == null ? null : _bookingVehicleImageUrl(vehicle),
         'status': uiStatus,
@@ -2186,8 +2225,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'dropoffLatitude': booking['dropoff_latitude'],
         'dropoffLongitude': booking['dropoff_longitude'],
         'totalCost': totalCost,
+        'rentalSubtotal': rentalSubtotal,
+        'deliveryFee': deliveryFee,
+        'deliveryDistanceKm': (booking['delivery_distance_km'] as num?)
+            ?.toDouble(),
+        'deliveryRatePerKm': (booking['delivery_rate_per_km'] as num?)
+            ?.toDouble(),
+        'driverFee': driverFee,
+        'lateReturnFee': lateReturnFee,
+        'securityDeposit':
+            (booking['security_deposit'] as num?)?.toDouble() ?? 0.0,
         'days': days,
-        'rentalPartner': rentalPartner,
+        'rentalPartner': toProfessionalTitleCase(rentalPartner),
         'rating': actualTripRating,
       };
     }).toList();
@@ -5108,6 +5157,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       onOpenSupport: _openCustomerServiceConversation,
       onOpenVerification: () =>
           setState(() => selectedProfilePage = 'verification'),
+      onOpenFavorites: () => setState(() => selectedProfilePage = 'favorites'),
       stats: [
         ProfileStatItem(
           label: 'Trips',
@@ -5445,6 +5495,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   pendingRoles: pendingRoles,
                 )
               : null,
+          onReceipt: () => _showTripReceipt(booking),
         ),
       ),
     );
@@ -5945,6 +5996,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
               : null,
+          onReceipt: () => _showTripReceipt(booking),
         ),
       ),
     );
@@ -6096,8 +6148,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _showTripReceipt(Map<String, dynamic> booking) {
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final safeDays = days < 1 ? 1 : days;
-    final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0.0;
-    final dailyRate = totalCost / safeDays;
+    final recordedTotal = (booking['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final deliveryFee = (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0;
+    final driverFee = (booking['driverFee'] as num?)?.toDouble() ?? 0.0;
+    final lateReturnFee = (booking['lateReturnFee'] as num?)?.toDouble() ?? 0.0;
+    final rentalSubtotal =
+        (booking['rentalSubtotal'] as num?)?.toDouble() ??
+        (recordedTotal - deliveryFee).clamp(0.0, double.infinity).toDouble();
+    final dailyRate = rentalSubtotal / safeDays;
+    final total = rentalSubtotal + deliveryFee + driverFee + lateReturnFee;
+    final reservationFee =
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ?? 1000.0;
+    final totalBalance = (total - reservationFee)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    final securityDeposit =
+        (booking['securityDeposit'] as num?)?.toDouble() ?? 0.0;
+    final reference = booking['reservationPaymentReference']?.toString().trim();
+    final method = booking['reservationPaymentMethod']?.toString().trim();
 
     showModalBottomSheet(
       context: context,
@@ -6208,6 +6276,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         booking['paymentStatus']?.toString() ??
                         'Reservation pending',
                   ),
+                  if (reference != null && reference.isNotEmpty) ...[
+                    const Divider(color: AppColors.borderColor),
+                    _buildBookingDetailRow(
+                      icon: Icons.numbers_rounded,
+                      label: 'Payment Reference',
+                      value: reference,
+                    ),
+                  ],
+                  if (method != null && method.isNotEmpty) ...[
+                    const Divider(color: AppColors.borderColor),
+                    _buildBookingDetailRow(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: 'Payment Method',
+                      value: toProfessionalTitleCase(method),
+                    ),
+                  ],
                   const Divider(color: AppColors.borderColor),
                   _buildBookingDetailRow(
                     icon: Icons.schedule,
@@ -6240,31 +6324,234 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   CostBreakdownRow(
                     label:
-                        '$safeDays day${safeDays == 1 ? '' : 's'} x ₱${formatAmount(dailyRate, decimalDigits: 0)}/day',
-                    amount: '₱${formatAmount(totalCost, decimalDigits: 0)}',
+                        '$safeDays day${safeDays == 1 ? '' : 's'} x PHP ${formatAmount(dailyRate)}/day',
+                    amount: 'PHP ${formatAmount(rentalSubtotal)}',
                   ),
-                  const CostBreakdownRow(label: 'Insurance', amount: '₱50'),
-                  CostBreakdownRow(
-                    label: 'Tax (10%)',
-                    amount:
-                        '₱${formatAmount((totalCost + 50) * 0.1, decimalDigits: 0)}',
-                  ),
+                  if (deliveryFee > 0)
+                    CostBreakdownRow(
+                      label: 'Delivery / Pickup Charge',
+                      amount: 'PHP ${formatAmount(deliveryFee)}',
+                    ),
+                  if (driverFee > 0)
+                    CostBreakdownRow(
+                      label: 'Driver Fee',
+                      amount: 'PHP ${formatAmount(driverFee)}',
+                    ),
+                  if (lateReturnFee > 0)
+                    CostBreakdownRow(
+                      label: 'Late Return Fee',
+                      amount: 'PHP ${formatAmount(lateReturnFee)}',
+                    ),
                   const Divider(color: AppColors.borderColor),
                   CostBreakdownRow(
-                    label: 'Total Paid',
-                    amount:
-                        '₱${formatAmount(totalCost + 50 + ((totalCost + 50) * 0.1), decimalDigits: 0)}',
+                    label: 'Total',
+                    amount: 'PHP ${formatAmount(total)}',
                     isBold: true,
                     amountColor: AppColors.primary,
+                  ),
+                  CostBreakdownRow(
+                    label: 'Less Reservation Fee',
+                    amount: '- PHP ${formatAmount(reservationFee)}',
+                  ),
+                  CostBreakdownRow(
+                    label: 'Total Balance',
+                    amount: 'PHP ${formatAmount(totalBalance)}',
+                    isBold: true,
+                  ),
+                  CostBreakdownRow(
+                    label: 'Security Deposit (Refundable)',
+                    amount: 'PHP ${formatAmount(securityDeposit)}',
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _downloadTripReceipt(booking),
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('Download Receipt'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  minimumSize: const Size.fromHeight(48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _downloadTripReceipt(Map<String, dynamic> booking) async {
+    final days = ((booking['days'] as num?)?.toInt() ?? 1).clamp(1, 9999);
+    final recordedTotal = (booking['totalCost'] as num?)?.toDouble() ?? 0.0;
+    final deliveryFee = (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0;
+    final driverFee = (booking['driverFee'] as num?)?.toDouble() ?? 0.0;
+    final lateReturnFee = (booking['lateReturnFee'] as num?)?.toDouble() ?? 0.0;
+    final rentalSubtotal =
+        (booking['rentalSubtotal'] as num?)?.toDouble() ??
+        (recordedTotal - deliveryFee).clamp(0.0, double.infinity).toDouble();
+    final dailyRate = rentalSubtotal / days;
+    final total = rentalSubtotal + deliveryFee + driverFee + lateReturnFee;
+    final reservationFee =
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ?? 1000.0;
+    final balance = (total - reservationFee)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    final securityDeposit =
+        (booking['securityDeposit'] as num?)?.toDouble() ?? 0.0;
+    final bookingId = booking['id']?.toString() ?? 'booking';
+    final document = pw.Document();
+
+    pw.Widget amountRow(String label, String amount, {bool bold = false}) {
+      final style = pw.TextStyle(
+        fontSize: 10,
+        fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      );
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Expanded(child: pw.Text(label, style: style)),
+            pw.SizedBox(width: 16),
+            pw.Text(amount, style: style),
+          ],
+        ),
+      );
+    }
+
+    document.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(18),
+              color: PdfColor.fromHex('#08233D'),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'MOBILIS BY PSDC',
+                    style: pw.TextStyle(
+                      color: PdfColor.fromHex('#FFD600'),
+                      fontSize: 18,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'Official Trip Receipt',
+                    style: const pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Text(
+              toProfessionalTitleCase(
+                booking['carName']?.toString() ?? 'Vehicle',
+              ),
+              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text('Booking ID: $bookingId'),
+            pw.Text(
+              'Schedule: ${booking['startDate'] ?? 'N/A'} ${booking['startTime'] ?? ''} - ${booking['endDate'] ?? 'N/A'} ${booking['endTime'] ?? ''}',
+            ),
+            pw.Text('Pickup: ${booking['pickupLocation'] ?? 'Not specified'}'),
+            pw.Text(
+              'Destination: ${booking['dropoffLocation'] ?? 'Not specified'}',
+            ),
+            pw.Text('Driver: ${booking['driverName'] ?? 'Not requested'}'),
+            pw.Text('Payment status: ${booking['paymentStatus'] ?? 'Pending'}'),
+            if (booking['reservationPaymentReference']
+                    ?.toString()
+                    .trim()
+                    .isNotEmpty ==
+                true)
+              pw.Text(
+                'Payment reference: ${booking['reservationPaymentReference']}',
+              ),
+            pw.SizedBox(height: 22),
+            pw.Text(
+              'Payment Breakdown',
+              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Divider(),
+            amountRow(
+              '$days day${days == 1 ? '' : 's'} x PHP ${formatAmount(dailyRate)}/day',
+              'PHP ${formatAmount(rentalSubtotal)}',
+            ),
+            if (deliveryFee > 0)
+              amountRow(
+                'Delivery / Pickup Charge',
+                'PHP ${formatAmount(deliveryFee)}',
+              ),
+            if (driverFee > 0)
+              amountRow('Driver Fee', 'PHP ${formatAmount(driverFee)}'),
+            if (lateReturnFee > 0)
+              amountRow(
+                'Late Return Fee',
+                'PHP ${formatAmount(lateReturnFee)}',
+              ),
+            pw.Divider(),
+            amountRow('TOTAL', 'PHP ${formatAmount(total)}', bold: true),
+            amountRow(
+              'LESS RESERVATION FEE',
+              '- PHP ${formatAmount(reservationFee)}',
+            ),
+            amountRow(
+              'TOTAL BALANCE',
+              'PHP ${formatAmount(balance)}',
+              bold: true,
+            ),
+            amountRow(
+              'SECURITY DEPOSIT (REFUNDABLE)',
+              'PHP ${formatAmount(securityDeposit)}',
+            ),
+            pw.Spacer(),
+            pw.Divider(),
+            pw.Text(
+              'This receipt reflects the booking values recorded by Mobilis by PSDC.',
+              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      await Printing.sharePdf(
+        bytes: await document.save(),
+        filename: 'mobilis_receipt_${bookingId.replaceAll('-', '')}.pdf',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not download receipt: $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showCancellationDetails(Map<String, dynamic> booking) {
@@ -7558,6 +7845,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final VoidCallback? onCancel;
   final VoidCallback? onExtend;
   final VoidCallback? onSuccessfulTrip;
+  final VoidCallback? onReceipt;
 
   const _RenterBookingDetailsPage({
     required this.booking,
@@ -7572,6 +7860,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     this.onCancel,
     this.onExtend,
     this.onSuccessfulTrip,
+    this.onReceipt,
   });
 
   @override
@@ -7605,16 +7894,15 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 16),
-              if (onNavigate != null) ...[
+              if (isApprovedTrip) ...[
+                _buildOngoingTripPanel(),
+                const SizedBox(height: 16),
+              ] else if (onNavigate != null) ...[
                 _buildPrimaryButton(
                   icon: Icons.navigation_rounded,
                   label: 'Navigate',
                   onPressed: onNavigate!,
                 ),
-                const SizedBox(height: 12),
-              ],
-              if (isApprovedTrip) ...[
-                BookingReturnCountdown(booking: booking, compact: true),
                 const SizedBox(height: 12),
               ],
               if (pendingRoles.isNotEmpty &&
@@ -7669,6 +7957,14 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     'Total Cost',
                     'PHP ${formatAmount(totalCost, decimalDigits: 0)}',
                   ),
+                  if (onReceipt != null) ...[
+                    const SizedBox(height: 6),
+                    _buildInlineAction(
+                      icon: Icons.download_rounded,
+                      label: 'View and Download Receipt',
+                      onPressed: onReceipt!,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 18),
@@ -7686,13 +7982,14 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   onPressed: onExtend!,
                 ),
               if (onExtend != null) const SizedBox(height: 12),
-              if (onMessage != null)
+              if (onMessage != null && !isApprovedTrip)
                 _buildSecondaryButton(
                   icon: Icons.chat_bubble_outline,
                   label: 'Open Conversation',
                   onPressed: onMessage!,
                 ),
-              if (onMessage != null) const SizedBox(height: 12),
+              if (onMessage != null && !isApprovedTrip)
+                const SizedBox(height: 12),
               if (onCancel != null)
                 _buildDangerButton(
                   icon: Icons.cancel_outlined,
@@ -7703,6 +8000,144 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOngoingTripPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.route_rounded, color: AppColors.primary, size: 21),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Ongoing Trip',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              _LiveTripBadge(),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Follow the return schedule and keep trip coordination in the booking conversation.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          BookingReturnCountdown(booking: booking),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              if (onNavigate != null)
+                Expanded(
+                  child: _buildCompactTripAction(
+                    icon: Icons.navigation_rounded,
+                    label: 'Navigate',
+                    filled: true,
+                    onPressed: onNavigate!,
+                  ),
+                ),
+              if (onNavigate != null && onMessage != null)
+                const SizedBox(width: 10),
+              if (onMessage != null)
+                Expanded(
+                  child: _buildCompactTripAction(
+                    icon: Icons.chat_bubble_outline_rounded,
+                    label: 'Message',
+                    filled: false,
+                    onPressed: onMessage!,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactTripAction({
+    required IconData icon,
+    required String label,
+    required bool filled,
+    required VoidCallback onPressed,
+  }) {
+    final child = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
+    );
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(13),
+    );
+    return SizedBox(
+      height: 48,
+      child: filled
+          ? ElevatedButton(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                shape: shape,
+              ),
+              child: child,
+            )
+          : OutlinedButton(
+              onPressed: onPressed,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: shape,
+              ),
+              child: child,
+            ),
+    );
+  }
+
+  Widget _buildInlineAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
     );
@@ -7954,6 +8389,37 @@ class _CalendarLegendDot extends StatelessWidget {
         const SizedBox(width: 6),
         Text(label, style: TextStyle(fontSize: 12, color: textColor)),
       ],
+    );
+  }
+}
+
+class _LiveTripBadge extends StatelessWidget {
+  const _LiveTripBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.45)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, color: AppColors.success, size: 7),
+          SizedBox(width: 5),
+          Text(
+            'LIVE',
+            style: TextStyle(
+              color: AppColors.success,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

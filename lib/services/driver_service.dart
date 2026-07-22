@@ -1451,6 +1451,12 @@ class DriverService {
               full_name,
               email,
               phone
+            ),
+            job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey (
+              id,
+              driver_id,
+              status,
+              trip_fee
             )
           ''')
           .eq('driver_id', userId)

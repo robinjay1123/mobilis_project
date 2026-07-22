@@ -30,6 +30,7 @@ class UnifiedProfileScreen extends StatefulWidget {
   final VoidCallback? onLogout;
   final VoidCallback? onOpenSupport;
   final VoidCallback? onOpenVerification;
+  final VoidCallback? onOpenFavorites;
   final VoidCallback? onProfileUpdated;
 
   const UnifiedProfileScreen({
@@ -41,6 +42,7 @@ class UnifiedProfileScreen extends StatefulWidget {
     this.onLogout,
     this.onOpenSupport,
     this.onOpenVerification,
+    this.onOpenFavorites,
     this.onProfileUpdated,
   });
 
@@ -547,13 +549,17 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     return RolePageHeader(
       title: 'Profile',
       trailing: IconButton(
-        onPressed: _openRatings,
-        tooltip: 'Ratings and Reviews',
+        onPressed: _isRenter && widget.onOpenFavorites != null
+            ? widget.onOpenFavorites
+            : _openRatings,
+        tooltip: _isRenter ? 'Liked Cars' : 'Ratings and Reviews',
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.all(6),
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-        icon: const Icon(
-          Icons.star_outline_rounded,
+        icon: Icon(
+          _isRenter
+              ? Icons.favorite_border_rounded
+              : Icons.star_outline_rounded,
           color: Colors.black,
           size: 24,
         ),

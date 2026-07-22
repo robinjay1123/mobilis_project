@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/booking_receipt_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/driver_service.dart';
 import '../../../services/notification_permission_service.dart';
@@ -2800,6 +2801,27 @@ class _TripCardState extends State<_TripCard> {
               ),
             ),
           ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  await BookingReceiptService.shareReceipt(trip);
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Could not download receipt: $error'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.download_rounded, size: 17),
+              label: const Text('Download Trip Receipt'),
+            ),
+          ),
           const SizedBox(height: 12),
           if (status == 'confirmed' || status == 'approved')
             const _DriverWaitingAction(

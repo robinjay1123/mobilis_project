@@ -10,6 +10,7 @@ import '../../../services/booking_inspection_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/partner_service.dart';
 import '../../../services/booking_service.dart';
+import '../../../services/booking_receipt_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/notification_permission_service.dart';
@@ -3738,9 +3739,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       );
       await _loadPartnerData();
       if (!mounted) return;
-      _showSuccessSnackBar(
-        'Full payment confirmed. Please rate the renter next.',
-      );
+      _showSuccessSnackBar('Full payment confirmed. Opening renter rating...');
+      await _openPartnerRenterRating(context, booking);
     } catch (e) {
       if (!mounted) return;
       _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
@@ -3853,6 +3853,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               onRateTrip: completionStage == 'partner_rating'
                   ? () => _openPartnerRenterRating(parentContext, booking)
                   : null,
+              onReceipt: () => BookingReceiptService.shareReceipt(booking),
             ),
           ),
         ),
@@ -4308,6 +4309,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             : 'Return checklist submitted. Confirm payment and complete the required ratings next.',
       );
       await _loadPartnerData();
+      if (inspectionType == 'after' && mounted) {
+        await _confirmPartnerFinalPayment(context, booking);
+      }
     } catch (e) {
       if (!mounted) return;
       _showErrorSnackBar('Failed to save checklist: $e');
@@ -4840,6 +4844,7 @@ class BookingDetailModal extends StatelessWidget {
   final VoidCallback? onAfterInspection;
   final VoidCallback? onConfirmPayment;
   final VoidCallback? onRateTrip;
+  final VoidCallback? onReceipt;
   final bool showHeader;
 
   const BookingDetailModal({
@@ -4857,6 +4862,7 @@ class BookingDetailModal extends StatelessWidget {
     this.onAfterInspection,
     this.onConfirmPayment,
     this.onRateTrip,
+    this.onReceipt,
     this.showHeader = true,
   });
 
@@ -5165,7 +5171,8 @@ class BookingDetailModal extends StatelessWidget {
                 onMessage != null ||
                 onBeforeInspection != null ||
                 onViewBeforeInspection != null ||
-                onAfterInspection != null) ...[
+                onAfterInspection != null ||
+                onReceipt != null) ...[
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
@@ -5217,6 +5224,12 @@ class BookingDetailModal extends StatelessWidget {
                         size: 16,
                       ),
                       label: const Text('After Check'),
+                    ),
+                  if (onReceipt != null)
+                    OutlinedButton.icon(
+                      onPressed: onReceipt,
+                      icon: const Icon(Icons.download_rounded, size: 16),
+                      label: const Text('Download Receipt'),
                     ),
                 ],
               ),

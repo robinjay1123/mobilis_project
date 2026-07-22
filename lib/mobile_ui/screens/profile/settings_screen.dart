@@ -14,6 +14,7 @@ import '../../../services/chat_service.dart';
 import '../../../services/image_optimization_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
+import 'ratings_reviews_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -867,6 +868,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: 'Position',
                             subtitle: _operatorPosition,
                             onTap: _editOperatorProfile,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.star_outline_rounded,
+                            title: 'Ratings & Reviews',
+                            subtitle:
+                                'View ratings received from completed trips',
+                            onTap: () {
+                              final userId =
+                                  Supabase.instance.client.auth.currentUser?.id;
+                              if (userId == null) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => RatingsReviewsScreen(
+                                    userId: userId,
+                                    title: 'Operator Ratings & Reviews',
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ]),
                         card('Account Settings', [
