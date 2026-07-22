@@ -22,6 +22,7 @@ class BookingCard extends StatelessWidget {
   final bool showCancelButton;
   final bool showRating;
   final String detailsButtonLabel;
+  final String trackButtonLabel;
   final bool isActive;
   final String? carImageUrl;
   final Widget? ongoingSummary;
@@ -46,6 +47,7 @@ class BookingCard extends StatelessWidget {
     this.showCancelButton = false,
     this.showRating = true,
     this.detailsButtonLabel = 'View Details',
+    this.trackButtonLabel = 'Track Ongoing Trip',
     this.isActive = false,
     this.carImageUrl,
     this.ongoingSummary,
@@ -272,17 +274,13 @@ class BookingCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (ongoingSummary != null) ...[
-              ongoingSummary!,
-              const SizedBox(height: 10),
-            ],
             if (showTrackButton) ...[
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: onTrack,
                   icon: const Icon(Icons.near_me_outlined, size: 16),
-                  label: const Text('Track Ongoing Trip'),
+                  label: Text(trackButtonLabel),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
@@ -293,6 +291,10 @@ class BookingCard extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+            ],
+            if (ongoingSummary != null) ...[
+              ongoingSummary!,
               const SizedBox(height: 10),
             ],
             Row(

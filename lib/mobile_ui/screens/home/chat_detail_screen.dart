@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../services/auth_service.dart';
@@ -55,6 +57,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isUploadingAttachment = false;
   bool _showSupportFaqs = true;
   bool _liveSupportEnabled = false;
+  bool _showBookingActivity = true;
   List<_SupportFaq>? _configuredSupportFaqs;
   final List<Map<String, String>> _supportAssistantMessages = [];
   final List<Map<String, dynamic>> _pendingMessages = [];
@@ -606,6 +609,217 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
+  String _visibleMessageContent(String content) {
+    return content
+        .replaceFirst(RegExp(r'\n\n\[Audit: [^\]]+\]\s*$'), '')
+        .trim();
+  }
+
+  bool _isChecklistAudit(String content) {
+    return content.startsWith('Before-Release Checklist Submitted') ||
+        content.startsWith('After-Return Checklist Submitted');
+  }
+
+  Future<void> _openAttachmentPreview({
+    required String url,
+    required String type,
+    required String name,
+  }) async {
+    final normalizedType = type.toLowerCase();
+    if (normalizedType == 'image') {
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black87,
+        builder: (dialogContext) => Dialog.fullscreen(
+          backgroundColor: Colors.black,
+          child: SafeArea(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 5,
+                    child: Center(
+                      child: OptimizedNetworkImage(
+                        imageUrl: url,
+                        fit: BoxFit.contain,
+                        isThumbnail: false,
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: IconButton.filled(
+                    tooltip: 'Close preview',
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (normalizedType == 'video') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => _VideoAttachmentViewer(url: url, title: name),
+        ),
+      );
+      return;
+    }
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  Widget _buildAttachmentPreview({
+    required String url,
+    required String type,
+    required String name,
+    required bool isCurrentUser,
+    required bool isDark,
+  }) {
+    final normalizedType = type.toLowerCase();
+    if (normalizedType == 'image') {
+      return InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _openAttachmentPreview(url: url, type: type, name: name),
+        child: Stack(
+          children: [
+            OptimizedNetworkImage(
+              imageUrl: url,
+              width: 300,
+              height: 180,
+              fit: BoxFit.cover,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.fullscreen_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final foreground = isCurrentUser
+        ? Colors.black
+        : (isDark ? AppColors.textPrimary : Colors.black87);
+    return Material(
+      color: Colors.black.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _openAttachmentPreview(url: url, type: type, name: name),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  normalizedType == 'video'
+                      ? Icons.play_arrow_rounded
+                      : _attachmentIcon(type),
+                  color: foreground,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Icon(Icons.open_in_full_rounded, color: foreground, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChecklistContent(String content, bool isCurrentUser) {
+    final lines = content.split('\n');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: List.generate(lines.length, (index) {
+        final line = lines[index].trim();
+        if (line.isEmpty) return const SizedBox(height: 6);
+        final isTitle = index == 0;
+        final isSection =
+            line == line.toUpperCase() &&
+            !line.startsWith('[x]') &&
+            line.length > 3;
+        final isChecked = line.startsWith('[x]');
+        final color = isCurrentUser ? Colors.black : AppColors.textPrimary;
+        if (isChecked) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.check_box_rounded,
+                  size: 16,
+                  color: AppColors.success,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    line.substring(3),
+                    style: TextStyle(color: color, fontSize: 12, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: EdgeInsets.only(bottom: isTitle || isSection ? 6 : 3),
+          child: Text(
+            line,
+            style: TextStyle(
+              color: isSection && !isTitle ? AppColors.primary : color,
+              fontSize: isTitle ? 15 : (isSection ? 11 : 12),
+              fontWeight: isTitle || isSection
+                  ? FontWeight.w800
+                  : FontWeight.w500,
+              height: 1.35,
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
   void _showFaqAnswer(_SupportFaq faq) {
     setState(() {
       _supportAssistantMessages.addAll([
@@ -962,20 +1176,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ],
               ),
         actions: [
-          IconButton(
-            onPressed: () => showPolicyDetailsSheet(context),
-            icon: Icon(Icons.info_outline, color: appBarTextColor),
-          ),
+          if (widget.isCustomerService)
+            IconButton(
+              onPressed: () => showPolicyDetailsSheet(context),
+              icon: Icon(Icons.info_outline, color: appBarTextColor),
+            )
+          else
+            IconButton(
+              tooltip: 'Conversation options',
+              onPressed: () => _showConversationOptions(
+                isDark: isDark,
+                cardColor: cardColor,
+                textColor: textColor,
+              ),
+              icon: Icon(Icons.more_vert_rounded, color: appBarTextColor),
+            ),
         ],
       ),
       body: Column(
         children: [
           if (widget.isCustomerService)
             _buildCustomerServicePanel()
-          else ...[
-            _buildParticipantReference(isDark, cardColor, textColor),
-            _buildBookingActivityBanner(isDark),
-          ],
+          else
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child: _showBookingActivity
+                  ? _buildBookingActivityBanner(isDark)
+                  : const SizedBox.shrink(),
+            ),
           if (_restrictionState.isMessagingRestricted)
             _buildRestrictionBanner(),
 
@@ -1151,230 +1380,224 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         );
                       }
 
-                      return ListView.builder(
-                        reverse: true,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: messages.length,
-                        itemBuilder: (context, index) {
-                          final message = messages[messages.length - 1 - index];
-                          final isAutoGenerated =
-                              message['is_auto_generated'] == true;
-                          final currentUserId = _authService.currentUser?.id;
-                          final isCurrentUser =
-                              message['sender_id'] == currentUserId;
-                          final isDeleted =
-                              message['is_deleted'] == true ||
-                              (message['content'] ?? message['message'])
-                                      ?.toString() ==
-                                  'Message deleted';
-                          final isSending = message['_is_sending'] == true;
-                          final sendFailed = message['_send_failed'] == true;
-                          final content =
-                              (message['content'] ?? message['message'] ?? '')
-                                  .toString();
-                          final attachmentUrl = message['attachment_url']
-                              ?.toString();
-                          final attachmentName =
-                              message['attachment_name']?.toString() ??
-                              'Attachment';
-                          final attachmentType =
-                              message['attachment_type']?.toString() ??
-                              'document';
-                          final violatesPolicy =
-                              !isDeleted &&
-                              isCurrentUser &&
-                              MessageFilterService.analyzeMessage(
-                                    content,
-                                  )['should_flag'] ==
-                                  true;
+                      return NotificationListener<UserScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification.direction != ScrollDirection.idle &&
+                              _showBookingActivity) {
+                            setState(() => _showBookingActivity = false);
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: messages.length,
+                          itemBuilder: (context, index) {
+                            final message =
+                                messages[messages.length - 1 - index];
+                            final isAutoGenerated =
+                                message['is_auto_generated'] == true;
+                            final currentUserId = _authService.currentUser?.id;
+                            final isCurrentUser =
+                                message['sender_id'] == currentUserId;
+                            final isDeleted =
+                                message['is_deleted'] == true ||
+                                (message['content'] ?? message['message'])
+                                        ?.toString() ==
+                                    'Message deleted';
+                            final isSending = message['_is_sending'] == true;
+                            final sendFailed = message['_send_failed'] == true;
+                            final content =
+                                (message['content'] ?? message['message'] ?? '')
+                                    .toString();
+                            final displayContent = isDeleted
+                                ? 'Message deleted'
+                                : _visibleMessageContent(content);
+                            final isChecklistAudit =
+                                !isDeleted && _isChecklistAudit(displayContent);
+                            final attachmentUrl = message['attachment_url']
+                                ?.toString();
+                            final attachmentName =
+                                message['attachment_name']?.toString() ??
+                                'Attachment';
+                            final attachmentType =
+                                message['attachment_type']?.toString() ??
+                                'document';
+                            final violatesPolicy =
+                                !isDeleted &&
+                                isCurrentUser &&
+                                MessageFilterService.analyzeMessage(
+                                      content,
+                                    )['should_flag'] ==
+                                    true;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Column(
-                              crossAxisAlignment: isCurrentUser
-                                  ? CrossAxisAlignment.end
-                                  : CrossAxisAlignment.start,
-                              children: [
-                                // Auto-message badge
-                                if (isAutoGenerated)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.primary.withValues(
-                                          alpha: 0.1,
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Column(
+                                crossAxisAlignment: isCurrentUser
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: [
+                                  // Auto-message badge
+                                  if (isAutoGenerated)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
                                         ),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        '🤖 Auto-generated message',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.w500,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(
+                                            alpha: 0.1,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          '🤖 Auto-generated message',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                // Message bubble
-                                Container(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 280,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isCurrentUser
-                                        ? AppColors.primary
-                                        : (isDark
-                                              ? AppColors.darkBgSecondary
-                                              : Colors.grey[200]),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (!isDeleted &&
-                                          attachmentUrl != null &&
-                                          attachmentUrl.isNotEmpty) ...[
-                                        InkWell(
-                                          onTap: () => launchUrl(
-                                            Uri.parse(attachmentUrl),
-                                            mode:
-                                                LaunchMode.externalApplication,
+                                  // Message bubble
+                                  Container(
+                                    constraints: BoxConstraints(
+                                      maxWidth: isChecklistAudit ? 340 : 280,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isCurrentUser
+                                          ? AppColors.primary
+                                          : (isDark
+                                                ? AppColors.darkBgSecondary
+                                                : Colors.grey[200]),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (!isDeleted &&
+                                            attachmentUrl != null &&
+                                            attachmentUrl.isNotEmpty) ...[
+                                          _buildAttachmentPreview(
+                                            url: attachmentUrl,
+                                            type: attachmentType,
+                                            name: attachmentName,
+                                            isCurrentUser: isCurrentUser,
+                                            isDark: isDark,
                                           ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                _attachmentIcon(attachmentType),
+                                          if (displayContent.isNotEmpty)
+                                            const SizedBox(height: 8),
+                                        ],
+                                        if (displayContent.isNotEmpty)
+                                          if (isChecklistAudit)
+                                            _buildChecklistContent(
+                                              displayContent,
+                                              isCurrentUser,
+                                            )
+                                          else
+                                            Text(
+                                              displayContent,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontStyle: isDeleted
+                                                    ? FontStyle.italic
+                                                    : FontStyle.normal,
                                                 color: isCurrentUser
                                                     ? Colors.black
-                                                    : AppColors.primary,
-                                                size: 18,
+                                                    : (isDark
+                                                          ? AppColors
+                                                                .textPrimary
+                                                          : Colors.black),
                                               ),
-                                              const SizedBox(width: 8),
-                                              Flexible(
-                                                child: Text(
-                                                  attachmentName,
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: isCurrentUser
-                                                        ? Colors.black
-                                                        : (isDark
-                                                              ? AppColors
-                                                                    .textPrimary
-                                                              : Colors.black),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        if (content.isNotEmpty)
-                                          const SizedBox(height: 8),
+                                            ),
                                       ],
-                                      if (content.isNotEmpty)
-                                        Text(
-                                          isDeleted
-                                              ? 'Message deleted'
-                                              : content,
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontStyle: isDeleted
-                                                ? FontStyle.italic
-                                                : FontStyle.normal,
-                                            color: isCurrentUser
-                                                ? Colors.black
-                                                : (isDark
-                                                      ? AppColors.textPrimary
-                                                      : Colors.black),
-                                          ),
-                                        ),
-                                    ],
+                                    ),
                                   ),
-                                ),
-                                // Timestamp
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      RelativeTimeText(
-                                        value: message['created_at'],
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: isDark
-                                              ? AppColors.textTertiary
-                                              : AppColors.lightTextTertiary,
-                                        ),
-                                      ),
-                                      if (isSending || sendFailed) ...[
-                                        const SizedBox(width: 7),
-                                        Text(
-                                          sendFailed ? 'Failed' : 'Sending...',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: sendFailed
-                                                ? AppColors.error
-                                                : AppColors.textTertiary,
-                                            fontStyle: FontStyle.italic,
-                                          ),
-                                        ),
-                                      ],
-                                      if (isCurrentUser &&
-                                          !isDeleted &&
-                                          !isAutoGenerated &&
-                                          !isSending &&
-                                          !sendFailed) ...[
-                                        const SizedBox(width: 5),
-                                        IconButton(
-                                          tooltip: 'Delete message',
-                                          visualDensity: VisualDensity.compact,
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(
-                                            minWidth: 28,
-                                            minHeight: 28,
-                                          ),
-                                          onPressed: () =>
-                                              _confirmDeleteMessage(message),
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            size: 16,
-                                            color: AppColors.textTertiary,
-                                          ),
-                                        ),
-                                      ],
-                                      if (violatesPolicy) ...[
-                                        const SizedBox(width: 8),
-                                        const Text(
-                                          'Violates policy',
+                                  // Timestamp
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        RelativeTimeText(
+                                          value: message['created_at'],
                                           style: TextStyle(
                                             fontSize: 11,
-                                            color: Color(0xFFFF5B5B),
-                                            fontWeight: FontWeight.w600,
+                                            color: isDark
+                                                ? AppColors.textTertiary
+                                                : AppColors.lightTextTertiary,
                                           ),
                                         ),
+                                        if (isSending || sendFailed) ...[
+                                          const SizedBox(width: 7),
+                                          Text(
+                                            sendFailed
+                                                ? 'Failed'
+                                                : 'Sending...',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: sendFailed
+                                                  ? AppColors.error
+                                                  : AppColors.textTertiary,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                        if (isCurrentUser &&
+                                            !isDeleted &&
+                                            !isAutoGenerated &&
+                                            !isSending &&
+                                            !sendFailed) ...[
+                                          const SizedBox(width: 5),
+                                          IconButton(
+                                            tooltip: 'Delete message',
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(
+                                              minWidth: 28,
+                                              minHeight: 28,
+                                            ),
+                                            onPressed: () =>
+                                                _confirmDeleteMessage(message),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              size: 16,
+                                              color: AppColors.textTertiary,
+                                            ),
+                                          ),
+                                        ],
+                                        if (violatesPolicy) ...[
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            'Violates policy',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Color(0xFFFF5B5B),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
@@ -1632,6 +1855,96 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Future<void> _showConversationOptions({
+    required bool isDark,
+    required Color cardColor,
+    required Color textColor,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: cardColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: textColor.withValues(alpha: 0.24),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 15),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'Conversation details',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 145,
+                child: _buildParticipantReference(isDark, cardColor, textColor),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                tileColor: isDark
+                    ? AppColors.darkBgSecondary
+                    : AppColors.lightBgSecondary,
+                leading: const Icon(
+                  Icons.policy_outlined,
+                  color: AppColors.primary,
+                ),
+                title: Text(
+                  'Conversation policy',
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Review safety and off-platform communication rules',
+                  style: TextStyle(
+                    color: textColor.withValues(alpha: 0.62),
+                    fontSize: 11,
+                  ),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  color: textColor.withValues(alpha: 0.55),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) showPolicyDetailsSheet(context);
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2283,5 +2596,102 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first[0].toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+}
+
+class _VideoAttachmentViewer extends StatefulWidget {
+  const _VideoAttachmentViewer({required this.url, required this.title});
+
+  final String url;
+  final String title;
+
+  @override
+  State<_VideoAttachmentViewer> createState() => _VideoAttachmentViewerState();
+}
+
+class _VideoAttachmentViewerState extends State<_VideoAttachmentViewer> {
+  late final VideoPlayerController _controller;
+  late final Future<void> _initializeVideo;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _initializeVideo = _controller.initialize().then((_) {
+      _controller.setLooping(false);
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+      body: FutureBuilder<void>(
+        future: _initializeVideo,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError || !_controller.value.isInitialized) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'This video could not be loaded.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            );
+          }
+          return Center(
+            child: AspectRatio(
+              aspectRatio: _controller.value.aspectRatio,
+              child: VideoPlayer(_controller),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FutureBuilder<void>(
+        future: _initializeVideo,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done ||
+              snapshot.hasError ||
+              !_controller.value.isInitialized) {
+            return const SizedBox.shrink();
+          }
+          return FloatingActionButton(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.black,
+            onPressed: () {
+              setState(() {
+                if (_controller.value.isPlaying) {
+                  _controller.pause();
+                } else {
+                  _controller.play();
+                }
+              });
+            },
+            child: Icon(
+              _controller.value.isPlaying
+                  ? Icons.pause_rounded
+                  : Icons.play_arrow_rounded,
+            ),
+          );
+        },
+      ),
+    );
   }
 }

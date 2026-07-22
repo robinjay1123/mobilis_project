@@ -2456,21 +2456,130 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _showNotificationDetails(Map<String, dynamic> notification) {
-    showDialog<void>(
+    final title = notification['title']?.toString().trim();
+    final message = notification['message']?.toString().trim();
+    final timestamp = notification['timestamp']?.toString().trim();
+    final imageUrl = notification['imageUrl']?.toString().trim();
+    final icon = notification['icon'] is IconData
+        ? notification['icon'] as IconData
+        : Icons.notifications_outlined;
+    final iconColor = notification['iconColor'] is Color
+        ? notification['iconColor'] as Color
+        : AppColors.primary;
+
+    showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(notification['title']?.toString() ?? 'Notification'),
-        content: Text(
-          notification['message']?.toString().trim().isNotEmpty == true
-              ? notification['message'].toString()
-              : 'No additional details are available.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2A3548),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: Colors.white12),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black45,
+                blurRadius: 28,
+                offset: Offset(0, 12),
+              ),
+            ],
           ),
-        ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: imageUrl?.isNotEmpty == true
+                        ? OptimizedNetworkImage(
+                            imageUrl: imageUrl!,
+                            width: 58,
+                            height: 58,
+                            fit: BoxFit.cover,
+                          )
+                        : Icon(icon, color: iconColor, size: 28),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title?.isNotEmpty == true ? title! : 'Notification',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (timestamp?.isNotEmpty == true) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            timestamp!,
+                            style: const TextStyle(
+                              color: AppColors.textTertiary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                message?.isNotEmpty == true
+                    ? message!
+                    : 'No additional details are available.',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 15,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -4517,6 +4626,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 final booking = bookings[index];
                 final isCompleted = booking['statusGroup'] == 'Completed';
                 final isCancelled = _isCancelledBooking(booking);
+                final rawStatus =
+                    booking['rawStatus']?.toString().toLowerCase() ?? '';
+                final isNavigable =
+                    booking['statusGroup'] == 'Ongoing' &&
+                    {'active', 'ongoing'}.contains(rawStatus);
 
                 return BookingCard(
                   carName: booking['carName'],
@@ -4529,13 +4643,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   rating: (booking['rating'] as num?)?.toDouble() ?? 0.0,
                   isActive: booking['statusGroup'] == 'Ongoing',
                   ongoingSummary: booking['statusGroup'] == 'Ongoing'
-                      ? BookingReturnCountdown(booking: booking)
+                      ? BookingReturnCountdown(booking: booking, compact: true)
                       : null,
                   carImageUrl: booking['imageUrl'] as String?,
                   showRating:
                       booking['statusGroup'] == 'Completed' &&
                       ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
-                  showTrackButton: false,
+                  showTrackButton: isNavigable,
+                  trackButtonLabel: 'Navigate',
+                  onTrack: isNavigable
+                      ? () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => TripNavigationScreen(
+                              bookingId: booking['id'].toString(),
+                              participantRole: 'renter',
+                            ),
+                          ),
+                        )
+                      : null,
                   detailsButtonLabel: isCompleted
                       ? 'View Receipt'
                       : isCancelled
@@ -4605,6 +4730,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: InkWell(
                             onTap: () => _handleNotificationTap(
+                              notificationItems[index],
+                            ),
+                            onLongPress: () => _showNotificationDetails(
                               notificationItems[index],
                             ),
                             borderRadius: BorderRadius.circular(20),
@@ -5310,7 +5438,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ? () => _handleBookingCancellation(booking)
               : null,
           onExtend: isApprovedTrip ? () => _checkForExtendTrip(booking) : null,
-          onSuccessfulTrip: isApprovedTrip || isCompletedTrip
+          onSuccessfulTrip: completionStage == 'renter_rating'
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
                   completionStage: completionStage,
@@ -5581,7 +5709,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   },
                   icon: const Icon(Icons.star_rate_rounded, size: 18),
                   label: Text(
-                    isCompletedTrip ? 'Successful Trip' : 'Trip Ongoing',
+                    isCompletedTrip ? 'Successful Trip' : 'View Trip Status',
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
@@ -7451,21 +7579,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     final status = booking['status']?.toString() ?? 'Pending';
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
-    final completionActionLabel = switch (completionStage) {
-      'renter_rating' => 'Rate Your Trip',
-      'completed' => 'Trip Completed',
-      'awaiting_after_checklist' => 'Waiting for After Checklist',
-      'awaiting_payment' => 'Waiting for Full Payment',
-      'operator_rating' ||
-      'partner_rating' ||
-      'driver_rating' => 'Trip Ratings Pending',
-      _ => 'Trip Ongoing',
-    };
-    final completionActionIcon = switch (completionStage) {
-      'renter_rating' => Icons.star_rate_rounded,
-      'completed' => Icons.check_circle_outline_rounded,
-      _ => Icons.hourglass_bottom_rounded,
-    };
+    const completionActionLabel = 'Rate Your Trip';
+    const completionActionIcon = Icons.star_rate_rounded;
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -7490,8 +7605,16 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 16),
+              if (onNavigate != null) ...[
+                _buildPrimaryButton(
+                  icon: Icons.navigation_rounded,
+                  label: 'Navigate',
+                  onPressed: onNavigate!,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (isApprovedTrip) ...[
-                BookingReturnCountdown(booking: booking),
+                BookingReturnCountdown(booking: booking, compact: true),
                 const SizedBox(height: 12),
               ],
               if (pendingRoles.isNotEmpty &&
@@ -7563,13 +7686,6 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   onPressed: onExtend!,
                 ),
               if (onExtend != null) const SizedBox(height: 12),
-              if (onNavigate != null)
-                _buildPrimaryButton(
-                  icon: Icons.navigation_rounded,
-                  label: 'Navigate',
-                  onPressed: onNavigate!,
-                ),
-              if (onNavigate != null) const SizedBox(height: 12),
               if (onMessage != null)
                 _buildSecondaryButton(
                   icon: Icons.chat_bubble_outline,

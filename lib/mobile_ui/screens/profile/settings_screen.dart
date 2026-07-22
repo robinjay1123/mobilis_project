@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/image_optimization_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
 
@@ -21,6 +23,7 @@ class SettingsScreen extends StatefulWidget {
     this.showHeader = true,
     this.showAppearance = false,
     this.showSignOut = false,
+    this.operatorMode = false,
     this.onBack,
     this.onOpenSupport,
     this.onProfileUpdated,
@@ -32,6 +35,7 @@ class SettingsScreen extends StatefulWidget {
   final bool showHeader;
   final bool showAppearance;
   final bool showSignOut;
+  final bool operatorMode;
   final VoidCallback? onBack;
   final VoidCallback? onOpenSupport;
   final VoidCallback? onProfileUpdated;
@@ -43,8 +47,17 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic> _profile = const {};
+  final Map<String, bool> _operatorPreferences = {};
   String _role = 'renter';
   bool _isLoading = true;
+  String _operatorWorkingHours = '8:00 AM - 5:00 PM';
+  String _operatorLanguage = 'English';
+  Set<String> _operatorVehicleCategories = const {
+    'Sedan',
+    'SUV',
+    'Van',
+    'Pickup',
+  };
 
   @override
   void initState() {
@@ -65,8 +78,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _role = (results[1] as String? ?? 'renter').toLowerCase();
         _isLoading = false;
       });
+      if (widget.operatorMode) await _loadOperatorPreferences();
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadOperatorPreferences() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      for (final entry in const <String, bool>{
+        'operator_notify_new_booking': true,
+        'operator_notify_cancellation': true,
+        'operator_notify_payment': true,
+        'operator_notify_driver_assignment': true,
+        'operator_online_status': true,
+        'operator_vacation_leave': false,
+        'operator_auto_accept': false,
+        'operator_manual_approval': true,
+      }.entries) {
+        _operatorPreferences[entry.key] =
+            preferences.getBool(entry.key) ?? entry.value;
+      }
+      _operatorWorkingHours =
+          preferences.getString('operator_working_hours') ??
+          '8:00 AM - 5:00 PM';
+      _operatorLanguage =
+          preferences.getString('operator_language') ?? 'English';
+      _operatorVehicleCategories =
+          (preferences.getStringList('operator_vehicle_categories') ??
+                  const ['Sedan', 'SUV', 'Van', 'Pickup'])
+              .toSet();
+    });
+  }
+
+  Future<void> _setOperatorPreference(String key, bool value) async {
+    setState(() {
+      _operatorPreferences[key] = value;
+      if (key == 'operator_auto_accept' && value) {
+        _operatorPreferences['operator_manual_approval'] = false;
+      } else if (key == 'operator_manual_approval' && value) {
+        _operatorPreferences['operator_auto_accept'] = false;
+      }
+    });
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(key, value);
+    if (key == 'operator_auto_accept' && value) {
+      await preferences.setBool('operator_manual_approval', false);
+    } else if (key == 'operator_manual_approval' && value) {
+      await preferences.setBool('operator_auto_accept', false);
     }
   }
 
@@ -254,6 +315,825 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ).push(MaterialPageRoute(builder: (_) => const _AboutMobilisScreen()));
   }
 
+  String get _operatorFullName => _firstText([
+    _profile['full_name'],
+    _profile['name'],
+    AuthService().currentUser?.userMetadata?['full_name'],
+    AuthService().currentUser?.userMetadata?['name'],
+  ]);
+
+  String get _operatorPhone => _firstText([
+    _profile['phone'],
+    AuthService().currentUser?.userMetadata?['phone'],
+  ]);
+
+  String get _operatorEmail =>
+      _firstText([AuthService().currentUser?.email, _profile['email']]);
+
+  String get _operatorPosition => _firstText([
+    AuthService().currentUser?.userMetadata?['position'],
+    _profile['position'],
+    'Operations Desk',
+  ]);
+
+  String get _operatorAvatarUrl => _firstText([
+    _profile['avatar_url'],
+    _profile['profile_picture_url'],
+    AuthService().currentUser?.userMetadata?['avatar_url'],
+    AuthService().currentUser?.userMetadata?['profile_picture_url'],
+    AuthService().currentUser?.userMetadata?['picture'],
+  ]);
+
+  Future<void> _editOperatorProfile() async {
+    final nameController = TextEditingController(text: _operatorFullName);
+    final phoneController = TextEditingController(text: _operatorPhone);
+    final positionController = TextEditingController(text: _operatorPosition);
+    final formKey = GlobalKey<FormState>();
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Profile Settings'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                  validator: (value) => value?.trim().isEmpty == true
+                      ? 'Enter the operator name.'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: phoneController,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(11),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Contact Number',
+                    prefixIcon: Icon(Icons.phone_outlined),
+                    helperText: 'Use an 11-digit Philippine mobile number.',
+                  ),
+                  validator: (value) {
+                    final phone = value?.trim() ?? '';
+                    if (phone.isEmpty) return 'Enter a contact number.';
+                    if (phone.length != 11) {
+                      return 'Contact number must be 11 digits.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: positionController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Position',
+                    prefixIcon: Icon(Icons.work_outline_rounded),
+                  ),
+                  validator: (value) => value?.trim().isEmpty == true
+                      ? 'Enter the operator position.'
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(dialogContext, {
+                'full_name': nameController.text.trim(),
+                'phone': phoneController.text.trim(),
+                'position': positionController.text.trim(),
+              });
+            },
+            child: const Text('Save Changes'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    phoneController.dispose();
+    positionController.dispose();
+    if (result == null || !mounted) return;
+
+    try {
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception('No signed-in operator found.');
+      await supabase
+          .from('users')
+          .update({
+            'name': result['full_name'],
+            'full_name': result['full_name'],
+            'phone': result['phone'],
+          })
+          .eq('id', user.id);
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'full_name': result['full_name'],
+            'name': result['full_name'],
+            'phone': result['phone'],
+            'position': result['position'],
+          },
+        ),
+      );
+      await _loadAccount();
+      widget.onProfileUpdated?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Operator profile updated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update profile: $error')),
+      );
+    }
+  }
+
+  Future<void> _changeOperatorEmail() async {
+    final controller = TextEditingController(text: _operatorEmail);
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change Email'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430),
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'New email address',
+              prefixIcon: Icon(Icons.alternate_email_rounded),
+              helperText: 'A confirmation link may be sent to the new address.',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Enter a valid email address.')),
+                );
+                return;
+              }
+              Navigator.pop(dialogContext, value);
+            },
+            child: const Text('Update Email'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (email == null || email == _operatorEmail || !mounted) return;
+    try {
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(email: email),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Confirm the email change using the link sent to $email.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not change email: $error')));
+    }
+  }
+
+  Future<void> _uploadOperatorProfilePicture() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
+    final file = result?.files.single;
+    final rawBytes = file?.bytes;
+    if (file == null || rawBytes == null || !mounted) return;
+    if (rawBytes.lengthInBytes > 8 * 1024 * 1024) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose an image smaller than 8 MB.')),
+      );
+      return;
+    }
+
+    try {
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception('No signed-in operator found.');
+      final extension = (file.extension ?? 'jpg').toLowerCase();
+      final safeExtension =
+          const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)
+          ? extension
+          : 'jpg';
+      final objectPath =
+          'profile_pictures/${user.id}/${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
+      final bytes = await ImageOptimizationService.optimizeForUpload(
+        rawBytes,
+        fileName: file.name,
+        preset: UploadImagePreset.profile,
+      );
+      await supabase.storage
+          .from('id_images')
+          .uploadBinary(
+            objectPath,
+            bytes,
+            fileOptions: FileOptions(
+              cacheControl: '31536000',
+              upsert: true,
+              contentType: safeExtension == 'png'
+                  ? 'image/png'
+                  : safeExtension == 'webp'
+                  ? 'image/webp'
+                  : 'image/jpeg',
+            ),
+          );
+      final publicUrl = supabase.storage
+          .from('id_images')
+          .getPublicUrl(objectPath);
+      await supabase
+          .from('users')
+          .update({'avatar_url': publicUrl, 'profile_picture_url': publicUrl})
+          .eq('id', user.id);
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'avatar_url': publicUrl,
+            'profile_picture_url': publicUrl,
+          },
+        ),
+      );
+      await _loadAccount();
+      widget.onProfileUpdated?.call();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile picture updated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not upload profile picture: $error')),
+      );
+    }
+  }
+
+  Future<void> _editOperatorWorkingHours() async {
+    final start = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 8, minute: 0),
+      helpText: 'Select work start time',
+    );
+    if (start == null || !mounted) return;
+    final end = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 17, minute: 0),
+      helpText: 'Select work end time',
+    );
+    if (end == null || !mounted) return;
+    final hours =
+        '${MaterialLocalizations.of(context).formatTimeOfDay(start)} - ${MaterialLocalizations.of(context).formatTimeOfDay(end)}';
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('operator_working_hours', hours);
+    if (mounted) setState(() => _operatorWorkingHours = hours);
+  }
+
+  Future<void> _editOperatorCategories() async {
+    final selected = <String>{..._operatorVehicleCategories};
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Preferred Vehicle Categories'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final category in const [
+                  'Sedan',
+                  'SUV',
+                  'Van',
+                  'Pickup',
+                  'Hatchback',
+                  'Luxury',
+                ])
+                  FilterChip(
+                    label: Text(category),
+                    selected: selected.contains(category),
+                    onSelected: (value) => setDialogState(() {
+                      value
+                          ? selected.add(category)
+                          : selected.remove(category);
+                    }),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, selected),
+              child: const Text('Save Categories'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      'operator_vehicle_categories',
+      result.toList()..sort(),
+    );
+    if (mounted) setState(() => _operatorVehicleCategories = result);
+  }
+
+  Future<void> _changeOperatorLanguage() async {
+    final language = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Language'),
+        children: [
+          for (final value in const ['English', 'Filipino'])
+            ListTile(
+              leading: Icon(
+                value == _operatorLanguage
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_off_rounded,
+                color: value == _operatorLanguage ? AppColors.primary : null,
+              ),
+              title: Text(value),
+              onTap: () => Navigator.pop(dialogContext, value),
+            ),
+        ],
+      ),
+    );
+    if (language == null || !mounted) return;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('operator_language', language);
+    if (mounted) setState(() => _operatorLanguage = language);
+  }
+
+  void _showOperatorSecurityInfo(String title, String description) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(description),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _logoutAllOperatorDevices() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Logout All Devices?'),
+        content: const Text(
+          'Every active operator session will be signed out. You will need to log in again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Logout All'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await Supabase.instance.client.auth.signOut();
+    widget.onSignOut?.call();
+  }
+
+  Widget _operatorToggle(String key, {bool defaultValue = false}) {
+    return Switch(
+      value: _operatorPreferences[key] ?? defaultValue,
+      onChanged: (value) => _setOperatorPreference(key, value),
+      activeThumbColor: AppColors.primary,
+    );
+  }
+
+  Widget _buildOperatorSettings() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final contentWidth = constraints.maxWidth.clamp(0.0, 1280.0).toDouble();
+        final twoColumns = contentWidth >= 940;
+        final cardWidth = twoColumns ? (contentWidth - 22) / 2 : contentWidth;
+        Widget card(String title, List<Widget> children) => SizedBox(
+          width: cardWidth,
+          child: _SettingsSection(title: title, children: children),
+        );
+
+        final avatar = _operatorAvatarUrl;
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1280),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Operator Settings',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Manage your operator profile, workflow preferences, security, and support options.',
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      spacing: 22,
+                      runSpacing: 24,
+                      children: [
+                        card('Profile Settings', [
+                          _SettingsMenuRow(
+                            icon: Icons.badge_outlined,
+                            title: 'Full Name',
+                            subtitle: _operatorFullName.isEmpty
+                                ? 'Add operator name'
+                                : _operatorFullName,
+                            onTap: _editOperatorProfile,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.photo_camera_outlined,
+                            title: 'Profile Picture',
+                            subtitle: 'Upload or replace your operator photo',
+                            trailing: Container(
+                              width: 42,
+                              height: 42,
+                              clipBehavior: Clip.antiAlias,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.16,
+                                ),
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                              child: avatar.isEmpty
+                                  ? const Icon(
+                                      Icons.person_outline_rounded,
+                                      color: AppColors.primary,
+                                    )
+                                  : Image.network(
+                                      avatar,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, _, _) => const Icon(
+                                        Icons.person_outline_rounded,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                            ),
+                            onTap: _uploadOperatorProfilePicture,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.phone_outlined,
+                            title: 'Contact Number',
+                            subtitle: _operatorPhone.isEmpty
+                                ? 'Add an 11-digit mobile number'
+                                : _operatorPhone,
+                            onTap: _editOperatorProfile,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.alternate_email_rounded,
+                            title: 'Email Address',
+                            subtitle: _operatorEmail,
+                            onTap: _changeOperatorEmail,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.work_outline_rounded,
+                            title: 'Position',
+                            subtitle: _operatorPosition,
+                            onTap: _editOperatorProfile,
+                          ),
+                        ]),
+                        card('Account Settings', [
+                          _SettingsMenuRow(
+                            icon: Icons.password_rounded,
+                            title: 'Change Password',
+                            subtitle: 'Send a secure reset link',
+                            onTap: _openAccountSecurity,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.mark_email_read_outlined,
+                            title: 'Change Email',
+                            subtitle: 'Update the operator login email',
+                            onTap: _changeOperatorEmail,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.phonelink_lock_outlined,
+                            title: 'Two-Factor Authentication',
+                            subtitle: 'Optional - authenticator enrollment',
+                            onTap: () => _showOperatorSecurityInfo(
+                              'Two-Factor Authentication',
+                              'Two-factor authentication requires an enrolled authenticator. Contact the administrator to enable MFA enrollment for this operator account.',
+                            ),
+                          ),
+                        ]),
+                        card('Notification Settings', [
+                          _SettingsMenuRow(
+                            icon: Icons.event_available_outlined,
+                            title: 'New Booking Notifications',
+                            subtitle: 'Notify me about new booking requests',
+                            trailing: _operatorToggle(
+                              'operator_notify_new_booking',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_notify_new_booking',
+                              !(_operatorPreferences['operator_notify_new_booking'] ??
+                                  true),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.event_busy_outlined,
+                            title: 'Booking Cancellation Alerts',
+                            subtitle: 'Cancellation and refund updates',
+                            trailing: _operatorToggle(
+                              'operator_notify_cancellation',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_notify_cancellation',
+                              !(_operatorPreferences['operator_notify_cancellation'] ??
+                                  true),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.payments_outlined,
+                            title: 'Payment Notifications',
+                            subtitle: 'Payment proof and settlement updates',
+                            trailing: _operatorToggle(
+                              'operator_notify_payment',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_notify_payment',
+                              !(_operatorPreferences['operator_notify_payment'] ??
+                                  true),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.assignment_ind_outlined,
+                            title: 'Driver Assignment Notifications',
+                            subtitle:
+                                'Assignment acceptance and rejection updates',
+                            trailing: _operatorToggle(
+                              'operator_notify_driver_assignment',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_notify_driver_assignment',
+                              !(_operatorPreferences['operator_notify_driver_assignment'] ??
+                                  true),
+                            ),
+                          ),
+                        ]),
+                        card('Availability Settings', [
+                          _SettingsMenuRow(
+                            icon: Icons.schedule_outlined,
+                            title: 'Working Hours',
+                            subtitle: _operatorWorkingHours,
+                            onTap: _editOperatorWorkingHours,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.wifi_tethering_rounded,
+                            title: 'Online / Offline Status',
+                            subtitle:
+                                (_operatorPreferences['operator_online_status'] ??
+                                    true)
+                                ? 'Online and available for operations'
+                                : 'Offline',
+                            trailing: _operatorToggle(
+                              'operator_online_status',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_online_status',
+                              !(_operatorPreferences['operator_online_status'] ??
+                                  true),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.beach_access_outlined,
+                            title: 'Vacation Leave',
+                            subtitle: 'Optional availability pause',
+                            trailing: _operatorToggle(
+                              'operator_vacation_leave',
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_vacation_leave',
+                              !(_operatorPreferences['operator_vacation_leave'] ??
+                                  false),
+                            ),
+                          ),
+                        ]),
+                        card('Booking Preferences', [
+                          _SettingsMenuRow(
+                            icon: Icons.bolt_outlined,
+                            title: 'Auto-Accept Bookings',
+                            subtitle: 'Optional automatic approval mode',
+                            trailing: _operatorToggle('operator_auto_accept'),
+                            onTap: () => _setOperatorPreference(
+                              'operator_auto_accept',
+                              !(_operatorPreferences['operator_auto_accept'] ??
+                                  false),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.fact_check_outlined,
+                            title: 'Manual Booking Approval',
+                            subtitle: 'Review each request before approval',
+                            trailing: _operatorToggle(
+                              'operator_manual_approval',
+                              defaultValue: true,
+                            ),
+                            onTap: () => _setOperatorPreference(
+                              'operator_manual_approval',
+                              !(_operatorPreferences['operator_manual_approval'] ??
+                                  true),
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.directions_car_outlined,
+                            title: 'Preferred Vehicle Categories',
+                            subtitle: _operatorVehicleCategories.join(', '),
+                            onTap: _editOperatorCategories,
+                          ),
+                        ]),
+                        card('Security', [
+                          _SettingsMenuRow(
+                            icon: Icons.history_rounded,
+                            title: 'Login History',
+                            subtitle: 'Review the current operator session',
+                            onTap: () => _showOperatorSecurityInfo(
+                              'Login History',
+                              'Current session: ${_operatorEmail.isEmpty ? 'Operator account' : _operatorEmail}\nSession checked: ${DateTime.now().toLocal()}',
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.devices_outlined,
+                            title: 'Active Devices',
+                            subtitle: 'View devices currently signed in',
+                            onTap: () => _showOperatorSecurityInfo(
+                              'Active Devices',
+                              'This browser is currently authenticated. Supabase securely manages the active access token for this session.',
+                            ),
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.phonelink_erase_outlined,
+                            title: 'Logout All Devices',
+                            subtitle: 'End every active operator session',
+                            foregroundColor: AppColors.error,
+                            onTap: _logoutAllOperatorDevices,
+                          ),
+                        ]),
+                        card('Language & Appearance', [
+                          _SettingsMenuRow(
+                            icon: Icons.language_rounded,
+                            title: 'Language',
+                            subtitle: _operatorLanguage,
+                            onTap: _changeOperatorLanguage,
+                          ),
+                          _SettingsMenuRow(
+                            icon: widget.isDarkMode
+                                ? Icons.dark_mode_outlined
+                                : Icons.light_mode_outlined,
+                            title: 'Dark Mode / Light Mode',
+                            subtitle: widget.isDarkMode
+                                ? 'Dark mode'
+                                : 'Light mode',
+                            trailing: Switch(
+                              value: widget.isDarkMode,
+                              onChanged: widget.onThemeToggle,
+                              activeThumbColor: AppColors.primary,
+                            ),
+                            onTap: () =>
+                                widget.onThemeToggle?.call(!widget.isDarkMode),
+                          ),
+                        ]),
+                        card('Help & Support', [
+                          _SettingsMenuRow(
+                            icon: Icons.admin_panel_settings_outlined,
+                            title: 'Contact Admin',
+                            subtitle: 'Open support messaging',
+                            onTap: widget.onOpenSupport ?? () {},
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.bug_report_outlined,
+                            title: 'Report a Problem',
+                            subtitle: 'Send a technical issue to admin support',
+                            onTap: widget.onOpenSupport ?? () {},
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.quiz_outlined,
+                            title: 'FAQs',
+                            subtitle: 'Operator help and common questions',
+                            onTap: _openHelpCentre,
+                          ),
+                        ]),
+                        card('About', [
+                          _SettingsMenuRow(
+                            icon: Icons.info_outline_rounded,
+                            title: 'App Version',
+                            subtitle: 'Mobilis by PSDC 1.0.0',
+                            onTap: _openAbout,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.privacy_tip_outlined,
+                            title: 'Privacy Policy',
+                            onTap: _openPrivacyPolicy,
+                          ),
+                          _SettingsMenuRow(
+                            icon: Icons.article_outlined,
+                            title: 'Terms and Conditions',
+                            onTap: _openTerms,
+                          ),
+                        ]),
+                        card('Logout', [
+                          _SettingsMenuRow(
+                            icon: Icons.logout_rounded,
+                            title: 'Sign Out',
+                            subtitle: 'Sign out of the operator portal',
+                            foregroundColor: AppColors.error,
+                            showChevron: false,
+                            onTap: widget.onSignOut ?? () {},
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTextStyle.merge(
@@ -271,6 +1151,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.primary,
                       ),
                     )
+                  : widget.operatorMode
+                  ? _buildOperatorSettings()
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(18, 20, 18, 32),
                       children: [

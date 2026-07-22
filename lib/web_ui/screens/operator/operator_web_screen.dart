@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -24,6 +25,7 @@ import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../mobile_ui/widgets/booking_return_countdown.dart';
 import '../../../mobile_ui/widgets/vehicle_inspection_checklist_fields.dart';
 import '../../../mobile_ui/widgets/vehicle_inspection_record_view.dart';
+import '../../../mobile_ui/widgets/restriction_ui.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/chat_service.dart';
@@ -133,6 +135,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _vehicleSearchController =
       TextEditingController();
   String _selectedConversationId = '';
+  bool _showOperatorBookingActivity = true;
   String _selectedStatus = 'active';
   List<XFile> _selectedImages = [];
   final Map<String, Future<Uint8List>> _selectedImageBytes = {};
@@ -629,6 +632,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       setState(() {
         _selectedIndex = 2;
         _selectedConversationId = conversationId;
+        _showOperatorBookingActivity = true;
       });
       await _loadConversationMessages(conversationId);
     } catch (error) {
@@ -814,6 +818,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               delivery_distance_km,
               delivery_rate_per_km,
               delivery_fee,
+              reservation_fee_amount,
+              reservation_payment_type,
+              reservation_payment_covers_total,
+              reservation_payment_reference,
+              reservation_payment_status,
+              reservation_payment_submitted_at,
+              reservation_payment_proof_url,
+              reservation_payment_method,
               late_return_days,
               late_return_fee,
               emergency_contact_name,
@@ -837,6 +849,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               with_driver,
               pickup_location,
               dropoff_location,
+              pickup_latitude,
+              pickup_longitude,
+              dropoff_latitude,
+              dropoff_longitude,
               picked_up_at,
               returned_at,
               completed_at,
@@ -884,7 +900,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 latitude,
                 longitude,
                 avatar_url,
-                profile_picture_url
+                profile_picture_url,
+                id_verified,
+                verification_status
               ),
               driver:drivers!bookings_driver_id_fkey (
                 user_id,
@@ -5553,7 +5571,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     )?['status']?.toString().trim().toLowerCase();
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
-    final driverAccepted = assignmentStatus == 'accepted';
+    final driverAccepted =
+        assignmentStatus == 'accepted' || assignmentStatus == 'confirmed';
 
     final buttons = <Widget>[
       _buildOperatorBookingActionButton(
@@ -5765,7 +5784,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     )?['status']?.toString().trim().toLowerCase();
     final waitingForDriver =
         assignmentStatus == 'pending_offer' || assignmentStatus == 'assigned';
-    final driverAccepted = assignmentStatus == 'accepted';
+    final driverAccepted =
+        assignmentStatus == 'accepted' || assignmentStatus == 'confirmed';
     final driverDeclined = assignmentStatus == 'rejected';
     final completionState = BookingService().getTripCompletionState(booking);
     final completionStage = completionState['completionStage']?.toString();
@@ -6294,6 +6314,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 'ROUTE',
                 route,
                 isDark,
+                onTap: () => _showBookingRouteDialog(booking, isDark),
               ),
               _buildOperatorDetailTile(
                 Icons.calendar_month_outlined,
@@ -6313,6 +6334,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking, lightBackground: !isDark),
           ],
+          const SizedBox(height: 18),
+          _buildRenterReviewCard(booking, isDark),
           const SizedBox(height: 18),
           _buildBookingPaymentDetails(booking, isDark),
           const SizedBox(height: 18),
@@ -6452,13 +6475,225 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Future<void> _showBookingRouteDialog(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) async {
+    final pickup = booking['pickup_location']?.toString().trim() ?? '';
+    final destination = booking['dropoff_location']?.toString().trim() ?? '';
+    final pickupLatitude = _coordinateValue(booking['pickup_latitude']);
+    final pickupLongitude = _coordinateValue(booking['pickup_longitude']);
+    final destinationLatitude = _coordinateValue(booking['dropoff_latitude']);
+    final destinationLongitude = _coordinateValue(booking['dropoff_longitude']);
+    final hasPickupCoordinates =
+        pickupLatitude != null && pickupLongitude != null;
+    final hasDestinationCoordinates =
+        destinationLatitude != null && destinationLongitude != null;
+    final markers = <MobilisMapMarker>[
+      if (hasPickupCoordinates)
+        MobilisMapMarker(
+          latitude: pickupLatitude,
+          longitude: pickupLongitude,
+          icon: Icons.trip_origin_rounded,
+          color: AppColors.success,
+          size: 38,
+        ),
+      if (hasDestinationCoordinates)
+        MobilisMapMarker(
+          latitude: destinationLatitude,
+          longitude: destinationLongitude,
+          icon: Icons.flag_rounded,
+          color: _operatorGold,
+          size: 40,
+        ),
+    ];
+    final routePoints = <MobilisMapPoint>[
+      if (hasPickupCoordinates)
+        MobilisMapPoint(latitude: pickupLatitude, longitude: pickupLongitude),
+      if (hasDestinationCoordinates)
+        MobilisMapPoint(
+          latitude: destinationLatitude,
+          longitude: destinationLongitude,
+        ),
+    ];
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final foreground = isDark ? Colors.white : _operatorInk;
+        final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760, maxHeight: 700),
+            child: Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF172235) : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isDark ? Colors.white12 : Colors.grey.shade300,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: _operatorGold.withOpacity(0.16),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.route_rounded,
+                          color: _operatorGold,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Booking Route',
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            Text(
+                              'Exact locations submitted by the renter',
+                              style: TextStyle(color: muted, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close route',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: Icon(Icons.close_rounded, color: foreground),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _buildRouteLocationRow(
+                    icon: Icons.trip_origin_rounded,
+                    label: 'Pickup location',
+                    value: pickup.isEmpty ? 'PSDC Urdaneta' : pickup,
+                    color: AppColors.success,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildRouteLocationRow(
+                    icon: Icons.flag_rounded,
+                    label: 'Trip destination',
+                    value: destination.isEmpty
+                        ? 'No destination was provided'
+                        : destination,
+                    color: _operatorGold,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 320,
+                    width: double.infinity,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: markers.isEmpty
+                          ? Container(
+                              color: isDark
+                                  ? const Color(0xFF0D1928)
+                                  : Colors.grey.shade100,
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.all(28),
+                              child: Text(
+                                'The renter submitted the addresses, but map coordinates are not available for this booking.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: muted),
+                              ),
+                            )
+                          : MobilisLeafletMap(
+                              markers: markers,
+                              routePoints: routePoints,
+                              routeColor: _operatorGold,
+                              initialZoom: markers.length > 1 ? 11 : 14,
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRouteLocationRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+    required bool isDark,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : const Color(0xFFF5F6F8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    fontSize: 9,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOperatorDetailTile(
     IconData icon,
     String label,
     String value,
-    bool isDark,
-  ) {
-    return Container(
+    bool isDark, {
+    VoidCallback? onTap,
+  }) {
+    final tile = Container(
       width: 205,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -6497,6 +6732,129 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ],
             ),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.open_in_new_rounded,
+              color: isDark ? _operatorGold : _operatorNavy,
+              size: 15,
+            ),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return tile;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(13),
+        child: tile,
+      ),
+    );
+  }
+
+  Widget _buildRenterReviewCard(Map<String, dynamic> booking, bool isDark) {
+    final renter = booking['renter'] as Map<String, dynamic>? ?? const {};
+    final verified =
+        renter['id_verified'] == true ||
+        const {'approved', 'verified'}.contains(
+          renter['verification_status']?.toString().trim().toLowerCase(),
+        );
+    final foreground = isDark ? Colors.white : _operatorInk;
+    final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : const Color(0xFFF5F6F8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.person_search_outlined,
+                color: isDark ? _operatorGold : _operatorNavy,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Renter Review',
+                style: TextStyle(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: (verified ? Colors.green : Colors.orange).withOpacity(
+                    0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  verified ? 'IDENTITY VERIFIED' : 'VERIFY DOCUMENTS',
+                  style: TextStyle(
+                    color: verified ? Colors.green : Colors.orange,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 18,
+            runSpacing: 10,
+            children: [
+              _buildPaymentInfoTile(
+                'Full name',
+                renter['full_name']?.toString().trim().isNotEmpty == true
+                    ? renter['full_name'].toString()
+                    : 'Not provided',
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Email',
+                renter['email']?.toString().trim().isNotEmpty == true
+                    ? renter['email'].toString()
+                    : 'Not provided',
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Phone',
+                renter['phone']?.toString().trim().isNotEmpty == true
+                    ? renter['phone'].toString()
+                    : 'Not provided',
+                isDark,
+              ),
+              _buildPaymentInfoTile(
+                'Location',
+                renter['location']?.toString().trim().isNotEmpty == true
+                    ? renter['location'].toString()
+                    : 'Not provided',
+                isDark,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Review the renter information and the verification evidence below before finalizing this booking.',
+            style: TextStyle(color: muted, fontSize: 11),
           ),
         ],
       ),
@@ -6790,7 +7148,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 final waitingForDriver =
                     assignmentStatus == 'pending_offer' ||
                     assignmentStatus == 'assigned';
-                final driverAccepted = assignmentStatus == 'accepted';
+                final driverAccepted =
+                    assignmentStatus == 'accepted' ||
+                    assignmentStatus == 'confirmed';
                 final driverDeclined = assignmentStatus == 'rejected';
                 final status = booking['status'] as String? ?? 'pending';
                 final statusLower = status.toLowerCase();
@@ -9431,15 +9791,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 compact,
                                 isDark,
                               ),
-                              _buildOperatorOngoingConversationBanner(
-                                selectedBooking,
-                                selectedVehicle,
-                                isDark,
-                              ),
-                              _buildOperatorParticipantReference(
-                                _conversationParticipants[_selectedConversationId] ??
-                                    [],
-                                isDark,
+                              AnimatedSize(
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOut,
+                                child: _showOperatorBookingActivity
+                                    ? _buildOperatorOngoingConversationBanner(
+                                        selectedBooking,
+                                        selectedVehicle,
+                                        isDark,
+                                      )
+                                    : const SizedBox.shrink(),
                               ),
                               Expanded(
                                 child: messages.isEmpty
@@ -9453,20 +9814,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ),
                                         ),
                                       )
-                                    : ListView.builder(
-                                        controller: _messageScrollController,
-                                        padding: const EdgeInsets.fromLTRB(
-                                          28,
-                                          22,
-                                          28,
-                                          12,
+                                    : NotificationListener<
+                                        UserScrollNotification
+                                      >(
+                                        onNotification: (notification) {
+                                          if (notification.direction !=
+                                                  ScrollDirection.idle &&
+                                              _showOperatorBookingActivity) {
+                                            setState(
+                                              () =>
+                                                  _showOperatorBookingActivity =
+                                                      false,
+                                            );
+                                          }
+                                          return false;
+                                        },
+                                        child: ListView.builder(
+                                          controller: _messageScrollController,
+                                          padding: const EdgeInsets.fromLTRB(
+                                            28,
+                                            22,
+                                            28,
+                                            12,
+                                          ),
+                                          itemCount: messages.length,
+                                          itemBuilder: (context, index) =>
+                                              _buildOperatorMessageBubble(
+                                                messages[index],
+                                                isDark,
+                                              ),
                                         ),
-                                        itemCount: messages.length,
-                                        itemBuilder: (context, index) =>
-                                            _buildOperatorMessageBubble(
-                                              messages[index],
-                                              isDark,
-                                            ),
                                       ),
                               ),
                               _buildOperatorMessageComposer(isClosed, isDark),
@@ -9504,7 +9881,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     return InkWell(
       onTap: () {
-        setState(() => _selectedConversationId = conversationId);
+        setState(() {
+          _selectedConversationId = conversationId;
+          _showOperatorBookingActivity = true;
+        });
         _loadConversationMessages(conversationId);
       },
       borderRadius: BorderRadius.circular(16),
@@ -9716,7 +10096,148 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ),
           _buildStatusBadge(status),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Conversation options',
+            onPressed: () => _showOperatorConversationOptions(isDark),
+            icon: const Icon(Icons.more_vert_rounded),
+          ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showOperatorConversationOptions(bool isDark) async {
+    final participants =
+        _conversationParticipants[_selectedConversationId] ??
+        const <Map<String, dynamic>>[];
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: _operatorGold.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(
+                        Icons.groups_2_outlined,
+                        color: _operatorGold,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Conversation details',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : _operatorInk,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            '${participants.length} booking participant${participants.length == 1 ? '' : 's'}',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                if (participants.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBgSecondary
+                          : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      'Participant details are not available yet.',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                      ),
+                    ),
+                  )
+                else
+                  SizedBox(
+                    height: 88,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: participants.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
+                      itemBuilder: (context, index) =>
+                          _buildParticipantProfileCard(
+                            participants[index],
+                            isDark,
+                          ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      side: BorderSide(
+                        color: _operatorGold.withValues(alpha: 0.55),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) showPolicyDetailsSheet(context);
+                      });
+                    },
+                    icon: const Icon(
+                      Icons.policy_outlined,
+                      color: _operatorGold,
+                    ),
+                    label: Text(
+                      'View conversation policy',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : _operatorInk,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -14745,6 +15266,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       showHeader: false,
       showAppearance: true,
       showSignOut: true,
+      operatorMode: true,
       onThemeToggle: widget.onThemeToggle,
       onBack: () {},
       onOpenSupport: () => setState(() => _selectedIndex = 2),

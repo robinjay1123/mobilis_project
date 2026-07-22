@@ -997,22 +997,20 @@ class BookingService {
     try {
       debugPrint('Approving booking: $bookingId');
       final operatorId = supabase.auth.currentUser?.id;
+      if (operatorId == null || operatorId.isEmpty) {
+        throw Exception('Operator is not authenticated');
+      }
+
+      // Keep every approval entry point behind finalizeBooking so a
+      // driver-required reservation cannot bypass assignment/acceptance.
       await supabase
           .from('bookings')
           .update({
-            'status': 'approved',
-            if (operatorId != null && operatorId.isNotEmpty)
-              'operator_id': operatorId,
             'operator_notes': operatorNotes,
-            'approved_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
-
-      await ensureBookingConversationForActiveBooking(
-        bookingId: bookingId,
-        operatorId: operatorId,
-      );
+      await finalizeBooking(bookingId: bookingId, operatorId: operatorId);
 
       debugPrint('Booking approved');
     } on PostgrestException catch (e) {
@@ -1944,14 +1942,26 @@ class BookingService {
     final isBefore = normalizedType == 'before';
     final evidence = inspection['evidence_urls'] is List
         ? List<dynamic>.from(inspection['evidence_urls'] as List)
-        : const <dynamic>[];
+              .map((item) => item.toString().trim())
+              .where((url) => url.isNotEmpty)
+              .toList(growable: false)
+        : const <String>[];
     final checklist = inspection['checklist_items'] is Map
         ? Map<String, dynamic>.from(inspection['checklist_items'] as Map)
         : const <String, dynamic>{};
-    final checkedCount = checklist.values
-        .where((value) => value == true)
-        .length;
-    final evidenceUrl = evidence.isEmpty ? null : evidence.first.toString();
+    final checkedSectionLines = <String>[];
+    var checkedCount = 0;
+    for (final section in BookingInspectionService.checklistSections.entries) {
+      final confirmedLabels = section.value.entries
+          .where((item) => checklist[item.key] == true)
+          .map((item) => item.value)
+          .toList(growable: false);
+      if (confirmedLabels.isEmpty) continue;
+      checkedCount += confirmedLabels.length;
+      checkedSectionLines.add(section.key.toUpperCase());
+      checkedSectionLines.addAll(confirmedLabels.map((label) => '[x] $label'));
+    }
+    final evidenceUrl = evidence.isEmpty ? null : evidence.first;
     final lowerEvidenceUrl = evidenceUrl?.toLowerCase() ?? '';
     final evidenceType =
         lowerEvidenceUrl.contains('.mp4') ||
@@ -1983,10 +1993,13 @@ class BookingService {
         'Damages: ${inspection['damages']}',
       if (inspection['remarks']?.toString().trim().isNotEmpty == true)
         'Remarks: ${inspection['remarks']}',
+      if (checkedSectionLines.isNotEmpty) '',
+      if (checkedSectionLines.isNotEmpty) 'CONFIRMED CHECKLIST ITEMS',
+      ...checkedSectionLines,
       '',
       isBefore
           ? 'The vehicle release record is now visible to every booking participant.'
-          : 'The vehicle return record is now visible to every booking participant.',
+          : 'The vehicle return record is now visible to every booking participant. The trip remains pending until full payment and every mandatory participant rating is recorded.',
     ].join('\n');
 
     await ChatService().sendBookingAuditMessage(
@@ -1998,8 +2011,31 @@ class BookingService {
       attachmentType: evidenceUrl == null ? null : evidenceType,
       attachmentName: evidenceUrl == null
           ? null
-          : '${isBefore ? 'before-release' : 'after-return'}-evidence',
+          : '${isBefore ? 'before-release' : 'after-return'}-evidence-1-of-${evidence.length}',
     );
+
+    for (var index = 1; index < evidence.length; index++) {
+      final url = evidence[index];
+      final lowerUrl = url.toLowerCase();
+      final type =
+          lowerUrl.contains('.mp4') ||
+              lowerUrl.contains('.mov') ||
+              lowerUrl.contains('.webm')
+          ? 'video'
+          : 'image';
+      await ChatService().sendBookingAuditMessage(
+        conversationId: conversationId,
+        senderId: inspectorId,
+        content:
+            '$title\nEvidence ${index + 1} of ${evidence.length} submitted by $inspectorName.',
+        auditKey:
+            'vehicle-checklist:$normalizedType:$inspectionId:evidence:$index',
+        attachmentUrl: url,
+        attachmentType: type,
+        attachmentName:
+            '${isBefore ? 'before-release' : 'after-return'}-evidence-${index + 1}-of-${evidence.length}',
+      );
+    }
   }
 
   Map<String, dynamic> _lateReturnValues(
