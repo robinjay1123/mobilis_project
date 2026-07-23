@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
@@ -107,6 +108,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
+  final Map<String, MobilisMapPoint?> _addressCoordinateCache = {};
 
   final _supabase = Supabase.instance.client;
   final _imagePicker = ImagePicker();
@@ -1530,6 +1532,133 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   double? _coordinateValue(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString().trim() ?? '');
+  }
+
+  MobilisMapPoint? _coordinatePoint(dynamic latitude, dynamic longitude) {
+    final parsedLatitude = _coordinateValue(latitude);
+    final parsedLongitude = _coordinateValue(longitude);
+    if (parsedLatitude == null ||
+        parsedLongitude == null ||
+        parsedLatitude < -90 ||
+        parsedLatitude > 90 ||
+        parsedLongitude < -180 ||
+        parsedLongitude > 180) {
+      return null;
+    }
+    return MobilisMapPoint(
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+    );
+  }
+
+  Future<MobilisMapPoint?> _geocodeBookingAddress(String address) async {
+    final cleanAddress = address.trim();
+    if (cleanAddress.isEmpty) return null;
+
+    final embeddedCoordinates = RegExp(
+      r'(-?\d{1,2}(?:\.\d+)?)\s*[,/]\s*(-?\d{1,3}(?:\.\d+)?)',
+    ).firstMatch(cleanAddress);
+    if (embeddedCoordinates != null) {
+      final point = _coordinatePoint(
+        embeddedCoordinates.group(1),
+        embeddedCoordinates.group(2),
+      );
+      if (point != null) return point;
+    }
+
+    final cacheKey = cleanAddress.toLowerCase();
+    if (_addressCoordinateCache.containsKey(cacheKey)) {
+      return _addressCoordinateCache[cacheKey];
+    }
+
+    final candidates = <String>[cleanAddress];
+    final addressParts = cleanAddress
+        .split(',')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (addressParts.length > 4) {
+      candidates.add(addressParts.sublist(addressParts.length - 4).join(', '));
+    }
+
+    for (final candidate in candidates.toSet()) {
+      try {
+        final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+          'q': candidate,
+          'format': 'jsonv2',
+          'limit': '1',
+          'countrycodes': 'ph',
+        });
+        final response = await http
+            .get(
+              uri,
+              headers: const {
+                'Accept': 'application/json',
+                'Accept-Language': 'en',
+              },
+            )
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode != 200) continue;
+
+        final payload = jsonDecode(response.body);
+        if (payload is! List || payload.isEmpty || payload.first is! Map) {
+          continue;
+        }
+        final result = Map<String, dynamic>.from(payload.first as Map);
+        final point = _coordinatePoint(result['lat'], result['lon']);
+        if (point != null) {
+          _addressCoordinateCache[cacheKey] = point;
+          return point;
+        }
+      } catch (error) {
+        debugPrint('Unable to resolve booking address "$candidate": $error');
+      }
+    }
+
+    return null;
+  }
+
+  Future<List<MobilisMapPoint>> _resolveBookingRoutePoints(
+    Map<String, dynamic> booking,
+  ) async {
+    var routeBooking = Map<String, dynamic>.from(booking);
+    final bookingId = booking['id']?.toString().trim() ?? '';
+    if (bookingId.isNotEmpty) {
+      try {
+        final latest = await _supabase
+            .from('bookings')
+            .select(
+              'pickup_location, dropoff_location, pickup_latitude, '
+              'pickup_longitude, dropoff_latitude, dropoff_longitude',
+            )
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (latest != null) routeBooking.addAll(latest);
+      } catch (error) {
+        debugPrint('Unable to refresh booking route coordinates: $error');
+      }
+    }
+
+    final vehicle = routeBooking['vehicles'] as Map<String, dynamic>? ?? {};
+    var pickupPoint = _coordinatePoint(
+      routeBooking['pickup_latitude'],
+      routeBooking['pickup_longitude'],
+    );
+    pickupPoint ??= _coordinatePoint(vehicle['latitude'], vehicle['longitude']);
+    final pickupAddress =
+        routeBooking['pickup_location']?.toString().trim() ?? '';
+    pickupPoint ??= await _geocodeBookingAddress(pickupAddress);
+
+    var destinationPoint = _coordinatePoint(
+      routeBooking['dropoff_latitude'],
+      routeBooking['dropoff_longitude'],
+    );
+    final destinationAddress =
+        routeBooking['dropoff_location']?.toString().trim() ?? '';
+    destinationPoint ??= await _geocodeBookingAddress(destinationAddress);
+
+    if (destinationPoint == null) return const [];
+    return [if (pickupPoint != null) pickupPoint, destinationPoint];
   }
 
   bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) =>
@@ -6510,41 +6639,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   ) async {
     final pickup = booking['pickup_location']?.toString().trim() ?? '';
     final destination = booking['dropoff_location']?.toString().trim() ?? '';
-    final pickupLatitude = _coordinateValue(booking['pickup_latitude']);
-    final pickupLongitude = _coordinateValue(booking['pickup_longitude']);
-    final destinationLatitude = _coordinateValue(booking['dropoff_latitude']);
-    final destinationLongitude = _coordinateValue(booking['dropoff_longitude']);
-    final hasPickupCoordinates =
-        pickupLatitude != null && pickupLongitude != null;
-    final hasDestinationCoordinates =
-        destinationLatitude != null && destinationLongitude != null;
-    final markers = <MobilisMapMarker>[
-      if (hasPickupCoordinates)
-        MobilisMapMarker(
-          latitude: pickupLatitude,
-          longitude: pickupLongitude,
-          icon: Icons.trip_origin_rounded,
-          color: AppColors.success,
-          size: 38,
-        ),
-      if (hasDestinationCoordinates)
-        MobilisMapMarker(
-          latitude: destinationLatitude,
-          longitude: destinationLongitude,
-          icon: Icons.flag_rounded,
-          color: _operatorGold,
-          size: 40,
-        ),
-    ];
-    final routePoints = <MobilisMapPoint>[
-      if (hasPickupCoordinates)
-        MobilisMapPoint(latitude: pickupLatitude, longitude: pickupLongitude),
-      if (hasDestinationCoordinates)
-        MobilisMapPoint(
-          latitude: destinationLatitude,
-          longitude: destinationLongitude,
-        ),
-    ];
+    final routePointsFuture = _resolveBookingRoutePoints(booking);
 
     await showDialog<void>(
       context: context,
@@ -6634,25 +6729,67 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     width: double.infinity,
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                      child: markers.isEmpty
-                          ? Container(
+                      child: FutureBuilder<List<MobilisMapPoint>>(
+                        future: routePointsFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState !=
+                              ConnectionState.done) {
+                            return Container(
+                              color: isDark
+                                  ? const Color(0xFF0D1928)
+                                  : Colors.grey.shade100,
+                              alignment: Alignment.center,
+                              child: const CircularProgressIndicator(
+                                color: _operatorGold,
+                              ),
+                            );
+                          }
+
+                          final routePoints = snapshot.data ?? const [];
+                          if (routePoints.isEmpty) {
+                            return Container(
                               color: isDark
                                   ? const Color(0xFF0D1928)
                                   : Colors.grey.shade100,
                               alignment: Alignment.center,
                               padding: const EdgeInsets.all(28),
                               child: Text(
-                                'The renter submitted the addresses, but map coordinates are not available for this booking.',
+                                'The saved route could not be located. Ask the renter to update the booking pin.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: muted),
                               ),
-                            )
-                          : MobilisLeafletMap(
-                              markers: markers,
-                              routePoints: routePoints,
-                              routeColor: _operatorGold,
-                              initialZoom: markers.length > 1 ? 11 : 14,
+                            );
+                          }
+
+                          final markers = <MobilisMapMarker>[
+                            MobilisMapMarker(
+                              latitude: routePoints.first.latitude,
+                              longitude: routePoints.first.longitude,
+                              icon: routePoints.length > 1
+                                  ? Icons.trip_origin_rounded
+                                  : Icons.flag_rounded,
+                              color: routePoints.length > 1
+                                  ? AppColors.success
+                                  : _operatorGold,
+                              size: 38,
                             ),
+                            if (routePoints.length > 1)
+                              MobilisMapMarker(
+                                latitude: routePoints.last.latitude,
+                                longitude: routePoints.last.longitude,
+                                icon: Icons.flag_rounded,
+                                color: _operatorGold,
+                                size: 40,
+                              ),
+                          ];
+                          return MobilisLeafletMap(
+                            markers: markers,
+                            routePoints: routePoints,
+                            routeColor: _operatorGold,
+                            initialZoom: routePoints.length > 1 ? null : 14,
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
