@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../theme/app_colors.dart';
 
-const mobilisOsmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const mobilisTerrainTileUrl = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
 const mobilisMapUserAgent = 'com.example.mobilis_by_psdc_app';
 
 class MobilisMapMarker {
@@ -133,8 +133,11 @@ class MobilisLeafletMap extends StatelessWidget {
         ),
         children: [
           TileLayer(
-            urlTemplate: mobilisOsmTileUrl,
+            urlTemplate: mobilisTerrainTileUrl,
             userAgentPackageName: mobilisMapUserAgent,
+            // OpenTopoMap publishes native tiles through zoom 17. Allow
+            // flutter_map to scale those tiles for precise close-up pinning.
+            maxNativeZoom: 17,
           ),
           if (routePoints.length >= 2)
             PolylineLayer(
@@ -171,7 +174,9 @@ class MobilisLeafletMap extends StatelessWidget {
           if (showAttribution)
             const RichAttributionWidget(
               attributions: [
-                TextSourceAttribution('OpenStreetMap contributors'),
+                TextSourceAttribution(
+                  'OpenStreetMap contributors, SRTM | OpenTopoMap',
+                ),
               ],
             ),
         ],

@@ -466,7 +466,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
       if (submitted != true) return;
-      await _loadRecentBookings();
+      await Future.wait([
+        _loadRecentBookings(),
+        _loadOperatorRevenueBookings(),
+        _loadOperatorSettlements(),
+      ]);
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(

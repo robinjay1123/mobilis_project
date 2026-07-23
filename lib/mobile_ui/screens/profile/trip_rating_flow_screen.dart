@@ -33,6 +33,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _completionRecovered = false;
   List<Map<String, dynamic>> _targets = [];
   int _currentIndex = 0;
   double _selectedRating = 0;
@@ -65,9 +66,18 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       reviewerRole: widget.reviewerRole,
     );
 
+    var completionRecovered = false;
+    if (targets.isEmpty &&
+        widget.reviewerRole.trim().toLowerCase() == 'renter') {
+      completionRecovered = await _tripRatingService.reconcileCompletedBooking(
+        widget.bookingId,
+      );
+    }
+
     if (!mounted) return;
     setState(() {
       _targets = targets;
+      _completionRecovered = completionRecovered;
       _isLoading = false;
     });
   }
@@ -367,10 +377,25 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'There are no pending reviews left for this trip.',
+            Text(
+              _completionRecovered
+                  ? 'The trip is completed and its earnings are now being recorded.'
+                  : 'There are no pending reviews for you at this trip stage.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary),
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, _completionRecovered),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                ),
+                child: const Text('Back to Bookings'),
+              ),
             ),
           ],
         ),

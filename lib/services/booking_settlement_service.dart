@@ -3,6 +3,52 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
 
+class BookingSettlementAmounts {
+  const BookingSettlementAmounts({
+    required this.ownerServiceAmount,
+    required this.partnerCommission,
+    required this.partnerNet,
+    required this.driverCommission,
+    required this.driverNet,
+    required this.grossAmount,
+  });
+
+  final double ownerServiceAmount;
+  final double partnerCommission;
+  final double partnerNet;
+  final double driverCommission;
+  final double driverNet;
+  final double grossAmount;
+
+  factory BookingSettlementAmounts.calculate({
+    required double rentalAmount,
+    required double deliveryAmount,
+    required double lateFeeAmount,
+    required double driverGross,
+    required bool isPartnerVehicle,
+  }) {
+    final ownerServiceAmount = rentalAmount + deliveryAmount + lateFeeAmount;
+    final partnerCommission = isPartnerVehicle ? ownerServiceAmount * .10 : 0.0;
+    final driverCommission = driverGross * .15;
+    return BookingSettlementAmounts(
+      ownerServiceAmount: ownerServiceAmount,
+      partnerCommission: partnerCommission,
+      partnerNet: isPartnerVehicle
+          ? (ownerServiceAmount - partnerCommission)
+                .clamp(0.0, double.infinity)
+                .toDouble()
+          : 0.0,
+      driverCommission: driverCommission,
+      driverNet: (driverGross - driverCommission)
+          .clamp(0.0, double.infinity)
+          .toDouble(),
+      // Commission is deducted from earnings, not added to what the renter
+      // paid. Refundable security deposits are also excluded from revenue.
+      grossAmount: ownerServiceAmount + driverGross,
+    );
+  }
+}
+
 class BookingSettlementService {
   BookingSettlementService({SupabaseClient? client})
     : supabase = client ?? Supabase.instance.client;
@@ -10,6 +56,20 @@ class BookingSettlementService {
   final SupabaseClient supabase;
 
   double _number(dynamic value) => (value as num?)?.toDouble() ?? 0;
+
+  Future<List<Map<String, dynamic>>> getReleasedPayoutsForUser({
+    required String userId,
+    required String recipientRole,
+  }) async {
+    final response = await supabase
+        .from('booking_payouts')
+        .select()
+        .eq('recipient_user_id', userId)
+        .eq('recipient_role', recipientRole.trim().toLowerCase())
+        .eq('status', 'released')
+        .order('released_at', ascending: false);
+    return List<Map<String, dynamic>>.from(response);
+  }
 
   /// Releases the internal accounting records exactly once. This records who
   /// earned each amount; an external wallet/bank transfer remains a separate
@@ -101,19 +161,19 @@ class BookingSettlementService {
               .clamp(0.0, double.infinity)
               .toDouble();
     }
-    final ownerServiceAmount = rentalAmount + deliveryAmount + lateFeeAmount;
-    final partnerCommission = partnerId == null
-        ? 0.0
-        : ownerServiceAmount * .10;
-    final driverCommission = driverGross * .15;
-    final driverNet = (driverGross - driverCommission)
-        .clamp(0.0, double.infinity)
-        .toDouble();
-    final partnerNet = partnerId == null ? 0.0 : ownerServiceAmount;
-    final grossAmount = [
-      recordedTotal,
-      ownerServiceAmount + partnerCommission + driverGross,
-    ].reduce((a, b) => a > b ? a : b);
+    final amounts = BookingSettlementAmounts.calculate(
+      rentalAmount: rentalAmount,
+      deliveryAmount: deliveryAmount,
+      lateFeeAmount: lateFeeAmount,
+      driverGross: driverGross,
+      isPartnerVehicle: partnerId != null,
+    );
+    final ownerServiceAmount = amounts.ownerServiceAmount;
+    final partnerCommission = amounts.partnerCommission;
+    final driverCommission = amounts.driverCommission;
+    final driverNet = amounts.driverNet;
+    final partnerNet = amounts.partnerNet;
+    final grossAmount = amounts.grossAmount;
     final releasedAt = DateTime.now().toUtc().toIso8601String();
 
     final settlementPayload = <String, dynamic>{
@@ -152,7 +212,7 @@ class BookingSettlementService {
         'booking_id': bookingId,
         'recipient_user_id': partnerId,
         'recipient_role': 'partner',
-        'gross_amount': ownerServiceAmount + partnerCommission,
+        'gross_amount': ownerServiceAmount,
         'deductions': partnerCommission,
         'net_amount': partnerNet,
         'status': 'released',

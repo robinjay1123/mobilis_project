@@ -48,6 +48,7 @@ class TripRatingService {
             vehicles:vehicle_id (
               id,
               owner_id,
+              owner_role,
               operator_id,
               brand,
               model,
@@ -104,6 +105,20 @@ class TripRatingService {
             .maybeSingle();
         if (owner != null) {
           context['vehicle_owner'] = Map<String, dynamic>.from(owner);
+        }
+      }
+
+      final assignedDriverId = context['driver_id']?.toString();
+      final embeddedDriver = context['driver'];
+      if (assignedDriverId != null &&
+          assignedDriverId.isNotEmpty &&
+          embeddedDriver is! Map<String, dynamic>) {
+        final driverUser = await _findAssignedDriverUser(assignedDriverId);
+        if (driverUser != null) {
+          context['driver'] = {
+            'user_id': driverUser['id'],
+            'users': driverUser,
+          };
         }
       }
 
@@ -177,7 +192,7 @@ class TripRatingService {
     }
 
     final cleanRole = reviewerRole.trim().toLowerCase();
-    final ownerRole = owner['role']?.toString().trim().toLowerCase() ?? '';
+    final ownerRole = _ownerRole(context, owner);
     final hasDriver = driverUser.isNotEmpty;
     final isPartnerVehicle = ownerRole == 'partner';
     final expectedStage = '${cleanRole}_rating';
@@ -275,7 +290,8 @@ class TripRatingService {
             imageFiles: imageFiles,
           );
 
-    await supabase.from('trip_ratings').insert({
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase.from('trip_ratings').upsert({
       'booking_id': bookingId,
       'reviewer_user_id': reviewerUserId,
       'reviewer_role': cleanReviewerRole,
@@ -285,8 +301,8 @@ class TripRatingService {
       'comment': (comment ?? '').trim(),
       'tags': tags ?? <String>[],
       'image_urls': uploadedUrls,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+      'updated_at': now,
+    }, onConflict: 'booking_id,reviewer_user_id,target_user_id,target_role');
 
     await _refreshTargetProfileRating(targetUserId, targetRole);
     await _advanceCompletionAfterReviewer(
@@ -307,14 +323,15 @@ class TripRatingService {
         ? Map<String, dynamic>.from(context['vehicle_owner'])
         : <String, dynamic>{};
     final ownerId = owner['id']?.toString();
-    final ownerRole = owner['role']?.toString().trim().toLowerCase();
+    final ownerRole = _ownerRole(context, owner);
     final driver = context['driver'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['driver'])
         : <String, dynamic>{};
     final driverUser = driver['users'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(driver['users'])
         : <String, dynamic>{};
-    final driverUserId = driverUser['id']?.toString();
+    final driverUserId =
+        driverUser['id']?.toString() ?? context['driver_id']?.toString();
 
     var authorized = false;
     switch (reviewerRole) {
@@ -467,34 +484,28 @@ class TripRatingService {
               ) /
               ratingCount;
 
-    try {
-      await BookingSettlementService().releaseForCompletedBooking(bookingId);
-      await supabase
-          .from('bookings')
-          .update({
-            'status': 'completed',
-            'completed_at': completedAt,
-            'renter_trip_confirmed_at': completedAt,
-            'completion_stage': 'completed',
-            'completion_rating_average': ratingAverage,
-            'completion_rating_count': ratingCount,
-            'commission_status': 'released',
-            'commission_eligible_at': completedAt,
-            'updated_at': completedAt,
-          })
-          .eq('id', bookingId);
-    } catch (error) {
-      await supabase
-          .from('bookings')
-          .update({
-            'commission_status': 'settlement_failed',
-            'updated_at': completedAt,
-          })
-          .eq('id', bookingId);
-      throw Exception(
-        'The trip could not be completed because its earnings were not released: $error',
-      );
-    }
+    // Completion is the source of truth for trip history and revenue. Commit
+    // it before the retryable accounting work so a temporary ledger failure
+    // cannot leave a fully paid and fully rated trip stuck as ongoing.
+    await supabase
+        .from('bookings')
+        .update({
+          'status': 'completed',
+          'completed_at': completedAt,
+          'renter_trip_confirmed_at': completedAt,
+          'completion_stage': 'completed',
+          'completion_rating_average': ratingAverage,
+          'completion_rating_count': ratingCount,
+          'commission_status': 'processing',
+          'commission_eligible_at': completedAt,
+          'updated_at': completedAt,
+        })
+        .eq('id', bookingId);
+
+    await _releaseSettlementWithoutBlockingCompletion(
+      bookingId: bookingId,
+      updatedAt: completedAt,
+    );
 
     final driverUserId = completionContext['driver_id']?.toString();
     if (driverUserId?.isNotEmpty == true) {
@@ -552,6 +563,56 @@ class TripRatingService {
     }
   }
 
+  /// Repairs bookings where every rating was saved but an earlier settlement
+  /// attempt failed before the booking could advance to Completed.
+  Future<bool> reconcileCompletedBooking(String bookingId) async {
+    final context = await getBookingContext(bookingId);
+    if (context == null) return false;
+    final status = context['status']?.toString().trim().toLowerCase();
+    final now = DateTime.now().toUtc().toIso8601String();
+    if (status == 'completed') {
+      await _releaseSettlementWithoutBlockingCompletion(
+        bookingId: bookingId,
+        updatedAt: now,
+      );
+      return true;
+    }
+
+    try {
+      await _assertAllRequiredRatingsComplete(bookingId);
+    } catch (_) {
+      return false;
+    }
+    await _finalizeCompletedBooking(
+      context: context,
+      reviewerUserId: context['renter_id']?.toString() ?? '',
+      completedAt: now,
+    );
+    return true;
+  }
+
+  Future<void> _releaseSettlementWithoutBlockingCompletion({
+    required String bookingId,
+    required String updatedAt,
+  }) async {
+    try {
+      await BookingSettlementService().releaseForCompletedBooking(bookingId);
+      await supabase
+          .from('bookings')
+          .update({'commission_status': 'released', 'updated_at': updatedAt})
+          .eq('id', bookingId);
+    } catch (error) {
+      debugPrint('Settlement retry required for booking $bookingId: $error');
+      await supabase
+          .from('bookings')
+          .update({
+            'commission_status': 'settlement_failed',
+            'updated_at': updatedAt,
+          })
+          .eq('id', bookingId);
+    }
+  }
+
   Future<Map<String, dynamic>> _assertAllRequiredRatingsComplete(
     String bookingId,
   ) async {
@@ -574,8 +635,7 @@ class TripRatingService {
     final driverUser = driver['users'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(driver['users'])
         : <String, dynamic>{};
-    final isPartnerVehicle =
-        owner['role']?.toString().trim().toLowerCase() == 'partner';
+    final isPartnerVehicle = _ownerRole(latestContext, owner) == 'partner';
     final renterId = latestContext['renter_id']?.toString() ?? '';
     final operatorUser = latestContext['operator_user'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(latestContext['operator_user'])
@@ -583,11 +643,18 @@ class TripRatingService {
     final firstReviewerRole = isPartnerVehicle ? 'partner' : 'operator';
     final firstReviewerId = isPartnerVehicle
         ? owner['id']?.toString() ?? ''
-        : operatorUser['id']?.toString() ?? '';
-    final driverUserId = driverUser['id']?.toString() ?? '';
+        : latestContext['operator_id']?.toString() ??
+              operatorUser['id']?.toString() ??
+              '';
+    final driverUserId =
+        driverUser['id']?.toString() ??
+        latestContext['driver_id']?.toString() ??
+        '';
     final renterPrimaryTargetId = isPartnerVehicle
         ? owner['id']?.toString() ?? ''
-        : operatorUser['id']?.toString() ?? '';
+        : latestContext['operator_id']?.toString() ??
+              operatorUser['id']?.toString() ??
+              '';
     final requiredPairs =
         <
           ({
@@ -721,6 +788,44 @@ class TripRatingService {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<Map<String, dynamic>?> _findAssignedDriverUser(
+    String assignedDriverId,
+  ) async {
+    const columns =
+        'id, full_name, email, role, avatar_url, profile_picture_url';
+    try {
+      final directUser = await supabase
+          .from('users')
+          .select(columns)
+          .eq('id', assignedDriverId)
+          .maybeSingle();
+      if (directUser != null) return Map<String, dynamic>.from(directUser);
+
+      final driver = await supabase
+          .from('drivers')
+          .select('users!drivers_user_id_fkey ($columns)')
+          .eq('id', assignedDriverId)
+          .maybeSingle();
+      final user = driver?['users'];
+      return user is Map<String, dynamic>
+          ? Map<String, dynamic>.from(user)
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _ownerRole(Map<String, dynamic> context, Map<String, dynamic> owner) {
+    final vehicle = context['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(context['vehicles'])
+        : <String, dynamic>{};
+    return (vehicle['owner_role'] ?? owner['role'])
+            ?.toString()
+            .trim()
+            .toLowerCase() ??
+        '';
   }
 
   Future<bool> _hasExistingRating({

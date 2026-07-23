@@ -1931,10 +1931,18 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   void _openRevenuePayoutScreen() {
+    final currentPartnerId = partnerId;
+    if (currentPartnerId == null || currentPartnerId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Partner account is still loading.')),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PartnerRevenueScreen(
+          partnerId: currentPartnerId,
           partnerName: partnerName,
           bookings: bookings,
           completedTrips: bookingCounts['completed'] ?? 0,

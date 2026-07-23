@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import '../../../services/booking_settlement_service.dart';
 import '../../theme/app_colors.dart';
 
 class PartnerRevenueScreen extends StatefulWidget {
+  final String partnerId;
   final String partnerName;
   final List<Map<String, dynamic>> bookings;
   final int completedTrips;
@@ -10,6 +13,7 @@ class PartnerRevenueScreen extends StatefulWidget {
 
   const PartnerRevenueScreen({
     super.key,
+    required this.partnerId,
     required this.partnerName,
     required this.bookings,
     required this.completedTrips,
@@ -21,8 +25,30 @@ class PartnerRevenueScreen extends StatefulWidget {
 }
 
 class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
+  final BookingSettlementService _settlementService =
+      BookingSettlementService();
   String _selectedPeriod = 'Month';
+  late Future<List<Map<String, dynamic>>> _payoutsFuture;
   static const List<String> _periodOptions = ['Day', 'Week', 'Month', 'Year'];
+
+  @override
+  void initState() {
+    super.initState();
+    _payoutsFuture = _fetchPayouts();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchPayouts() {
+    return _settlementService.getReleasedPayoutsForUser(
+      userId: widget.partnerId,
+      recipientRole: 'partner',
+    );
+  }
+
+  Future<void> _refreshPayouts() async {
+    final request = _fetchPayouts();
+    setState(() => _payoutsFuture = request);
+    await request;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,133 +60,198 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
         )
         .where(_isWithinSelectedPeriod)
         .toList();
-    final computedRevenue = completedBookings.fold<double>(
-      0,
-      (sum, booking) =>
-          sum + ((booking['total_price'] as num?)?.toDouble() ?? 0),
-    );
-    final totalRevenue = computedRevenue;
-    final tripCount = completedBookings.length;
-    final averageTrip = tripCount == 0 ? 0.0 : totalRevenue / tripCount;
-
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 26),
-          children: [
-            Row(
-              children: [
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(
-                    Icons.arrow_back,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                const Expanded(
-                  child: Text.rich(
-                    TextSpan(
-                      text: 'Mobilis ',
-                      children: [
-                        TextSpan(
-                          text: 'by PSDC',
-                          style: TextStyle(color: AppColors.primary),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _payoutsFuture,
+          builder: (context, snapshot) {
+            final payouts = (snapshot.data ?? const <Map<String, dynamic>>[])
+                .where(_isPayoutWithinSelectedPeriod)
+                .toList();
+            final totalRevenue = payouts.fold<double>(
+              0,
+              (sum, payout) =>
+                  sum + ((payout['net_amount'] as num?)?.toDouble() ?? 0),
+            );
+            final tripCount = completedBookings.length;
+            final averageTrip = payouts.isEmpty
+                ? 0.0
+                : totalRevenue / payouts.length;
+            final pendingSettlementCount = (tripCount - payouts.length).clamp(
+              0,
+              tripCount,
+            );
+
+            return RefreshIndicator(
+              color: AppColors.primary,
+              onRefresh: _refreshPayouts,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 26),
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: AppColors.textPrimary,
                         ),
-                      ],
-                    ),
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            text: 'Mobilis ',
+                            children: [
+                              TextSpan(
+                                text: 'by PSDC',
+                                style: TextStyle(color: AppColors.primary),
+                              ),
+                            ],
+                          ),
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          _initials(widget.partnerName),
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(height: 32),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Analytics',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      _buildPeriodDropdown(),
+                    ],
                   ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    _initials(widget.partnerName),
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  const SizedBox(height: 28),
+                  _buildMetricCard(
+                    label: 'Total Revenue',
+                    value: snapshot.connectionState == ConnectionState.waiting
+                        ? 'Loading...'
+                        : _currency(totalRevenue),
+                    subtext: payouts.isEmpty
+                        ? 'No revenue for this ${_selectedPeriod.toLowerCase()}'
+                        : 'Net released earnings this ${_selectedPeriod.toLowerCase()}',
+                    icon: Icons.payments_outlined,
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Analytics',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  const SizedBox(height: 24),
+                  _buildMetricCard(
+                    label: 'Completed Trips',
+                    value: '$tripCount',
+                    subtext: tripCount == 0
+                        ? 'No completed trips yet'
+                        : pendingSettlementCount > 0
+                        ? '$pendingSettlementCount awaiting settlement'
+                        : 'All trip earnings released',
+                    icon: Icons.directions_car,
                   ),
-                ),
-                _buildPeriodDropdown(),
-              ],
-            ),
-            const SizedBox(height: 28),
-            _buildMetricCard(
-              label: 'Total Revenue',
-              value: _currency(totalRevenue),
-              subtext: completedBookings.isEmpty
-                  ? 'No revenue for this ${_selectedPeriod.toLowerCase()}'
-                  : 'From completed trips this ${_selectedPeriod.toLowerCase()}',
-              icon: Icons.payments_outlined,
-            ),
-            const SizedBox(height: 24),
-            _buildMetricCard(
-              label: 'Completed Trips',
-              value: '$tripCount',
-              subtext: tripCount == 0
-                  ? 'No completed trips yet'
-                  : 'Trips completed',
-              icon: Icons.directions_car,
-            ),
-            const SizedBox(height: 24),
-            _buildMetricCard(
-              label: 'Avg per Trip',
-              value: _currency(averageTrip),
-              subtext: tripCount == 0
-                  ? 'No average available yet'
-                  : 'Based on completed trips',
-              icon: Icons.analytics_outlined,
-            ),
-            const SizedBox(height: 40),
-            _buildChartPlaceholder(),
-            const SizedBox(height: 30),
-            _buildSectionHeader('Linked Payout Methods', action: 'Manage'),
-            const SizedBox(height: 14),
-            _buildEmptyPanel(
-              icon: Icons.account_balance_wallet_outlined,
-              text: 'No linked payout methods yet.',
-            ),
-            const SizedBox(height: 16),
-            _buildDashedButton(),
-            const SizedBox(height: 34),
-            _buildSectionHeader('Earnings Breakdown', action: 'View All'),
-            const SizedBox(height: 14),
-            if (completedBookings.isEmpty)
-              _buildEmptyPanel(
-                icon: Icons.receipt_long_outlined,
-                text: 'No completed trip earnings yet.',
-              )
-            else
-              ...completedBookings.map(_buildEarningRow),
-          ],
+                  const SizedBox(height: 24),
+                  _buildMetricCard(
+                    label: 'Avg per Trip',
+                    value: _currency(averageTrip),
+                    subtext: tripCount == 0
+                        ? 'No average available yet'
+                        : 'Based on completed trips',
+                    icon: Icons.analytics_outlined,
+                  ),
+                  const SizedBox(height: 40),
+                  _buildChartPlaceholder(),
+                  const SizedBox(height: 30),
+                  _buildSectionHeader(
+                    'Linked Payout Methods',
+                    action: 'Manage',
+                  ),
+                  const SizedBox(height: 14),
+                  _buildEmptyPanel(
+                    icon: Icons.account_balance_wallet_outlined,
+                    text: 'No linked payout methods yet.',
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDashedButton(),
+                  const SizedBox(height: 34),
+                  _buildSectionHeader('Earnings Breakdown', action: 'View All'),
+                  const SizedBox(height: 14),
+                  if (snapshot.hasError)
+                    _buildErrorPanel(snapshot.error)
+                  else if (snapshot.connectionState == ConnectionState.waiting)
+                    _buildLoadingPanel()
+                  else if (payouts.isEmpty)
+                    _buildEmptyPanel(
+                      icon: Icons.receipt_long_outlined,
+                      text: pendingSettlementCount > 0
+                          ? 'Completed trip earnings are awaiting settlement.'
+                          : 'No completed trip earnings yet.',
+                    )
+                  else
+                    ...payouts.map(_buildEarningRow),
+                ],
+              ),
+            );
+          },
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingPanel() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 28),
+      child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+    );
+  }
+
+  Widget _buildErrorPanel(Object? error) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF071D31),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.error.withValues(alpha: .45)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.error),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Earnings could not be loaded. Pull down to try again.',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          IconButton(
+            onPressed: _refreshPayouts,
+            icon: const Icon(Icons.refresh, color: AppColors.primary),
+          ),
+        ],
       ),
     );
   }
@@ -386,11 +477,14 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
-  Widget _buildEarningRow(Map<String, dynamic> booking) {
+  Widget _buildEarningRow(Map<String, dynamic> payout) {
+    final booking = _bookingForPayout(payout);
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final vehicleName = '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''}'
         .trim();
-    final total = (booking['total_price'] as num?)?.toDouble() ?? 0;
+    final gross = (payout['gross_amount'] as num?)?.toDouble() ?? 0;
+    final deductions = (payout['deductions'] as num?)?.toDouble() ?? 0;
+    final net = (payout['net_amount'] as num?)?.toDouble() ?? 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -424,17 +518,28 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                   ),
                 ),
                 Text(
-                  _formatDateTime(booking['created_at']?.toString()),
+                  _formatDateTime(
+                    payout['released_at']?.toString() ??
+                        booking['completed_at']?.toString(),
+                  ),
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Gross ${_currency(gross)}  -  Commission ${_currency(deductions)}',
+                  style: const TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 10,
                   ),
                 ),
               ],
             ),
           ),
           Text(
-            '+${_currency(total)}',
+            '+${_currency(net)}',
             style: const TextStyle(
               color: AppColors.success,
               fontSize: 16,
@@ -446,11 +551,30 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
-  static String _currency(double value) => 'PHP ${value.toStringAsFixed(2)}';
+  Map<String, dynamic> _bookingForPayout(Map<String, dynamic> payout) {
+    final bookingId = payout['booking_id']?.toString();
+    for (final booking in widget.bookings) {
+      if (booking['id']?.toString() == bookingId) return booking;
+    }
+    return <String, dynamic>{};
+  }
+
+  static final NumberFormat _money = NumberFormat('#,##0.00');
+
+  static String _currency(double value) => 'PHP ${_money.format(value)}';
+
+  bool _isPayoutWithinSelectedPeriod(Map<String, dynamic> payout) {
+    final date = DateTime.tryParse(payout['released_at']?.toString() ?? '');
+    return date != null && _isDateWithinSelectedPeriod(date);
+  }
 
   bool _isWithinSelectedPeriod(Map<String, dynamic> booking) {
     final date = _bookingDate(booking);
     if (date == null) return false;
+    return _isDateWithinSelectedPeriod(date);
+  }
+
+  bool _isDateWithinSelectedPeriod(DateTime date) {
     final local = date.toLocal();
     final now = DateTime.now();
     late final DateTime start;
