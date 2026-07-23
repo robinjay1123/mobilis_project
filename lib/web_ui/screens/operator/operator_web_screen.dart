@@ -11,6 +11,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_map/flutter_map.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
@@ -6640,6 +6641,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final pickup = booking['pickup_location']?.toString().trim() ?? '';
     final destination = booking['dropoff_location']?.toString().trim() ?? '';
     final routePointsFuture = _resolveBookingRoutePoints(booking);
+    final routeMapController = MapController();
 
     await showDialog<void>(
       context: context,
@@ -6782,11 +6784,54 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 size: 40,
                               ),
                           ];
-                          return MobilisLeafletMap(
-                            markers: markers,
-                            routePoints: routePoints,
-                            routeColor: _operatorGold,
-                            initialZoom: routePoints.length > 1 ? null : 14,
+                          return Stack(
+                            children: [
+                              Positioned.fill(
+                                child: MobilisLeafletMap(
+                                  markers: markers,
+                                  routePoints: routePoints,
+                                  routeColor: _operatorGold,
+                                  initialZoom: routePoints.length > 1
+                                      ? null
+                                      : 14,
+                                  mapController: routeMapController,
+                                  mapStyle: MobilisMapStyle.satellite,
+                                ),
+                              ),
+                              Positioned(
+                                right: 14,
+                                top: 14,
+                                child: Column(
+                                  children: [
+                                    _buildRouteZoomButton(
+                                      tooltip: 'Zoom in',
+                                      icon: Icons.add_rounded,
+                                      onPressed: () {
+                                        final camera =
+                                            routeMapController.camera;
+                                        routeMapController.move(
+                                          camera.center,
+                                          (camera.zoom + 1).clamp(5, 19),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 8),
+                                    _buildRouteZoomButton(
+                                      tooltip: 'Zoom out',
+                                      icon: Icons.remove_rounded,
+                                      onPressed: () {
+                                        final camera =
+                                            routeMapController.camera;
+                                        routeMapController.move(
+                                          camera.center,
+                                          (camera.zoom - 1).clamp(5, 19),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -6798,6 +6843,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildRouteZoomButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return Material(
+      color: const Color(0xFF071D31).withValues(alpha: 0.92),
+      elevation: 6,
+      borderRadius: BorderRadius.circular(12),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, color: Colors.white, size: 24),
+        constraints: const BoxConstraints.tightFor(width: 46, height: 46),
+        padding: EdgeInsets.zero,
+      ),
     );
   }
 

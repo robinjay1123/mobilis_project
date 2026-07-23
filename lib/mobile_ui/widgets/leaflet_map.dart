@@ -7,7 +7,12 @@ import 'package:latlong2/latlong.dart';
 import '../theme/app_colors.dart';
 
 const mobilisTerrainTileUrl = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
+const mobilisSatelliteTileUrl =
+    'https://server.arcgisonline.com/ArcGIS/rest/services/'
+    'World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const mobilisMapUserAgent = 'com.example.mobilis_by_psdc_app';
+
+enum MobilisMapStyle { terrain, satellite }
 
 class MobilisMapMarker {
   final double latitude;
@@ -48,6 +53,7 @@ class MobilisLeafletMap extends StatelessWidget {
   final void Function(double latitude, double longitude)? onTap;
   final Color backgroundColor;
   final bool showAttribution;
+  final MobilisMapStyle mapStyle;
 
   const MobilisLeafletMap({
     super.key,
@@ -62,6 +68,7 @@ class MobilisLeafletMap extends StatelessWidget {
     this.onTap,
     this.backgroundColor = const Color(0xFFE8EEF2),
     this.showAttribution = true,
+    this.mapStyle = MobilisMapStyle.terrain,
   });
 
   LatLng get _center {
@@ -133,11 +140,11 @@ class MobilisLeafletMap extends StatelessWidget {
         ),
         children: [
           TileLayer(
-            urlTemplate: mobilisTerrainTileUrl,
+            urlTemplate: mapStyle == MobilisMapStyle.satellite
+                ? mobilisSatelliteTileUrl
+                : mobilisTerrainTileUrl,
             userAgentPackageName: mobilisMapUserAgent,
-            // OpenTopoMap publishes native tiles through zoom 17. Allow
-            // flutter_map to scale those tiles for precise close-up pinning.
-            maxNativeZoom: 17,
+            maxNativeZoom: mapStyle == MobilisMapStyle.satellite ? 19 : 17,
           ),
           if (routePoints.length >= 2)
             PolylineLayer(
@@ -172,10 +179,12 @@ class MobilisLeafletMap extends StatelessWidget {
                   .toList(),
             ),
           if (showAttribution)
-            const RichAttributionWidget(
+            RichAttributionWidget(
               attributions: [
                 TextSourceAttribution(
-                  'OpenStreetMap contributors, SRTM | OpenTopoMap',
+                  mapStyle == MobilisMapStyle.satellite
+                      ? 'Esri, Maxar, Earthstar Geographics'
+                      : 'OpenStreetMap contributors, SRTM | OpenTopoMap',
                 ),
               ],
             ),
