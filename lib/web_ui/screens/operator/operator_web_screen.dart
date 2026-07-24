@@ -36,6 +36,7 @@ import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/image_optimization_service.dart';
+import '../../../services/trip_rating_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -415,9 +416,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
-        _loadOperatorSettlements(),
         _loadTrackingLocations(),
       ]);
+      await _repairOperatorRevenueSettlements();
+      await _loadOperatorSettlements();
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
     } finally {
@@ -1062,6 +1064,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             total_cost,
             final_payment_status,
             final_payment_confirmed_at,
+            completion_stage,
+            commission_status,
             created_at,
             completed_at,
             renter:users!bookings_renter_id_fkey (
@@ -1077,7 +1081,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               model,
               year,
               plate_number,
-              vehicle_name
+              vehicle_name,
+              owner_role,
+              operator_id
             )
           ''')
           .eq('operator_id', operatorId)
@@ -1116,6 +1122,49 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       // The dashboard remains usable before the new migration is deployed.
       debugPrint('Error loading operator settlement summary: $error');
       _operatorSettlements = [];
+    }
+  }
+
+  Future<void> _repairOperatorRevenueSettlements() async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null ||
+        operatorId.isEmpty ||
+        _operatorRevenueBookings.isEmpty) {
+      return;
+    }
+
+    final candidates = _operatorRevenueBookings
+        .where((booking) {
+          final status = bookingStatusGroup(booking['status']);
+          final paymentStatus = booking['final_payment_status']
+              ?.toString()
+              .trim()
+              .toLowerCase();
+          final commissionStatus = booking['commission_status']
+              ?.toString()
+              .trim()
+              .toLowerCase();
+          return status == BookingStatusGroup.completed &&
+              paymentStatus == 'paid' &&
+              commissionStatus != 'released';
+        })
+        .take(8);
+
+    for (final booking in candidates) {
+      final bookingId = booking['id']?.toString();
+      if (bookingId == null || bookingId.isEmpty) continue;
+      try {
+        await TripRatingService().reconcileCompletedBooking(
+          bookingId,
+          operatorFallbackUserId: operatorId,
+        );
+        booking['commission_status'] = 'released';
+        booking['operator_id'] ??= operatorId;
+      } catch (error) {
+        debugPrint(
+          'Could not repair operator settlement for $bookingId: $error',
+        );
+      }
     }
   }
 
@@ -3281,12 +3330,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               'released',
         )
         .toList();
-    final managedValue = releasedSettlements.fold<double>(
-      0,
-      (total, settlement) =>
-          total +
-          ((settlement['operator_managed_amount'] as num?)?.toDouble() ?? 0),
+    final paidCompletedFallback = _paidCompletedWithoutSettlement(
+      bookings: _operatorManagedBookings(),
+      settlements: releasedSettlements,
     );
+    final managedValue =
+        releasedSettlements.fold<double>(
+          0,
+          (total, settlement) =>
+              total +
+              ((settlement['operator_managed_amount'] as num?)?.toDouble() ??
+                  0),
+        ) +
+        _operatorManagedFallbackRevenue(paidCompletedFallback);
+    final settledTripCount =
+        releasedSettlements.length + paidCompletedFallback.length;
     final tracked = _visibleTrackingLocations();
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3303,7 +3361,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 title: 'Revenue Snapshot',
                 value: 'PHP ${managedValue.toStringAsFixed(2)}',
                 description:
-                    '${releasedSettlements.length} settled trips managed by this operator',
+                    '$settledTripCount settled or paid completed trips managed by this operator',
                 icon: Icons.account_balance_wallet_outlined,
                 accent: const Color(0xFF2E7D32),
                 buttonLabel: 'Open Revenue Analytics',
@@ -3552,6 +3610,49 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         0;
   }
 
+  bool _isPartnerVehicleBooking(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'];
+    if (vehicle is! Map) return false;
+    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase();
+    return ownerRole == 'partner';
+  }
+
+  double _operatorManagedFallbackRevenue(List<Map<String, dynamic>> bookings) {
+    return bookings
+        .where((booking) => !_isPartnerVehicleBooking(booking))
+        .fold<double>(0, (total, booking) => total + _bookingAmount(booking));
+  }
+
+  bool _isPaidCompletedBooking(Map<String, dynamic> booking) {
+    final paymentStatus = booking['final_payment_status']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    return bookingStatusGroup(booking['status']) ==
+            BookingStatusGroup.completed &&
+        paymentStatus == 'paid';
+  }
+
+  Set<String> _settlementBookingIds(List<Map<String, dynamic>> settlements) {
+    return settlements
+        .map((settlement) => settlement['booking_id']?.toString())
+        .whereType<String>()
+        .toSet();
+  }
+
+  List<Map<String, dynamic>> _paidCompletedWithoutSettlement({
+    required List<Map<String, dynamic>> bookings,
+    required List<Map<String, dynamic>> settlements,
+  }) {
+    final settledBookingIds = _settlementBookingIds(settlements);
+    return bookings.where((booking) {
+      final bookingId = booking['id']?.toString();
+      return bookingId != null &&
+          !settledBookingIds.contains(bookingId) &&
+          _isPaidCompletedBooking(booking);
+    }).toList();
+  }
+
   DateTime? _operatorRevenueDate(Map<String, dynamic> row) {
     for (final key in const [
       'released_at',
@@ -3575,8 +3676,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       case 'day':
         return DateUtils.isSameDay(date, now);
       case 'week':
-        final start = DateTime(now.year, now.month, now.day)
-            .subtract(const Duration(days: 6));
+        final start = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(const Duration(days: 6));
         return !date.isBefore(start) && !date.isAfter(now);
       case 'year':
         return date.year == now.year;
@@ -3608,10 +3712,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final releasedSettlements = allReleasedSettlements
         .where(_matchesOperatorRevenuePeriod)
         .toList();
-    final releasedBookingIds = releasedSettlements
-        .map((settlement) => settlement['booking_id']?.toString())
-        .whereType<String>()
-        .toSet();
+    final releasedBookingIds = _settlementBookingIds(releasedSettlements);
     final fullyPaid = managed.where((booking) {
       final paymentStatus = booking['final_payment_status']
           ?.toString()
@@ -3627,35 +3728,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               BookingStatusGroup.completed,
         )
         .toList();
+    final paidCompletedFallback = _paidCompletedWithoutSettlement(
+      bookings: completed,
+      settlements: releasedSettlements,
+    );
     final active = managed.where((booking) {
       final group = bookingStatusGroup(booking['status']);
       return group == BookingStatusGroup.approved ||
           group == BookingStatusGroup.ongoing;
     }).length;
-    final historicalCompletedValue = completed.fold<double>(
-      0,
-      (total, booking) => total + _bookingAmount(booking),
-    );
     final releasedGross = releasedSettlements.fold<double>(
       0,
       (total, settlement) =>
           total + ((settlement['gross_amount'] as num?)?.toDouble() ?? 0),
     );
-    final managedValue = releasedSettlements.fold<double>(
+    final fallbackRevenue = paidCompletedFallback.fold<double>(
       0,
-      (total, settlement) =>
-          total +
-          ((settlement['operator_managed_amount'] as num?)?.toDouble() ?? 0),
+      (total, booking) => total + _bookingAmount(booking),
     );
+    final managedFallbackRevenue = _operatorManagedFallbackRevenue(
+      paidCompletedFallback,
+    );
+    final managedValue =
+        releasedSettlements.fold<double>(
+          0,
+          (total, settlement) =>
+              total +
+              ((settlement['operator_managed_amount'] as num?)?.toDouble() ??
+                  0),
+        ) +
+        managedFallbackRevenue;
     final platformCommission = releasedSettlements.fold<double>(
       0,
       (total, settlement) =>
           total +
           ((settlement['platform_commission'] as num?)?.toDouble() ?? 0),
     );
-    final processedRevenue = releasedSettlements.isEmpty
-        ? historicalCompletedValue
-        : releasedGross;
+    final processedRevenue = releasedGross + fallbackRevenue;
+    final paidCompletedCount =
+        releasedSettlements.length + paidCompletedFallback.length;
     final averageValue = completed.isEmpty
         ? 0.0
         : processedRevenue / completed.length;
@@ -3678,22 +3789,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             date.year == monthDate.year &&
             date.month == monthDate.month;
       }).toList();
+      final monthFallback = _paidCompletedWithoutSettlement(
+        bookings: monthBookings,
+        settlements: monthSettlements,
+      );
+      final monthSettlementAmount = monthSettlements.fold<double>(
+        0,
+        (total, settlement) =>
+            total + ((settlement['gross_amount'] as num?)?.toDouble() ?? 0),
+      );
+      final monthFallbackAmount = monthFallback.fold<double>(
+        0,
+        (total, booking) => total + _bookingAmount(booking),
+      );
       return <String, dynamic>{
         'label': _getMonthName(monthDate.month),
-        'count': allReleasedSettlements.isEmpty
-            ? monthBookings.length
-            : monthSettlements.length,
-        'amount': allReleasedSettlements.isEmpty
-            ? monthBookings.fold<double>(
-                0,
-                (total, booking) => total + _bookingAmount(booking),
-              )
-            : monthSettlements.fold<double>(
-                0,
-                (total, settlement) =>
-                    total +
-                    ((settlement['gross_amount'] as num?)?.toDouble() ?? 0),
-              ),
+        'count': monthSettlements.length + monthFallback.length,
+        'amount': monthSettlementAmount + monthFallbackAmount,
       };
     });
     final maxMonthly = monthly.fold<double>(
@@ -3767,9 +3879,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     child: _buildRevenueMetricCard(
                       'Released Value',
                       'PHP ${processedRevenue.toStringAsFixed(2)}',
-                      releasedSettlements.isEmpty
-                          ? '${completed.length} historical completed transactions'
-                          : '${releasedSettlements.length} released settlements',
+                      paidCompletedCount == 0
+                          ? 'No paid completed trips yet'
+                          : '$paidCompletedCount paid completed trips',
                       Icons.account_balance_wallet_outlined,
                       const Color(0xFF2E7D32),
                       isDark,
@@ -3778,11 +3890,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   SizedBox(
                     width: width,
                     child: _buildRevenueMetricCard(
-                      releasedSettlements.isEmpty
+                      paidCompletedCount == 0
                           ? 'Average Booking'
                           : 'PSDC Managed Value',
-                      'PHP ${(releasedSettlements.isEmpty ? averageValue : managedValue).toStringAsFixed(2)}',
-                      releasedSettlements.isEmpty
+                      'PHP ${(paidCompletedCount == 0 ? averageValue : managedValue).toStringAsFixed(2)}',
+                      paidCompletedCount == 0
                           ? 'Completed bookings only'
                           : 'Company vehicle value handled by this operator',
                       Icons.insights_outlined,
@@ -3947,9 +4059,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 side: BorderSide(
                   color: selected
                       ? _operatorGold
-                      : (isDark
-                            ? AppColors.borderColor
-                            : Colors.grey.shade300),
+                      : (isDark ? AppColors.borderColor : Colors.grey.shade300),
                 ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
@@ -3993,10 +4103,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.verified_rounded,
-                color: Color(0xFF2E7D32),
-              ),
+              const Icon(Icons.verified_rounded, color: Color(0xFF2E7D32)),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -4089,7 +4196,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     Expanded(
                       child: Text(
-                        date == null ? 'Date unavailable' : _formatBookingDateTime(date),
+                        date == null
+                            ? 'Date unavailable'
+                            : _formatBookingDateTime(date),
                         style: TextStyle(
                           color: isDark
                               ? Colors.grey[400]
@@ -11032,8 +11141,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final attachmentUrl = isDeleted
         ? ''
         : message['attachment_url']?.toString().trim() ?? '';
-    final attachmentType =
-        message['attachment_type']?.toString().trim() ?? '';
+    final attachmentType = message['attachment_type']?.toString().trim() ?? '';
     final attachmentName =
         message['attachment_name']?.toString().trim() ?? 'Attachment';
     return Align(
@@ -11136,9 +11244,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     required bool isDark,
   }) {
     final normalized = '$type $name $url'.toLowerCase();
-    final isImage = normalized.contains('image') ||
+    final isImage =
+        normalized.contains('image') ||
         RegExp(r'\.(png|jpe?g|webp|gif)(\?|$)').hasMatch(normalized);
-    final isVideo = normalized.contains('video') ||
+    final isVideo =
+        normalized.contains('video') ||
         RegExp(r'\.(mp4|mov|m4v|webm)(\?|$)').hasMatch(normalized);
 
     if (isImage) {
@@ -11192,10 +11302,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (isVideo) {
             showDialog<void>(
               context: context,
-              builder: (_) => _OperatorVideoAttachmentViewer(
-                url: url,
-                title: name,
-              ),
+              builder: (_) =>
+                  _OperatorVideoAttachmentViewer(url: url, title: name),
             );
             return;
           }
@@ -16219,10 +16327,7 @@ class _OperatorVideoAttachmentViewerState
               color: const Color(0xFF0A2034),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.videocam_outlined,
-                    color: Color(0xFFFFD438),
-                  ),
+                  const Icon(Icons.videocam_outlined, color: Color(0xFFFFD438)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(

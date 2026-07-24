@@ -75,8 +75,9 @@ class BookingSettlementService {
   /// earned each amount; an external wallet/bank transfer remains a separate
   /// payment-provider operation.
   Future<Map<String, dynamic>> releaseForCompletedBooking(
-    String bookingId,
-  ) async {
+    String bookingId, {
+    String? operatorFallbackUserId,
+  }) async {
     final existing = await supabase
         .from('booking_settlements')
         .select()
@@ -119,6 +120,11 @@ class BookingSettlementService {
       throw Exception('The booking must be fully paid before releasing funds');
     }
 
+    String? nonEmpty(dynamic value) {
+      final text = value?.toString().trim();
+      return text == null || text.isEmpty ? null : text;
+    }
+
     final vehicle = booking['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(booking['vehicles'])
         : <String, dynamic>{};
@@ -127,8 +133,9 @@ class BookingSettlementService {
         ? vehicle['owner_id']?.toString()
         : null;
     final operatorId =
-        booking['operator_id']?.toString() ??
-        vehicle['operator_id']?.toString();
+        nonEmpty(booking['operator_id']) ??
+        nonEmpty(vehicle['operator_id']) ??
+        nonEmpty(operatorFallbackUserId);
     var rentalAmount = _number(booking['rental_subtotal']);
     final deliveryAmount = _number(booking['delivery_fee']);
     final lateFeeAmount = _number(booking['late_return_fee']);
@@ -175,6 +182,19 @@ class BookingSettlementService {
     final partnerNet = amounts.partnerNet;
     final grossAmount = amounts.grossAmount;
     final releasedAt = DateTime.now().toUtc().toIso8601String();
+
+    if (operatorId != null && nonEmpty(booking['operator_id']) == null) {
+      try {
+        await supabase
+            .from('bookings')
+            .update({'operator_id': operatorId, 'updated_at': releasedAt})
+            .eq('id', bookingId);
+      } catch (error) {
+        debugPrint(
+          'Could not backfill booking operator for settlement: $error',
+        );
+      }
+    }
 
     final settlementPayload = <String, dynamic>{
       'booking_id': bookingId,

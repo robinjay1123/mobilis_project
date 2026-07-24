@@ -586,7 +586,10 @@ class TripRatingService {
 
   /// Repairs bookings where every rating was saved but an earlier settlement
   /// attempt failed before the booking could advance to Completed.
-  Future<bool> reconcileCompletedBooking(String bookingId) async {
+  Future<bool> reconcileCompletedBooking(
+    String bookingId, {
+    String? operatorFallbackUserId,
+  }) async {
     final context = await getBookingContext(bookingId);
     if (context == null) return false;
     final status = context['status']?.toString().trim().toLowerCase();
@@ -595,6 +598,7 @@ class TripRatingService {
       await _releaseSettlementWithoutBlockingCompletion(
         bookingId: bookingId,
         updatedAt: now,
+        operatorFallbackUserId: operatorFallbackUserId,
       );
       return true;
     }
@@ -615,9 +619,13 @@ class TripRatingService {
   Future<void> _releaseSettlementWithoutBlockingCompletion({
     required String bookingId,
     required String updatedAt,
+    String? operatorFallbackUserId,
   }) async {
     try {
-      await BookingSettlementService().releaseForCompletedBooking(bookingId);
+      await BookingSettlementService().releaseForCompletedBooking(
+        bookingId,
+        operatorFallbackUserId: operatorFallbackUserId,
+      );
       await supabase
           .from('bookings')
           .update({'commission_status': 'released', 'updated_at': updatedAt})
