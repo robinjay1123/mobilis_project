@@ -59,14 +59,6 @@ class TripRatingService {
               fuel_type,
               seats
             ),
-            renter:renter_id (
-              id,
-              full_name,
-              email,
-              role,
-              avatar_url,
-              profile_picture_url
-            ),
             driver:drivers!bookings_driver_id_fkey (
               id,
               user_id,
@@ -87,6 +79,20 @@ class TripRatingService {
       if (booking == null) return null;
 
       final context = Map<String, dynamic>.from(booking);
+      final renterId = context['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        final renter = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, role, avatar_url, profile_picture_url',
+            )
+            .eq('id', renterId)
+            .maybeSingle();
+        if (renter != null) {
+          context['renter'] = Map<String, dynamic>.from(renter);
+        }
+      }
+
       final vehicle = booking['vehicles'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(booking['vehicles'])
           : <String, dynamic>{};
@@ -155,6 +161,7 @@ class TripRatingService {
     required String bookingId,
     required String reviewerUserId,
     required String reviewerRole,
+    bool includePreviouslySubmittedForRecovery = true,
   }) async {
     final context = await getBookingContext(bookingId);
     if (context == null) return [];
@@ -245,9 +252,22 @@ class TripRatingService {
       );
     }
 
-    return uniqueTargets
+    final pendingTargets = uniqueTargets
         .where((target) => target['alreadyRated'] != true)
         .toList();
+    if (pendingTargets.isNotEmpty) return pendingTargets;
+
+    // A rating can be saved before the booking-stage update completes (for
+    // example after a lost connection). In that case the booking still points
+    // at this reviewer even though the rating row already exists. Return the
+    // targets again so submitting safely upserts the review and advances the
+    // completion workflow instead of showing a false "already completed"
+    // state.
+    if (includePreviouslySubmittedForRecovery && uniqueTargets.isNotEmpty) {
+      return uniqueTargets;
+    }
+
+    return const <Map<String, dynamic>>[];
   }
 
   Future<void> submitRating({
@@ -379,6 +399,7 @@ class TripRatingService {
       bookingId: bookingId,
       reviewerUserId: reviewerUserId,
       reviewerRole: reviewerRole,
+      includePreviouslySubmittedForRecovery: false,
     );
     if (remainingTargets.isNotEmpty) return;
 

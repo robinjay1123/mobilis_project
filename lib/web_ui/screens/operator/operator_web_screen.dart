@@ -13,6 +13,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
@@ -77,6 +78,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _bookingVehicleTypeFilter = 'all';
   String _vehicleView = 'company';
   String _vehicleSearchQuery = '';
+  String _revenuePeriod = 'month';
   int _dashboardQueuePage = 0;
   static const int _dashboardQueuePageSize = 10;
   int _bookingPage = 0;
@@ -95,6 +97,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _recentBookings = [];
   List<Map<String, dynamic>> _operatorRevenueBookings = [];
   List<Map<String, dynamic>> _operatorSettlements = [];
+  Map<String, dynamic> _operatorProfile = {};
   List<Map<String, dynamic>> _vehicles = [];
   List<Map<String, dynamic>> _partnerVehicles = [];
   List<Map<String, dynamic>> _conversations = [];
@@ -406,6 +409,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (showLoading && mounted) setState(() => _isLoading = true);
     try {
       await Future.wait([
+        _loadOperatorProfile(),
         _loadStats(),
         _loadNotifications(),
         _loadVehicles(),
@@ -422,6 +426,63 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (showLoading) _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadOperatorProfile() async {
+    final currentUser = _supabase.auth.currentUser;
+    if (currentUser == null) {
+      _operatorProfile = {};
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('users')
+          .select(
+            'id, full_name, email, phone, location, avatar_url, profile_picture_url',
+          )
+          .eq('id', currentUser.id)
+          .maybeSingle();
+      final metadata = currentUser.userMetadata ?? const <String, dynamic>{};
+      final profile = response == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(response);
+
+      String? firstValue(List<dynamic> values) {
+        for (final value in values) {
+          final text = value?.toString().trim();
+          if (text != null && text.isNotEmpty) return text;
+        }
+        return null;
+      }
+
+      profile['full_name'] = firstValue([
+        profile['full_name'],
+        metadata['full_name'],
+        metadata['name'],
+      ]);
+      profile['email'] = firstValue([profile['email'], currentUser.email]);
+      final avatar = firstValue([
+        profile['avatar_url'],
+        profile['profile_picture_url'],
+        metadata['avatar_url'],
+        metadata['profile_picture_url'],
+        metadata['picture'],
+      ]);
+      profile['avatar_url'] = avatar;
+      profile['profile_picture_url'] = avatar;
+      _operatorProfile = profile;
+    } catch (error) {
+      debugPrint('Error loading operator profile: $error');
+      _operatorProfile = <String, dynamic>{
+        'full_name': currentUser.userMetadata?['full_name'],
+        'email': currentUser.email,
+        'avatar_url':
+            currentUser.userMetadata?['avatar_url'] ??
+            currentUser.userMetadata?['profile_picture_url'] ??
+            currentUser.userMetadata?['picture'],
+      };
     }
   }
 
@@ -457,6 +518,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (bookingId.isEmpty) return;
 
     try {
+      final latestBooking =
+          await BookingService().getBookingById(bookingId) ?? booking;
+      final completionState = BookingService().getTripCompletionState(
+        latestBooking,
+      );
+      final completionStage =
+          completionState['completionStage']?.toString() ?? '';
+      if (completionStage == 'awaiting_payment') {
+        await _confirmOperatorFinalPayment(latestBooking);
+        return;
+      }
+      if (completionStage != 'operator_rating') {
+        throw Exception(
+          completionStage == 'completed'
+              ? 'This trip and its required ratings are already completed.'
+              : 'Complete the return checklist and final payment before rating the renter.',
+        );
+      }
+
       final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => TripRatingFlowScreen(
@@ -540,7 +620,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
       // Keep the completion flow moving forward instead of returning the
       // operator to the booking list after every required action.
-      await _openOperatorRenterRating(booking);
+      final latestBooking =
+          await BookingService().getBookingById(bookingId) ?? booking;
+      await _openOperatorRenterRating(latestBooking);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -973,11 +1055,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .select('''
             id,
             operator_id,
+            vehicle_id,
+            renter_id,
             status,
             total_price,
             total_cost,
+            final_payment_status,
+            final_payment_confirmed_at,
             created_at,
-            completed_at
+            completed_at,
+            renter:users!bookings_renter_id_fkey (
+              id,
+              full_name,
+              email,
+              avatar_url,
+              profile_picture_url
+            ),
+            vehicles:vehicle_id (
+              id,
+              brand,
+              model,
+              year,
+              plate_number,
+              vehicle_name
+            )
           ''')
           .eq('operator_id', operatorId)
           .order('created_at', ascending: false);
@@ -2856,19 +2957,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             },
             child: Row(
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: _operatorGold,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.black,
-                    size: 20,
-                  ),
-                ),
+                _buildOperatorTopBarAvatar(),
                 const SizedBox(width: 10),
                 Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2876,7 +2965,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Operator',
+                      _operatorDisplayName(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
@@ -2914,6 +3005,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  String _operatorDisplayName() {
+    final name = _operatorProfile['full_name']?.toString().trim();
+    if (name != null && name.isNotEmpty) return name;
+    return 'Operator';
+  }
+
+  Widget _buildOperatorTopBarAvatar() {
+    final avatarUrl = _operatorUserAvatarUrl(_operatorProfile);
+    final fallback = Container(
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _operatorGold,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Text(
+        _operatorDisplayName().substring(0, 1).toUpperCase(),
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+    if (avatarUrl == null || avatarUrl.isEmpty) return fallback;
+    return OptimizedNetworkImage(
+      imageUrl: avatarUrl,
+      width: 38,
+      height: 38,
+      fit: BoxFit.cover,
+      borderRadius: BorderRadius.circular(11),
+      placeholder: fallback,
+      errorWidget: fallback,
     );
   }
 
@@ -3014,6 +3142,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 24),
+          _buildDashboardSnapshots(isDark),
           const SizedBox(height: 24),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -3138,66 +3268,67 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             isDark,
           ),
-          const SizedBox(height: 22),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth >= 820
-                  ? (constraints.maxWidth - 18) / 2
-                  : constraints.maxWidth;
-              final releasedSettlements = _operatorSettlements
-                  .where(
-                    (settlement) =>
-                        settlement['status']?.toString() == 'released',
-                  )
-                  .toList();
-              final managedValue = releasedSettlements.fold<double>(
-                0,
-                (total, settlement) =>
-                    total +
-                    ((settlement['operator_managed_amount'] as num?)
-                            ?.toDouble() ??
-                        0),
-              );
-              final tracked = _visibleTrackingLocations();
-              return Wrap(
-                spacing: 18,
-                runSpacing: 18,
-                children: [
-                  SizedBox(
-                    width: width,
-                    child: _buildDashboardInsightCard(
-                      title: 'Revenue Snapshot',
-                      value: 'PHP ${managedValue.toStringAsFixed(2)}',
-                      description:
-                          '${releasedSettlements.length} settled trips managed by this operator',
-                      icon: Icons.account_balance_wallet_outlined,
-                      accent: const Color(0xFF2E7D32),
-                      buttonLabel: 'Open Revenue Analytics',
-                      onTap: () => _openDashboardSection(selectedIndex: 7),
-                      isDark: isDark,
-                    ),
-                  ),
-                  SizedBox(
-                    width: width,
-                    child: _buildDashboardInsightCard(
-                      title: 'Live Tracking Snapshot',
-                      value: '${tracked.length} Active',
-                      description: tracked.isEmpty
-                          ? 'No company vehicles are transmitting an active trip location.'
-                          : 'Authorized company trips are currently transmitting location data.',
-                      icon: Icons.my_location_rounded,
-                      accent: const Color(0xFF1976D2),
-                      buttonLabel: 'Open Live Tracking',
-                      onTap: () => _openDashboardSection(selectedIndex: 6),
-                      isDark: isDark,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDashboardSnapshots(bool isDark) {
+    final releasedSettlements = _operatorSettlements
+        .where(
+          (settlement) =>
+              settlement['status']?.toString().trim().toLowerCase() ==
+              'released',
+        )
+        .toList();
+    final managedValue = releasedSettlements.fold<double>(
+      0,
+      (total, settlement) =>
+          total +
+          ((settlement['operator_managed_amount'] as num?)?.toDouble() ?? 0),
+    );
+    final tracked = _visibleTrackingLocations();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth >= 820
+            ? (constraints.maxWidth - 18) / 2
+            : constraints.maxWidth;
+        return Wrap(
+          spacing: 18,
+          runSpacing: 18,
+          children: [
+            SizedBox(
+              width: width,
+              child: _buildDashboardInsightCard(
+                title: 'Revenue Snapshot',
+                value: 'PHP ${managedValue.toStringAsFixed(2)}',
+                description:
+                    '${releasedSettlements.length} settled trips managed by this operator',
+                icon: Icons.account_balance_wallet_outlined,
+                accent: const Color(0xFF2E7D32),
+                buttonLabel: 'Open Revenue Analytics',
+                onTap: () => _openDashboardSection(selectedIndex: 7),
+                isDark: isDark,
+              ),
+            ),
+            SizedBox(
+              width: width,
+              child: _buildDashboardInsightCard(
+                title: 'Live Tracking Snapshot',
+                value: '${tracked.length} Active',
+                description: tracked.isEmpty
+                    ? 'No company vehicles are transmitting an active trip location.'
+                    : 'Authorized company trips are currently transmitting location data.',
+                icon: Icons.my_location_rounded,
+                accent: const Color(0xFF1976D2),
+                buttonLabel: 'Open Live Tracking',
+                onTap: () => _openDashboardSection(selectedIndex: 6),
+                isDark: isDark,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -3421,15 +3552,74 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         0;
   }
 
+  DateTime? _operatorRevenueDate(Map<String, dynamic> row) {
+    for (final key in const [
+      'released_at',
+      'final_payment_confirmed_at',
+      'completed_at',
+      'created_at',
+    ]) {
+      final value = row[key]?.toString().trim() ?? '';
+      if (value.isEmpty) continue;
+      final parsed = DateTime.tryParse(value)?.toLocal();
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
+  bool _matchesOperatorRevenuePeriod(Map<String, dynamic> row) {
+    final date = _operatorRevenueDate(row);
+    if (date == null) return false;
+    final now = DateTime.now();
+    switch (_revenuePeriod) {
+      case 'day':
+        return DateUtils.isSameDay(date, now);
+      case 'week':
+        final start = DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(days: 6));
+        return !date.isBefore(start) && !date.isAfter(now);
+      case 'year':
+        return date.year == now.year;
+      case 'month':
+      default:
+        return date.year == now.year && date.month == now.month;
+    }
+  }
+
+  String _operatorRevenuePeriodLabel() {
+    return switch (_revenuePeriod) {
+      'day' => 'Today',
+      'week' => 'Last 7 days',
+      'year' => 'This year',
+      _ => 'This month',
+    };
+  }
+
   Widget _buildRevenueContent(bool isDark) {
-    final managed = _operatorManagedBookings();
-    final releasedSettlements = _operatorSettlements
+    final allManaged = _operatorManagedBookings();
+    final allReleasedSettlements = _operatorSettlements
         .where(
           (settlement) =>
               settlement['status']?.toString().trim().toLowerCase() ==
               'released',
         )
         .toList();
+    final managed = allManaged.where(_matchesOperatorRevenuePeriod).toList();
+    final releasedSettlements = allReleasedSettlements
+        .where(_matchesOperatorRevenuePeriod)
+        .toList();
+    final releasedBookingIds = releasedSettlements
+        .map((settlement) => settlement['booking_id']?.toString())
+        .whereType<String>()
+        .toSet();
+    final fullyPaid = managed.where((booking) {
+      final paymentStatus = booking['final_payment_status']
+          ?.toString()
+          .trim()
+          .toLowerCase();
+      return paymentStatus == 'paid' ||
+          releasedBookingIds.contains(booking['id']?.toString());
+    }).toList();
     final completed = managed
         .where(
           (booking) =>
@@ -3472,7 +3662,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final now = DateTime.now();
     final monthly = List.generate(6, (index) {
       final monthDate = DateTime(now.year, now.month - (5 - index));
-      final monthSettlements = releasedSettlements.where((settlement) {
+      final monthSettlements = allReleasedSettlements.where((settlement) {
         final date = DateTime.tryParse(
           settlement['released_at']?.toString() ?? '',
         )?.toLocal();
@@ -3480,7 +3670,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             date.year == monthDate.year &&
             date.month == monthDate.month;
       }).toList();
-      final monthBookings = managed.where((booking) {
+      final monthBookings = allManaged.where((booking) {
         final date = DateTime.tryParse(
           (booking['completed_at'] ?? booking['created_at'])?.toString() ?? '',
         )?.toLocal();
@@ -3490,10 +3680,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       }).toList();
       return <String, dynamic>{
         'label': _getMonthName(monthDate.month),
-        'count': releasedSettlements.isEmpty
+        'count': allReleasedSettlements.isEmpty
             ? monthBookings.length
             : monthSettlements.length,
-        'amount': releasedSettlements.isEmpty
+        'amount': allReleasedSettlements.isEmpty
             ? monthBookings.fold<double>(
                 0,
                 (total, booking) => total + _bookingAmount(booking),
@@ -3534,6 +3724,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               fontSize: 13,
             ),
           ),
+          const SizedBox(height: 18),
+          _buildOperatorRevenuePeriodSelector(isDark),
           const SizedBox(height: 24),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -3716,8 +3908,260 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               );
             },
           ),
+          const SizedBox(height: 22),
+          _buildFullyPaidBookingsCard(fullyPaid, isDark),
         ],
       ),
+    );
+  }
+
+  Widget _buildOperatorRevenuePeriodSelector(bool isDark) {
+    const periods = <String, String>{
+      'day': 'Day',
+      'week': 'Week',
+      'month': 'Month',
+      'year': 'Year',
+    };
+    return Row(
+      children: [
+        Expanded(
+          child: Wrap(
+            spacing: 9,
+            runSpacing: 9,
+            children: periods.entries.map((entry) {
+              final selected = _revenuePeriod == entry.key;
+              return ChoiceChip(
+                selected: selected,
+                onSelected: (_) => setState(() => _revenuePeriod = entry.key),
+                label: Text(entry.value),
+                labelStyle: TextStyle(
+                  color: selected
+                      ? _operatorInk
+                      : (isDark ? Colors.grey[300] : _operatorInk),
+                  fontWeight: FontWeight.w800,
+                ),
+                selectedColor: _operatorGold,
+                backgroundColor: isDark
+                    ? AppColors.darkCard
+                    : Colors.grey.shade100,
+                side: BorderSide(
+                  color: selected
+                      ? _operatorGold
+                      : (isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        Text(
+          _operatorRevenuePeriodLabel(),
+          style: TextStyle(
+            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFullyPaidBookingsCard(
+    List<Map<String, dynamic>> bookings,
+    bool isDark,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.verified_rounded,
+                color: Color(0xFF2E7D32),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Fully Paid Bookings',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : _operatorInk,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${bookings.length} records',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (bookings.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 34),
+              alignment: Alignment.center,
+              child: Text(
+                'No fully paid bookings for ${_operatorRevenuePeriodLabel().toLowerCase()}.',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                ),
+              ),
+            )
+          else
+            ...bookings.map((booking) {
+              final renter = booking['renter'] is Map
+                  ? Map<String, dynamic>.from(booking['renter'] as Map)
+                  : <String, dynamic>{};
+              final vehicle = booking['vehicles'] is Map
+                  ? Map<String, dynamic>.from(booking['vehicles'] as Map)
+                  : <String, dynamic>{};
+              final date = _operatorRevenueDate(booking);
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  border: Border(
+                    top: BorderSide(
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    _buildRevenueRenterAvatar(renter),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            renter['full_name']?.toString() ?? 'Renter',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : _operatorInk,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            renter['email']?.toString() ?? '',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[400]
+                                  : Colors.grey.shade600,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        _vehicleTitle(vehicle),
+                        style: TextStyle(
+                          color: isDark ? Colors.grey[200] : _operatorInk,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        date == null ? 'Date unavailable' : _formatBookingDateTime(date),
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey[400]
+                              : Colors.grey.shade600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'PHP ${_bookingAmount(booking).toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : _operatorInk,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2E7D32).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: const Text(
+                        'FULLY PAID',
+                        style: TextStyle(
+                          color: Color(0xFF43A047),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRevenueRenterAvatar(Map<String, dynamic> renter) {
+    final avatarUrl = _operatorUserAvatarUrl(renter);
+    final name = renter['full_name']?.toString().trim() ?? 'R';
+    final fallback = Container(
+      width: 38,
+      height: 38,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _operatorGold.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Text(
+        name.isEmpty ? 'R' : name.substring(0, 1).toUpperCase(),
+        style: const TextStyle(
+          color: _operatorGold,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+    if (avatarUrl == null || avatarUrl.isEmpty) return fallback;
+    return OptimizedNetworkImage(
+      imageUrl: avatarUrl,
+      width: 38,
+      height: 38,
+      fit: BoxFit.cover,
+      borderRadius: BorderRadius.circular(11),
+      placeholder: fallback,
+      errorWidget: fallback,
     );
   }
 
@@ -8748,7 +9192,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
       await _loadDashboardData(showLoading: false);
       if (inspectionType == 'after' && mounted) {
-        await _confirmOperatorFinalPayment(booking);
+        final latestBooking =
+            await BookingService().getBookingById(bookingId) ?? booking;
+        final completionStage = BookingService()
+            .getTripCompletionState(latestBooking)['completionStage']
+            ?.toString();
+        if (completionStage == 'operator_rating') {
+          await _openOperatorRenterRating(latestBooking);
+        } else {
+          await _confirmOperatorFinalPayment(latestBooking);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -9503,6 +9956,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               sender_id,
               message,
               content,
+              attachment_url,
+              attachment_type,
+              attachment_name,
+              attachment_size,
               is_auto_generated,
               is_deleted,
               deleted_at,
@@ -10571,6 +11028,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final senderName = sender['full_name']?.toString() ?? 'System';
     final content =
         message['content']?.toString() ?? message['message']?.toString() ?? '';
+    final isDeleted = message['is_deleted'] == true;
+    final attachmentUrl = isDeleted
+        ? ''
+        : message['attachment_url']?.toString().trim() ?? '';
+    final attachmentType =
+        message['attachment_type']?.toString().trim() ?? '';
+    final attachmentName =
+        message['attachment_name']?.toString().trim() ?? 'Attachment';
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -10617,18 +11082,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           color: isDark ? Colors.white10 : Colors.grey.shade200,
                         ),
                 ),
-                child: Text(
-                  content,
-                  style:
-                      const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        height: 1.35,
-                      ).copyWith(
-                        color: isOwn
-                            ? Colors.white
-                            : (isDark ? Colors.white : _operatorInk),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (attachmentUrl.isNotEmpty)
+                      _buildOperatorAttachmentPreview(
+                        url: attachmentUrl,
+                        type: attachmentType,
+                        name: attachmentName,
+                        isOwn: isOwn,
+                        isDark: isDark,
                       ),
+                    if (attachmentUrl.isNotEmpty && content.trim().isNotEmpty)
+                      const SizedBox(height: 9),
+                    if (isDeleted || content.trim().isNotEmpty)
+                      Text(
+                        isDeleted ? 'Message deleted' : content,
+                        style: TextStyle(
+                          color: isOwn
+                              ? Colors.white
+                              : (isDark ? Colors.white : _operatorInk),
+                          fontSize: 13,
+                          height: 1.35,
+                          fontStyle: isDeleted
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 4),
@@ -10641,6 +11123,176 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperatorAttachmentPreview({
+    required String url,
+    required String type,
+    required String name,
+    required bool isOwn,
+    required bool isDark,
+  }) {
+    final normalized = '$type $name $url'.toLowerCase();
+    final isImage = normalized.contains('image') ||
+        RegExp(r'\.(png|jpe?g|webp|gif)(\?|$)').hasMatch(normalized);
+    final isVideo = normalized.contains('video') ||
+        RegExp(r'\.(mp4|mov|m4v|webm)(\?|$)').hasMatch(normalized);
+
+    if (isImage) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showOperatorImageAttachment(url, name),
+        child: Stack(
+          children: [
+            OptimizedNetworkImage(
+              imageUrl: url,
+              width: 360,
+              height: 210,
+              fit: BoxFit.cover,
+              borderRadius: BorderRadius.circular(12),
+              errorWidget: const SizedBox(
+                width: 300,
+                height: 150,
+                child: Center(child: Icon(Icons.broken_image_outlined)),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.fullscreen_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final foreground = isOwn
+        ? Colors.white
+        : (isDark ? Colors.white : _operatorInk);
+    return Material(
+      color: Colors.black.withOpacity(0.14),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          if (isVideo) {
+            showDialog<void>(
+              context: context,
+              builder: (_) => _OperatorVideoAttachmentViewer(
+                url: url,
+                title: name,
+              ),
+            );
+            return;
+          }
+          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _operatorGold.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isVideo
+                      ? Icons.play_arrow_rounded
+                      : Icons.insert_drive_file_outlined,
+                  color: isVideo ? _operatorGold : foreground,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isVideo ? 'Tap to play video' : 'Tap to open file',
+                      style: TextStyle(
+                        color: foreground.withOpacity(0.68),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                isVideo ? Icons.play_circle_outline : Icons.open_in_new,
+                color: foreground,
+                size: 19,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showOperatorImageAttachment(String url, String name) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(28),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5,
+              child: Center(
+                child: OptimizedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.contain,
+                  errorWidget: const Center(
+                    child: Text(
+                      'This image could not be loaded.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton.filled(
+                tooltip: 'Close $name',
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -15514,6 +16166,168 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 // ---------------------------------------------------------------------------
 // Stateful vehicle card extracted to avoid Switch overflow in GridView/Wrap
 // ---------------------------------------------------------------------------
+class _OperatorVideoAttachmentViewer extends StatefulWidget {
+  const _OperatorVideoAttachmentViewer({
+    required this.url,
+    required this.title,
+  });
+
+  final String url;
+  final String title;
+
+  @override
+  State<_OperatorVideoAttachmentViewer> createState() =>
+      _OperatorVideoAttachmentViewerState();
+}
+
+class _OperatorVideoAttachmentViewerState
+    extends State<_OperatorVideoAttachmentViewer> {
+  late final VideoPlayerController _controller;
+  late final Future<void> _initializeVideo;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _initializeVideo = _controller.initialize().then((_) {
+      _controller.setLooping(false);
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewport = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(24),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: SizedBox(
+        width: viewport.width * 0.78,
+        height: viewport.height * 0.78,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(18, 12, 8, 12),
+              color: const Color(0xFF0A2034),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.videocam_outlined,
+                    color: Color(0xFFFFD438),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close video',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<void>(
+                future: _initializeVideo,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError || !_controller.value.isInitialized) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'This video could not be loaded.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    );
+                  }
+                  return Center(
+                    child: AspectRatio(
+                      aspectRatio: _controller.value.aspectRatio,
+                      child: VideoPlayer(_controller),
+                    ),
+                  );
+                },
+              ),
+            ),
+            FutureBuilder<void>(
+              future: _initializeVideo,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done ||
+                    snapshot.hasError ||
+                    !_controller.value.isInitialized) {
+                  return const SizedBox.shrink();
+                }
+                return Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 18, 12),
+                  color: const Color(0xFF0A2034),
+                  child: Row(
+                    children: [
+                      IconButton.filled(
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFD438),
+                          foregroundColor: Colors.black,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_controller.value.isPlaying) {
+                              _controller.pause();
+                            } else {
+                              _controller.play();
+                            }
+                          });
+                        },
+                        icon: Icon(
+                          _controller.value.isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: VideoProgressIndicator(
+                          _controller,
+                          allowScrubbing: true,
+                          colors: const VideoProgressColors(
+                            playedColor: Color(0xFFFFD438),
+                            bufferedColor: Colors.white38,
+                            backgroundColor: Colors.white12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _VehicleCard extends StatefulWidget {
   final String brand;
   final String model;
