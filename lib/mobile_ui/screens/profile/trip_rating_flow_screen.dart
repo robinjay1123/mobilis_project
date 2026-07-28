@@ -34,6 +34,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _completionRecovered = false;
+  bool _alreadyCompletedDialogShown = false;
   List<Map<String, dynamic>> _targets = [];
   int _currentIndex = 0;
   double _selectedRating = 0;
@@ -67,10 +68,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     );
 
     var completionRecovered = false;
-    if (targets.isEmpty &&
-        widget.reviewerRole.trim().toLowerCase() == 'renter') {
+    if (targets.isEmpty) {
       completionRecovered = await _tripRatingService.reconcileCompletedBooking(
         widget.bookingId,
+        operatorFallbackUserId:
+            widget.reviewerRole.trim().toLowerCase() == 'operator'
+            ? reviewerId
+            : null,
       );
     }
 
@@ -80,6 +84,10 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       _completionRecovered = completionRecovered;
       _isLoading = false;
     });
+
+    if (targets.isEmpty) {
+      _showAlreadyCompletedDialog();
+    }
   }
 
   Map<String, dynamic>? get _currentTarget {
@@ -356,49 +364,73 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   }
 
   Widget _buildNoTargetsState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return const Center(
+      child: CircularProgressIndicator(color: AppColors.primary),
+    );
+  }
+
+  Future<void> _showAlreadyCompletedDialog() async {
+    if (_alreadyCompletedDialogShown || !mounted) return;
+    _alreadyCompletedDialogShown = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        contentPadding: const EdgeInsets.fromLTRB(22, 24, 22, 12),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
               Icons.check_circle_outline,
               color: AppColors.success,
-              size: 64,
+              size: 58,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             const Text(
               'Ratings already completed',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 18,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               _completionRecovered
-                  ? 'The trip is completed and its earnings are now being recorded.'
+                  ? 'This trip is now completed and its revenue is being recorded.'
                   : 'There are no pending reviews for you at this trip stage.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary),
             ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context, _completionRecovered),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: const Text('Back to Bookings'),
-              ),
-            ),
           ],
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                if (mounted) Navigator.pop(context, _completionRecovered);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: const Text(
+                'Back to Bookings',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

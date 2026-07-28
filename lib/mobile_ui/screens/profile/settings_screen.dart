@@ -1827,12 +1827,17 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
             action: Wrap(
               spacing: 8,
               runSpacing: 8,
+              alignment: WrapAlignment.start,
               children: [
                 FilledButton(
                   onPressed: _isSavingMpin ? null : _configureMpin,
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
                   ),
                   child: _isSavingMpin
                       ? const SizedBox.square(
@@ -1847,6 +1852,12 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                 if (_hasMpin)
                   OutlinedButton(
                     onPressed: _isSavingMpin ? null : _removeMpin,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
                     child: const Text('Remove'),
                   ),
                 if (_hasMpin)
@@ -1854,6 +1865,12 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                     onPressed: _isSavingMpin
                         ? null
                         : () => _configureMpin(isRecovery: true),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                    ),
                     child: const Text('Forgot MPIN?'),
                   ),
               ],
@@ -3351,52 +3368,71 @@ class _DetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _surfaceColor(context),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor(context)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(11),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stackAction = action != null && constraints.maxWidth < 390;
+        final header = Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 21),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 21),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: _primaryTextColor(context),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: _secondaryTextColor(context),
-                    fontSize: 12,
-                    height: 1.35,
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: _secondaryTextColor(context),
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            if (action != null && !stackAction) ...[
+              const SizedBox(width: 10),
+              Flexible(child: action!),
+            ],
+          ],
+        );
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _borderColor(context)),
           ),
-          if (action != null) ...[const SizedBox(width: 10), action!],
-        ],
-      ),
+          child: stackAction
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    header,
+                    const SizedBox(height: 14),
+                    Align(alignment: Alignment.centerLeft, child: action!),
+                  ],
+                )
+              : header,
+        );
+      },
     );
   }
 }
