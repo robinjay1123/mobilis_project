@@ -7,11 +7,13 @@ import '../../widgets/optimized_network_image.dart';
 class RatingsReviewsScreen extends StatefulWidget {
   final String userId;
   final String title;
+  final bool embedded;
 
   const RatingsReviewsScreen({
     super.key,
     required this.userId,
     this.title = 'Ratings & Reviews',
+    this.embedded = false,
   });
 
   @override
@@ -43,6 +45,40 @@ class _RatingsReviewsScreenState extends State<RatingsReviewsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _isLoading
+        ? const Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          )
+        : RefreshIndicator(
+            onRefresh: _loadRatings,
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                _buildSummaryCard(),
+                const SizedBox(height: 18),
+                if (_ratings.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: const Text(
+                      'No ratings yet. Reviews from completed trips will appear here.',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  )
+                else
+                  ..._ratings.map(_buildRatingCard),
+              ],
+            ),
+          );
+
+    if (widget.embedded) {
+      return ColoredBox(color: AppColors.darkBg, child: body);
+    }
+
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       appBar: AppBar(
@@ -60,35 +96,7 @@ class _RatingsReviewsScreenState extends State<RatingsReviewsScreen> {
           ),
         ),
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadRatings,
-              child: ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  _buildSummaryCard(),
-                  const SizedBox(height: 18),
-                  if (_ratings.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkBgSecondary,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.borderColor),
-                      ),
-                      child: const Text(
-                        'No ratings yet. Reviews from completed trips will appear here.',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                    )
-                  else
-                    ..._ratings.map(_buildRatingCard),
-                ],
-              ),
-            ),
+      body: body,
     );
   }
 

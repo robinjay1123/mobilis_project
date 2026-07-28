@@ -141,6 +141,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _openAccountSecurity() async {
+    if (widget.operatorMode) {
+      await _showOperatorSettingsModal(
+        title: 'Account & Security',
+        icon: Icons.security_rounded,
+        child: const _AccountSecurityScreen(embedded: true),
+      );
+      return;
+    }
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const _AccountSecurityScreen()));
@@ -193,6 +201,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _openPrivacySettings() {
+    if (widget.operatorMode) {
+      _showOperatorSettingsModal(
+        title: 'Privacy Settings',
+        icon: Icons.privacy_tip_outlined,
+        child: const _PreferenceSettingsScreen(
+          title: 'Privacy Settings',
+          description: 'Control optional data and location preferences.',
+          embedded: true,
+          items: [
+            _PreferenceItem(
+              keyName: 'settings_active_trip_location',
+              icon: Icons.location_on_outlined,
+              title: 'Active Trip Location',
+              subtitle: 'Allow authorized tracking during active bookings',
+              defaultValue: true,
+            ),
+            _PreferenceItem(
+              keyName: 'settings_usage_analytics',
+              icon: Icons.analytics_outlined,
+              title: 'Usage Analytics',
+              subtitle: 'Help improve Mobilis through anonymous diagnostics',
+              defaultValue: false,
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => const _PreferenceSettingsScreen(
@@ -215,6 +251,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<T?> _showOperatorSettingsModal<T>({
+    required String title,
+    required IconData icon,
+    required Widget child,
+    double maxWidth = 760,
+  }) {
+    final size = MediaQuery.sizeOf(context);
+    return showDialog<T>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.58),
+      builder: (dialogContext) => Dialog(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: size.width < 720 ? 14 : 40,
+          vertical: size.height < 720 ? 12 : 28,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxWidth,
+            maxHeight: size.height * 0.86,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: Material(
+              color: _surfaceColor(context),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(22, 18, 14, 16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                          child: Icon(icon, color: AppColors.primary),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              color: _primaryTextColor(context),
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            color: _primaryTextColor(context),
+                          ),
+                          tooltip: 'Close',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, color: _borderColor(context)),
+                  Flexible(child: child),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openOperatorRatingsModal() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    _showOperatorSettingsModal(
+      title: 'Operator Ratings & Reviews',
+      icon: Icons.star_outline_rounded,
+      maxWidth: 820,
+      child: RatingsReviewsScreen(
+        userId: userId,
+        title: 'Operator Ratings & Reviews',
+        embedded: true,
       ),
     );
   }
@@ -771,9 +897,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildOperatorSettings() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final contentWidth = constraints.maxWidth.clamp(0.0, 1280.0).toDouble();
-        final twoColumns = contentWidth >= 940;
-        final cardWidth = twoColumns ? (contentWidth - 22) / 2 : contentWidth;
+        final contentWidth = constraints.maxWidth.clamp(0.0, 1440.0).toDouble();
+        final twoColumns = contentWidth >= 1040;
+        final cardWidth = twoColumns ? (contentWidth - 24) / 2 : contentWidth;
         Widget card(String title, List<Widget> children) => SizedBox(
           width: cardWidth,
           child: _SettingsSection(title: title, children: children),
@@ -781,33 +907,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         final avatar = _operatorAvatarUrl;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+          padding: const EdgeInsets.fromLTRB(36, 30, 36, 44),
           children: [
-            Center(
+            Align(
+              alignment: Alignment.topLeft,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
+                constraints: const BoxConstraints(maxWidth: 1440),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Operator Settings',
-                      style: TextStyle(
-                        color: _primaryTextColor(context),
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(22),
+                      decoration: BoxDecoration(
+                        color: _surfaceColor(context),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: _borderColor(context)),
                       ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      'Manage your operator profile, workflow preferences, security, and support options.',
-                      style: TextStyle(
-                        color: _secondaryTextColor(context),
-                        fontSize: 13,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: const Icon(
+                              Icons.tune_rounded,
+                              color: AppColors.primary,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Operator Settings',
+                                  style: TextStyle(
+                                    color: _primaryTextColor(context),
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Manage profile, workflow preferences, security, notifications, and support without leaving the operator console.',
+                                  style: TextStyle(
+                                    color: _secondaryTextColor(context),
+                                    fontSize: 13.5,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 24),
                     Wrap(
-                      spacing: 22,
+                      spacing: 24,
                       runSpacing: 24,
                       children: [
                         card('Profile Settings', [
@@ -874,19 +1036,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: 'Ratings & Reviews',
                             subtitle:
                                 'View ratings received from completed trips',
-                            onTap: () {
-                              final userId =
-                                  Supabase.instance.client.auth.currentUser?.id;
-                              if (userId == null) return;
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => RatingsReviewsScreen(
-                                    userId: userId,
-                                    title: 'Operator Ratings & Reviews',
-                                  ),
-                                ),
-                              );
-                            },
+                            onTap: _openOperatorRatingsModal,
                           ),
                         ]),
                         card('Account Settings', [
@@ -1512,13 +1662,20 @@ class _SettingsMenuRow extends StatelessWidget {
 }
 
 class _SettingsDetailScaffold extends StatelessWidget {
-  const _SettingsDetailScaffold({required this.title, required this.child});
+  const _SettingsDetailScaffold({
+    required this.title,
+    required this.child,
+    this.embedded = false,
+  });
 
   final String title;
   final Widget child;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
+    if (embedded) return child;
+
     return Scaffold(
       backgroundColor: _backgroundColor(context),
       appBar: AppBar(
@@ -1538,7 +1695,9 @@ class _SettingsDetailScaffold extends StatelessWidget {
 }
 
 class _AccountSecurityScreen extends StatefulWidget {
-  const _AccountSecurityScreen();
+  const _AccountSecurityScreen({this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<_AccountSecurityScreen> createState() => _AccountSecurityScreenState();
@@ -1786,6 +1945,7 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
     final email = AuthService().currentUser?.email ?? 'No email set';
     return _SettingsDetailScaffold(
       title: 'Account & Security',
+      embedded: widget.embedded,
       child: ListView(
         padding: const EdgeInsets.all(18),
         children: [
@@ -2960,11 +3120,13 @@ class _PreferenceSettingsScreen extends StatefulWidget {
     required this.title,
     required this.description,
     required this.items,
+    this.embedded = false,
   });
 
   final String title;
   final String description;
   final List<_PreferenceItem> items;
+  final bool embedded;
 
   @override
   State<_PreferenceSettingsScreen> createState() =>
@@ -3003,6 +3165,7 @@ class _PreferenceSettingsScreenState extends State<_PreferenceSettingsScreen> {
   Widget build(BuildContext context) {
     return _SettingsDetailScaffold(
       title: widget.title,
+      embedded: widget.embedded,
       child: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primary),
