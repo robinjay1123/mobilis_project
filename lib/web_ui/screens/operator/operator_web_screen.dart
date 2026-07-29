@@ -7367,7 +7367,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ? null
                                       : 14,
                                   mapController: routeMapController,
-                                  mapStyle: MobilisMapStyle.satellite,
+                                  mapStyle: MobilisMapStyle.street,
                                 ),
                               ),
                               Positioned(

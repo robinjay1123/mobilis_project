@@ -10,9 +10,10 @@ const mobilisTerrainTileUrl = 'https://tile.opentopomap.org/{z}/{x}/{y}.png';
 const mobilisSatelliteTileUrl =
     'https://server.arcgisonline.com/ArcGIS/rest/services/'
     'World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const mobilisStreetTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const mobilisMapUserAgent = 'com.example.mobilis_by_psdc_app';
 
-enum MobilisMapStyle { terrain, satellite }
+enum MobilisMapStyle { street, terrain, satellite }
 
 class MobilisMapMarker {
   final double latitude;
@@ -68,7 +69,7 @@ class MobilisLeafletMap extends StatelessWidget {
     this.onTap,
     this.backgroundColor = const Color(0xFFE8EEF2),
     this.showAttribution = true,
-    this.mapStyle = MobilisMapStyle.terrain,
+    this.mapStyle = MobilisMapStyle.street,
   });
 
   LatLng get _center {
@@ -140,11 +141,16 @@ class MobilisLeafletMap extends StatelessWidget {
         ),
         children: [
           TileLayer(
-            urlTemplate: mapStyle == MobilisMapStyle.satellite
-                ? mobilisSatelliteTileUrl
-                : mobilisTerrainTileUrl,
+            urlTemplate: switch (mapStyle) {
+              MobilisMapStyle.street => mobilisStreetTileUrl,
+              MobilisMapStyle.terrain => mobilisTerrainTileUrl,
+              MobilisMapStyle.satellite => mobilisSatelliteTileUrl,
+            },
             userAgentPackageName: mobilisMapUserAgent,
-            maxNativeZoom: mapStyle == MobilisMapStyle.satellite ? 19 : 17,
+            maxNativeZoom: switch (mapStyle) {
+              MobilisMapStyle.street || MobilisMapStyle.satellite => 19,
+              MobilisMapStyle.terrain => 17,
+            },
           ),
           if (routePoints.length >= 2)
             PolylineLayer(
@@ -181,11 +187,13 @@ class MobilisLeafletMap extends StatelessWidget {
           if (showAttribution)
             RichAttributionWidget(
               attributions: [
-                TextSourceAttribution(
-                  mapStyle == MobilisMapStyle.satellite
-                      ? 'Esri, Maxar, Earthstar Geographics'
-                      : 'OpenStreetMap contributors, SRTM | OpenTopoMap',
-                ),
+                TextSourceAttribution(switch (mapStyle) {
+                  MobilisMapStyle.street => 'OpenStreetMap contributors',
+                  MobilisMapStyle.terrain =>
+                    'OpenStreetMap contributors, SRTM | OpenTopoMap',
+                  MobilisMapStyle.satellite =>
+                    'Esri, Maxar, Earthstar Geographics',
+                }),
               ],
             ),
         ],
