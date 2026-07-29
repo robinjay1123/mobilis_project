@@ -1,6 +1,8 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:math' as math;
 import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
@@ -485,26 +487,30 @@ class BookingService {
           .select()
           .single();
 
-      try {
-        final bookingId = response['id']?.toString();
-        if (bookingId != null && bookingId.isNotEmpty) {
-          final createdBooking = await getBookingById(bookingId) ?? response;
-          final vehicle = createdBooking['vehicles'] as Map<String, dynamic>?;
-          final vehicleTitle = _vehicleTitle(vehicle);
-          final renter = createdBooking['users'] as Map<String, dynamic>?;
-          final renterName =
-              renter?['full_name']?.toString().trim().isNotEmpty == true
-              ? renter!['full_name'].toString().trim()
-              : 'A renter';
-          await NotificationService().notifyOperatorsNewBooking(
-            bookingId: bookingId,
-            vehicleTitle: vehicleTitle,
-            renterName: renterName,
-            withDriver: withDriver,
-          );
-        }
-      } catch (e) {
-        debugPrint('Booking created but operator notification failed: $e');
+      final bookingId = response['id']?.toString();
+      if (bookingId != null && bookingId.isNotEmpty) {
+        unawaited(
+          Future<void>(() async {
+            final createdBooking = await getBookingById(bookingId) ?? response;
+            final vehicle = createdBooking['vehicles'] as Map<String, dynamic>?;
+            final vehicleTitle = _vehicleTitle(vehicle);
+            final renter = createdBooking['users'] as Map<String, dynamic>?;
+            final renterName =
+                renter?['full_name']?.toString().trim().isNotEmpty == true
+                ? renter!['full_name'].toString().trim()
+                : 'A renter';
+            await NotificationService().notifyOperatorsNewBooking(
+              bookingId: bookingId,
+              vehicleTitle: vehicleTitle,
+              renterName: renterName,
+              withDriver: withDriver,
+            );
+          }).timeout(const Duration(seconds: 8)).catchError((e) {
+            debugPrint(
+              'Booking created but operator notification timed out/failed: $e',
+            );
+          }),
+        );
       }
 
       debugPrint('Booking created successfully');

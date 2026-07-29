@@ -523,9 +523,19 @@ class TripRatingService {
         })
         .eq('id', bookingId);
 
+    final completionOperator =
+        completionContext['operator_user'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(completionContext['operator_user'])
+        : <String, dynamic>{};
+    final settlementOperatorFallback =
+        completionContext['operator_id']?.toString().trim().isNotEmpty == true
+        ? completionContext['operator_id'].toString()
+        : completionOperator['id']?.toString();
+
     await _releaseSettlementWithoutBlockingCompletion(
       bookingId: bookingId,
       updatedAt: completedAt,
+      operatorFallbackUserId: settlementOperatorFallback,
     );
 
     final driverUserId = completionContext['driver_id']?.toString();

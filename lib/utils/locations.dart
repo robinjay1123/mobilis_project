@@ -545,7 +545,19 @@ class PhilippineLocations {
     ],
   };
 
-  static const String psdc_garage = 'PSDC Garage, Manila';
+  static const String psdc_garage =
+      'PSDC Garage, XGFW+JQ Urdaneta City, Pangasinan';
+
+  static String normalizePsdcGarageLabel(String? value) {
+    final label = value?.trim() ?? '';
+    final normalized = label.toLowerCase();
+    if (label.isEmpty ||
+        normalized == 'psdc garage, manila' ||
+        normalized == 'psdc urdaneta') {
+      return psdc_garage;
+    }
+    return label;
+  }
 
   static List<String> getCitiesForProvince(String province) {
     return provinces[province] ?? [];

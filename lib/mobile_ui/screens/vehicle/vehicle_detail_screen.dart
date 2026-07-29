@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -1751,23 +1752,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       if (reservationPaymentProof != null) {
         final bookingId = createdBooking['id']?.toString();
         if (bookingId != null && bookingId.isNotEmpty) {
-          try {
-            await ReservationPaymentService().createReceiptRecord(
-              bookingId: bookingId,
-              renterId: currentUser.id,
-              proof: reservationPaymentProof,
-            );
-          } catch (e) {
-            debugPrint('Booking created but receipt audit insert failed: $e');
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Booking saved, but receipt audit failed: $e'),
-                  backgroundColor: AppColors.warning,
-                ),
-              );
-            }
-          }
+          unawaited(
+            ReservationPaymentService()
+                .createReceiptRecord(
+                  bookingId: bookingId,
+                  renterId: currentUser.id,
+                  proof: reservationPaymentProof,
+                )
+                .timeout(const Duration(seconds: 6))
+                .catchError((e) {
+                  debugPrint(
+                    'Booking created but receipt audit insert timed out/failed: $e',
+                  );
+                }),
+          );
         }
       }
 
@@ -2132,7 +2130,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               MapEntry('Service', service),
                               MapEntry(
                                 'Pickup',
-                                pickup.isEmpty ? 'PSDC Urdaneta' : pickup,
+                                PhilippineLocations.normalizePsdcGarageLabel(
+                                  pickup,
+                                ),
                               ),
                               MapEntry(
                                 'Destination',

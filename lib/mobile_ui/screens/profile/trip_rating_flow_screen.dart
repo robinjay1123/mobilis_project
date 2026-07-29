@@ -69,13 +69,27 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
     var completionRecovered = false;
     if (targets.isEmpty) {
-      completionRecovered = await _tripRatingService.reconcileCompletedBooking(
+      final bookingContext = await _tripRatingService.getBookingContext(
         widget.bookingId,
-        operatorFallbackUserId:
-            widget.reviewerRole.trim().toLowerCase() == 'operator'
-            ? reviewerId
-            : null,
       );
+      final isAlreadyCompleted =
+          bookingContext?['status']?.toString().trim().toLowerCase() ==
+              'completed' ||
+          bookingContext?['completion_stage']
+                  ?.toString()
+                  .trim()
+                  .toLowerCase() ==
+              'completed';
+      if (isAlreadyCompleted) {
+        completionRecovered = await _tripRatingService
+            .reconcileCompletedBooking(
+              widget.bookingId,
+              operatorFallbackUserId:
+                  widget.reviewerRole.trim().toLowerCase() == 'operator'
+                  ? reviewerId
+                  : null,
+            );
+      }
     }
 
     if (!mounted) return;

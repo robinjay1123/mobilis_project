@@ -20,6 +20,7 @@ import '../../../mobile_ui/screens/profile/trip_rating_flow_screen.dart';
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/csv_export.dart';
+import '../../../utils/locations.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
@@ -78,6 +79,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _bookingDateFilter = 'all';
   String _bookingVehicleTypeFilter = 'all';
   String _vehicleView = 'company';
+
+  String _operatorPickupLabel(String? value) =>
+      PhilippineLocations.normalizePsdcGarageLabel(value);
   String _vehicleSearchQuery = '';
   String _revenuePeriod = 'month';
   int _dashboardQueuePage = 0;
@@ -538,6 +542,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               : 'Complete the return checklist and final payment before rating the renter.',
         );
       }
+
+      final actorId = _supabase.auth.currentUser?.id;
+      final now = DateTime.now().toUtc().toIso8601String();
+      final ratingStageUpdate = <String, dynamic>{
+        'completion_stage': 'operator_rating',
+        'updated_at': now,
+      };
+      if (actorId != null &&
+          actorId.isNotEmpty &&
+          (latestBooking['operator_id']?.toString().trim().isEmpty ?? true)) {
+        ratingStageUpdate['operator_id'] = actorId;
+      }
+      await _supabase
+          .from('bookings')
+          .update(ratingStageUpdate)
+          .eq('id', bookingId);
 
       final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -1796,8 +1816,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       routeBooking['pickup_longitude'],
     );
     pickupPoint ??= _coordinatePoint(vehicle['latitude'], vehicle['longitude']);
-    final pickupAddress =
-        routeBooking['pickup_location']?.toString().trim() ?? '';
+    final pickupAddress = _operatorPickupLabel(
+      routeBooking['pickup_location']?.toString(),
+    );
     pickupPoint ??= await _geocodeBookingAddress(pickupAddress);
 
     var destinationPoint = _coordinatePoint(
@@ -6941,15 +6962,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }) {
     final foreground = isDark ? Colors.white : _operatorInk;
     final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
-    final pickup = booking['pickup_location']?.toString().trim() ?? '';
+    final pickup = _operatorPickupLabel(booking['pickup_location']?.toString());
     final destination = booking['dropoff_location']?.toString().trim() ?? '';
     final route = pickup.isNotEmpty && destination.isNotEmpty
         ? '$pickup to $destination'
         : destination.isNotEmpty
         ? destination
-        : pickup.isNotEmpty
-        ? pickup
-        : 'PSDC Urdaneta';
+        : pickup;
     final needsDriver = _bookingNeedsDriver(booking['with_driver']);
     final service = needsDriver
         ? driverName == 'Unassigned'
@@ -7191,7 +7210,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> booking,
     bool isDark,
   ) async {
-    final pickup = booking['pickup_location']?.toString().trim() ?? '';
+    final pickup = _operatorPickupLabel(booking['pickup_location']?.toString());
     final destination = booking['dropoff_location']?.toString().trim() ?? '';
     final routePointsFuture = _resolveBookingRoutePoints(booking);
     final routeMapController = MapController();
@@ -7264,7 +7283,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   _buildRouteLocationRow(
                     icon: Icons.trip_origin_rounded,
                     label: 'Pickup location',
-                    value: pickup.isEmpty ? 'PSDC Urdaneta' : pickup,
+                    value: pickup,
                     color: AppColors.success,
                     isDark: isDark,
                   ),

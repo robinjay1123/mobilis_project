@@ -606,7 +606,9 @@ class NotificationService {
 
       await supabase.from('push_notification_queue').insert(queueRows);
 
-      final response = await supabase.functions.invoke('send-push-queue');
+      final response = await supabase.functions
+          .invoke('send-push-queue')
+          .timeout(const Duration(seconds: 8));
       if (response.status < 200 || response.status >= 300) {
         throw StateError(
           'Push sender returned HTTP ${response.status}: ${response.data}',
