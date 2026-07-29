@@ -547,6 +547,8 @@ class PhilippineLocations {
 
   static const String psdc_garage =
       'PSDC Garage, XGFW+JQ Urdaneta City, Pangasinan';
+  static const double psdcGarageLatitude = 15.9758;
+  static const double psdcGarageLongitude = 120.5719;
 
   static String normalizePsdcGarageLabel(String? value) {
     final label = value?.trim() ?? '';
@@ -557,6 +559,16 @@ class PhilippineLocations {
       return psdc_garage;
     }
     return label;
+  }
+
+  static bool isPsdcGarageLabel(String? value) {
+    final label = value?.trim() ?? '';
+    final normalized = label.toLowerCase();
+    if (label.isEmpty) return true;
+    return normalized == 'psdc garage, manila' ||
+        normalized == 'psdc urdaneta' ||
+        normalized == psdc_garage.toLowerCase() ||
+        normalized.contains('xgfw+jq urdaneta');
   }
 
   static List<String> getCitiesForProvince(String province) {

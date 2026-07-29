@@ -1722,6 +1722,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  bool _isLikelyPhilippinesPoint(MobilisMapPoint? point) {
+    if (point == null) return false;
+    return point.latitude >= 4 &&
+        point.latitude <= 22 &&
+        point.longitude >= 116 &&
+        point.longitude <= 127;
+  }
+
+  MobilisMapPoint? _philippinesCoordinatePoint(
+    dynamic latitude,
+    dynamic longitude,
+  ) {
+    final point = _coordinatePoint(latitude, longitude);
+    return _isLikelyPhilippinesPoint(point) ? point : null;
+  }
+
+  MobilisMapPoint _psdcGaragePoint() {
+    return const MobilisMapPoint(
+      latitude: PhilippineLocations.psdcGarageLatitude,
+      longitude: PhilippineLocations.psdcGarageLongitude,
+    );
+  }
+
+  String _stripPlusCodePrefix(String address) {
+    final parts = address
+        .split(',')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isNotEmpty &&
+        RegExp(
+          r'^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}$',
+          caseSensitive: false,
+        ).hasMatch(parts.first)) {
+      return parts.skip(1).join(', ');
+    }
+    return address;
+  }
+
   Future<MobilisMapPoint?> _geocodeBookingAddress(String address) async {
     final cleanAddress = address.trim();
     if (cleanAddress.isEmpty) return null;
@@ -1734,7 +1773,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         embeddedCoordinates.group(1),
         embeddedCoordinates.group(2),
       );
-      if (point != null) return point;
+      if (_isLikelyPhilippinesPoint(point)) return point;
     }
 
     final cacheKey = cleanAddress.toLowerCase();
@@ -1743,6 +1782,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final candidates = <String>[cleanAddress];
+    final withoutPlusCode = _stripPlusCodePrefix(cleanAddress);
+    if (withoutPlusCode != cleanAddress && withoutPlusCode.isNotEmpty) {
+      candidates.add(withoutPlusCode);
+    }
     final addressParts = cleanAddress
         .split(',')
         .map((part) => part.trim())
@@ -1777,7 +1820,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
         final result = Map<String, dynamic>.from(payload.first as Map);
         final point = _coordinatePoint(result['lat'], result['lon']);
-        if (point != null) {
+        if (_isLikelyPhilippinesPoint(point)) {
           _addressCoordinateCache[cacheKey] = point;
           return point;
         }
@@ -1811,17 +1854,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final vehicle = routeBooking['vehicles'] as Map<String, dynamic>? ?? {};
-    var pickupPoint = _coordinatePoint(
-      routeBooking['pickup_latitude'],
-      routeBooking['pickup_longitude'],
-    );
-    pickupPoint ??= _coordinatePoint(vehicle['latitude'], vehicle['longitude']);
     final pickupAddress = _operatorPickupLabel(
       routeBooking['pickup_location']?.toString(),
     );
+    final isPsdcGaragePickup = PhilippineLocations.isPsdcGarageLabel(
+      routeBooking['pickup_location']?.toString(),
+    );
+    var pickupPoint = isPsdcGaragePickup
+        ? _psdcGaragePoint()
+        : _philippinesCoordinatePoint(
+            routeBooking['pickup_latitude'],
+            routeBooking['pickup_longitude'],
+          );
+    if (!isPsdcGaragePickup) {
+      pickupPoint ??= _philippinesCoordinatePoint(
+        vehicle['latitude'],
+        vehicle['longitude'],
+      );
+    }
     pickupPoint ??= await _geocodeBookingAddress(pickupAddress);
 
-    var destinationPoint = _coordinatePoint(
+    var destinationPoint = _philippinesCoordinatePoint(
       routeBooking['dropoff_latitude'],
       routeBooking['dropoff_longitude'],
     );
