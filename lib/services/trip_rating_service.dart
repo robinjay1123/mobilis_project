@@ -162,31 +162,93 @@ class TripRatingService {
     required String reviewerUserId,
     required String reviewerRole,
     bool includePreviouslySubmittedForRecovery = true,
+    String? operatorFallbackUserId,
   }) async {
     final context = await getBookingContext(bookingId);
     if (context == null) return [];
 
-    final renter = context['renter'] is Map<String, dynamic>
+    String text(dynamic value) => value?.toString().trim() ?? '';
+    String firstText(Iterable<dynamic> values) {
+      for (final value in values) {
+        final cleaned = text(value);
+        if (cleaned.isNotEmpty) return cleaned;
+      }
+      return '';
+    }
+
+    var renter = context['renter'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['renter'])
         : <String, dynamic>{};
     final driverWrap = context['driver'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['driver'])
         : <String, dynamic>{};
-    final driverUser = driverWrap['users'] is Map<String, dynamic>
+    var driverUser = driverWrap['users'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(driverWrap['users'])
         : <String, dynamic>{};
-    final owner = context['vehicle_owner'] is Map<String, dynamic>
+    var owner = context['vehicle_owner'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['vehicle_owner'])
         : <String, dynamic>{};
-    final operatorUser = context['operator_user'] is Map<String, dynamic>
+    var operatorUser = context['operator_user'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['operator_user'])
         : <String, dynamic>{};
+    final vehicle = context['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(context['vehicles'])
+        : <String, dynamic>{};
+
+    final inferredOwnerRole = _ownerRole(context, owner);
+    final renterId = firstText([
+      context['renter_id'],
+      renter['id'],
+      renter['user_id'],
+    ]);
+    if (renter.isEmpty && renterId.isNotEmpty) {
+      renter = {'id': renterId, 'full_name': 'Renter', 'role': 'renter'};
+    }
+
+    final driverUserId = firstText([
+      driverUser['id'],
+      driverUser['user_id'],
+      driverWrap['user_id'],
+      context['driver_id'],
+    ]);
+    if (driverUser.isEmpty && driverUserId.isNotEmpty) {
+      driverUser = {
+        'id': driverUserId,
+        'full_name': 'Driver',
+        'role': 'driver',
+      };
+    }
+
+    final ownerId = firstText([owner['id'], owner['user_id'], vehicle['owner_id']]);
+    if (owner.isEmpty && ownerId.isNotEmpty) {
+      owner = {
+        'id': ownerId,
+        'full_name': inferredOwnerRole == 'partner'
+            ? 'Partner'
+            : 'Vehicle Owner',
+        'role': inferredOwnerRole,
+      };
+    }
+
+    final operatorId = firstText([
+      operatorUser['id'],
+      operatorUser['user_id'],
+      context['operator_id'],
+      vehicle['operator_id'],
+      operatorFallbackUserId,
+    ]);
+    if (operatorUser.isEmpty && operatorId.isNotEmpty) {
+      operatorUser = {
+        'id': operatorId,
+        'full_name': 'Operator',
+        'role': 'operator',
+      };
+    }
 
     final targets = <Map<String, dynamic>>[];
 
     void addTarget(Map<String, dynamic> user, String role, String prompt) {
-      final userId =
-          user['id']?.toString() ?? user['user_id']?.toString() ?? '';
+      final userId = firstText([user['id'], user['user_id']]);
       if (userId.isEmpty || userId == reviewerUserId) return;
       targets.add({
         'userId': userId,
@@ -200,24 +262,21 @@ class TripRatingService {
 
     final cleanRole = reviewerRole.trim().toLowerCase();
     final ownerRole = _ownerRole(context, owner);
-    final hasDriver = driverUser.isNotEmpty;
+    final hasDriver =
+        text(driverUser['id']).isNotEmpty ||
+        text(driverUser['user_id']).isNotEmpty;
     final isPartnerVehicle = ownerRole == 'partner';
-    final expectedStage = '${cleanRole}_rating';
-    final completionStage = context['completion_stage']
-        ?.toString()
-        .trim()
-        .toLowerCase();
-    if (completionStage != expectedStage) return [];
 
     if (cleanRole == 'renter') {
-      if (isPartnerVehicle) {
-        addTarget(owner, 'partner', 'How was the partner and vehicle service?');
-      } else {
+      if (operatorUser.isNotEmpty) {
         addTarget(
           operatorUser,
           'operator',
           'How was the PSDC operator and vehicle service?',
         );
+      }
+      if (isPartnerVehicle) {
+        addTarget(owner, 'partner', 'How was the partner and vehicle service?');
       }
       if (hasDriver) {
         addTarget(
@@ -226,14 +285,50 @@ class TripRatingService {
           'How was your experience with the driver?',
         );
       }
+      // Renter also rates the vehicle
+      final vehicleId = text(vehicle['id']);
+      if (vehicleId.isNotEmpty) {
+        final vehicleName = text(vehicle['vehicle_name']).isNotEmpty
+            ? text(vehicle['vehicle_name'])
+            : [text(vehicle['brand']), text(vehicle['model'])]
+                  .where((s) => s.isNotEmpty)
+                  .join(' ');
+        final imageUrl = text(vehicle['image_url']);
+        targets.add({
+          'userId': vehicleId,
+          'role': 'vehicle',
+          'name': vehicleName.isEmpty ? 'Rental Vehicle' : vehicleName,
+          'avatarUrl': imageUrl,
+          'prompt': 'How was the vehicle overall?',
+          'alreadyRated': false,
+        });
+      }
     } else if (cleanRole == 'driver') {
       addTarget(renter, 'renter', 'How was the renter during the trip?');
+      if (operatorUser.isNotEmpty) {
+        addTarget(operatorUser, 'operator', 'How was the operator support?');
+      }
+      if (isPartnerVehicle) {
+        addTarget(owner, 'partner', 'How was the partner vehicle support?');
+      }
     } else if (cleanRole == 'partner') {
       if (isPartnerVehicle) {
         addTarget(renter, 'renter', 'How was the renter during this booking?');
+        if (hasDriver) {
+          addTarget(driverUser, 'driver', 'How was the assigned driver?');
+        }
+        if (operatorUser.isNotEmpty) {
+          addTarget(operatorUser, 'operator', 'How was the operator support?');
+        }
       }
-    } else if (cleanRole == 'operator' && !isPartnerVehicle) {
+    } else if (cleanRole == 'operator') {
       addTarget(renter, 'renter', 'How was the renter during this booking?');
+      if (hasDriver) {
+        addTarget(driverUser, 'driver', 'How was the assigned driver?');
+      }
+      if (isPartnerVehicle) {
+        addTarget(owner, 'partner', 'How was the partner coordination?');
+      }
     }
 
     final deduped = <String, Map<String, dynamic>>{};
@@ -263,7 +358,14 @@ class TripRatingService {
     // targets again so submitting safely upserts the review and advances the
     // completion workflow instead of showing a false "already completed"
     // state.
-    if (includePreviouslySubmittedForRecovery && uniqueTargets.isNotEmpty) {
+    final activeStage = context['completion_stage']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    final expectedStage = '${cleanRole}_rating';
+    if (includePreviouslySubmittedForRecovery &&
+        uniqueTargets.isNotEmpty &&
+        activeStage == expectedStage) {
       return uniqueTargets;
     }
 
@@ -287,19 +389,42 @@ class TripRatingService {
     final context = await getBookingContext(bookingId);
     if (context == null) throw Exception('Booking not found');
     final cleanReviewerRole = reviewerRole.trim().toLowerCase();
-    final expectedStage = '${cleanReviewerRole}_rating';
-    final currentStage = context['completion_stage']
-        ?.toString()
-        .trim()
-        .toLowerCase();
-    if (currentStage != expectedStage) {
-      throw Exception('This rating is not available at the current trip stage');
-    }
+    final operatorFallbackUserId = cleanReviewerRole == 'operator'
+        ? reviewerUserId
+        : null;
     await _assertAuthorizedReviewer(
       context: context,
       reviewerUserId: reviewerUserId,
       reviewerRole: cleanReviewerRole,
     );
+    var pendingTargets = await buildTargetsForBooking(
+      bookingId: bookingId,
+      reviewerUserId: reviewerUserId,
+      reviewerRole: cleanReviewerRole,
+      includePreviouslySubmittedForRecovery: false,
+      operatorFallbackUserId: operatorFallbackUserId,
+    );
+    final activeStage =
+        context['completion_stage']?.toString().trim().toLowerCase() ?? '';
+    if (pendingTargets.isEmpty &&
+        activeStage == '${cleanReviewerRole}_rating') {
+      pendingTargets = await buildTargetsForBooking(
+        bookingId: bookingId,
+        reviewerUserId: reviewerUserId,
+        reviewerRole: cleanReviewerRole,
+        includePreviouslySubmittedForRecovery: true,
+        operatorFallbackUserId: operatorFallbackUserId,
+      );
+    }
+    final targetIsPending = pendingTargets.any(
+      (target) =>
+          target['userId']?.toString() == targetUserId &&
+          target['role']?.toString().trim().toLowerCase() ==
+              targetRole.trim().toLowerCase(),
+    );
+    if (!targetIsPending) {
+      throw Exception('This rating is already submitted or not required');
+    }
 
     final uploadedUrls = imageFiles == null || imageFiles.isEmpty
         ? <String>[]
@@ -324,11 +449,16 @@ class TripRatingService {
       'updated_at': now,
     }, onConflict: 'booking_id,reviewer_user_id,target_user_id,target_role');
 
-    await _refreshTargetProfileRating(targetUserId, targetRole);
+    if (targetRole.trim().toLowerCase() == 'vehicle') {
+      await _refreshVehicleRating(targetUserId);
+    } else {
+      await _refreshTargetProfileRating(targetUserId, targetRole);
+    }
     await _advanceCompletionAfterReviewer(
       context: context,
       reviewerUserId: reviewerUserId,
       reviewerRole: cleanReviewerRole,
+      operatorFallbackUserId: operatorFallbackUserId,
     );
   }
 
@@ -365,20 +495,19 @@ class TripRatingService {
         authorized = ownerRole == 'partner' && reviewerUserId == ownerId;
         break;
       case 'operator':
-        if (ownerRole != 'partner') {
+        final user = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', reviewerUserId)
+            .maybeSingle();
+        final role = user?['role']?.toString().trim().toLowerCase();
+        final isOpsUser = role == 'operator' || role == 'admin';
+        if (isOpsUser) {
           authorized =
               operatorId == null ||
               operatorId.isEmpty ||
-              operatorId == reviewerUserId;
-          if (authorized) {
-            final user = await supabase
-                .from('users')
-                .select('role')
-                .eq('id', reviewerUserId)
-                .maybeSingle();
-            authorized =
-                user?['role']?.toString().trim().toLowerCase() == 'operator';
-          }
+              operatorId == reviewerUserId ||
+              ownerRole == 'partner';
         }
         break;
     }
@@ -391,78 +520,70 @@ class TripRatingService {
     required Map<String, dynamic> context,
     required String reviewerUserId,
     required String reviewerRole,
+    String? operatorFallbackUserId,
   }) async {
     final bookingId = context['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
+    final resolvedOperatorFallback =
+        (reviewerRole == 'operator' ? reviewerUserId : operatorFallbackUserId)
+            ?.trim();
 
     final remainingTargets = await buildTargetsForBooking(
       bookingId: bookingId,
       reviewerUserId: reviewerUserId,
       reviewerRole: reviewerRole,
       includePreviouslySubmittedForRecovery: false,
+      operatorFallbackUserId: resolvedOperatorFallback,
     );
     if (remainingTargets.isNotEmpty) return;
 
-    final driver = context['driver'] is Map<String, dynamic>
-        ? Map<String, dynamic>.from(context['driver'])
-        : <String, dynamic>{};
-    final driverUser = driver['users'] is Map<String, dynamic>
-        ? Map<String, dynamic>.from(driver['users'])
-        : <String, dynamic>{};
-    final driverUserId = driverUser['id']?.toString();
-    final renterId = context['renter_id']?.toString();
     final now = DateTime.now().toUtc().toIso8601String();
     final confirmationColumn = '${reviewerRole}_trip_confirmed_at';
 
-    if (reviewerRole == 'operator' || reviewerRole == 'partner') {
-      final nextStage = driverUserId?.isNotEmpty == true
-          ? 'driver_rating'
-          : 'renter_rating';
+    final nextReviewer = await _nextPendingRatingReviewer(
+      bookingId: bookingId,
+      context: context,
+    );
+    if (nextReviewer != null) {
       final bookingUpdate = <String, dynamic>{
         confirmationColumn: now,
-        'completion_stage': nextStage,
+        'completion_stage': '${nextReviewer.role}_rating',
         'updated_at': now,
       };
-      // Older PSDC bookings may not have an assigned operator. Bind the
-      // operator who performs the return review so the renter rates the same
-      // person who actually handled the trip.
       if (reviewerRole == 'operator' &&
           (context['operator_id']?.toString().trim().isEmpty ?? true)) {
-        bookingUpdate['operator_id'] = reviewerUserId;
+        bookingUpdate['operator_id'] = resolvedOperatorFallback ?? reviewerUserId;
       }
       await supabase.from('bookings').update(bookingUpdate).eq('id', bookingId);
       await _notifyNextReviewer(
-        userId: driverUserId?.isNotEmpty == true ? driverUserId! : renterId,
+        userId: nextReviewer.userId,
         bookingId: bookingId,
-        role: driverUserId?.isNotEmpty == true ? 'driver' : 'renter',
+        role: nextReviewer.role,
       );
       return;
     }
 
-    if (reviewerRole == 'driver') {
+    var finalContext = context;
+    if (reviewerRole == 'operator' &&
+        (context['operator_id']?.toString().trim().isEmpty ?? true)) {
       await supabase
           .from('bookings')
           .update({
-            confirmationColumn: now,
-            'completion_stage': 'renter_rating',
+            'operator_id': resolvedOperatorFallback ?? reviewerUserId,
             'updated_at': now,
           })
           .eq('id', bookingId);
-      await _notifyNextReviewer(
-        userId: renterId,
-        bookingId: bookingId,
-        role: 'renter',
-      );
-      return;
+      finalContext = {
+        ...context,
+        'operator_id': resolvedOperatorFallback ?? reviewerUserId,
+      };
     }
 
-    if (reviewerRole == 'renter') {
-      await _finalizeCompletedBooking(
-        context: context,
-        reviewerUserId: reviewerUserId,
-        completedAt: now,
-      );
-    }
+    await _finalizeCompletedBooking(
+      context: finalContext,
+      reviewerUserId: reviewerUserId,
+      completedAt: now,
+    );
   }
 
   Future<void> _notifyNextReviewer({
@@ -480,6 +601,111 @@ class TripRatingService {
       type: 'trip_rating_required',
       data: {'booking_id': bookingId, 'reviewer_role': role},
     );
+  }
+
+  /// Returns the next pending reviewer in the mandatory sequence, or null when
+  /// all reviewers have finished and the booking can be finalized.
+  ///
+  /// Sequence (non-renter roles always go before the renter):
+  ///   1. Partner (if partner-owned vehicle) or Operator (PSDC vehicle)
+  ///   2. Driver  (if assigned)
+  ///   3. Renter  (always last)
+  Future<({String role, String userId})?> _nextPendingRatingReviewer({
+    required String bookingId,
+    required Map<String, dynamic> context,
+  }) async {
+    String text(dynamic v) => v?.toString().trim() ?? '';
+
+    final owner = context['vehicle_owner'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(context['vehicle_owner'])
+        : <String, dynamic>{};
+    final vehicle = context['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(context['vehicles'])
+        : <String, dynamic>{};
+    final driver = context['driver'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(context['driver'])
+        : <String, dynamic>{};
+    final driverUser = driver['users'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(driver['users'])
+        : <String, dynamic>{};
+
+    final isPartnerVehicle = _ownerRole(context, owner) == 'partner';
+    final ownerId = text(owner['id']).isNotEmpty
+        ? text(owner['id'])
+        : text(vehicle['owner_id']);
+    final operatorId = text(context['operator_id']).isNotEmpty
+        ? text(context['operator_id'])
+        : text(vehicle['operator_id']);
+    final driverUserId = text(driverUser['id']).isNotEmpty
+        ? text(driverUser['id'])
+        : text(driverUser['user_id']).isNotEmpty
+        ? text(driverUser['user_id'])
+        : text(driver['user_id']).isNotEmpty
+        ? text(driver['user_id'])
+        : text(context['driver_id']);
+    final renterId = text(context['renter_id']);
+
+    final firstRole = isPartnerVehicle ? 'partner' : 'operator';
+    final firstId = isPartnerVehicle ? ownerId : operatorId;
+
+    // Determine which completion stages have already been confirmed.
+    final operatorConfirmed =
+        text(context['operator_trip_confirmed_at']).isNotEmpty;
+    final partnerConfirmed =
+        text(context['partner_trip_confirmed_at']).isNotEmpty;
+    final driverConfirmed =
+        text(context['driver_trip_confirmed_at']).isNotEmpty;
+    final renterConfirmed =
+        text(context['renter_trip_confirmed_at']).isNotEmpty;
+
+    final firstConfirmed =
+        isPartnerVehicle ? partnerConfirmed : operatorConfirmed;
+    final hasDriver = driverUserId.isNotEmpty;
+
+    // Step 1 — partner or operator
+    if (!firstConfirmed && firstId.isNotEmpty) {
+      return (role: firstRole, userId: firstId);
+    }
+
+    // Step 2 — driver (only if assigned and step 1 done)
+    if (firstConfirmed && hasDriver && !driverConfirmed) {
+      return (role: 'driver', userId: driverUserId);
+    }
+
+    // Step 3 — renter (after all non-renter reviewers are done)
+    final allNonRenterDone = firstConfirmed && (!hasDriver || driverConfirmed);
+    if (allNonRenterDone && !renterConfirmed && renterId.isNotEmpty) {
+      return (role: 'renter', userId: renterId);
+    }
+
+    // All reviewers done — signal finalization.
+    return null;
+  }
+
+  /// Aggregates all trip_ratings rows for a vehicle (target_role = 'vehicle')
+  /// and updates vehicles.rating and vehicles.rating_count.
+  Future<void> _refreshVehicleRating(String vehicleId) async {
+    try {
+      final response = await supabase
+          .from('trip_ratings')
+          .select('rating')
+          .eq('target_user_id', vehicleId)
+          .eq('target_role', 'vehicle');
+      final rows = List<Map<String, dynamic>>.from(response);
+      if (rows.isEmpty) return;
+      final count = rows.length;
+      final average = rows.fold<double>(
+            0,
+            (sum, row) => sum + ((row['rating'] as num?)?.toDouble() ?? 0),
+          ) /
+          count;
+      await supabase
+          .from('vehicles')
+          .update({'rating': average, 'rating_count': count})
+          .eq('id', vehicleId);
+    } catch (e) {
+      debugPrint('Skipping vehicle rating update: $e');
+    }
   }
 
   Future<void> _finalizeCompletedBooking({
@@ -600,15 +826,24 @@ class TripRatingService {
     String bookingId, {
     String? operatorFallbackUserId,
   }) async {
-    final context = await getBookingContext(bookingId);
+    var context = await getBookingContext(bookingId);
     if (context == null) return false;
+    final cleanOperatorFallback = operatorFallbackUserId?.trim();
     final status = context['status']?.toString().trim().toLowerCase();
     final now = DateTime.now().toUtc().toIso8601String();
+    if (cleanOperatorFallback?.isNotEmpty == true &&
+        (context['operator_id']?.toString().trim().isEmpty ?? true)) {
+      await supabase
+          .from('bookings')
+          .update({'operator_id': cleanOperatorFallback, 'updated_at': now})
+          .eq('id', bookingId);
+      context = {...context, 'operator_id': cleanOperatorFallback};
+    }
     if (status == 'completed') {
       await _releaseSettlementWithoutBlockingCompletion(
         bookingId: bookingId,
         updatedAt: now,
-        operatorFallbackUserId: operatorFallbackUserId,
+        operatorFallbackUserId: cleanOperatorFallback,
       );
       return true;
     }
@@ -657,16 +892,19 @@ class TripRatingService {
   ) async {
     final latestContext = await getBookingContext(bookingId);
     if (latestContext == null) throw Exception('Booking not found');
-    if (latestContext['final_payment_status']
-            ?.toString()
-            .trim()
-            .toLowerCase() !=
-        'paid') {
+    if (!_isManualFinalPaymentConfirmed(
+      latestContext['final_payment_status'],
+    )) {
       throw Exception('The final payment must be confirmed first');
     }
 
+    String text(dynamic value) => value?.toString().trim() ?? '';
+
     final owner = latestContext['vehicle_owner'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(latestContext['vehicle_owner'])
+        : <String, dynamic>{};
+    final vehicle = latestContext['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(latestContext['vehicles'])
         : <String, dynamic>{};
     final driver = latestContext['driver'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(latestContext['driver'])
@@ -675,25 +913,29 @@ class TripRatingService {
         ? Map<String, dynamic>.from(driver['users'])
         : <String, dynamic>{};
     final isPartnerVehicle = _ownerRole(latestContext, owner) == 'partner';
-    final renterId = latestContext['renter_id']?.toString() ?? '';
+    final renterId = text(latestContext['renter_id']);
     final operatorUser = latestContext['operator_user'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(latestContext['operator_user'])
         : <String, dynamic>{};
+    final ownerId = text(owner['id']).isNotEmpty
+        ? text(owner['id'])
+        : text(vehicle['owner_id']);
+    final operatorId = text(latestContext['operator_id']).isNotEmpty
+        ? text(latestContext['operator_id'])
+        : text(operatorUser['id']).isNotEmpty
+        ? text(operatorUser['id'])
+        : text(vehicle['operator_id']);
     final firstReviewerRole = isPartnerVehicle ? 'partner' : 'operator';
-    final firstReviewerId = isPartnerVehicle
-        ? owner['id']?.toString() ?? ''
-        : latestContext['operator_id']?.toString() ??
-              operatorUser['id']?.toString() ??
-              '';
-    final driverUserId =
-        driverUser['id']?.toString() ??
-        latestContext['driver_id']?.toString() ??
-        '';
+    final firstReviewerId = isPartnerVehicle ? ownerId : operatorId;
+    final driverUserId = text(driverUser['id']).isNotEmpty
+        ? text(driverUser['id'])
+        : text(driver['user_id']).isNotEmpty
+        ? text(driver['user_id'])
+        : text(latestContext['driver_id']);
+    final hasDriver = driverUserId.isNotEmpty;
     final renterPrimaryTargetId = isPartnerVehicle
-        ? owner['id']?.toString() ?? ''
-        : latestContext['operator_id']?.toString() ??
-              operatorUser['id']?.toString() ??
-              '';
+        ? ownerId
+        : operatorId;
     final requiredPairs =
         <
           ({
@@ -709,7 +951,7 @@ class TripRatingService {
             targetRole: 'renter',
             targetId: renterId,
           ),
-          if (driverUser.isNotEmpty)
+          if (hasDriver)
             (
               reviewerRole: 'driver',
               reviewerId: driverUserId,
@@ -722,7 +964,7 @@ class TripRatingService {
             targetRole: isPartnerVehicle ? 'partner' : 'operator',
             targetId: renterPrimaryTargetId,
           ),
-          if (driverUser.isNotEmpty)
+          if (hasDriver)
             (
               reviewerRole: 'renter',
               reviewerId: renterId,
@@ -759,6 +1001,23 @@ class TripRatingService {
       }
     }
     return latestContext;
+  }
+
+  bool _isManualFinalPaymentConfirmed(dynamic value) {
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return false;
+    return const {
+      'paid',
+      'fully_paid',
+      'full_paid',
+      'verified',
+      'settled',
+      'released',
+      'completed',
+      'confirmed',
+      'final_paid',
+      'payment_verified',
+    }.contains(normalized);
   }
 
   Future<Map<String, dynamic>> getRatingSummary(String userId) async {

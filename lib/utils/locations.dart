@@ -550,12 +550,20 @@ class PhilippineLocations {
   static const double psdcGarageLatitude = 15.9758;
   static const double psdcGarageLongitude = 120.5719;
 
+  static bool _looksLikePsdcGarage(String normalized) {
+    return normalized == 'psdc garage, manila' ||
+        normalized == 'psdc urdaneta' ||
+        normalized == psdc_garage.toLowerCase() ||
+        normalized.contains('xgfw+jq') ||
+        normalized.contains('psdc garage') ||
+        normalized.contains('psdc car rental') ||
+        (normalized.contains('psdc') && normalized.contains('urdaneta'));
+  }
+
   static String normalizePsdcGarageLabel(String? value) {
     final label = value?.trim() ?? '';
     final normalized = label.toLowerCase();
-    if (label.isEmpty ||
-        normalized == 'psdc garage, manila' ||
-        normalized == 'psdc urdaneta') {
+    if (label.isEmpty || _looksLikePsdcGarage(normalized)) {
       return psdc_garage;
     }
     return label;
@@ -565,10 +573,7 @@ class PhilippineLocations {
     final label = value?.trim() ?? '';
     final normalized = label.toLowerCase();
     if (label.isEmpty) return true;
-    return normalized == 'psdc garage, manila' ||
-        normalized == 'psdc urdaneta' ||
-        normalized == psdc_garage.toLowerCase() ||
-        normalized.contains('xgfw+jq urdaneta');
+    return _looksLikePsdcGarage(normalized);
   }
 
   static List<String> getCitiesForProvince(String province) {

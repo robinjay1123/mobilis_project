@@ -57,6 +57,22 @@ class BookingSettlementService {
 
   double _number(dynamic value) => (value as num?)?.toDouble() ?? 0;
 
+  bool _isFinalPaymentConfirmed(dynamic value) {
+    final status = value?.toString().trim().toLowerCase() ?? '';
+    return <String>{
+      'paid',
+      'fully_paid',
+      'full_paid',
+      'verified',
+      'settled',
+      'released',
+      'completed',
+      'confirmed',
+      'final_paid',
+      'payment_verified',
+    }.contains(status);
+  }
+
   Future<List<Map<String, dynamic>>> getReleasedPayoutsForUser({
     required String userId,
     required String recipientRole,
@@ -116,7 +132,7 @@ class BookingSettlementService {
         .eq('id', bookingId)
         .maybeSingle();
     if (booking == null) throw Exception('Booking not found for settlement');
-    if (booking['final_payment_status']?.toString().toLowerCase() != 'paid') {
+    if (!_isFinalPaymentConfirmed(booking['final_payment_status'])) {
       throw Exception('The booking must be fully paid before releasing funds');
     }
 

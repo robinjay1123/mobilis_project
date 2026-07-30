@@ -2784,13 +2784,31 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   Future<void> _handleBookingAction(String bookingId, String status) async {
     try {
       final bookingService = BookingService();
-      await bookingService.updateBookingStatus(bookingId, status);
+      final currentPartnerId = partnerId ?? AuthService().currentUser?.id;
+
+      if (status == 'confirmed' && currentPartnerId != null) {
+        await bookingService.confirmPartnerBooking(
+          bookingId: bookingId,
+          partnerId: currentPartnerId,
+        );
+      } else if ((status == 'cancelled' || status == 'rejected') &&
+          currentPartnerId != null) {
+        await bookingService.rejectPartnerBooking(
+          bookingId: bookingId,
+          partnerId: currentPartnerId,
+          reason: 'Declined by vehicle owner',
+        );
+      } else {
+        await bookingService.updateBookingStatus(bookingId, status);
+      }
+
       _showSuccessSnackBar(
-        status == 'confirmed' ? 'Booking accepted!' : 'Booking declined',
+        status == 'confirmed' ? 'Booking confirmed!' : 'Booking declined',
       );
       _loadPartnerData();
     } catch (e) {
-      _showErrorSnackBar('Failed to update booking');
+      debugPrint('Partner booking action error: $e');
+      _showErrorSnackBar('Failed to update booking: $e');
     }
   }
 

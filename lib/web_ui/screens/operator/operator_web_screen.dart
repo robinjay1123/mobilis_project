@@ -531,33 +531,79 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
       final completionStage =
           completionState['completionStage']?.toString() ?? '';
+      final actorId = _supabase.auth.currentUser?.id;
+      if (actorId == null || actorId.isEmpty) {
+        throw Exception('Sign in again before rating this trip.');
+      }
       if (completionStage == 'awaiting_payment') {
         await _confirmOperatorFinalPayment(latestBooking);
         return;
       }
+      if (completionStage == 'completed') {
+        final reconciled = await TripRatingService().reconcileCompletedBooking(
+          bookingId,
+          operatorFallbackUserId: actorId,
+        );
+        await Future.wait([
+          _loadRecentBookings(),
+          _loadOperatorRevenueBookings(),
+          _loadOperatorSettlements(),
+        ]);
+        if (!mounted) return;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              reconciled
+                  ? 'Trip is already completed. Revenue is updated.'
+                  : 'This trip and its required ratings are already completed.',
+            ),
+            backgroundColor: reconciled ? Colors.green : Colors.orange,
+          ),
+        );
+        return;
+      }
       if (completionStage != 'operator_rating') {
         throw Exception(
-          completionStage == 'completed'
-              ? 'This trip and its required ratings are already completed.'
-              : 'Complete the return checklist and final payment before rating the renter.',
+          'Complete the return checklist and final payment before rating the renter.',
         );
       }
 
-      final actorId = _supabase.auth.currentUser?.id;
       final now = DateTime.now().toUtc().toIso8601String();
       final ratingStageUpdate = <String, dynamic>{
         'completion_stage': 'operator_rating',
         'updated_at': now,
       };
-      if (actorId != null &&
-          actorId.isNotEmpty &&
-          (latestBooking['operator_id']?.toString().trim().isEmpty ?? true)) {
+      if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
         ratingStageUpdate['operator_id'] = actorId;
       }
       await _supabase
           .from('bookings')
           .update(ratingStageUpdate)
           .eq('id', bookingId);
+
+      final pendingTargets = await TripRatingService().buildTargetsForBooking(
+        bookingId: bookingId,
+        reviewerUserId: actorId,
+        reviewerRole: 'operator',
+        includePreviouslySubmittedForRecovery: false,
+        operatorFallbackUserId: actorId,
+      );
+      final hasPendingRenterRating = pendingTargets.any(
+        (target) => target['role']?.toString().trim().toLowerCase() == 'renter',
+      );
+      if (!hasPendingRenterRating) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No pending renter rating was found for this trip. Refresh the booking and try again.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
 
       final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -571,6 +617,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       );
       if (submitted != true) return;
+      final reconciled = await TripRatingService().reconcileCompletedBooking(
+        bookingId,
+        operatorFallbackUserId: actorId,
+      );
       await Future.wait([
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
@@ -579,9 +629,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Renter rating saved. Waiting for the remaining required ratings.',
+            reconciled
+                ? 'Renter rating saved. Trip completed and revenue updated.'
+                : 'Renter rating saved. Waiting for the remaining required ratings.',
           ),
           backgroundColor: Colors.green,
         ),
@@ -1724,10 +1776,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   bool _isLikelyPhilippinesPoint(MobilisMapPoint? point) {
     if (point == null) return false;
-    return point.latitude >= 4 &&
-        point.latitude <= 22 &&
-        point.longitude >= 116 &&
-        point.longitude <= 127;
+    if (point.latitude.abs() < 0.000001 && point.longitude.abs() < 0.000001) {
+      return false;
+    }
+    return point.latitude >= 4.0 &&
+        point.latitude <= 22.5 &&
+        point.longitude >= 116.0 &&
+        point.longitude <= 127.5;
   }
 
   MobilisMapPoint? _philippinesCoordinatePoint(
@@ -1735,7 +1790,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     dynamic longitude,
   ) {
     final point = _coordinatePoint(latitude, longitude);
-    return _isLikelyPhilippinesPoint(point) ? point : null;
+    if (_isLikelyPhilippinesPoint(point)) return point;
+
+    // Some saved rows from older map pickers used longitude/latitude order.
+    // Try the swapped values before giving up so valid PH pins do not render
+    // as intercontinental routes in the operator route modal.
+    final swappedPoint = _coordinatePoint(longitude, latitude);
+    return _isLikelyPhilippinesPoint(swappedPoint) ? swappedPoint : null;
   }
 
   MobilisMapPoint _psdcGaragePoint() {
@@ -1745,8 +1806,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  bool _isDefaultPsdcPickup(String? value) {
+    final normalized = value?.trim().toLowerCase() ?? '';
+    return normalized.isEmpty ||
+        PhilippineLocations.isPsdcGarageLabel(normalized) ||
+        normalized.contains('self-pickup') ||
+        normalized.contains('self pickup') ||
+        normalized.contains('psdc garage') ||
+        normalized.contains('xgfw+jq') ||
+        normalized.contains('urdaneta');
+  }
+
   String _stripPlusCodePrefix(String address) {
-    final parts = address
+    final trimmedAddress = address.trim();
+    if (trimmedAddress.isEmpty) return '';
+    final withoutLeadingPlusCode = trimmedAddress
+        .replaceFirst(
+          RegExp(
+            r'^[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,4},?\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+    final source = withoutLeadingPlusCode.isNotEmpty
+        ? withoutLeadingPlusCode
+        : trimmedAddress;
+    final parts = source
         .split(',')
         .map((part) => part.trim())
         .where((part) => part.isNotEmpty)
@@ -1758,7 +1844,49 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ).hasMatch(parts.first)) {
       return parts.skip(1).join(', ');
     }
-    return address;
+    return source;
+  }
+
+  MobilisMapPoint? _knownBookingAddressPoint(String address) {
+    final normalized = address.toLowerCase();
+    if (_isDefaultPsdcPickup(address) ||
+        PhilippineLocations.isPsdcGarageLabel(address)) {
+      return _psdcGaragePoint();
+    }
+    if (normalized.contains('bolinao')) {
+      return const MobilisMapPoint(latitude: 16.3883, longitude: 119.8949);
+    }
+    if (normalized.contains('santa barbara') &&
+        normalized.contains('san carlos')) {
+      return const MobilisMapPoint(latitude: 15.89210, longitude: 120.37159);
+    }
+    if (normalized.contains('san carlos city') &&
+        normalized.contains('pangasinan')) {
+      return const MobilisMapPoint(latitude: 15.9281, longitude: 120.3488);
+    }
+    if (normalized.contains('bayambang')) {
+      return const MobilisMapPoint(latitude: 15.8127, longitude: 120.4557);
+    }
+    if (normalized.contains('malasiqui')) {
+      return const MobilisMapPoint(latitude: 15.9197, longitude: 120.4144);
+    }
+    return null;
+  }
+
+  double _routeDistanceInKm(MobilisMapPoint from, MobilisMapPoint to) {
+    return Geolocator.distanceBetween(
+          from.latitude,
+          from.longitude,
+          to.latitude,
+          to.longitude,
+        ) /
+        1000;
+  }
+
+  bool _isReasonableBookingRoute(MobilisMapPoint from, MobilisMapPoint to) {
+    // Local rentals should never draw intercontinental lines. Keep a generous
+    // PH-wide ceiling so old bad pins cannot override readable PH addresses.
+    return _routeDistanceInKm(from, to) <= 1500;
   }
 
   Future<MobilisMapPoint?> _geocodeBookingAddress(String address) async {
@@ -1779,6 +1907,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final cacheKey = cleanAddress.toLowerCase();
     if (_addressCoordinateCache.containsKey(cacheKey)) {
       return _addressCoordinateCache[cacheKey];
+    }
+    final knownPoint = _knownBookingAddressPoint(cleanAddress);
+    if (knownPoint != null) {
+      _addressCoordinateCache[cacheKey] = knownPoint;
+      return knownPoint;
     }
 
     final candidates = <String>[cleanAddress];
@@ -1854,36 +1987,76 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final vehicle = routeBooking['vehicles'] as Map<String, dynamic>? ?? {};
-    final pickupAddress = _operatorPickupLabel(
-      routeBooking['pickup_location']?.toString(),
-    );
-    final isPsdcGaragePickup = PhilippineLocations.isPsdcGarageLabel(
-      routeBooking['pickup_location']?.toString(),
-    );
+    final rawPickupAddress = routeBooking['pickup_location']?.toString();
+    final pickupAddress = _operatorPickupLabel(rawPickupAddress);
+    final isPsdcGaragePickup =
+        _isDefaultPsdcPickup(rawPickupAddress) ||
+        _isDefaultPsdcPickup(pickupAddress);
     var pickupPoint = isPsdcGaragePickup
         ? _psdcGaragePoint()
-        : _philippinesCoordinatePoint(
-            routeBooking['pickup_latitude'],
-            routeBooking['pickup_longitude'],
-          );
+        : _knownBookingAddressPoint(pickupAddress);
     if (!isPsdcGaragePickup) {
+      pickupPoint ??= _philippinesCoordinatePoint(
+        routeBooking['pickup_latitude'],
+        routeBooking['pickup_longitude'],
+      );
+      pickupPoint ??= await _geocodeBookingAddress(pickupAddress);
       pickupPoint ??= _philippinesCoordinatePoint(
         vehicle['latitude'],
         vehicle['longitude'],
       );
     }
-    pickupPoint ??= await _geocodeBookingAddress(pickupAddress);
 
-    var destinationPoint = _philippinesCoordinatePoint(
-      routeBooking['dropoff_latitude'],
-      routeBooking['dropoff_longitude'],
-    );
     final destinationAddress =
         routeBooking['dropoff_location']?.toString().trim() ?? '';
-    destinationPoint ??= await _geocodeBookingAddress(destinationAddress);
+    final destinationLookupAddress = _stripPlusCodePrefix(destinationAddress);
+    final isPsdcGarageDestination = PhilippineLocations.isPsdcGarageLabel(
+      destinationAddress,
+    );
+    var destinationPoint = isPsdcGarageDestination
+        ? _psdcGaragePoint()
+        : _knownBookingAddressPoint(destinationAddress) ??
+              _knownBookingAddressPoint(destinationLookupAddress);
+    if (!isPsdcGarageDestination) {
+      destinationPoint ??= _philippinesCoordinatePoint(
+        routeBooking['dropoff_latitude'],
+        routeBooking['dropoff_longitude'],
+      );
+      destinationPoint ??= await _geocodeBookingAddress(
+        destinationLookupAddress,
+      );
+    }
 
-    if (destinationPoint == null) return const [];
-    return [if (pickupPoint != null) pickupPoint, destinationPoint];
+    pickupPoint = isPsdcGaragePickup
+        ? _psdcGaragePoint()
+        : (_isLikelyPhilippinesPoint(pickupPoint)
+              ? pickupPoint
+              : _psdcGaragePoint());
+    destinationPoint = _isLikelyPhilippinesPoint(destinationPoint)
+        ? destinationPoint
+        : null;
+
+    if (destinationPoint == null) {
+      return pickupPoint == null ? const [] : [pickupPoint];
+    }
+    if (pickupPoint == null) return [destinationPoint];
+
+    if (!_isReasonableBookingRoute(pickupPoint, destinationPoint)) {
+      final knownDestination =
+          _knownBookingAddressPoint(destinationAddress) ??
+          _knownBookingAddressPoint(destinationLookupAddress);
+      if (knownDestination != null &&
+          _isReasonableBookingRoute(pickupPoint, knownDestination)) {
+        destinationPoint = knownDestination;
+      } else {
+        return [pickupPoint];
+      }
+    }
+
+    final samePoint =
+        (pickupPoint.latitude - destinationPoint.latitude).abs() < 0.0001 &&
+        (pickupPoint.longitude - destinationPoint.longitude).abs() < 0.0001;
+    return samePoint ? [pickupPoint] : [pickupPoint, destinationPoint];
   }
 
   bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) =>
@@ -7413,6 +7586,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             children: [
                               Positioned.fill(
                                 child: MobilisLeafletMap(
+                                  key: ValueKey(
+                                    'operator-route-${booking['id']}-${routePoints.map((point) => '${point.latitude.toStringAsFixed(5)},${point.longitude.toStringAsFixed(5)}').join('|')}',
+                                  ),
                                   markers: markers,
                                   routePoints: routePoints,
                                   routeColor: _operatorGold,

@@ -33,6 +33,7 @@ import 'mobile_ui/screens/home/chat_detail_screen.dart';
 import 'responsive/responsive_screens.dart';
 import 'web_ui/screens/admin/admin_web_screen.dart';
 import 'web_ui/screens/operator/operator_web_screen.dart';
+import 'mobile_ui/screens/operator/operator_mobile_home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/notification_permission_service.dart';
@@ -239,9 +240,12 @@ class _MyAppState extends State<MyApp> {
             });
             return const ResponsiveLoginScreen();
           }
-          // Check if running on web
+          // Mobile vs Web check
           if (!kIsWeb) {
-            return const WebOnlyAccessScreen(role: 'Operator');
+            return OperatorMobileHomeScreen(
+              onThemeToggle: _toggleTheme,
+              isDarkMode: _isDarkMode,
+            );
           }
           return OperatorWebScreen(
             onThemeToggle: _toggleTheme,

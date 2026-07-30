@@ -61,10 +61,15 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       return;
     }
 
+    final cleanReviewerRole = widget.reviewerRole.trim().toLowerCase();
+    final operatorFallbackUserId = cleanReviewerRole == 'operator'
+        ? reviewerId
+        : null;
     final targets = await _tripRatingService.buildTargetsForBooking(
       bookingId: widget.bookingId,
       reviewerUserId: reviewerId,
       reviewerRole: widget.reviewerRole,
+      operatorFallbackUserId: operatorFallbackUserId,
     );
 
     var completionRecovered = false;
@@ -84,10 +89,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         completionRecovered = await _tripRatingService
             .reconcileCompletedBooking(
               widget.bookingId,
-              operatorFallbackUserId:
-                  widget.reviewerRole.trim().toLowerCase() == 'operator'
-                  ? reviewerId
-                  : null,
+              operatorFallbackUserId: operatorFallbackUserId,
             );
       }
     }

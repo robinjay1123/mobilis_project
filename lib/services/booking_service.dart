@@ -52,6 +52,7 @@ class BookingService {
     }
   }
 
+
   // Get bookings for a partner (via their vehicles)
   // Note: vehicles use owner_id which references users.id
   Future<List<Map<String, dynamic>>> getPartnerBookings(String userId) async {
@@ -976,6 +977,117 @@ class BookingService {
     }
   }
 
+  // ================== PARTNER BOOKING CONFIRMATION ==================
+
+  /// Partner confirms that they agree to host the renter for the upcoming
+  /// booking. Required before the operator can officially approve.
+  Future<void> confirmPartnerBooking({
+    required String bookingId,
+    required String partnerId,
+  }) async {
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final vehicle = booking['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    final ownerId = vehicle['owner_id']?.toString();
+    if (ownerId == null || ownerId.isEmpty || ownerId != partnerId) {
+      throw Exception('Only the vehicle owner can confirm this booking');
+    }
+
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (status != 'pending') {
+      throw Exception(
+        'This booking cannot be confirmed in its current state ($status)',
+      );
+    }
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase
+        .from('bookings')
+        .update({
+          'partner_booking_confirmed_at': now,
+          'partner_booking_confirmed_by': partnerId,
+          'updated_at': now,
+        })
+        .eq('id', bookingId);
+
+    // Notify operators that partner has confirmed.
+    await _notifyOperatorsForBooking(
+      booking,
+      title: 'Partner Confirmed Booking',
+      message:
+          'The vehicle partner confirmed availability. You can now approve the booking.',
+      action: 'partner_booking_confirmed',
+    );
+
+    // Notify renter.
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      final vehicleTitle = _vehicleTitle(vehicle);
+      await NotificationService().createNotification(
+        userId: renterId,
+        title: 'Partner Confirmed Your Booking',
+        message:
+            'The vehicle owner confirmed availability for $vehicleTitle. Awaiting final operator approval.',
+        type: 'booking',
+        data: {'booking_id': bookingId, 'event': 'partner_confirmed'},
+      );
+    }
+  }
+
+  /// Partner rejects the booking for their vehicle before operator approval.
+  Future<void> rejectPartnerBooking({
+    required String bookingId,
+    required String partnerId,
+    required String reason,
+  }) async {
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final vehicle = booking['vehicles'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(booking['vehicles'])
+        : <String, dynamic>{};
+    final ownerId = vehicle['owner_id']?.toString();
+    if (ownerId == null || ownerId.isEmpty || ownerId != partnerId) {
+      throw Exception('Only the vehicle owner can reject this booking');
+    }
+
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (!{'pending', 'approved'}.contains(status)) {
+      throw Exception(
+        'This booking cannot be rejected in its current state ($status)',
+      );
+    }
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase
+        .from('bookings')
+        .update({
+          'status': 'rejected',
+          'partner_booking_rejected_at': now,
+          'partner_booking_rejection_reason': reason,
+          'rejection_reason': reason,
+          'rejected_at': now,
+          'updated_at': now,
+        })
+        .eq('id', bookingId);
+
+    final renterId = booking['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      final vehicleTitle = _vehicleTitle(vehicle);
+      await NotificationService().createNotification(
+        userId: renterId,
+        title: 'Booking Rejected',
+        message:
+            'Your booking for $vehicleTitle was rejected by the vehicle partner. Reason: $reason',
+        type: 'booking',
+        data: {'booking_id': bookingId, 'status': 'rejected'},
+      );
+    }
+  }
+
   // ================== OPERATOR WORKFLOW ==================
 
   /// Get all pending bookings for operator approval
@@ -1002,6 +1114,103 @@ class BookingService {
       return [];
     } catch (e) {
       debugPrint('Error fetching pending bookings: $e');
+      return [];
+    }
+  }
+
+  /// All bookings managed by this operator (by operator_id) — every status.
+  Future<List<Map<String, dynamic>>> getOperatorBookings(
+    String operatorId,
+  ) async {
+    try {
+      await processExpiredPendingBookings();
+      final response = await supabase
+          .from('bookings')
+          .select(
+            '*, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
+            '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url)',
+          )
+          .eq('operator_id', operatorId)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error fetching operator bookings: ${e.message}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching operator bookings: $e');
+      return [];
+    }
+  }
+
+  /// Approved/ongoing/active bookings for the operator's live dashboard.
+  Future<List<Map<String, dynamic>>> getOperatorActiveBookings(
+    String operatorId,
+  ) async {
+    try {
+      final response = await supabase
+          .from('bookings')
+          .select(
+            '*, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
+            '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url)',
+          )
+          .eq('operator_id', operatorId)
+          .inFilter('status', [
+            'approved',
+            'confirmed',
+            'active',
+            'ongoing',
+            'return_pending_inspection',
+            'awaiting_completion',
+          ])
+          .order('start_at', ascending: true);
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'Database error fetching operator active bookings: ${e.message}',
+      );
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching operator active bookings: $e');
+      return [];
+    }
+  }
+
+  /// Pending bookings that the operator has not yet approved or rejected.
+  Future<List<Map<String, dynamic>>> getOperatorPendingApproval(
+    String operatorId,
+  ) async {
+    try {
+      await processExpiredPendingBookings();
+      // For PSDC vehicles the operator is matched by operator_id.
+      // For partner vehicles the operator is set after approval, so we also
+      // return unmatched pending bookings filtered by the vehicles the operator
+      // manages (via vehicles.operator_id).
+      final response = await supabase
+          .from('bookings')
+          .select(
+            'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, '
+            'status, total_price, with_driver, created_at, '
+            'partner_booking_confirmed_at, reservation_payment_status, '
+            'reservation_payment_covers_total, reservation_fee_amount, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, '
+            '  owner:owner_id(id, full_name, role)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone)',
+          )
+          .or('operator_id.eq.$operatorId,vehicles.operator_id.eq.$operatorId')
+          .eq('status', 'pending')
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(response);
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'Database error fetching operator pending bookings: ${e.message}',
+      );
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching operator pending bookings: $e');
       return [];
     }
   }

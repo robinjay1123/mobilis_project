@@ -193,6 +193,64 @@ class BookingInspectionService {
     }
   }
 
+  /// Validates that the inspection type is allowed at the current time and
+  /// booking state.
+  ///
+  /// - **before**: allowed from 1 hour before the scheduled `start_at` up to
+  ///   the moment the trip is marked as started.
+  /// - **after**: allowed once the trip is in an active/ongoing/return state
+  ///   (the booking status is past `approved`).
+  Future<void> assertInspectionWindowOpen({
+    required String bookingId,
+    required String inspectionType,
+  }) async {
+    final booking = await _getInspectionBooking(bookingId);
+    final status =
+        booking['status']?.toString().trim().toLowerCase() ?? '';
+    final normalizedType = inspectionType.trim().toLowerCase();
+
+    if (normalizedType == 'before') {
+      // Resolve the trip start time from start_at or start_date.
+      final rawStart = booking['start_at'] ?? booking['start_date'];
+      final startAt = DateTime.tryParse(rawStart?.toString() ?? '');
+      if (startAt == null) {
+        throw Exception('Booking start time is not set yet');
+      }
+      final windowOpens = startAt.subtract(const Duration(hours: 1));
+      final now = DateTime.now().toUtc();
+      if (now.isBefore(windowOpens)) {
+        final minutesUntil = windowOpens.difference(now).inMinutes;
+        throw Exception(
+          'The pre-trip inspection window opens 1 hour before the trip starts '
+          '(in about $minutesUntil minutes)',
+        );
+      }
+      // The trip must not have already started; reject duplicate befores.
+      final alreadyStarted = {'active', 'ongoing', 'return_pending_inspection',
+          'awaiting_completion', 'completed'}.contains(status);
+      if (alreadyStarted) {
+        throw Exception(
+          'The trip has already started. The before-trip inspection window has closed.',
+        );
+      }
+    } else if (normalizedType == 'after') {
+      // After-trip inspections require the trip to be in an active/ongoing state.
+      final allowedStatuses = {
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+      };
+      if (!allowedStatuses.contains(status)) {
+        throw Exception(
+          'The after-trip inspection is only available while the trip is active '
+          '(current status: $status)',
+        );
+      }
+    } else {
+      throw Exception('Unknown inspection type: $inspectionType');
+    }
+  }
   Future<void> assertInspectionComplete({
     required String bookingId,
     required String inspectionType,
