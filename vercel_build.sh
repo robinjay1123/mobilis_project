@@ -5,6 +5,9 @@ echo "=== Cleaning old Flutter cache ==="
 rm -rf flutter .pub-cache .dart_tool
 
 echo "=== Setting Environment Variables ==="
+export BOT=true
+export FLUTTER_ALLOW_ROOT=true
+export CI=true
 export PUB_CACHE="$PWD/.pub-cache"
 export PATH="$PWD/flutter/bin:$PATH"
 
@@ -15,7 +18,7 @@ echo "=== Flutter SDK Info ==="
 flutter --version
 
 echo "=== Configuring Web ==="
-flutter config --enable-web
+flutter config --enable-web --no-analytics
 
 echo "=== Installing Dependencies ==="
 flutter pub get
