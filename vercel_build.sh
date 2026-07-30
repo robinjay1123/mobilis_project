@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 set -x
 
 echo "=== Cleaning old Flutter cache & Windows lockfile ==="
@@ -18,7 +19,7 @@ echo "=== Flutter SDK Info ==="
 flutter --version
 
 echo "=== Configuring Web ==="
-flutter config --enable-web --no-analytics
+flutter config --enable-web
 
 echo "=== Installing Dependencies ==="
 flutter pub get
