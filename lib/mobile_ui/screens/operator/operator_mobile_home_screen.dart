@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../../theme/app_colors.dart';
-import '../../../../services/auth_service.dart';
-import '../../../../services/booking_service.dart';
+import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
+import 'package:mobilis_by_psdc_app/services/auth_service.dart';
+import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 
 /// Mobile-first home screen for Operator role.
 ///
