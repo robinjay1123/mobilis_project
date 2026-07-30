@@ -10079,7 +10079,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         '[Messages] Loading conversations for operator: $currentUserId',
       );
 
-      const activeStatuses = ['approved', 'confirmed', 'active', 'ongoing'];
+      const activeStatuses = [
+        'pending',
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+        'completed',
+      ];
       final participantConversationIds = <String>{};
       try {
         final participations = await _supabase
@@ -10130,7 +10139,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .toList();
 
       if (bookingIds.isEmpty) {
-        _conversations = [];
+        _conversations = await _loadOperatorConversationFallback(
+          currentUserId,
+          activeStatuses,
+        );
         if (mounted) {
           setState(() {
             _isLoadingConversations = false;
@@ -10286,12 +10298,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ? booking['status']?.toString().trim().toLowerCase() ?? ''
           : '';
       final bookingId = conversation['booking_id']?.toString().trim() ?? '';
-      if (bookingId.isEmpty ||
-          conversationStatus != 'active' ||
+
+      if (conversationStatus != 'active') continue;
+      if (bookingId.isNotEmpty &&
+          bookingStatus.isNotEmpty &&
           !activeStatuses.contains(bookingStatus)) {
         continue;
       }
-      conversationsByBooking.putIfAbsent(bookingId, () => conversation);
+
+      final key = bookingId.isNotEmpty
+          ? bookingId
+          : (conversation['id']?.toString().trim() ?? '');
+      if (key.isNotEmpty) {
+        conversationsByBooking.putIfAbsent(key, () => conversation);
+      }
     }
     return conversationsByBooking.values.toList();
   }
