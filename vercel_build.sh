@@ -1,8 +1,8 @@
 #!/bin/bash
-set -e
+set -x
 
-echo "=== Cleaning old Flutter cache ==="
-rm -rf flutter .pub-cache .dart_tool
+echo "=== Cleaning old Flutter cache & Windows lockfile ==="
+rm -rf flutter .pub-cache .dart_tool pubspec.lock
 
 echo "=== Setting Environment Variables ==="
 export BOT=true
