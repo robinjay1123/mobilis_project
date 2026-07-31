@@ -6922,8 +6922,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           statusLower == 'confirmed' ||
                           statusLower == 'active' ||
                           statusLower == 'ongoing' ||
-                          statusLower == 'return_pending_inspection')
+                          statusLower == 'return_pending_inspection' ||
+                          group == BookingStatusGroup.ongoing ||
+                          group == BookingStatusGroup.approved)
                         ElevatedButton.icon(
+
 
                           onPressed: statusLower == 'return_pending_inspection'
                               ? () {
