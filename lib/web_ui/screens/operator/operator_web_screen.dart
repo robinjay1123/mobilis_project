@@ -7041,8 +7041,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       if ((statusLower == 'awaiting_completion' ||
                               statusLower == 'completed') &&
+                          statusLower != 'ongoing' &&
+                          statusLower != 'active' &&
+                          statusLower != 'approved' &&
+                          statusLower != 'return_pending_inspection' &&
+                          booking['return_inspected_at'] != null &&
                           completionStage == 'operator_rating')
                         ElevatedButton.icon(
+
 
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8860,8 +8866,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 if ((statusLower == 'awaiting_completion' ||
                                         statusLower == 'completed') &&
-                                    completionStage == 'operator_rating' &&
-                                    !_isPartnerOwnedBooking(booking))
+                                    statusLower != 'ongoing' &&
+                                    statusLower != 'active' &&
+                                    statusLower != 'approved' &&
+                                    statusLower != 'return_pending_inspection' &&
+                                    booking['return_inspected_at'] != null &&
+                                    completionStage == 'operator_rating')
                                   ElevatedButton.icon(
                                     onPressed: () =>
                                         _openOperatorRenterRating(booking),
