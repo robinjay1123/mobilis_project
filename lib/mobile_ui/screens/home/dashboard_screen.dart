@@ -2196,6 +2196,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'reservationPaymentProofUrl': booking['reservation_payment_proof_url']
             ?.toString()
             .trim(),
+        'final_payment_method': booking['final_payment_method']?.toString().trim(),
+        'final_payment_reference': booking['final_payment_reference']?.toString().trim(),
+        'final_payment_proof_url': booking['final_payment_proof_url']?.toString().trim(),
+        'renter_return_payment_submitted': booking['renter_return_payment_submitted'] == true,
+        'renter_return_payment_amount': (booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0,
+        'returned_at': booking['returned_at'],
         'cancellationReason':
             booking['cancellation_reason']?.toString().trim().isNotEmpty == true
             ? booking['cancellation_reason'].toString().trim()
@@ -6170,6 +6176,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (booking['securityDeposit'] as num?)?.toDouble() ?? 0.0;
     final reference = booking['reservationPaymentReference']?.toString().trim();
     final method = booking['reservationPaymentMethod']?.toString().trim();
+    final finalMethod = booking['final_payment_method']?.toString() ??
+        booking['finalPaymentMethod']?.toString();
+    final finalRef = booking['final_payment_reference']?.toString() ??
+        booking['finalPaymentReference']?.toString();
+    final finalAmount = (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
+        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ?? 0.0;
 
     showModalBottomSheet(
       context: context,
@@ -6284,7 +6296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const Divider(color: AppColors.borderColor),
                     _buildBookingDetailRow(
                       icon: Icons.numbers_rounded,
-                      label: 'Payment Reference',
+                      label: 'Reservation Reference',
                       value: reference,
                     ),
                   ],
@@ -6292,9 +6304,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const Divider(color: AppColors.borderColor),
                     _buildBookingDetailRow(
                       icon: Icons.account_balance_wallet_outlined,
-                      label: 'Payment Method',
+                      label: 'Reservation Method',
                       value: toProfessionalTitleCase(method),
                     ),
+                  ],
+                  if (finalMethod != null || finalRef != null || finalAmount > 0) ...[
+                    const Divider(color: AppColors.borderColor),
+                    _buildBookingDetailRow(
+                      icon: Icons.receipt_long_rounded,
+                      label: 'Final Payment Settlement',
+                      value: '₱${formatAmount(finalAmount, decimalDigits: 0)} (${(finalMethod ?? 'PSDC QR').toUpperCase()})',
+                    ),
+                    if (finalRef != null && finalRef.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      _buildBookingDetailRow(
+                        icon: Icons.tag_rounded,
+                        label: 'Settlement Reference No.',
+                        value: finalRef,
+                      ),
+                    ],
                   ],
                   const Divider(color: AppColors.borderColor),
                   _buildBookingDetailRow(
@@ -7691,14 +7719,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             SnackBar(
                               content: Text(
                                 totalPaymentDue > 0
-                                    ? 'Return payment & receipt submitted! Hand over vehicle keys to the operator for return inspection.'
-                                    : 'Vehicle return initiated! Hand over vehicle keys to the operator for return inspection.',
+                                    ? 'Return payment & receipt submitted! Please rate your trip experience.'
+                                    : 'Vehicle return initiated! Please rate your trip experience.',
                               ),
                               backgroundColor: AppColors.success,
                             ),
                           );
 
+                          // 1. Immediately pop up Trip Rating Flow Screen for Renter
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => TripRatingFlowScreen(
+                                bookingId: bookingId,
+                                reviewerRole: 'renter',
+                              ),
+                            ),
+                          );
+
                           _loadBookings();
+
+                          if (!mounted) return;
+
+                          // 2. Show Modal waiting for Operator Inspection & Verification
+                          await showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: AppColors.darkCard,
+                              title: const Row(
+                                children: [
+                                  Icon(Icons.hourglass_top_rounded, color: Colors.amber),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Return & Rating Submitted',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              content: const Text(
+                                'Vehicle return, payment, and ratings have been submitted!\n\nWaiting for the operator/partner to complete the return inspection checklist and payment verification.',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 13,
+                                  height: 1.4,
+                                ),
+                              ),
+                              actions: [
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                  ),
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text(
+                                    'OK',
+                                    style: TextStyle(
+                                      color: Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
                         } catch (e) {
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -8670,6 +8757,13 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   }
 
   Widget _buildOngoingTripPanel() {
+    final rawStatus = (booking['status'] ?? booking['rawStatus'] ?? '').toString().toLowerCase();
+    final isReturnSubmitted =
+        rawStatus == 'return_pending_inspection' ||
+        rawStatus == 'awaiting_completion' ||
+        booking['returned_at'] != null ||
+        booking['returnedAt'] != null;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -8710,7 +8804,36 @@ class _RenterBookingDetailsPage extends StatelessWidget {
           const SizedBox(height: 14),
           BookingReturnCountdown(booking: booking),
           const SizedBox(height: 14),
-          if (onReturn != null) ...[
+          if (isReturnSubmitted) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock_clock_rounded, color: Colors.amber, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Vehicle Return Submitted — Waiting for Operator Verification & Inspection',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.amber,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else if (onReturn != null) ...[
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(

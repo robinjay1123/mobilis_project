@@ -70,6 +70,45 @@ class _BookingReturnCountdownState extends State<BookingReturnCountdown> {
 
   @override
   Widget build(BuildContext context) {
+    final returnedAtRaw = widget.booking['returned_at']?.toString() ??
+        widget.booking['returnedAt']?.toString();
+    final statusRaw = (widget.booking['status'] ?? widget.booking['rawStatus'] ?? '').toString().toLowerCase();
+
+    final isReturned = returnedAtRaw != null ||
+        const {'return_pending_inspection', 'awaiting_completion', 'completed'}.contains(statusRaw);
+
+    if (isReturned) {
+      return Container(
+        width: widget.compact ? null : double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: widget.compact ? 9 : 12,
+          vertical: widget.compact ? 6 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.green.withOpacity(0.55)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+            SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                'Vehicle Returned — Inspection & Verification Pending',
+                style: TextStyle(
+                  color: Colors.greenAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final scheduledReturn = BookingReturnCountdown.scheduledReturn(
       widget.booking,
     );

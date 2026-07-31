@@ -3046,28 +3046,23 @@ class BookingService {
       }
 
       try {
-        final conversation = await ChatService().getConversationByBookingId(
-          bookingId,
+        final booking = await getBookingById(bookingId);
+        final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = _vehicleTitle(vehicle);
+        final renter = booking?['renter'] as Map<String, dynamic>?;
+        final renterName = renter?['full_name']?.toString().trim().isNotEmpty == true
+            ? renter!['full_name'].toString().trim()
+            : 'Renter';
+
+        await NotificationService().notifyOperatorsVehicleReturned(
+          bookingId: bookingId,
+          vehicleTitle: vehicleTitle,
+          renterName: renterName,
+          paymentMethod: paymentMethod,
+          settledAmount: settledAmount,
         );
-        if (conversation != null) {
-          final conversationId = conversation['id']?.toString();
-          if (conversationId != null && conversationId.isNotEmpty) {
-            final paymentInfo = settledAmount != null && settledAmount > 0
-                ? ' Settlement amount: ₱${settledAmount.toStringAsFixed(0)} ($paymentMethod).'
-                : '';
-            final lateInfo = lateHours != null && lateHours > 0
-                ? ' Late by ${lateHours}h (Penalty: ₱${(lateFee ?? (lateHours * 300.0)).toStringAsFixed(0)}).'
-                : '';
-            await ChatService().sendMessage(
-              conversationId: conversationId,
-              senderId: renterId,
-              content:
-                  'Vehicle Return & Payment Initiated: Renter has returned the vehicle and submitted return settlement.$lateInfo$paymentInfo',
-            );
-          }
-        }
-      } catch (chatError) {
-        debugPrint('Could not post return audit message to chat: $chatError');
+      } catch (notifError) {
+        debugPrint('Could not send return notification to operator: $notifError');
       }
     } catch (e) {
       debugPrint('Error initiating return: $e');

@@ -275,6 +275,30 @@ class NotificationService {
     );
   }
 
+  Future<int> notifyOperatorsVehicleReturned({
+    required String bookingId,
+    required String vehicleTitle,
+    required String renterName,
+    String? paymentMethod,
+    double? settledAmount,
+  }) {
+    final amountText = settledAmount != null && settledAmount > 0
+        ? ' (Settlement: ₱${settledAmount.toStringAsFixed(0)} via ${paymentMethod ?? 'e-wallet'})'
+        : '';
+    return _notifyRoles(
+      roles: const ['operator'],
+      title: 'Vehicle Returned & Payment Submitted',
+      message:
+          '$renterName returned $vehicleTitle.$amountText Complete the return inspection checklist and verify payment to finalize.',
+      type: 'booking_return',
+      data: {
+        'booking_id': bookingId,
+        'status': 'return_pending_inspection',
+        'event': 'vehicle_returned_by_renter',
+      },
+    );
+  }
+
   Future<int> notifyOperatorDriverResponse({
     required String bookingId,
     required String driverId,
