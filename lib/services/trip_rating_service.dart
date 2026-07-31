@@ -111,9 +111,23 @@ class TripRatingService {
         }
       }
 
-      final vehicle = booking['vehicles'] is Map<String, dynamic>
+      var vehicle = booking['vehicles'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(booking['vehicles'])
           : <String, dynamic>{};
+      final rawVehicleId = context['vehicle_id']?.toString();
+      if (vehicle.isEmpty && rawVehicleId != null && rawVehicleId.isNotEmpty) {
+        try {
+          final fetchedVehicle = await supabase
+              .from('vehicles')
+              .select('id, owner_id, owner_role, operator_id, brand, model, year, vehicle_name, image_url, transmission, fuel_type, seats')
+              .eq('id', rawVehicleId)
+              .maybeSingle();
+          if (fetchedVehicle != null) {
+            vehicle = Map<String, dynamic>.from(fetchedVehicle);
+            context['vehicles'] = vehicle;
+          }
+        } catch (_) {}
+      }
       final ownerId = vehicle['owner_id']?.toString();
       final operatorId =
           context['operator_id']?.toString() ??
@@ -287,14 +301,30 @@ class TripRatingService {
 
     if (cleanRole == 'renter') {
       if (operatorUser.isNotEmpty) {
-        addTarget(
-          operatorUser,
-          'operator',
-          'How was the PSDC operator and vehicle service?',
-        );
+        final opUserId = firstText([operatorUser['id'], operatorUser['user_id']]);
+        if (opUserId.isNotEmpty) {
+          targets.add({
+            'userId': opUserId,
+            'role': 'operator',
+            'name': _displayName(operatorUser),
+            'avatarUrl': _displayAvatar(operatorUser),
+            'prompt': 'How was the PSDC operator and rental service?',
+            'alreadyRated': false,
+          });
+        }
       }
-      if (isPartnerVehicle) {
-        addTarget(owner, 'partner', 'How was the partner and vehicle service?');
+      if (isPartnerVehicle && owner.isNotEmpty) {
+        final partnerUserId = firstText([owner['id'], owner['user_id']]);
+        if (partnerUserId.isNotEmpty && partnerUserId != reviewerUserId) {
+          targets.add({
+            'userId': partnerUserId,
+            'role': 'partner',
+            'name': _displayName(owner),
+            'avatarUrl': _displayAvatar(owner),
+            'prompt': 'How was the partner and vehicle service?',
+            'alreadyRated': false,
+          });
+        }
       }
       if (hasDriver) {
         addTarget(
@@ -304,18 +334,23 @@ class TripRatingService {
         );
       }
       // Renter also rates the vehicle
-      final vehicleId = text(vehicle['id']);
+      final vehicleId = firstText([vehicle['id'], context['vehicle_id']]);
       if (vehicleId.isNotEmpty) {
         final vehicleName = text(vehicle['vehicle_name']).isNotEmpty
             ? text(vehicle['vehicle_name'])
             : [text(vehicle['brand']), text(vehicle['model'])]
                   .where((s) => s.isNotEmpty)
                   .join(' ');
+        final fallbackName = text(context['car_name']).isNotEmpty
+            ? text(context['car_name'])
+            : text(context['carName']);
         final imageUrl = text(vehicle['image_url']);
         targets.add({
           'userId': vehicleId,
           'role': 'vehicle',
-          'name': vehicleName.isEmpty ? 'Rental Vehicle' : vehicleName,
+          'name': vehicleName.isNotEmpty
+              ? vehicleName
+              : (fallbackName.isNotEmpty ? fallbackName : 'Rental Vehicle'),
           'avatarUrl': imageUrl,
           'prompt': 'How was the vehicle overall?',
           'alreadyRated': false,
