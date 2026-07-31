@@ -2293,10 +2293,46 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 ),
               ],
             ),
+            if (status == 'active' ||
+                status == 'ongoing' ||
+                status == 'return_pending_inspection') ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _handleBookingAction(
+                    booking['id']?.toString() ?? '',
+                    'return_confirmed',
+                  ),
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.black,
+                    size: 18,
+                  ),
+                  label: Text(
+                    status == 'return_pending_inspection'
+                        ? 'Confirm Return Inspection'
+                        : 'Confirm Return',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
     );
+
   }
 
   Widget _buildRecentRequestShowcaseCard(Map<String, dynamic> booking) {
@@ -2791,6 +2827,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           bookingId: bookingId,
           partnerId: currentPartnerId,
         );
+      } else if (status == 'return_confirmed' && currentPartnerId != null) {
+        await bookingService.confirmVehicleReturn(
+          bookingId: bookingId,
+          reviewerId: currentPartnerId,
+          reviewerRole: 'Partner',
+        );
       } else if ((status == 'cancelled' || status == 'rejected') &&
           currentPartnerId != null) {
         await bookingService.rejectPartnerBooking(
@@ -2803,8 +2845,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       }
 
       _showSuccessSnackBar(
-        status == 'confirmed' ? 'Booking confirmed!' : 'Booking declined',
+        status == 'confirmed'
+            ? 'Booking confirmed!'
+            : status == 'return_confirmed'
+                ? 'Vehicle return confirmed!'
+                : 'Booking declined',
       );
+
       _loadPartnerData();
     } catch (e) {
       debugPrint('Partner booking action error: $e');

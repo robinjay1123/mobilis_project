@@ -756,6 +756,156 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (booking['extension_status'] == 'pending_operator') ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.more_time,
+                          color: AppColors.primary,
+                          size: 16,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Trip Extension Requested',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Requested End: ${booking['extension_requested_end_at'] != null ? DateTime.tryParse(booking['extension_requested_end_at'].toString())?.toLocal().toString().split('.').first : "N/A"}',
+                      style: TextStyle(color: textPrimary, fontSize: 11),
+                    ),
+                    Text(
+                      'Additional Price: +PHP ${(booking['extension_additional_price'] as num?)?.toStringAsFixed(2) ?? "0.00"}',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.error,
+                              side: const BorderSide(color: AppColors.error),
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                            ),
+                            onPressed: () async {
+                              final bId = booking['id']?.toString();
+                              final oId = AuthService().currentUser?.id;
+                              if (bId != null && oId != null) {
+                                await BookingService().rejectTripExtension(
+                                  bookingId: bId,
+                                  operatorId: oId,
+                                );
+                                onRefresh?.call();
+                              }
+                            },
+                            child: const Text(
+                              'Reject Ext.',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                            ),
+                            onPressed: () async {
+                              final bId = booking['id']?.toString();
+                              final oId = AuthService().currentUser?.id;
+                              if (bId != null && oId != null) {
+                                await BookingService().approveTripExtension(
+                                  bookingId: bId,
+                                  operatorId: oId,
+                                );
+                                onRefresh?.call();
+                              }
+                            },
+                            child: const Text(
+                              'Approve Ext.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (_status == 'return_pending_inspection' ||
+                _status == 'active' ||
+                _status == 'ongoing') ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    size: 16,
+                    color: Colors.black,
+                  ),
+                  label: Text(
+                    _status == 'return_pending_inspection'
+                        ? 'Confirm Return Inspection'
+                        : 'Confirm Return',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.black,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final bId = booking['id']?.toString();
+                    final oId = AuthService().currentUser?.id;
+                    if (bId != null && oId != null) {
+                      await BookingService().confirmVehicleReturn(
+                        bookingId: bId,
+                        reviewerId: oId,
+                        reviewerRole: 'Operator',
+                      );
+                      onRefresh?.call();
+                    }
+                  },
+                ),
+              ),
+            ],
             if (showActions && _status == 'pending') ...[
               const SizedBox(height: 10),
               const Divider(height: 1),
@@ -777,7 +927,9 @@ class _BookingCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                       onPressed: () => _showRejectDialog(
-                          context, booking['id']?.toString()),
+                        context,
+                        booking['id']?.toString(),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -794,7 +946,9 @@ class _BookingCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                       onPressed: () => _showApproveDialog(
-                          context, booking['id']?.toString()),
+                        context,
+                        booking['id']?.toString(),
+                      ),
                     ),
                   ),
                 ],
@@ -804,6 +958,7 @@ class _BookingCard extends StatelessWidget {
         ),
       ),
     );
+
   }
 
   Future<void> _showApproveDialog(

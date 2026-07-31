@@ -5487,7 +5487,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
               : null,
-          onExtend: isApprovedTrip ? () => _checkForExtendTrip(booking) : null,
+          onExtend: isApprovedTrip ? () => _showTripExtensionDialog(booking) : null,
+          onReturn: isApprovedTrip ? () => _handleRenterReturnVehicle(booking) : null,
           onSuccessfulTrip: completionStage == 'renter_rating'
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
@@ -5499,6 +5500,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+
     return;
 
     showModalBottomSheet(
@@ -7264,61 +7266,268 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _checkForExtendTrip(Map<String, dynamic> booking) async {
-    final vehicleId = booking['vehicle_id']?.toString();
+  Future<void> _handleRenterReturnVehicle(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final renterId = AuthService().currentUser?.id ?? '';
+    if (bookingId.isEmpty || renterId.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text(
+          'Return Vehicle',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Are you ready to return the vehicle and start the post-trip inspection?',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Yes, Return Vehicle',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await BookingService().renterInitiateReturn(
+        bookingId: bookingId,
+        renterId: renterId,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Vehicle return initiated! Post-trip inspection checklist is open.',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+
+      _loadBookings();
+
+      Navigator.of(context).pushNamed(
+        '/vehicle-inspection-checklist',
+        arguments: {
+          'bookingId': bookingId,
+          'checklistType': 'post_trip',
+          'userRole': 'renter',
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error initiating vehicle return: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showTripExtensionDialog(Map<String, dynamic> booking) async {
+    final vehicleId = booking['vehicle_id']?.toString() ?? '';
+    final bookingId = booking['id']?.toString() ?? '';
     final endRaw =
         booking['end_at']?.toString() ?? booking['end_date_raw']?.toString();
 
-    if (vehicleId == null || vehicleId.isEmpty || endRaw == null) {
+    if (vehicleId.isEmpty || bookingId.isEmpty || endRaw == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not check extension availability.'),
+          content: Text('Could not read booking details for trip extension.'),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
 
-    final endAt = DateTime.tryParse(endRaw)?.toLocal();
-    if (endAt == null) {
+    final currentEndAt = DateTime.tryParse(endRaw)?.toLocal();
+    if (currentEndAt == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not read the booking return date.'),
+          content: Text('Could not parse the current trip end date.'),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
 
-    final nextDay = DateTime(
-      endAt.year,
-      endAt.month,
-      endAt.day,
-    ).add(const Duration(days: 1));
     final unavailableDates = await VehicleService().getUnavailableDates(
       vehicleId,
     );
-    final isUnavailable = unavailableDates.any(
-      (date) =>
-          date.year == nextDay.year &&
-          date.month == nextDay.month &&
-          date.day == nextDay.day,
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final explicitDailyRate =
+        (vehicle?['daily_rate'] as num?)?.toDouble() ??
+        (vehicle?['price_per_day'] as num?)?.toDouble();
+    final totalCost =
+        (booking['totalCost'] as num?)?.toDouble() ??
+        (booking['total_price'] as num?)?.toDouble() ??
+        1000.0;
+    final days = (booking['days'] as num?)?.toInt() ?? 1;
+    final dailyRate =
+        explicitDailyRate ?? (totalCost / (days > 0 ? days : 1));
+
+    final initialFirstDate = DateTime(
+      currentEndAt.year,
+      currentEndAt.month,
+      currentEndAt.day,
+    ).add(const Duration(days: 1));
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialFirstDate,
+      firstDate: initialFirstDate,
+      lastDate: initialFirstDate.add(const Duration(days: 30)),
+      selectableDayPredicate: (day) {
+        return !unavailableDates.any(
+          (d) => d.year == day.year && d.month == day.month && d.day == day.day,
+        );
+      },
+      helpText: 'SELECT NEW EXTENDED RETURN DATE',
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.black,
+              surface: AppColors.darkCard,
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
 
-    if (!mounted) return;
+    if (pickedDate == null || !mounted) return;
 
-    final formattedNextDay = _formatDateShort(nextDay.toIso8601String());
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isUnavailable
-              ? 'Extension unavailable for $formattedNextDay due to another booking.'
-              : 'Extension slot available for $formattedNextDay. Contact operator to proceed.',
+    final selectedNewEndAt = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      currentEndAt.hour,
+      currentEndAt.minute,
+    );
+
+    final extensionDays = pickedDate
+        .difference(
+          DateTime(currentEndAt.year, currentEndAt.month, currentEndAt.day),
+        )
+        .inDays;
+    if (extensionDays <= 0) return;
+
+    final additionalPrice = extensionDays * dailyRate;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        title: const Text(
+          'Confirm Trip Extension',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: isUnavailable ? AppColors.error : AppColors.success,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Current End Date: ${_formatDateShort(currentEndAt.toIso8601String())}',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'New End Date: ${_formatDateShort(selectedNewEndAt.toIso8601String())}',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Extended Days: $extensionDays day(s)',
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Additional Cost: +PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Submit Request',
+              style: TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
+
+    if (confirm != true) return;
+
+    try {
+      await BookingService().requestTripExtension(
+        bookingId: bookingId,
+        newEndAt: selectedNewEndAt,
+        additionalPrice: additionalPrice,
+        extensionDays: extensionDays,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Trip extension request submitted to operator for approval!',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+
+      _loadBookings();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error requesting extension: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
+
 
   Widget _buildBookingDetailRow({
     required IconData icon,
@@ -7844,6 +8053,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final VoidCallback? onNavigate;
   final VoidCallback? onCancel;
   final VoidCallback? onExtend;
+  final VoidCallback? onReturn;
   final VoidCallback? onSuccessfulTrip;
   final VoidCallback? onReceipt;
 
@@ -7859,9 +8069,11 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     this.onNavigate,
     this.onCancel,
     this.onExtend,
+    this.onReturn,
     this.onSuccessfulTrip,
     this.onReceipt,
   });
+
 
   @override
   Widget build(BuildContext context) {
@@ -8046,6 +8258,35 @@ class _RenterBookingDetailsPage extends StatelessWidget {
           const SizedBox(height: 14),
           BookingReturnCountdown(booking: booking),
           const SizedBox(height: 14),
+          if (onReturn != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onReturn,
+                icon: const Icon(
+                  Icons.assignment_return_rounded,
+                  color: Colors.black,
+                  size: 20,
+                ),
+                label: const Text(
+                  'Return Vehicle',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: Colors.black,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               if (onNavigate != null)
@@ -8070,6 +8311,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 ),
             ],
           ),
+
         ],
       ),
     );
