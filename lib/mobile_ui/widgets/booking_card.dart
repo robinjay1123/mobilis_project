@@ -21,6 +21,9 @@ class BookingCard extends StatelessWidget {
   final bool showTrackButton;
   final bool showCancelButton;
   final bool showRating;
+  final bool showRateButton;
+  final bool isAlreadyRated;
+  final VoidCallback? onRateTrip;
   final String detailsButtonLabel;
   final String trackButtonLabel;
   final bool isActive;
@@ -42,10 +45,13 @@ class BookingCard extends StatelessWidget {
     this.onMessage,
     this.onTrack,
     this.onCancel,
+    this.onRateTrip,
     this.showMessageButton = false,
     this.showTrackButton = false,
     this.showCancelButton = false,
     this.showRating = true,
+    this.showRateButton = false,
+    this.isAlreadyRated = false,
     this.detailsButtonLabel = 'View Details',
     this.trackButtonLabel = 'Track Ongoing Trip',
     this.isActive = false,
@@ -295,6 +301,51 @@ class BookingCard extends StatelessWidget {
             ],
             if (ongoingSummary != null) ...[
               ongoingSummary!,
+              const SizedBox(height: 10),
+            ],
+            if (showRateButton) ...[
+              SizedBox(
+                width: double.infinity,
+                child: isAlreadyRated
+                    ? OutlinedButton.icon(
+                        onPressed: null,
+                        icon: const Icon(Icons.star_rounded, color: AppColors.ratingGold, size: 18),
+                        label: const Text(
+                          'Rating Submitted',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.borderColor),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      )
+                    : ElevatedButton.icon(
+                        onPressed: onRateTrip,
+                        icon: const Icon(Icons.star_rounded, color: Colors.black, size: 18),
+                        label: const Text(
+                          'Rate Trip',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black,
+                            fontSize: 14,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+              ),
               const SizedBox(height: 10),
             ],
             Row(

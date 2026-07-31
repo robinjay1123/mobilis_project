@@ -650,6 +650,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Set<String> _ratedBookingIds = {};
+
   Future<void> _loadBookings() async {
     try {
       final authService = AuthService();
@@ -657,6 +659,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (user == null) return;
 
       final bookings = await BookingService().getRenterBookings(user.id);
+
+      Set<String> ratedSet = {};
+      try {
+        final ratings = await Supabase.instance.client
+            .from('trip_ratings')
+            .select('booking_id')
+            .eq('reviewer_user_id', user.id);
+        if (ratings is List) {
+          ratedSet = ratings.map((r) => r['booking_id'].toString()).toSet();
+        }
+      } catch (ratingErr) {
+        debugPrint('Could not fetch user rated bookings: $ratingErr');
+      }
 
       final hydratedBookings = List<Map<String, dynamic>>.from(bookings).map((
         booking,
@@ -676,6 +691,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _bookings = hydratedBookings;
+          _ratedBookingIds = ratedSet;
         });
       }
     } catch (e) {
@@ -4689,6 +4705,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     booking['statusGroup'] == 'Ongoing' &&
                     {'active', 'ongoing'}.contains(rawStatus);
 
+                final bookingIdStr = booking['id'].toString();
+                final isReturnSubmitted =
+                    rawStatus == 'return_pending_inspection' ||
+                    rawStatus == 'awaiting_completion' ||
+                    rawStatus == 'completed' ||
+                    booking['returned_at'] != null ||
+                    booking['returnedAt'] != null;
+                final isRated = _ratedBookingIds.contains(bookingIdStr);
+
                 return BookingCard(
                   carName: booking['carName'],
                   rentalPartner: booking['rentalPartner'],
@@ -4706,6 +4731,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   showRating:
                       booking['statusGroup'] == 'Completed' &&
                       ((booking['rating'] as num?)?.toDouble() ?? 0) > 0,
+                  showRateButton: isReturnSubmitted,
+                  isAlreadyRated: isRated,
+                  onRateTrip: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TripRatingFlowScreen(
+                          bookingId: bookingIdStr,
+                          reviewerRole: 'renter',
+                        ),
+                      ),
+                    );
+                    _loadBookings();
+                  },
                   showTrackButton: isNavigable,
                   trackButtonLabel: 'Navigate',
                   onTrack: isNavigable
@@ -5505,6 +5543,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 )
               : null,
           onReceipt: () => _showTripReceipt(booking),
+          isAlreadyRated: _ratedBookingIds.contains(
+              (booking['id'] ?? '').toString()),
+          onRateTrip: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TripRatingFlowScreen(
+                  bookingId: booking['id'].toString(),
+                  reviewerRole: 'renter',
+                ),
+              ),
+            );
+            _loadBookings();
+          },
         ),
       ),
     );
@@ -6007,6 +6058,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ? () => _handleBookingCancellation(booking)
               : null,
           onReceipt: () => _showTripReceipt(booking),
+          isAlreadyRated: false,
+          onRateTrip: null,
         ),
       ),
     );
@@ -6551,10 +6604,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
               '- PHP ${formatAmount(reservationFee)}',
             ),
             amountRow(
-              'TOTAL BALANCE',
+              'TOTAL BALANCE DUE',
               'PHP ${formatAmount(balance)}',
               bold: true,
             ),
+            if (booking['final_payment_method'] != null ||
+                booking['finalPaymentMethod'] != null ||
+                (booking['renter_return_payment_amount'] as num?)?.toDouble() != null) ...[
+              amountRow(
+                'FINAL RETURN SETTLEMENT PAID (${(booking['final_payment_method'] ?? booking['finalPaymentMethod'] ?? 'PSDC QR').toString().toUpperCase()})',
+                'PHP ${formatAmount((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? balance)}',
+                bold: true,
+              ),
+              if ((booking['final_payment_reference'] ?? booking['finalPaymentReference'])?.toString().isNotEmpty == true)
+                pw.Text(
+                  'Final Payment Reference: ${booking['final_payment_reference'] ?? booking['finalPaymentReference']}',
+                  style: const pw.TextStyle(fontSize: 9),
+                ),
+            ],
             amountRow(
               'SECURITY DEPOSIT (REFUNDABLE)',
               'PHP ${formatAmount(securityDeposit)}',
@@ -8595,6 +8662,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   final VoidCallback? onReturn;
   final VoidCallback? onSuccessfulTrip;
   final VoidCallback? onReceipt;
+  final bool isAlreadyRated;
+  final VoidCallback? onRateTrip;
 
   const _RenterBookingDetailsPage({
     required this.booking,
@@ -8611,6 +8680,8 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     this.onReturn,
     this.onSuccessfulTrip,
     this.onReceipt,
+    this.isAlreadyRated = false,
+    this.onRateTrip,
   });
 
 
@@ -8619,6 +8690,15 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     final status = booking['status']?.toString() ?? 'Pending';
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
+    final lateReturnFee = (booking['lateReturnFee'] as num?)?.toDouble() ??
+        (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+    final lateHours = (booking['late_return_hours'] as num?)?.toInt() ?? 0;
+    final finalReturnAmount = (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
+        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ?? 0.0;
+    final finalPaymentMethod = booking['final_payment_method']?.toString() ??
+        booking['finalPaymentMethod']?.toString();
+    final finalPaymentRef = booking['final_payment_reference']?.toString() ??
+        booking['finalPaymentReference']?.toString();
     const completionActionLabel = 'Rate Your Trip';
     const completionActionIcon = Icons.star_rate_rounded;
 
@@ -8708,6 +8788,24 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     'Total Cost',
                     'PHP ${formatAmount(totalCost, decimalDigits: 0)}',
                   ),
+                  if (lateReturnFee > 0 || lateHours > 0)
+                    _detailRow(
+                      Icons.warning_amber_rounded,
+                      'Late Return Penalty',
+                      'PHP ${formatAmount(lateReturnFee > 0 ? lateReturnFee : (lateHours * 300.0), decimalDigits: 0)}${lateHours > 0 ? ' ($lateHours hrs late)' : ''}',
+                    ),
+                  if (finalReturnAmount > 0 || finalPaymentMethod != null)
+                    _detailRow(
+                      Icons.check_circle_outline_rounded,
+                      'Final Settlement Paid',
+                      'PHP ${formatAmount(finalReturnAmount > 0 ? finalReturnAmount : (totalCost - 1000.0).clamp(0, double.infinity), decimalDigits: 0)}${finalPaymentMethod != null ? ' via ${(finalPaymentMethod ?? '').toUpperCase()}' : ''}',
+                    ),
+                  if (finalPaymentRef != null && finalPaymentRef.isNotEmpty)
+                    _detailRow(
+                      Icons.tag_rounded,
+                      'Settlement Reference',
+                      finalPaymentRef,
+                    ),
                   if (onReceipt != null) ...[
                     const SizedBox(height: 6),
                     _buildInlineAction(
@@ -8831,6 +8929,48 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: isAlreadyRated
+                  ? OutlinedButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.star_rounded, color: AppColors.ratingGold, size: 18),
+                      label: const Text(
+                        'Rating Submitted',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.borderColor),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: onRateTrip,
+                      icon: const Icon(Icons.star_rounded, color: Colors.black, size: 20),
+                      label: const Text(
+                        'Rate Trip',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          color: Colors.black,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
             ),
             const SizedBox(height: 12),
           ] else if (onReturn != null) ...[
