@@ -7038,9 +7038,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       if ((statusLower == 'awaiting_completion' ||
                               statusLower == 'completed') &&
-                          completionStage == 'operator_rating' &&
-                          !_isPartnerOwnedBooking(booking))
+                          completionStage == 'operator_rating')
                         ElevatedButton.icon(
+
                           onPressed: () {
                             Navigator.pop(dialogContext);
                             _openOperatorRenterRating(booking);
