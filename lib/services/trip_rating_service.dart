@@ -973,11 +973,19 @@ class TripRatingService {
     final ownerId = text(owner['id']).isNotEmpty
         ? text(owner['id'])
         : text(vehicle['owner_id']);
-    final operatorId = text(latestContext['operator_id']).isNotEmpty
+    var operatorId = text(latestContext['operator_id']).isNotEmpty
         ? text(latestContext['operator_id'])
         : text(operatorUser['id']).isNotEmpty
         ? text(operatorUser['id'])
         : text(vehicle['operator_id']);
+    if (operatorId.isEmpty && !isPartnerVehicle) {
+      final fallbackOp = await _findFallbackOperator();
+      if (fallbackOp != null) {
+        operatorId = text(fallbackOp['id']).isNotEmpty
+            ? text(fallbackOp['id'])
+            : text(fallbackOp['user_id']);
+      }
+    }
     final firstReviewerRole = isPartnerVehicle ? 'partner' : 'operator';
     final firstReviewerId = isPartnerVehicle ? ownerId : operatorId;
     final driverUserId = text(driverUser['id']).isNotEmpty
