@@ -3076,16 +3076,35 @@ class BookingService {
           (booking['total_price'] as num?)?.toDouble() ?? 0.0;
       final updatedTotal = currentTotal + lateReturnFee;
 
-      await supabase.from('bookings').update({
+      final isFullPaymentAtCreation =
+          booking['reservation_payment_covers_total'] == true ||
+          booking['reservation_payment_type']?.toString().toLowerCase() ==
+              'full_payment';
+      final extensionFee =
+          (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+
+      final isFullySettled =
+          isFullPaymentAtCreation && lateReturnFee <= 0 && extensionFee <= 0;
+      final finalPaymentStatus = isFullySettled ? 'paid' : 'pending';
+
+      final bookingUpdate = <String, dynamic>{
         'status': 'awaiting_completion',
         'return_confirmed_at': now.toIso8601String(),
         'return_confirmed_by': reviewerId,
         'late_return_fee': lateReturnFee,
         'total_price': updatedTotal,
+        'final_payment_status': finalPaymentStatus,
         'updated_at': now.toIso8601String(),
-      }).eq('id', bookingId);
+      };
+
+      if (!isFullySettled) {
+        bookingUpdate['completion_stage'] = 'awaiting_payment';
+      }
+
+      await supabase.from('bookings').update(bookingUpdate).eq('id', bookingId);
 
       await TripRatingService().syncRatingFlowForBooking(bookingId);
+
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
