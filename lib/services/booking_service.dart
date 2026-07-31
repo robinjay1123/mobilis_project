@@ -3018,7 +3018,7 @@ class BookingService {
       }).eq('id', bookingId);
 
       try {
-        final conversation = await ChatService().getConversationForBooking(
+        final conversation = await ChatService().getConversationByBookingId(
           bookingId,
         );
         if (conversation != null) {
