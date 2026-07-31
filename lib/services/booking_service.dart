@@ -2139,127 +2139,116 @@ class BookingService {
     required Map<String, dynamic> inspection,
     required String inspectionType,
   }) async {
-    final bookingId = booking['id']?.toString() ?? '';
-    final inspectorId = inspection['inspector_id']?.toString() ?? '';
-    if (bookingId.isEmpty || inspectorId.isEmpty) return;
+    try {
+      final bookingId = booking['id']?.toString() ?? '';
+      final inspectorId = inspection['inspector_id']?.toString() ?? '';
+      if (bookingId.isEmpty || inspectorId.isEmpty) return;
 
-    await _ensureBookingGroupChatAndSummary(
-      booking: booking,
-      vehicleTitle: _vehicleTitle(booking['vehicles'] as Map<String, dynamic>?),
-      summaryTitle: 'Booking Confirmed',
-    );
-    final conversation = await ChatService().getConversationByBookingId(
-      bookingId,
-    );
-    final conversationId = conversation?['id']?.toString() ?? '';
-    if (conversationId.isEmpty) {
-      throw Exception('The booking conversation could not be prepared');
-    }
+      try {
+        await _ensureBookingGroupChatAndSummary(
+          booking: booking,
+          vehicleTitle: _vehicleTitle(booking['vehicles'] as Map<String, dynamic>?),
+          summaryTitle: 'Booking Confirmed',
+        );
+      } catch (_) {}
 
-    final inspector = await _getUserById(inspectorId);
-    final inspectorName =
-        inspector?['full_name']?.toString().trim().isNotEmpty == true
-        ? inspector!['full_name'].toString().trim()
-        : 'Responsible inspector';
-    final inspectorRole = inspector?['role']?.toString().trim().toLowerCase();
-    final roleLabel = inspectorRole == 'partner' ? 'Partner' : 'Operator';
-    final normalizedType = inspectionType.trim().toLowerCase();
-    final isBefore = normalizedType == 'before';
-    final evidence = inspection['evidence_urls'] is List
-        ? List<dynamic>.from(inspection['evidence_urls'] as List)
-              .map((item) => item.toString().trim())
-              .where((url) => url.isNotEmpty)
-              .toList(growable: false)
-        : const <String>[];
-    final checklist = inspection['checklist_items'] is Map
-        ? Map<String, dynamic>.from(inspection['checklist_items'] as Map)
-        : const <String, dynamic>{};
-    final checkedSectionLines = <String>[];
-    var checkedCount = 0;
-    for (final section in BookingInspectionService.checklistSections.entries) {
-      final confirmedLabels = section.value.entries
-          .where((item) => checklist[item.key] == true)
-          .map((item) => item.value)
-          .toList(growable: false);
-      if (confirmedLabels.isEmpty) continue;
-      checkedCount += confirmedLabels.length;
-      checkedSectionLines.add(section.key.toUpperCase());
-      checkedSectionLines.addAll(confirmedLabels.map((label) => '[x] $label'));
-    }
-    final evidenceUrl = evidence.isEmpty ? null : evidence.first;
-    final lowerEvidenceUrl = evidenceUrl?.toLowerCase() ?? '';
-    final evidenceType =
-        lowerEvidenceUrl.contains('.mp4') ||
-            lowerEvidenceUrl.contains('.mov') ||
-            lowerEvidenceUrl.contains('.webm')
-        ? 'video'
-        : 'image';
-    final inspectionId =
-        inspection['id']?.toString() ??
-        '$bookingId-$normalizedType-$inspectorId';
-    final title = isBefore
-        ? 'Before-Release Checklist Submitted'
-        : 'After-Return Checklist Submitted';
-    final content = <String>[
-      title,
-      'Submitted by: $inspectorName ($roleLabel)',
-      'Fuel level: ${inspection['fuel_level'] ?? 'Recorded'}',
-      'Mileage: ${inspection['mileage'] ?? 'Recorded'} km',
-      'Cleanliness: ${inspection['cleanliness'] ?? 'Recorded'}',
-      'Checklist: $checkedCount/${BookingInspectionService.requiredChecklistKeys.length} items confirmed',
-      'Evidence: ${evidence.length} photo/video file${evidence.length == 1 ? '' : 's'} attached',
-      'Released by: ${inspection['released_by'] ?? 'N/A'}',
-      'Received by: ${inspection['received_by'] ?? 'N/A'}',
-      if (inspection['scratches']?.toString().trim().isNotEmpty == true)
-        'Scratches: ${inspection['scratches']}',
-      if (inspection['dents']?.toString().trim().isNotEmpty == true)
-        'Dents: ${inspection['dents']}',
-      if (inspection['damages']?.toString().trim().isNotEmpty == true)
-        'Damages: ${inspection['damages']}',
-      if (inspection['remarks']?.toString().trim().isNotEmpty == true)
-        'Remarks: ${inspection['remarks']}',
-      if (checkedSectionLines.isNotEmpty) '',
-      if (checkedSectionLines.isNotEmpty) 'CONFIRMED CHECKLIST ITEMS',
-      ...checkedSectionLines,
-      '',
-      isBefore
-          ? 'The vehicle release record is now visible to every booking participant.'
-          : 'The vehicle return record is now visible to every booking participant. The trip remains pending until full payment and every mandatory participant rating is recorded.',
-    ].join('\n');
+      final conversation = await ChatService().getConversationByBookingId(
+        bookingId,
+      );
+      final conversationId = conversation?['id']?.toString() ?? '';
+      if (conversationId.isEmpty) {
+        debugPrint('The booking conversation could not be prepared for audit message');
+        return;
+      }
 
-    await ChatService().sendBookingAuditMessage(
-      conversationId: conversationId,
-      senderId: inspectorId,
-      content: content,
-      auditKey: 'vehicle-checklist:$normalizedType:$inspectionId',
-      attachmentUrl: evidenceUrl,
-      attachmentType: evidenceUrl == null ? null : evidenceType,
-      attachmentName: evidenceUrl == null
-          ? null
-          : '${isBefore ? 'before-release' : 'after-return'}-evidence-1-of-${evidence.length}',
-    );
+      final inspector = await _getUserById(inspectorId);
+      final inspectorName =
+          inspector?['full_name']?.toString().trim().isNotEmpty == true
+          ? inspector!['full_name'].toString().trim()
+          : 'Responsible inspector';
+      final inspectorRole = inspector?['role']?.toString().trim().toLowerCase();
+      final roleLabel = inspectorRole == 'partner' ? 'Partner' : 'Operator';
+      final normalizedType = inspectionType.trim().toLowerCase();
+      final isBefore = normalizedType == 'before';
+      final evidence = inspection['evidence_urls'] is List
+          ? List<dynamic>.from(inspection['evidence_urls'] as List)
+                .map((item) => item.toString().trim())
+                .where((url) => url.isNotEmpty)
+                .toList(growable: false)
+          : const <String>[];
+      final checklist = inspection['checklist_items'] is Map
+          ? Map<String, dynamic>.from(inspection['checklist_items'] as Map)
+          : const <String, dynamic>{};
+      final checkedSectionLines = <String>[];
+      var checkedCount = 0;
+      for (final section in BookingInspectionService.checklistSections.entries) {
+        final confirmedLabels = section.value.entries
+            .where((entry) => checklist[entry.key] == true)
+            .map((entry) => entry.value)
+            .toList(growable: false);
+        checkedCount += confirmedLabels.length;
+        if (confirmedLabels.isNotEmpty) {
+          checkedSectionLines.add('• ${section.key.toUpperCase()}');
+          for (final label in confirmedLabels) {
+            checkedSectionLines.add('  - $label');
+          }
+        }
+      }
 
-    for (var index = 1; index < evidence.length; index++) {
-      final url = evidence[index];
-      final lowerUrl = url.toLowerCase();
-      final type =
-          lowerUrl.contains('.mp4') ||
-              lowerUrl.contains('.mov') ||
-              lowerUrl.contains('.webm')
+      final evidenceUrl = evidence.isNotEmpty ? evidence.first : null;
+      final lowerEvidenceUrl = evidenceUrl?.toLowerCase() ?? '';
+      final evidenceType =
+          lowerEvidenceUrl.contains('.mp4') ||
+              lowerEvidenceUrl.contains('.mov') ||
+              lowerEvidenceUrl.contains('.webm')
           ? 'video'
           : 'image';
+      final inspectionId =
+          inspection['id']?.toString() ??
+          '$bookingId-$normalizedType-$inspectorId';
+      final title = isBefore
+          ? 'Before-Release Checklist Submitted'
+          : 'After-Return Checklist Submitted';
+      final content = <String>[
+        title,
+        'Submitted by: $inspectorName ($roleLabel)',
+        'Fuel level: ${inspection['fuel_level'] ?? 'Recorded'}',
+        'Mileage: ${inspection['mileage'] ?? 'Recorded'} km',
+        'Cleanliness: ${inspection['cleanliness'] ?? 'Recorded'}',
+        'Checklist: $checkedCount/${BookingInspectionService.requiredChecklistKeys.length} items confirmed',
+        'Evidence: ${evidence.length} photo/video file${evidence.length == 1 ? '' : 's'} attached',
+        'Released by: ${inspection['released_by'] ?? 'N/A'}',
+        'Received by: ${inspection['received_by'] ?? 'N/A'}',
+        if (inspection['scratches']?.toString().trim().isNotEmpty == true)
+          'Scratches: ${inspection['scratches']}',
+        if (inspection['dents']?.toString().trim().isNotEmpty == true)
+          'Dents: ${inspection['dents']}',
+        if (inspection['damages']?.toString().trim().isNotEmpty == true)
+          'Damages: ${inspection['damages']}',
+        if (inspection['remarks']?.toString().trim().isNotEmpty == true)
+          'Remarks: ${inspection['remarks']}',
+        if (checkedSectionLines.isNotEmpty) '',
+        if (checkedSectionLines.isNotEmpty) 'CONFIRMED CHECKLIST ITEMS',
+        ...checkedSectionLines,
+        '',
+        isBefore
+            ? 'The vehicle release record is now visible to every booking participant.'
+            : 'The vehicle return record is now visible to every booking participant. The trip remains pending until full payment and every mandatory participant rating is recorded.',
+      ].join('\n');
+
       await ChatService().sendBookingAuditMessage(
         conversationId: conversationId,
         senderId: inspectorId,
-        content:
-            '$title\nEvidence ${index + 1} of ${evidence.length} submitted by $inspectorName.',
-        auditKey:
-            'vehicle-checklist:$normalizedType:$inspectionId:evidence:$index',
-        attachmentUrl: url,
-        attachmentType: type,
-        attachmentName:
-            '${isBefore ? 'before-release' : 'after-return'}-evidence-${index + 1}-of-${evidence.length}',
+        content: content,
+        auditKey: 'vehicle-checklist:$normalizedType:$inspectionId',
+        attachmentUrl: evidenceUrl,
+        attachmentType: evidenceUrl == null ? null : evidenceType,
+        attachmentName: evidenceUrl == null
+            ? null
+            : '${isBefore ? 'before-release' : 'after-return'}-evidence-1-of-${evidence.length}',
       );
+    } catch (e) {
+      debugPrint('Error posting inspection audit to chat: $e');
     }
   }
 
