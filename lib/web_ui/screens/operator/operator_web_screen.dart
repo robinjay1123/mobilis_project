@@ -6918,13 +6918,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.visibility_outlined, size: 17),
                           label: const Text('View Pre-Trip Checklist'),
                         ),
-                      if ((statusLower == 'approved' ||
-                              statusLower == 'confirmed' ||
-                              statusLower == 'active' ||
-                              statusLower == 'ongoing' ||
-                              statusLower == 'return_pending_inspection') &&
-                          !_isPartnerOwnedBooking(booking))
+                      if (statusLower == 'approved' ||
+                          statusLower == 'confirmed' ||
+                          statusLower == 'active' ||
+                          statusLower == 'ongoing' ||
+                          statusLower == 'return_pending_inspection')
                         ElevatedButton.icon(
+
                           onPressed: statusLower == 'return_pending_inspection'
                               ? () {
                                   Navigator.pop(dialogContext);
@@ -8741,13 +8741,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if ((statusLower == 'approved' ||
-                                        statusLower == 'confirmed' ||
-                                        statusLower == 'active' ||
-                                        statusLower == 'ongoing' ||
-                                        statusLower ==
-                                            'return_pending_inspection') &&
-                                    !_isPartnerOwnedBooking(booking))
+                                if (statusLower == 'approved' ||
+                                    statusLower == 'confirmed' ||
+                                    statusLower == 'active' ||
+                                    statusLower == 'ongoing' ||
+                                    statusLower == 'return_pending_inspection')
                                   ElevatedButton.icon(
                                     onPressed: statusLower ==
                                             'return_pending_inspection'
