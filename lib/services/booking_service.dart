@@ -3060,6 +3060,7 @@ class BookingService {
           renterName: renterName,
           paymentMethod: paymentMethod,
           settledAmount: settledAmount,
+          partnerId: vehicle?['owner_id']?.toString(),
         );
       } catch (notifError) {
         debugPrint('Could not send return notification to operator: $notifError');

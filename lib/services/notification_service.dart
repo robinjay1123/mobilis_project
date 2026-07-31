@@ -281,22 +281,38 @@ class NotificationService {
     required String renterName,
     String? paymentMethod,
     double? settledAmount,
-  }) {
+    String? partnerId,
+  }) async {
     final amountText = settledAmount != null && settledAmount > 0
         ? ' (Settlement: ₱${settledAmount.toStringAsFixed(0)} via ${paymentMethod ?? 'e-wallet'})'
         : '';
-    return _notifyRoles(
+    final message = '$renterName returned $vehicleTitle.$amountText Complete the return inspection checklist and verify payment to finalize.';
+    final data = {
+      'booking_id': bookingId,
+      'status': 'return_pending_inspection',
+      'event': 'vehicle_returned_by_renter',
+    };
+
+    int notifiedCount = await _notifyRoles(
       roles: const ['operator'],
       title: 'Vehicle Returned & Payment Submitted',
-      message:
-          '$renterName returned $vehicleTitle.$amountText Complete the return inspection checklist and verify payment to finalize.',
+      message: message,
       type: 'booking_return',
-      data: {
-        'booking_id': bookingId,
-        'status': 'return_pending_inspection',
-        'event': 'vehicle_returned_by_renter',
-      },
+      data: data,
     );
+
+    if (partnerId != null && partnerId.trim().isNotEmpty) {
+      final sent = await _safeCreate(
+        userId: partnerId.trim(),
+        title: 'Partner Vehicle Returned & Payment Submitted',
+        message: message,
+        type: 'booking_return',
+        data: data,
+      );
+      if (sent) notifiedCount++;
+    }
+
+    return notifiedCount;
   }
 
   Future<int> notifyOperatorDriverResponse({
