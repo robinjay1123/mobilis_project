@@ -610,9 +610,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           builder: (_) => TripRatingFlowScreen(
             bookingId: bookingId,
             reviewerRole: 'operator',
-            title: 'Rate Renter',
+            title: 'Trip Rating',
             subtitle:
-                'Your renter rating is required before this trip can continue to final completion.',
+                'Your rating for trip participants is required before this trip can continue to final completion.',
+
           ),
         ),
       );
@@ -6921,7 +6922,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection') &&
                           !_isPartnerOwnedBooking(booking))
-                        OutlinedButton.icon(
+                        ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
                             _showInspectionDialog(
@@ -6929,15 +6930,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               inspectionType: 'after',
                             );
                           },
-                          style: OutlinedButton.styleFrom(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorGold,
+                            foregroundColor: _operatorNavyDeep,
                             minimumSize: const Size(0, 44),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(
-                            Icons.assignment_turned_in_outlined,
+                            Icons.check_circle_outline_rounded,
                             size: 17,
                           ),
-                          label: const Text('After Checklist'),
+                          label: Text(
+                            statusLower == 'return_pending_inspection'
+                                ? 'Confirm Return Inspection'
+                                : 'Confirm Return',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                       if (statusLower == 'approved' ||
                           statusLower == 'confirmed' ||
@@ -6966,8 +6974,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             _openTrackingForBooking(booking);
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _operatorGold,
-                            foregroundColor: _operatorNavyDeep,
+                            backgroundColor: _operatorNavy,
+                            foregroundColor: Colors.white,
                             minimumSize: const Size(0, 44),
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
@@ -7013,7 +7021,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.payments_outlined, size: 17),
                           label: const Text('Confirm Full Payment'),
                         ),
-                      if (completionStage == 'operator_rating' &&
+                      if ((statusLower == 'awaiting_completion' ||
+                              statusLower == 'completed') &&
+                          completionStage == 'operator_rating' &&
                           !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed: () {
@@ -7027,8 +7037,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: const Icon(Icons.star_rate_rounded, size: 17),
-                          label: const Text('Rate Renter'),
+                          label: const Text('Rate Trip'),
                         ),
+
                     ],
                   ),
                 ),
@@ -8719,21 +8730,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         statusLower ==
                                             'return_pending_inspection') &&
                                     !_isPartnerOwnedBooking(booking))
-                                  OutlinedButton.icon(
+                                  ElevatedButton.icon(
                                     onPressed: () => _showInspectionDialog(
                                       booking,
                                       inspectionType: 'after',
                                     ),
                                     icon: const Icon(
-                                      Icons.assignment_turned_in_outlined,
+                                      Icons.check_circle_outline_rounded,
                                       size: 16,
                                     ),
-                                    label: const Text('After Check'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.green,
-                                      side: const BorderSide(
-                                        color: Colors.green,
+                                    label: Text(
+                                      statusLower == 'return_pending_inspection'
+                                          ? 'Confirm Return Inspection'
+                                          : 'Confirm Return',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
                                       ),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 8,
@@ -8810,7 +8826,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if (completionStage == 'operator_rating' &&
+                                if ((statusLower == 'awaiting_completion' ||
+                                        statusLower == 'completed') &&
+                                    completionStage == 'operator_rating' &&
                                     !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
                                     onPressed: () =>
@@ -8819,7 +8837,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       Icons.star_rate_rounded,
                                       size: 16,
                                     ),
-                                    label: const Text('Rate Renter'),
+                                    label: const Text('Rate Trip'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary,
                                       foregroundColor: Colors.black,
