@@ -6918,10 +6918,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.visibility_outlined, size: 17),
                           label: const Text('View Pre-Trip Checklist'),
                         ),
-                      if ((statusLower == 'active' ||
+                      if ((statusLower == 'approved' ||
+                              statusLower == 'confirmed' ||
+                              statusLower == 'active' ||
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection') &&
                           !_isPartnerOwnedBooking(booking))
+
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8725,7 +8728,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if ((statusLower == 'active' ||
+                                if ((statusLower == 'approved' ||
+                                        statusLower == 'confirmed' ||
+                                        statusLower == 'active' ||
                                         statusLower == 'ongoing' ||
                                         statusLower ==
                                             'return_pending_inspection') &&
