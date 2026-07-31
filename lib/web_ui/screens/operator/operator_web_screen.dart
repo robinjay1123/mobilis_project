@@ -6923,33 +6923,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               statusLower == 'active' ||
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection') &&
-                          !_isPartnerOwnedBooking(booking))
-
+                          !_isPartnerOwnedBooking(booking)) ...[
+                        final isRenterReturned =
+                            statusLower == 'return_pending_inspection';
                         ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(dialogContext);
-                            _showInspectionDialog(
-                              booking,
-                              inspectionType: 'after',
-                            );
-                          },
+                          onPressed: isRenterReturned
+                              ? () {
+                                  Navigator.pop(dialogContext);
+                                  _showInspectionDialog(
+                                    booking,
+                                    inspectionType: 'after',
+                                  );
+                                }
+                              : null,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _operatorGold,
-                            foregroundColor: _operatorNavyDeep,
+                            backgroundColor:
+                                isRenterReturned ? _operatorGold : Colors.grey.shade800,
+                            foregroundColor:
+                                isRenterReturned ? _operatorNavyDeep : Colors.grey.shade500,
+                            disabledBackgroundColor: Colors.grey.shade800,
+                            disabledForegroundColor: Colors.grey.shade500,
                             minimumSize: const Size(0, 44),
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
-                          icon: const Icon(
-                            Icons.check_circle_outline_rounded,
+                          icon: Icon(
+                            isRenterReturned
+                                ? Icons.check_circle_outline_rounded
+                                : Icons.lock_clock_outlined,
                             size: 17,
                           ),
                           label: Text(
-                            statusLower == 'return_pending_inspection'
+                            isRenterReturned
                                 ? 'Confirm Return Inspection'
-                                : 'Confirm Return',
+                                : 'Confirm Return (Awaiting Renter)',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
+                      ],
                       if (statusLower == 'approved' ||
                           statusLower == 'confirmed' ||
                           statusLower == 'active' ||
@@ -7042,6 +7052,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.star_rate_rounded, size: 17),
                           label: const Text('Rate Trip'),
                         ),
+
 
                     ],
                   ),
@@ -8734,33 +8745,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         statusLower == 'ongoing' ||
                                         statusLower ==
                                             'return_pending_inspection') &&
-                                    !_isPartnerOwnedBooking(booking))
+                                    !_isPartnerOwnedBooking(booking)) ...[
+                                  final isRenterReturned =
+                                      statusLower == 'return_pending_inspection';
                                   ElevatedButton.icon(
-                                    onPressed: () => _showInspectionDialog(
-                                      booking,
-                                      inspectionType: 'after',
-                                    ),
-                                    icon: const Icon(
-                                      Icons.check_circle_outline_rounded,
+                                    onPressed: isRenterReturned
+                                        ? () => _showInspectionDialog(
+                                              booking,
+                                              inspectionType: 'after',
+                                            )
+                                        : null,
+                                    icon: Icon(
+                                      isRenterReturned
+                                          ? Icons.check_circle_outline_rounded
+                                          : Icons.lock_clock_outlined,
                                       size: 16,
                                     ),
                                     label: Text(
-                                      statusLower == 'return_pending_inspection'
+                                      isRenterReturned
                                           ? 'Confirm Return Inspection'
-                                          : 'Confirm Return',
+                                          : 'Confirm Return (Awaiting Renter)',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.primary,
-                                      foregroundColor: Colors.black,
+                                      backgroundColor: isRenterReturned
+                                          ? AppColors.primary
+                                          : Colors.grey.shade800,
+                                      foregroundColor: isRenterReturned
+                                          ? Colors.black
+                                          : Colors.grey.shade500,
+                                      disabledBackgroundColor: Colors.grey.shade800,
+                                      disabledForegroundColor: Colors.grey.shade500,
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 8,
                                       ),
                                     ),
                                   ),
+                                ],
                                 if ({
                                   'approved',
                                   'confirmed',
@@ -9338,175 +9362,181 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     final shouldSave = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-          title: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(13),
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+            title: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.fact_check_outlined,
+                    color: AppColors.primary,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.fact_check_outlined,
-                  color: AppColors.primary,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        inspectionType == 'before'
+                            ? 'Pre-Trip Vehicle Release Inspection'
+                            : 'Post-Trip Vehicle Return Inspection',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        inspectionType == 'before'
+                            ? 'Complete this inspection before the booking can move to Ongoing.'
+                            : 'Record the returned condition before final payment and ratings. Car inspection is mandatory.',
+                        style: TextStyle(
+                          color: isDark ? Colors.white60 : Colors.black54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
+              ],
+            ),
+            content: SizedBox(
+              width: 680,
+              child: SingleChildScrollView(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      inspectionType == 'before'
-                          ? 'Pre-Trip Vehicle Release Inspection'
-                          : 'Post-Trip Vehicle Return Inspection',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    VehicleInspectionChecklistFields(
+                      values: checklistItems,
+                      isDark: isDark,
+                      onChanged: (entry) => setDialogState(
+                        () => checklistItems[entry.key] = entry.value,
+                      ),
+                      onSelectAll: (selected) => setDialogState(() {
+                        for (final key in checklistItems.keys) {
+                          checklistItems[key] = selected;
+                        }
+                      }),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      inspectionType == 'before'
-                          ? 'Complete this inspection before the booking can move to Ongoing.'
-                          : 'Record the returned condition before final payment and ratings.',
-                      style: TextStyle(
-                        color: isDark ? Colors.white60 : Colors.black54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w400,
+                    const SizedBox(height: 4),
+                    VehicleInspectionSupplementalFields(
+                      isDark: isDark,
+                      fuelLevelController: fuelController,
+                      tiresController: tiresController,
+                      magsController: magsController,
+                      exteriorRemarksController: exteriorRemarksController,
+                      interiorRemarksController: interiorRemarksController,
+                      autosweepBalanceController: autosweepBalanceController,
+                      easytripBalanceController: easytripBalanceController,
+                      toolsRemarksController: toolsRemarksController,
+                      cleanlinessRemarksController: cleanlinessRemarksController,
+                      otherItemsController: otherItemsController,
+                      othersRemarksController: othersRemarksController,
+                      releasedByController: releasedByController,
+                      receivedByController: receivedByController,
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final result = await FilePicker.platform.pickFiles(
+                            type: FileType.media,
+                            allowMultiple: true,
+                            withData: true,
+                          );
+                          if (result == null) return;
+                          final usableFiles = result.files
+                              .where(
+                                (file) =>
+                                    file.bytes != null &&
+                                    file.size <= 25 * 1024 * 1024,
+                              )
+                              .take(8)
+                              .toList();
+                          setDialogState(() {
+                            selectedEvidence
+                              ..clear()
+                              ..addAll(usableFiles);
+                          });
+                        },
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: const Text('Add photos or videos'),
                       ),
                     ),
+                    if (selectedEvidence.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: selectedEvidence
+                              .map(
+                                (file) => InputChip(
+                                  label: Text(file.name),
+                                  onDeleted: () => setDialogState(
+                                    () => selectedEvidence.remove(file),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
                   ],
+                ),
+              ),
+            ),
+            actions: [
+              if (inspectionType != 'after')
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+              ElevatedButton(
+                onPressed: () {
+                  final allChecked = BookingInspectionService
+                      .requiredChecklistKeys
+                      .every((key) => checklistItems[key] == true);
+                  final requiredFieldsReady =
+                      fuelController.text.trim().isNotEmpty &&
+                      tiresController.text.trim().isNotEmpty &&
+                      magsController.text.trim().isNotEmpty &&
+                      releasedByController.text.trim().isNotEmpty &&
+                      receivedByController.text.trim().isNotEmpty;
+                  if (!allChecked ||
+                      !requiredFieldsReady ||
+                      selectedEvidence.isEmpty) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Complete all checklist items, handover names, and attach at least one photo or video.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, true);
+                },
+                child: Text(
+                  inspectionType == 'before'
+                      ? 'Submit and Start Trip'
+                      : 'Submit Return Inspection Checklist',
                 ),
               ),
             ],
           ),
-          content: SizedBox(
-            width: 680,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  VehicleInspectionChecklistFields(
-                    values: checklistItems,
-                    isDark: isDark,
-                    onChanged: (entry) => setDialogState(
-                      () => checklistItems[entry.key] = entry.value,
-                    ),
-                    onSelectAll: (selected) => setDialogState(() {
-                      for (final key in checklistItems.keys) {
-                        checklistItems[key] = selected;
-                      }
-                    }),
-                  ),
-                  const SizedBox(height: 4),
-                  VehicleInspectionSupplementalFields(
-                    isDark: isDark,
-                    fuelLevelController: fuelController,
-                    tiresController: tiresController,
-                    magsController: magsController,
-                    exteriorRemarksController: exteriorRemarksController,
-                    interiorRemarksController: interiorRemarksController,
-                    autosweepBalanceController: autosweepBalanceController,
-                    easytripBalanceController: easytripBalanceController,
-                    toolsRemarksController: toolsRemarksController,
-                    cleanlinessRemarksController: cleanlinessRemarksController,
-                    otherItemsController: otherItemsController,
-                    othersRemarksController: othersRemarksController,
-                    releasedByController: releasedByController,
-                    receivedByController: receivedByController,
-                  ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final result = await FilePicker.platform.pickFiles(
-                          type: FileType.media,
-                          allowMultiple: true,
-                          withData: true,
-                        );
-                        if (result == null) return;
-                        final usableFiles = result.files
-                            .where(
-                              (file) =>
-                                  file.bytes != null &&
-                                  file.size <= 25 * 1024 * 1024,
-                            )
-                            .take(8)
-                            .toList();
-                        setDialogState(() {
-                          selectedEvidence
-                            ..clear()
-                            ..addAll(usableFiles);
-                        });
-                      },
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: const Text('Add photos or videos'),
-                    ),
-                  ),
-                  if (selectedEvidence.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: selectedEvidence
-                            .map(
-                              (file) => InputChip(
-                                label: Text(file.name),
-                                onDeleted: () => setDialogState(
-                                  () => selectedEvidence.remove(file),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final allChecked = BookingInspectionService
-                    .requiredChecklistKeys
-                    .every((key) => checklistItems[key] == true);
-                final requiredFieldsReady =
-                    fuelController.text.trim().isNotEmpty &&
-                    tiresController.text.trim().isNotEmpty &&
-                    magsController.text.trim().isNotEmpty &&
-                    releasedByController.text.trim().isNotEmpty &&
-                    receivedByController.text.trim().isNotEmpty;
-                if (!allChecked ||
-                    !requiredFieldsReady ||
-                    selectedEvidence.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Complete all checklist items, handover names, and attach at least one photo or video.',
-                      ),
-                    ),
-                  );
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: Text(
-                inspectionType == 'before'
-                    ? 'Submit and Start Trip'
-                    : 'Submit Return Checklist',
-              ),
-            ),
-          ],
         ),
       ),
     );
+
 
     if (shouldSave != true) {
       for (final controller in inspectionControllers) {
