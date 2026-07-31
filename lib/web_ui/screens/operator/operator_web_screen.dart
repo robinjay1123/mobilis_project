@@ -8884,11 +8884,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final amount = (booking['reservation_fee_amount'] as num?)?.toDouble();
     final type = booking['reservation_payment_type']?.toString() ?? '';
     final coversTotal = booking['reservation_payment_covers_total'] == true;
-    final status =
-        booking['reservation_payment_status']?.toString().trim().isNotEmpty ==
-            true
-        ? booking['reservation_payment_status'].toString()
-        : 'Not submitted';
+    final rawBookingStatus =
+        (booking['status']?.toString() ?? booking['rawStatus']?.toString() ?? '')
+            .toLowerCase();
+    final isBookingConfirmedOrActive = rawBookingStatus == 'approved' ||
+        rawBookingStatus == 'confirmed' ||
+        rawBookingStatus == 'active' ||
+        rawBookingStatus == 'ongoing' ||
+        rawBookingStatus == 'return_pending_inspection' ||
+        rawBookingStatus == 'awaiting_completion' ||
+        rawBookingStatus == 'completed';
+
+    final status = isBookingConfirmedOrActive
+        ? 'Verified & Confirmed'
+        : (booking['reservation_payment_status']?.toString().trim().isNotEmpty ==
+                true
+            ? booking['reservation_payment_status'].toString()
+            : 'Not submitted');
+
     final method =
         booking['reservation_payment_method']?.toString().trim().isNotEmpty ==
             true
