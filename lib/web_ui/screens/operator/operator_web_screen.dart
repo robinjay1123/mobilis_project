@@ -6923,11 +6923,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               statusLower == 'active' ||
                               statusLower == 'ongoing' ||
                               statusLower == 'return_pending_inspection') &&
-                          !_isPartnerOwnedBooking(booking)) ...[
-                        final isRenterReturned =
-                            statusLower == 'return_pending_inspection';
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
-                          onPressed: isRenterReturned
+                          onPressed: statusLower == 'return_pending_inspection'
                               ? () {
                                   Navigator.pop(dialogContext);
                                   _showInspectionDialog(
@@ -6938,28 +6936,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor:
-                                isRenterReturned ? _operatorGold : Colors.grey.shade800,
+                                statusLower == 'return_pending_inspection'
+                                    ? _operatorGold
+                                    : Colors.grey.shade800,
                             foregroundColor:
-                                isRenterReturned ? _operatorNavyDeep : Colors.grey.shade500,
+                                statusLower == 'return_pending_inspection'
+                                    ? _operatorNavyDeep
+                                    : Colors.grey.shade500,
                             disabledBackgroundColor: Colors.grey.shade800,
                             disabledForegroundColor: Colors.grey.shade500,
                             minimumSize: const Size(0, 44),
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: Icon(
-                            isRenterReturned
+                            statusLower == 'return_pending_inspection'
                                 ? Icons.check_circle_outline_rounded
                                 : Icons.lock_clock_outlined,
                             size: 17,
                           ),
                           label: Text(
-                            isRenterReturned
+                            statusLower == 'return_pending_inspection'
                                 ? 'Confirm Return Inspection'
                                 : 'Confirm Return (Awaiting Renter)',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                      ],
+
                       if (statusLower == 'approved' ||
                           statusLower == 'confirmed' ||
                           statusLower == 'active' ||
@@ -8745,24 +8747,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         statusLower == 'ongoing' ||
                                         statusLower ==
                                             'return_pending_inspection') &&
-                                    !_isPartnerOwnedBooking(booking)) ...[
-                                  final isRenterReturned =
-                                      statusLower == 'return_pending_inspection';
+                                    !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
-                                    onPressed: isRenterReturned
+                                    onPressed: statusLower ==
+                                            'return_pending_inspection'
                                         ? () => _showInspectionDialog(
                                               booking,
                                               inspectionType: 'after',
                                             )
                                         : null,
                                     icon: Icon(
-                                      isRenterReturned
+                                      statusLower == 'return_pending_inspection'
                                           ? Icons.check_circle_outline_rounded
                                           : Icons.lock_clock_outlined,
                                       size: 16,
                                     ),
                                     label: Text(
-                                      isRenterReturned
+                                      statusLower == 'return_pending_inspection'
                                           ? 'Confirm Return Inspection'
                                           : 'Confirm Return (Awaiting Renter)',
                                       style: const TextStyle(
@@ -8770,10 +8771,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: isRenterReturned
+                                      backgroundColor: statusLower ==
+                                              'return_pending_inspection'
                                           ? AppColors.primary
                                           : Colors.grey.shade800,
-                                      foregroundColor: isRenterReturned
+                                      foregroundColor: statusLower ==
+                                              'return_pending_inspection'
                                           ? Colors.black
                                           : Colors.grey.shade500,
                                       disabledBackgroundColor: Colors.grey.shade800,
@@ -8784,7 +8787,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                ],
                                 if ({
                                   'approved',
                                   'confirmed',
