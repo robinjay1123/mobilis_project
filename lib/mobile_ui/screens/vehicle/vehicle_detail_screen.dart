@@ -2392,10 +2392,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   });
                   return;
                 }
-                if (!RegExp(r'^\d{13}$').hasMatch(reference)) {
+                if (!RegExp(r'^\d{6,13}$').hasMatch(reference)) {
                   setDialogState(() {
                     errorText =
-                        'Enter the 13-digit transaction reference number.';
+                        'Enter 6 to 13-digit transaction reference number.';
                   });
                   return;
                 }
@@ -2701,7 +2701,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         enabled: !isUploading,
                         style: const TextStyle(color: AppColors.textPrimary),
                         decoration: InputDecoration(
-                          labelText: '13-digit reference number',
+                          labelText: 'Reference number (6 to 13 digits)',
                           counterText: '',
                           labelStyle: const TextStyle(
                             color: AppColors.textSecondary,

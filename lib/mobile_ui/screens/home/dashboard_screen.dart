@@ -7591,10 +7591,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: referenceController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 13,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(13),
+                        ],
                         style: const TextStyle(color: Colors.white, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: '13-digit Reference / Transaction No.',
+                          hintText: 'Reference No. (6 to 13 digits)',
                           hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          counterText: '',
                           filled: true,
                           fillColor: AppColors.darkBg,
                           border: OutlineInputBorder(
@@ -7605,6 +7612,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             vertical: 10,
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Note: Reference number must be 6 to 13 digits.',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 10),
                       ),
                     ],
                   ],
@@ -7635,6 +7647,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           if (ref.isEmpty) {
                             setDialogState(() {
                               errorText = 'Please enter your payment reference number.';
+                            });
+                            return;
+                          }
+                          if (!RegExp(r'^\d{6,13}$').hasMatch(ref)) {
+                            setDialogState(() {
+                              errorText = 'Reference number must be between 6 and 13 digits.';
                             });
                             return;
                           }
