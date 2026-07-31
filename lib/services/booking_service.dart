@@ -3029,7 +3029,21 @@ class BookingService {
         updates['renter_return_payment_amount'] = settledAmount;
       }
 
-      await supabase.from('bookings').update(updates).eq('id', bookingId);
+      try {
+        await supabase.from('bookings').update(updates).eq('id', bookingId);
+      } catch (dbError) {
+        debugPrint('Full update failed, attempting fallback return update: $dbError');
+        final fallbackUpdates = <String, dynamic>{
+          'status': 'return_pending_inspection',
+          'returned_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+        };
+        if (lateHours != null && lateHours > 0) {
+          fallbackUpdates['late_return_hours'] = lateHours;
+          fallbackUpdates['late_return_fee'] = lateFee ?? (lateHours * 300.0);
+        }
+        await supabase.from('bookings').update(fallbackUpdates).eq('id', bookingId);
+      }
 
       try {
         final conversation = await ChatService().getConversationByBookingId(
