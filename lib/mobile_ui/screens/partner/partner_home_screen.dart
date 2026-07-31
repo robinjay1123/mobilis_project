@@ -2828,11 +2828,16 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           partnerId: currentPartnerId,
         );
       } else if (status == 'return_confirmed' && currentPartnerId != null) {
-        await bookingService.confirmVehicleReturn(
-          bookingId: bookingId,
-          reviewerId: currentPartnerId,
-          reviewerRole: 'Partner',
+        final booking = myBookings.firstWhere(
+          (b) => b['id']?.toString() == bookingId,
+          orElse: () => <String, dynamic>{'id': bookingId},
         );
+        await _showPartnerInspectionDialog(
+          booking: booking,
+          inspectionType: 'after',
+        );
+        _loadPartnerData();
+        return;
       } else if ((status == 'cancelled' || status == 'rejected') &&
           currentPartnerId != null) {
         await bookingService.rejectPartnerBooking(
