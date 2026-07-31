@@ -2993,18 +2993,39 @@ class BookingService {
     }
   }
 
-  /// Renter initiates vehicle return.
+  /// Renter initiates vehicle return and submits final payment settlement.
   Future<void> renterInitiateReturn({
     required String bookingId,
     required String renterId,
+    String? paymentMethod,
+    String? paymentReference,
+    int? lateHours,
+    double? lateFee,
+    double? settledAmount,
   }) async {
     try {
       final now = DateTime.now();
-      await supabase.from('bookings').update({
+      final updates = <String, dynamic>{
         'status': 'return_pending_inspection',
         'returned_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
-      }).eq('id', bookingId);
+      };
+      if (paymentMethod != null && paymentMethod.isNotEmpty) {
+        updates['final_payment_method'] = paymentMethod;
+      }
+      if (paymentReference != null && paymentReference.isNotEmpty) {
+        updates['final_payment_reference'] = paymentReference;
+      }
+      if (lateHours != null && lateHours > 0) {
+        updates['late_return_hours'] = lateHours;
+        updates['late_return_fee'] = lateFee ?? (lateHours * 300.0);
+      }
+      if (settledAmount != null && settledAmount > 0) {
+        updates['renter_return_payment_submitted'] = true;
+        updates['renter_return_payment_amount'] = settledAmount;
+      }
+
+      await supabase.from('bookings').update(updates).eq('id', bookingId);
 
       try {
         final conversation = await ChatService().getConversationByBookingId(
@@ -3013,11 +3034,17 @@ class BookingService {
         if (conversation != null) {
           final conversationId = conversation['id']?.toString();
           if (conversationId != null && conversationId.isNotEmpty) {
+            final paymentInfo = settledAmount != null && settledAmount > 0
+                ? ' Settlement amount: ₱${settledAmount.toStringAsFixed(0)} ($paymentMethod).'
+                : '';
+            final lateInfo = lateHours != null && lateHours > 0
+                ? ' Late by ${lateHours}h (Penalty: ₱${(lateFee ?? (lateHours * 300.0)).toStringAsFixed(0)}).'
+                : '';
             await ChatService().sendMessage(
               conversationId: conversationId,
               senderId: renterId,
               content:
-                  'Vehicle Return Initiated: Renter has returned the vehicle and initiated the return inspection.',
+                  'Vehicle Return & Payment Initiated: Renter has returned the vehicle and submitted return settlement.$lateInfo$paymentInfo',
             );
           }
         }
