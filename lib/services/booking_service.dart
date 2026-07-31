@@ -2999,6 +2999,7 @@ class BookingService {
     required String renterId,
     String? paymentMethod,
     String? paymentReference,
+    String? proofUrl,
     int? lateHours,
     double? lateFee,
     double? settledAmount,
@@ -3015,6 +3016,9 @@ class BookingService {
       }
       if (paymentReference != null && paymentReference.isNotEmpty) {
         updates['final_payment_reference'] = paymentReference;
+      }
+      if (proofUrl != null && proofUrl.isNotEmpty) {
+        updates['final_payment_proof_url'] = proofUrl;
       }
       if (lateHours != null && lateHours > 0) {
         updates['late_return_hours'] = lateHours;

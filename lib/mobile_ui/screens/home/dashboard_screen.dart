@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../services/reservation_payment_service.dart';
 import '../../../services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -7287,233 +7289,456 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
-    final totalPrice = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
-    final amountPaid =
-        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
-        (booking['amount_paid'] as num?)?.toDouble() ??
+    final totalCost =
+        (booking['totalCost'] as num?)?.toDouble() ??
+        (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
         0.0;
+
+    final coversTotal =
+        booking['reservationPaymentCoversTotal'] == true ||
+        booking['reservation_payment_covers_total'] == true;
+    final reservationFee =
+        (booking['reservationFeeAmount'] as num?)?.toDouble() ??
+        (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        0.0;
+    final amountPaid = coversTotal
+        ? totalCost
+        : reservationFee > 0
+            ? reservationFee
+            : (booking['amount_paid'] as num?)?.toDouble() ?? 0.0;
+
     final remainingRentalBalance =
-        (totalPrice - amountPaid).clamp(0.0, double.infinity);
+        (totalCost - amountPaid).clamp(0.0, double.infinity);
     final totalPaymentDue = remainingRentalBalance + latePenaltyFee;
 
     String selectedPaymentMethod = 'psdc_qr';
     final referenceController = TextEditingController();
+    XFile? receiptFile;
+    String? errorText;
+    bool isUploading = false;
+
+    // Load PSDC Payment Settings (QR Code URL, Account Name)
+    ReservationPaymentSettings? paymentSettings;
+    try {
+      paymentSettings = await ReservationPaymentService().getSettings();
+    } catch (_) {}
 
     final confirm = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (dialogCtx, setDialogState) => AlertDialog(
-          backgroundColor: AppColors.darkCard,
-          title: const Row(
-            children: [
-              Icon(
-                Icons.assignment_return_rounded,
-                color: AppColors.primary,
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Return & Settlement',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+        builder: (dialogCtx, setDialogState) {
+          Future<void> pickReceipt() async {
+            final picked = await ImagePicker().pickImage(
+              source: ImageSource.gallery,
+              imageQuality: 85,
+            );
+            if (picked == null) return;
+            setDialogState(() {
+              receiptFile = picked;
+              errorText = null;
+            });
+          }
+
+          return AlertDialog(
+            backgroundColor: AppColors.darkCard,
+            title: const Row(
               children: [
-                if (lateHours > 0) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.warning_amber_rounded,
-                          color: Colors.redAccent,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Late Return Alert: Overdue by ${lateHours}h. Late penalty fee: ₱${latePenaltyFee.toStringAsFixed(0)} (₱300/hr).',
-                            style: const TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBg,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.borderColor),
-                  ),
-                  child: Column(
-                    children: [
-                      _paymentRow('Rental Total Price', '₱${totalPrice.toStringAsFixed(0)}'),
-                      const SizedBox(height: 4),
-                      _paymentRow('Reservation Deposit Paid', '-₱${amountPaid.toStringAsFixed(0)}', isGreen: true),
-                      if (remainingRentalBalance > 0) ...[
-                        const SizedBox(height: 4),
-                        _paymentRow('Remaining Rental Balance', '₱${remainingRentalBalance.toStringAsFixed(0)}'),
-                      ],
-                      if (lateHours > 0) ...[
-                        const SizedBox(height: 4),
-                        _paymentRow('Late Return Penalty (${lateHours}h)', '₱${latePenaltyFee.toStringAsFixed(0)}', isRed: true),
-                      ],
-                      const Divider(color: AppColors.borderColor, height: 16),
-                      _paymentRow(
-                        'Total Payment Due',
-                        '₱${totalPaymentDue.toStringAsFixed(0)}',
-                        isBold: true,
-                      ),
-                    ],
-                  ),
+                Icon(
+                  Icons.assignment_return_rounded,
+                  color: AppColors.primary,
                 ),
-                if (totalPaymentDue > 0) ...[
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Select Payment Method for Settlement:',
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Return & Settlement',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  DropdownButtonFormField<String>(
-                    value: selectedPaymentMethod,
-                    dropdownColor: AppColors.darkCard,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: AppColors.darkBg,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'psdc_qr',
-                        child: Text('PSDC QR / E-Wallet Payment'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'cash_at_desk',
-                        child: Text('Cash at PSDC Desk / Garage'),
-                      ),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => selectedPaymentMethod = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: referenceController,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Payment Reference / Transaction No. (Optional)',
-                      hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
-                      filled: true,
-                      fillColor: AppColors.darkBg,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (errorText != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.redAccent),
+                      ),
+                      child: Text(
+                        errorText!,
+                        style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  if (lateHours > 0) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.redAccent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Late Return Alert: Overdue by ${lateHours}h. Late penalty fee: ₱${latePenaltyFee.toStringAsFixed(0)} (₱300/hr).',
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Column(
+                      children: [
+                        _paymentRow('Rental Total Price', '₱${totalCost.toStringAsFixed(0)}'),
+                        const SizedBox(height: 4),
+                        _paymentRow(
+                          coversTotal ? 'Deposit / Full Paid' : 'Reservation Deposit Paid',
+                          '-₱${amountPaid.toStringAsFixed(0)}',
+                          isGreen: true,
+                        ),
+                        if (remainingRentalBalance > 0) ...[
+                          const SizedBox(height: 4),
+                          _paymentRow('Remaining Rental Balance', '₱${remainingRentalBalance.toStringAsFixed(0)}'),
+                        ],
+                        if (lateHours > 0) ...[
+                          const SizedBox(height: 4),
+                          _paymentRow('Late Return Penalty (${lateHours}h)', '₱${latePenaltyFee.toStringAsFixed(0)}', isRed: true),
+                        ],
+                        const Divider(color: AppColors.borderColor, height: 16),
+                        _paymentRow(
+                          'Total Final Payment Due',
+                          '₱${totalPaymentDue.toStringAsFixed(0)}',
+                          isBold: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (totalPaymentDue > 0) ...[
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Select Payment Method for Settlement:',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      value: selectedPaymentMethod,
+                      dropdownColor: AppColors.darkCard,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: AppColors.darkBg,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'psdc_qr',
+                          child: Text('PSDC QR / E-Wallet Payment'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'cash_at_desk',
+                          child: Text('Cash at PSDC Desk / Garage'),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setDialogState(() => selectedPaymentMethod = val);
+                        }
+                      },
+                    ),
+                    if (selectedPaymentMethod == 'psdc_qr') ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'PSDC Official Payment QR',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              paymentSettings?.accountName ?? 'PSDC Mobilis Account',
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                            ),
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: paymentSettings?.qrUrl.isNotEmpty == true
+                                  ? Image.network(
+                                      paymentSettings!.qrUrl,
+                                      height: 160,
+                                      width: 160,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => _qrFallbackPlaceholder(),
+                                    )
+                                  : _qrFallbackPlaceholder(),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Scan using GCash / Maya / Bank app to pay settlement',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppColors.textTertiary, fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Upload Payment Receipt / Proof Screenshot:',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: pickReceipt,
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: receiptFile != null ? AppColors.success : AppColors.borderColor,
+                              style: BorderStyle.solid,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                receiptFile != null ? Icons.check_circle_rounded : Icons.upload_file_rounded,
+                                color: receiptFile != null ? AppColors.success : AppColors.primary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  receiptFile != null
+                                      ? 'Receipt Attached: ${receiptFile!.name}'
+                                      : 'Tap to Upload Receipt / Proof Photo',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: receiptFile != null ? AppColors.success : Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: referenceController,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: '13-digit Reference / Transaction No.',
+                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          filled: true,
+                          fillColor: AppColors.darkBg,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
               ),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(
-                totalPaymentDue > 0
-                    ? 'Confirm Payment & Return'
-                    : 'Confirm Return Vehicle',
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
+            ),
+            actions: [
+              if (!isUploading)
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
                 ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                ),
+                onPressed: isUploading
+                    ? null
+                    : () async {
+                        if (totalPaymentDue > 0 && selectedPaymentMethod == 'psdc_qr') {
+                          if (receiptFile == null) {
+                            setDialogState(() {
+                              errorText = 'Please attach your payment receipt screenshot first.';
+                            });
+                            return;
+                          }
+                          final ref = referenceController.text.trim();
+                          if (ref.isEmpty) {
+                            setDialogState(() {
+                              errorText = 'Please enter your payment reference number.';
+                            });
+                            return;
+                          }
+                        }
+
+                        setDialogState(() => isUploading = true);
+
+                        String? proofPublicUrl;
+                        if (receiptFile != null) {
+                          try {
+                            final uploadResult = await ReservationPaymentService()
+                                .uploadReceiptProof(userId: renterId, file: receiptFile!);
+                            proofPublicUrl = uploadResult.publicUrl;
+                          } catch (uploadErr) {
+                            debugPrint('Error uploading payment receipt: $uploadErr');
+                          }
+                        }
+
+                        if (!dialogCtx.mounted) return;
+                        Navigator.pop(ctx, true);
+
+                        try {
+                          await BookingService().renterInitiateReturn(
+                            bookingId: bookingId,
+                            renterId: renterId,
+                            paymentMethod: selectedPaymentMethod,
+                            paymentReference: referenceController.text.trim(),
+                            proofUrl: proofPublicUrl,
+                            lateHours: lateHours,
+                            lateFee: latePenaltyFee,
+                            settledAmount: totalPaymentDue,
+                          );
+
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                totalPaymentDue > 0
+                                    ? 'Return payment & receipt submitted! Hand over vehicle keys to the operator for return inspection.'
+                                    : 'Vehicle return initiated! Hand over vehicle keys to the operator for return inspection.',
+                              ),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+
+                          _loadBookings();
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error initiating vehicle return: $e'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      },
+                child: isUploading
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.black,
+                        ),
+                      )
+                    : Text(
+                        totalPaymentDue > 0
+                            ? 'Confirm Payment & Return'
+                            : 'Confirm Return Vehicle',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
+  }
 
-    if (confirm != true) return;
-
-    try {
-      await BookingService().renterInitiateReturn(
-        bookingId: bookingId,
-        renterId: renterId,
-        paymentMethod: selectedPaymentMethod,
-        paymentReference: referenceController.text.trim(),
-        lateHours: lateHours,
-        lateFee: latePenaltyFee,
-        settledAmount: totalPaymentDue,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            totalPaymentDue > 0
-                ? 'Return payment submitted! Please hand over vehicle keys to the operator for return inspection.'
-                : 'Vehicle return initiated! Please hand over vehicle keys to the operator for return inspection.',
+  Widget _qrFallbackPlaceholder() {
+    return Container(
+      height: 160,
+      width: 160,
+      color: Colors.white,
+      padding: const EdgeInsets.all(12),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.qr_code_2_rounded, size: 80, color: Colors.black),
+          SizedBox(height: 4),
+          Text(
+            'PSDC PAY QR',
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
           ),
-          backgroundColor: AppColors.success,
-        ),
-      );
-
-      _loadBookings();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error initiating vehicle return: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
+        ],
+      ),
+    );
   }
 
   Widget _paymentRow(
