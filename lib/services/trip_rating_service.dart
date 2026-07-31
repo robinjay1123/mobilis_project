@@ -17,6 +17,24 @@ class TripRatingService {
   TripRatingService._internal();
 
   final SupabaseClient supabase = Supabase.instance.client;
+
+  /// Synchronizes and advances the rating flow stage for a given booking.
+  Future<void> syncRatingFlowForBooking(String bookingId) async {
+    final context = await getBookingContext(bookingId);
+    if (context == null) return;
+    final nextReviewer = await _nextPendingRatingReviewer(
+      bookingId: bookingId,
+      context: context,
+    );
+    final currentStage = context['completion_stage']?.toString() ?? '';
+    if (nextReviewer != null && currentStage != 'completed') {
+      await supabase.from('bookings').update({
+        'completion_stage': '${nextReviewer.role}_rating',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', bookingId);
+    }
+  }
+
   static const String _bucketName = 'trip_review_images';
 
   Future<Map<String, dynamic>?> getBookingContext(String bookingId) async {

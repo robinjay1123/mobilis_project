@@ -5780,7 +5780,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => _checkForExtendTrip(booking),
+                  onPressed: () => _showTripExtensionDialog(booking),
                   icon: const Icon(Icons.more_time, size: 18),
                   label: const Text('Check for Extend Trip'),
                   style: ElevatedButton.styleFrom(
