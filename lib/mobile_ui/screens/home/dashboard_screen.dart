@@ -7315,7 +7315,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Vehicle return initiated! Post-trip inspection checklist is open.',
+            'Vehicle return initiated! Please hand over the vehicle keys to the operator for return inspection.',
           ),
           backgroundColor: AppColors.success,
         ),
@@ -7323,14 +7323,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       _loadBookings();
 
-      Navigator.of(context).pushNamed(
-        '/vehicle-inspection-checklist',
-        arguments: {
-          'bookingId': bookingId,
-          'checklistType': 'post_trip',
-          'userRole': 'renter',
-        },
-      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

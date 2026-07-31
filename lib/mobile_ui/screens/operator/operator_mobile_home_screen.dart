@@ -893,18 +893,17 @@ class _BookingCard extends StatelessWidget {
                   ),
                   onPressed: () async {
                     final bId = booking['id']?.toString();
-                    if (bId != null) {
-                      Navigator.of(context).pushNamed(
-                        '/vehicle-inspection-checklist',
-                        arguments: {
-                          'bookingId': bId,
-                          'checklistType': 'post_trip',
-                          'inspectionType': 'after',
-                          'userRole': 'operator',
-                        },
-                      ).then((_) => onRefresh?.call());
+                    final uId = AuthService().currentUser?.id;
+                    if (bId != null && uId != null) {
+                      await BookingService().confirmVehicleReturn(
+                        bookingId: bId,
+                        reviewerId: uId,
+                        reviewerRole: 'operator',
+                      );
+                      onRefresh?.call();
                     }
                   },
+
 
                 ),
               ),

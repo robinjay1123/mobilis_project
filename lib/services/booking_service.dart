@@ -3017,19 +3017,23 @@ class BookingService {
         'updated_at': now.toIso8601String(),
       }).eq('id', bookingId);
 
-      final conversation = await ChatService().getConversationBookingContext(
-        bookingId,
-      );
-      if (conversation != null) {
-        final conversationId = conversation['id']?.toString();
-        if (conversationId != null) {
-          await ChatService().sendMessage(
-            conversationId: conversationId,
-            senderId: renterId,
-            content:
-                'Vehicle Return Initiated: Renter has returned the vehicle and initiated the return inspection.',
-          );
+      try {
+        final conversation = await ChatService().getConversationForBooking(
+          bookingId,
+        );
+        if (conversation != null) {
+          final conversationId = conversation['id']?.toString();
+          if (conversationId != null && conversationId.isNotEmpty) {
+            await ChatService().sendMessage(
+              conversationId: conversationId,
+              senderId: renterId,
+              content:
+                  'Vehicle Return Initiated: Renter has returned the vehicle and initiated the return inspection.',
+            );
+          }
         }
+      } catch (chatError) {
+        debugPrint('Could not post return audit message to chat: $chatError');
       }
     } catch (e) {
       debugPrint('Error initiating return: $e');
