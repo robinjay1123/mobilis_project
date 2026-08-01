@@ -582,38 +582,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .update(ratingStageUpdate)
           .eq('id', bookingId);
 
-      final pendingTargets = await TripRatingService().buildTargetsForBooking(
-        bookingId: bookingId,
-        reviewerUserId: actorId,
-        reviewerRole: 'operator',
-        includePreviouslySubmittedForRecovery: false,
-        operatorFallbackUserId: actorId,
-      );
-      final hasPendingRenterRating = pendingTargets.any(
-        (target) => target['role']?.toString().trim().toLowerCase() == 'renter',
-      );
-      if (!hasPendingRenterRating) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No pending renter rating was found for this trip. Refresh the booking and try again.',
-            ),
-            backgroundColor: Colors.orange,
+      final submitted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 48,
+            vertical: 32,
           ),
-        );
-        return;
-      }
-
-      final submitted = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (_) => TripRatingFlowScreen(
-            bookingId: bookingId,
-            reviewerRole: 'operator',
-            title: 'Trip Rating',
-            subtitle:
-                'Your rating for trip participants is required before this trip can continue to final completion.',
-
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: TripRatingFlowScreen(
+                bookingId: bookingId,
+                reviewerRole: 'operator',
+                title: 'Rate Renter',
+                subtitle:
+                    'Rate the renter before this trip moves to final completion.',
+              ),
+            ),
           ),
         ),
       );
@@ -6926,8 +6915,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           group == BookingStatusGroup.ongoing ||
                           group == BookingStatusGroup.approved)
                         ElevatedButton.icon(
-
-
                           onPressed: statusLower == 'return_pending_inspection'
                               ? () {
                                   Navigator.pop(dialogContext);
@@ -6940,12 +6927,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor:
                                 statusLower == 'return_pending_inspection'
-                                    ? _operatorGold
-                                    : Colors.grey.shade800,
+                                ? _operatorGold
+                                : Colors.grey.shade800,
                             foregroundColor:
                                 statusLower == 'return_pending_inspection'
-                                    ? _operatorNavyDeep
-                                    : Colors.grey.shade500,
+                                ? _operatorNavyDeep
+                                : Colors.grey.shade500,
                             disabledBackgroundColor: Colors.grey.shade800,
                             disabledForegroundColor: Colors.grey.shade500,
                             minimumSize: const Size(0, 44),
@@ -7048,8 +7035,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           booking['return_inspected_at'] != null &&
                           completionStage == 'operator_rating')
                         ElevatedButton.icon(
-
-
                           onPressed: () {
                             Navigator.pop(dialogContext);
                             _openOperatorRenterRating(booking);
@@ -7063,8 +7048,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.star_rate_rounded, size: 17),
                           label: const Text('Rate Trip'),
                         ),
-
-
                     ],
                   ),
                 ),
@@ -8756,12 +8739,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     statusLower == 'ongoing' ||
                                     statusLower == 'return_pending_inspection')
                                   ElevatedButton.icon(
-                                    onPressed: statusLower ==
+                                    onPressed:
+                                        statusLower ==
                                             'return_pending_inspection'
                                         ? () => _showInspectionDialog(
-                                              booking,
-                                              inspectionType: 'after',
-                                            )
+                                            booking,
+                                            inspectionType: 'after',
+                                          )
                                         : null,
                                     icon: Icon(
                                       statusLower == 'return_pending_inspection'
@@ -8778,16 +8762,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: statusLower ==
+                                      backgroundColor:
+                                          statusLower ==
                                               'return_pending_inspection'
                                           ? AppColors.primary
                                           : Colors.grey.shade800,
-                                      foregroundColor: statusLower ==
+                                      foregroundColor:
+                                          statusLower ==
                                               'return_pending_inspection'
                                           ? Colors.black
                                           : Colors.grey.shade500,
-                                      disabledBackgroundColor: Colors.grey.shade800,
-                                      disabledForegroundColor: Colors.grey.shade500,
+                                      disabledBackgroundColor:
+                                          Colors.grey.shade800,
+                                      disabledForegroundColor:
+                                          Colors.grey.shade500,
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                         vertical: 8,
@@ -8869,7 +8857,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     statusLower != 'ongoing' &&
                                     statusLower != 'active' &&
                                     statusLower != 'approved' &&
-                                    statusLower != 'return_pending_inspection' &&
+                                    statusLower !=
+                                        'return_pending_inspection' &&
                                     booking['return_inspected_at'] != null &&
                                     completionStage == 'operator_rating')
                                   ElevatedButton.icon(
@@ -8922,9 +8911,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final type = booking['reservation_payment_type']?.toString() ?? '';
     final coversTotal = booking['reservation_payment_covers_total'] == true;
     final rawBookingStatus =
-        (booking['status']?.toString() ?? booking['rawStatus']?.toString() ?? '')
+        (booking['status']?.toString() ??
+                booking['rawStatus']?.toString() ??
+                '')
             .toLowerCase();
-    final isBookingConfirmedOrActive = rawBookingStatus == 'approved' ||
+    final isBookingConfirmedOrActive =
+        rawBookingStatus == 'approved' ||
         rawBookingStatus == 'confirmed' ||
         rawBookingStatus == 'active' ||
         rawBookingStatus == 'ongoing' ||
@@ -8934,10 +8926,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     final status = isBookingConfirmedOrActive
         ? 'Verified & Confirmed'
-        : (booking['reservation_payment_status']?.toString().trim().isNotEmpty ==
-                true
-            ? booking['reservation_payment_status'].toString()
-            : 'Not submitted');
+        : (booking['reservation_payment_status']
+                      ?.toString()
+                      .trim()
+                      .isNotEmpty ==
+                  true
+              ? booking['reservation_payment_status'].toString()
+              : 'Not submitted');
 
     final method =
         booking['reservation_payment_method']?.toString().trim().isNotEmpty ==
@@ -9451,7 +9446,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       autosweepBalanceController: autosweepBalanceController,
                       easytripBalanceController: easytripBalanceController,
                       toolsRemarksController: toolsRemarksController,
-                      cleanlinessRemarksController: cleanlinessRemarksController,
+                      cleanlinessRemarksController:
+                          cleanlinessRemarksController,
                       otherItemsController: otherItemsController,
                       othersRemarksController: othersRemarksController,
                       releasedByController: releasedByController,
@@ -9549,7 +9545,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
       ),
     );
-
 
     if (shouldSave != true) {
       for (final controller in inspectionControllers) {

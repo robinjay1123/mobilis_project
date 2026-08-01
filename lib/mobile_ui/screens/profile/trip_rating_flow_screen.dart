@@ -38,6 +38,11 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   List<Map<String, dynamic>> _targets = [];
   int _currentIndex = 0;
   double _selectedRating = 0;
+  String _emptyTitle = 'Ratings already completed';
+  String _emptyMessage =
+      'There are no pending reviews for you at this trip stage.';
+  IconData _emptyIcon = Icons.check_circle_outline_rounded;
+  Color _emptyIconColor = AppColors.success;
   final List<File> _selectedImages = [];
   final Set<String> _selectedTags = {};
 
@@ -57,7 +62,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     final reviewerId = AuthService().currentUser?.id;
     if (reviewerId == null) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() {
+        _emptyTitle = 'Sign in required';
+        _emptyMessage = 'Please sign in again before rating this trip.';
+        _emptyIcon = Icons.lock_outline_rounded;
+        _emptyIconColor = AppColors.error;
+        _isLoading = false;
+      });
       return;
     }
 
@@ -73,24 +84,42 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     );
 
     var completionRecovered = false;
+    var emptyTitle = 'No pending rating found';
+    var emptyMessage =
+        'Refresh the booking details and try again. If this trip was just updated, it may take a moment to sync.';
+    var emptyIcon = Icons.info_outline_rounded;
+    var emptyIconColor = AppColors.warning;
     if (targets.isEmpty) {
       final bookingContext = await _tripRatingService.getBookingContext(
         widget.bookingId,
       );
-      final isAlreadyCompleted =
-          bookingContext?['status']?.toString().trim().toLowerCase() ==
-              'completed' ||
+      final stage =
           bookingContext?['completion_stage']
-                  ?.toString()
-                  .trim()
-                  .toLowerCase() ==
-              'completed';
+              ?.toString()
+              .trim()
+              .toLowerCase() ??
+          '';
+      final status =
+          bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
+      final expectedStage = '${cleanReviewerRole}_rating';
+      final isAlreadyCompleted = status == 'completed' || stage == 'completed';
       if (isAlreadyCompleted) {
         completionRecovered = await _tripRatingService
             .reconcileCompletedBooking(
               widget.bookingId,
               operatorFallbackUserId: operatorFallbackUserId,
             );
+        emptyTitle = 'Ratings already completed';
+        emptyMessage = completionRecovered
+            ? 'This trip is now completed and its revenue is being recorded.'
+            : 'There are no pending reviews for you at this trip stage.';
+        emptyIcon = Icons.check_circle_outline_rounded;
+        emptyIconColor = AppColors.success;
+      } else if (stage.isNotEmpty && stage != expectedStage) {
+        emptyTitle = 'Rating not ready yet';
+        emptyMessage = _stageWaitingMessage(stage);
+        emptyIcon = Icons.hourglass_bottom_rounded;
+        emptyIconColor = AppColors.warning;
       }
     }
 
@@ -98,11 +127,35 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     setState(() {
       _targets = targets;
       _completionRecovered = completionRecovered;
+      _emptyTitle = emptyTitle;
+      _emptyMessage = emptyMessage;
+      _emptyIcon = emptyIcon;
+      _emptyIconColor = emptyIconColor;
       _isLoading = false;
     });
 
     if (targets.isEmpty) {
       _showAlreadyCompletedDialog();
+    }
+  }
+
+  String _stageWaitingMessage(String stage) {
+    final readable = stage.replaceAll('_', ' ');
+    switch (stage) {
+      case 'operator_rating':
+        return 'The operator must rate the renter before the next trip step can continue.';
+      case 'partner_rating':
+        return 'The partner must rate the renter before the next trip step can continue.';
+      case 'driver_rating':
+        return 'The assigned driver must rate the renter before the renter can finish final ratings.';
+      case 'renter_rating':
+        return 'This trip is waiting for the renter final ratings.';
+      case 'awaiting_payment':
+        return 'Final payment review is required before ratings can start.';
+      case 'return_checklist':
+        return 'The return checklist must be completed before ratings can start.';
+      default:
+        return 'This trip is not ready for your rating yet. Current stage: $readable.';
     }
   }
 
@@ -380,8 +433,60 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   }
 
   Widget _buildNoTargetsState() {
-    return const Center(
-      child: CircularProgressIndicator(color: AppColors.primary),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_emptyIcon, color: _emptyIconColor, size: 58),
+              const SizedBox(height: 14),
+              Text(
+                _emptyTitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _emptyMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context, _completionRecovered),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'Back to Bookings',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -398,16 +503,12 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.check_circle_outline,
-              color: AppColors.success,
-              size: 58,
-            ),
+            Icon(_emptyIcon, color: _emptyIconColor, size: 58),
             const SizedBox(height: 14),
-            const Text(
-              'Ratings already completed',
+            Text(
+              _emptyTitle,
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -415,9 +516,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              _completionRecovered
-                  ? 'This trip is now completed and its revenue is being recorded.'
-                  : 'There are no pending reviews for you at this trip stage.',
+              _emptyMessage,
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary),
             ),
