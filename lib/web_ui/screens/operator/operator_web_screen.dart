@@ -817,11 +817,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (bookingId.isEmpty) return;
 
     try {
-      final record = await BookingInspectionService().getCompletedInspection(
-        bookingId: bookingId,
-        inspectionType: inspectionType,
-      );
-      if (!mounted) return;
+    final record = await BookingInspectionService().getCompletedInspection(
+      bookingId: bookingId,
+      inspectionType: inspectionType,
+    );
+    final status =
+        booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (inspectionType == 'before' &&
+        allowCreate &&
+        (status == 'approved' || status == 'confirmed')) {
+      try {
+        final inspectorId =
+            Supabase.instance.client.auth.currentUser?.id;
+        if (inspectorId == null) {
+          throw Exception('Please sign in again');
+        }
+        await BookingService().startBookingAfterInspection(
+          bookingId: bookingId,
+          inspectorId: inspectorId,
+        );
+        if (!mounted) return;
+        await _loadDashboardData(showLoading: false);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Trip started successfully')),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to start trip: $error')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
       await showVehicleInspectionRecordDialog(
         context,
         record: record,
