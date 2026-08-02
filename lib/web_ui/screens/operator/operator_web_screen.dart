@@ -7539,12 +7539,28 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     'Driver Fee',
                     'PHP ${(booking['driver_fee'] as num).toDouble().toStringAsFixed(2)}',
                   ),
-                if ((booking['late_return_fee'] as num?)?.toDouble() != null &&
-                    ((booking['late_return_fee'] as num).toDouble() > 0))
+                if (((booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0) > 0 ||
+                    ((booking['extension_fee'] as num?)?.toDouble() ?? 0.0) > 0) ...[
                   _buildOperatorSafetyLine(
-                    'Late Return Penalty (${(booking['late_return_hours'] as num?)?.toInt() ?? 1}h @ ₱300/hr)',
-                    'PHP ${(booking['late_return_fee'] as num).toDouble().toStringAsFixed(2)}',
+                    'Trip Extension Fee',
+                    'PHP ${((booking['extension_additional_price'] as num?)?.toDouble() ?? (booking['extension_fee'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                   ),
+                ],
+                () {
+                  final lateHours = (booking['late_return_hours'] as num?)?.toInt() ?? 0;
+                  final rawLateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+                  final actualLateFee = lateHours > 0
+                      ? (rawLateFee > 0 && rawLateFee <= lateHours * 1000 ? rawLateFee : lateHours * 300.0)
+                      : (rawLateFee > 0 && rawLateFee <= 3000 ? rawLateFee : 0.0);
+                  if (actualLateFee > 0 || lateHours > 0) {
+                    final displayHours = lateHours > 0 ? lateHours : (actualLateFee / 300.0).ceil();
+                    return _buildOperatorSafetyLine(
+                      'Late Return Penalty (${displayHours}h @ ₱300/hr)',
+                      'PHP ${actualLateFee > 0 ? actualLateFee.toStringAsFixed(2) : (displayHours * 300.0).toStringAsFixed(2)}',
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }(),
                 _buildOperatorSafetyLine(
                   'Reservation Deposit Paid',
                   'PHP ${((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0).toStringAsFixed(2)} (${booking['reservation_payment_method'] ?? 'E-Wallet'} ref: ${booking['reservation_payment_reference'] ?? 'N/A'})',
