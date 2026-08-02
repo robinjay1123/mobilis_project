@@ -7523,10 +7523,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                _buildOperatorSafetyLine(
-                  'Rental Duration',
-                  '${(booking['days'] as num?)?.toInt() ?? 1} Day(s)',
-                ),
+                () {
+                  final vehicle = booking['vehicles'] is Map<String, dynamic>
+                      ? Map<String, dynamic>.from(booking['vehicles'])
+                      : <String, dynamic>{};
+                  final dailyRate = (vehicle['price_per_day'] as num?)?.toDouble() ??
+                      (vehicle['daily_rate'] as num?)?.toDouble() ??
+                      (vehicle['rental_rate'] as num?)?.toDouble() ??
+                      (booking['daily_rate'] as num?)?.toDouble() ??
+                      (booking['price_per_day'] as num?)?.toDouble() ??
+                      0.0;
+                  final days = (booking['days'] as num?)?.toInt() ?? 1;
+                  final subtotal = (booking['rental_subtotal'] as num?)?.toDouble() ??
+                      (booking['subtotal'] as num?)?.toDouble() ??
+                      (dailyRate > 0 ? dailyRate * days : 0.0);
+
+                  if (dailyRate > 0) {
+                    return Column(
+                      children: [
+                        _buildOperatorSafetyLine(
+                          'Vehicle Daily Rate',
+                          'PHP ${dailyRate.toStringAsFixed(2)} / day',
+                        ),
+                        _buildOperatorSafetyLine(
+                          'Rental Duration',
+                          '$days Day(s) (Subtotal: PHP ${(subtotal > 0 ? subtotal : (dailyRate * days)).toStringAsFixed(2)})',
+                        ),
+                      ],
+                    );
+                  }
+                  return _buildOperatorSafetyLine(
+                    'Rental Duration',
+                    '$days Day(s)',
+                  );
+                }(),
                 if ((booking['delivery_fee'] as num?)?.toDouble() != null &&
                     ((booking['delivery_fee'] as num).toDouble() > 0))
                   _buildOperatorSafetyLine(
