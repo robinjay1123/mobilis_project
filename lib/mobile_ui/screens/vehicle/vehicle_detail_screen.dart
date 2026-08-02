@@ -34,6 +34,8 @@ import '../../../utils/currency_formatter.dart';
 import '../../../utils/input_validation.dart';
 import '../../../utils/web_html.dart' as html;
 
+enum BookingMode { daily, hourly }
+
 class VehicleDetailScreen extends StatefulWidget {
   final String vehicleId;
   final Map<String, dynamic>? vehicleData;
@@ -53,6 +55,7 @@ class VehicleDetailScreen extends StatefulWidget {
 }
 
 class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
+  BookingMode _bookingMode = BookingMode.daily;
   Map<String, dynamic>? _vehicle;
   bool _isLoading = true;
   bool _isBooking = false;
@@ -1035,7 +1038,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   DateTime? get _endAtLocal {
     final d = _selectedEndDate;
-    final time = _returnTime;
+    final time = _bookingMode == BookingMode.daily ? _startTime : _returnTime;
     if (d == null || time == null) return null;
     return DateTime(d.year, d.month, d.day, time.hour, time.minute);
   }
@@ -1125,10 +1128,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Future<void> _selectStartSlot(DateTime slot) async {
     setState(() {
       _startTime = TimeOfDay.fromDateTime(slot);
-      _returnTime = null;
-      _availableReturnSlots = [];
+      if (_bookingMode == BookingMode.daily) {
+        _returnTime = TimeOfDay.fromDateTime(slot);
+        _availableReturnSlots = [];
+      } else {
+        _returnTime = null;
+        _availableReturnSlots = [];
+      }
       _isLoadingTimeSlots = true;
     });
+
+    if (_bookingMode == BookingMode.daily) {
+      if (mounted) setState(() => _isLoadingTimeSlots = false);
+      return;
+    }
 
     final endDate = _selectedEndDate;
     final rentalStart = _startAtLocal;
@@ -3154,6 +3167,116 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  // Rental Mode Toggle (Daily vs Hourly)
+                  const Text(
+                    'Rental Mode',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBgSecondary,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _bookingMode = BookingMode.daily;
+                                if (_startTime != null) {
+                                  _returnTime = _startTime;
+                                }
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _bookingMode == BookingMode.daily
+                                    ? AppColors.primary
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.calendar_today_rounded,
+                                    size: 16,
+                                    color: _bookingMode == BookingMode.daily
+                                        ? Colors.black
+                                        : AppColors.textSecondary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Daily Rental',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: _bookingMode == BookingMode.daily
+                                          ? Colors.black
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _bookingMode = BookingMode.hourly;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _bookingMode == BookingMode.hourly
+                                    ? AppColors.primary
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.access_time_rounded,
+                                    size: 16,
+                                    color: _bookingMode == BookingMode.hourly
+                                        ? Colors.black
+                                        : AppColors.textSecondary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Hourly Rental',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: _bookingMode == BookingMode.hourly
+                                          ? Colors.black
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
                   // Date selection
                   const Text(
                     'Select Dates',
@@ -3673,7 +3796,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ],
           const SizedBox(height: 16),
           Text(
-            'Start - ${_formatDate(startDate)}',
+            'Pickup Time - ${_formatDate(startDate)}',
             style: const TextStyle(
               color: AppColors.textPrimary,
               fontSize: 13,
@@ -3687,32 +3810,60 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             selectedTime: _startTime,
             onSelected: _selectStartSlot,
           ),
-          const SizedBox(height: 18),
-          Text(
-            'Return - ${_formatDate(endDate)}',
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+          if (_bookingMode == BookingMode.hourly) ...[
+            const SizedBox(height: 18),
+            Text(
+              'Return Time - ${_formatDate(endDate)}',
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          if (_startTime == null)
-            const Text(
-              'Select a start time first.',
-              style: TextStyle(color: AppColors.warning, fontSize: 11),
+            const SizedBox(height: 4),
+            if (_startTime == null)
+              const Text(
+                'Select a pickup time first.',
+                style: TextStyle(color: AppColors.warning, fontSize: 11),
+              ),
+            const SizedBox(height: 8),
+            _buildSelectableSlotGrid(
+              date: endDate,
+              availableSlots: _startTime == null
+                  ? const <DateTime>[]
+                  : _availableReturnSlots,
+              selectedTime: _returnTime,
+              onSelected: (slot) {
+                setState(() => _returnTime = TimeOfDay.fromDateTime(slot));
+              },
             ),
-          const SizedBox(height: 8),
-          _buildSelectableSlotGrid(
-            date: endDate,
-            availableSlots: _startTime == null
-                ? const <DateTime>[]
-                : _availableReturnSlots,
-            selectedTime: _returnTime,
-            onSelected: (slot) {
-              setState(() => _returnTime = TimeOfDay.fromDateTime(slot));
-            },
-          ),
+          ] else if (_startTime != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Daily Mode: Return time is automatically set to ${_startTime!.format(context)} on ${_formatDate(endDate)}.',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
