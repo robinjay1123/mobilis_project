@@ -116,6 +116,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   RealtimeChannel? _bookingFlowChannel;
   RealtimeChannel? _conversationMessagesChannel;
   Map<String, List<Map<String, dynamic>>> _messages = {};
+  bool _isSendingMessage = false;
   final Map<String, List<Map<String, dynamic>>> _conversationParticipants = {};
   final Map<String, MobilisMapPoint?> _addressCoordinateCache = {};
 
@@ -10770,6 +10771,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _sendMessage(String conversationId, String content) async {
     if (content.trim().isEmpty) return;
+    if (_isSendingMessage) return; // prevent double-send
+
+    setState(() => _isSendingMessage = true);
+    _messageController.clear(); // clear immediately to prevent re-submit
 
     try {
       final currentUserId = _supabase.auth.currentUser?.id;
@@ -10783,7 +10788,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         content: content,
       );
 
-      _messageController.clear();
+      // Optimistically merge the sent message immediately so it appears
+      // without waiting for the realtime channel event.
       if (mounted) {
         setState(() => _mergeOperatorMessage(conversationId, sentMessage));
       }
@@ -10799,6 +10805,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSendingMessage = false);
     }
   }
 
@@ -12034,16 +12042,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 const SizedBox(width: 10),
                 IconButton.filled(
-                  onPressed: () => _sendMessage(
-                    _selectedConversationId,
-                    _messageController.text,
-                  ),
+                  onPressed: _isSendingMessage
+                      ? null
+                      : () => _sendMessage(
+                            _selectedConversationId,
+                            _messageController.text,
+                          ),
                   style: IconButton.styleFrom(
-                    backgroundColor: _operatorGold,
+                    backgroundColor: _isSendingMessage
+                        ? Colors.grey
+                        : _operatorGold,
                     foregroundColor: _operatorNavyDeep,
                     minimumSize: const Size(48, 48),
                   ),
-                  icon: const Icon(Icons.send_rounded),
+                  icon: _isSendingMessage
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded),
                 ),
               ],
             ),

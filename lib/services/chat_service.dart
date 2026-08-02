@@ -283,24 +283,31 @@ class ChatService {
   }
 
   bool _isVisibleConversation(Map<String, dynamic> conversation) {
-    final booking = conversation['bookings'];
-    if (booking is! Map) return true;
-
+    // Hide only explicitly closed/archived conversations (operator/admin action).
     final conversationStatus =
         conversation['status']?.toString().trim().toLowerCase() ?? 'active';
     if (conversationStatus == 'closed' || conversationStatus == 'archived') {
       return false;
     }
 
+    // If there is no linked booking the conversation is always visible
+    // (e.g. customer-service / direct chats).
+    final booking = conversation['bookings'];
+    if (booking is! Map) return true;
+
+    // Only hide conversations whose booking has been hard-cancelled/rejected.
+    // Every other status (pending, requested, reserved, approved, active,
+    // confirmed, ongoing, completed, paid, returned, etc.) remains visible
+    // so that the renter can always access their chat thread.
+    const hiddenBookingStatuses = {
+      'cancelled',
+      'canceled',
+      'rejected',
+      'declined',
+    };
     final bookingStatus =
         booking['status']?.toString().trim().toLowerCase() ?? '';
-    const visibleBookingStatuses = {
-      'approved',
-      'confirmed',
-      'active',
-      'ongoing',
-    };
-    return visibleBookingStatuses.contains(bookingStatus);
+    return !hiddenBookingStatuses.contains(bookingStatus);
   }
 
   String _conversationVehicleImageUrl(Map<String, dynamic> conversation) {
