@@ -6911,7 +6911,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ),
                           icon: const Icon(Icons.fact_check_outlined, size: 17),
                           label: const Text(
-                            'Submit Checklist & Start Trip',
+                            'Pre-Checklist & Inspection',
                             maxLines: 1,
                             softWrap: false,
                           ),
@@ -7471,6 +7471,53 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       booking['co_traveler_selfie_url'],
                     ),
                   ],
+                ),
+                Divider(color: Colors.white.withOpacity(0.12), height: 22),
+                const Text(
+                  'FINAL PAYMENT & PENALTY BREAKDOWN',
+                  style: TextStyle(
+                    color: Color(0xFF91A9BE),
+                    fontSize: 9,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildOperatorSafetyLine(
+                  'Rental Duration',
+                  '${(booking['days'] as num?)?.toInt() ?? 1} Day(s)',
+                ),
+                if ((booking['delivery_fee'] as num?)?.toDouble() != null &&
+                    ((booking['delivery_fee'] as num).toDouble() > 0))
+                  _buildOperatorSafetyLine(
+                    'Delivery Fee',
+                    'PHP ${(booking['delivery_fee'] as num).toDouble().toStringAsFixed(2)}',
+                  ),
+                if ((booking['driver_fee'] as num?)?.toDouble() != null &&
+                    ((booking['driver_fee'] as num).toDouble() > 0))
+                  _buildOperatorSafetyLine(
+                    'Driver Fee',
+                    'PHP ${(booking['driver_fee'] as num).toDouble().toStringAsFixed(2)}',
+                  ),
+                if ((booking['late_return_fee'] as num?)?.toDouble() != null &&
+                    ((booking['late_return_fee'] as num).toDouble() > 0))
+                  _buildOperatorSafetyLine(
+                    'Late Return Penalty (₱300/hr)',
+                    'PHP ${(booking['late_return_fee'] as num).toDouble().toStringAsFixed(2)}',
+                  ),
+                _buildOperatorSafetyLine(
+                  'Reservation Deposit Paid',
+                  'PHP ${((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0).toStringAsFixed(2)} (${booking['reservation_payment_method'] ?? 'E-Wallet'} ref: ${booking['reservation_payment_reference'] ?? 'N/A'})',
+                ),
+                if (booking['final_payment_reference'] != null ||
+                    booking['renter_return_payment_amount'] != null)
+                  _buildOperatorSafetyLine(
+                    'Final Return Settlement Paid',
+                    'PHP ${((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)} (${booking['final_payment_method'] ?? 'E-Wallet'} ref: ${booking['final_payment_reference'] ?? 'N/A'})',
+                  ),
+                _buildOperatorSafetyLine(
+                  'Total Final Trip Cost',
+                  'PHP ${((booking['total_price'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                 ),
               ],
             ),

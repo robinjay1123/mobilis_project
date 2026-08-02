@@ -6,6 +6,7 @@ import 'chat_service.dart';
 import 'booking_settlement_service.dart';
 import 'image_optimization_service.dart';
 import 'notification_service.dart';
+import 'loyalty_service.dart';
 
 class TripRatingService {
   static final TripRatingService _instance = TripRatingService._internal();
@@ -959,6 +960,15 @@ class TripRatingService {
       );
     }
     await ChatService().closeConversation(bookingId);
+
+    final renterId = completionContext['renter_id']?.toString();
+    if (renterId != null && renterId.isNotEmpty) {
+      await LoyaltyService().awardPointsForCompletedBooking(
+        renterId: renterId,
+        bookingId: bookingId,
+        totalCost: (completionContext['total_price'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
 
     final participantIds = <String>{
       if (completionContext['renter_id']?.toString().isNotEmpty == true)
