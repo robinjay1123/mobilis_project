@@ -353,16 +353,17 @@ class TripRatingService {
 
     if (cleanRole == 'renter') {
       if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
-        addTarget(resolvedOwner, 'partner', 'How was the partner and vehicle service?');
+        addTarget(resolvedOwner, 'partner', 'How was the partner and vehicle service?', allowSelf: true);
       }
       if (resolvedOperatorId.isNotEmpty) {
-        addTarget(resolvedOperator, 'operator', 'How was the PSDC operator and rental service?');
+        addTarget(resolvedOperator, 'operator', 'How was the PSDC operator and rental service?', allowSelf: true);
       }
       if (hasDriver) {
         addTarget(
           resolvedDriver,
           'driver',
           'How was your experience with the driver?',
+          allowSelf: true,
         );
       }
       // Renter also rates the vehicle
