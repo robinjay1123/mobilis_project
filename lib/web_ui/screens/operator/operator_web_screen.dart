@@ -7533,10 +7533,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       (booking['daily_rate'] as num?)?.toDouble() ??
                       (booking['price_per_day'] as num?)?.toDouble() ??
                       0.0;
-                  final days = (booking['days'] as num?)?.toInt() ?? 1;
-                  final subtotal = (booking['rental_subtotal'] as num?)?.toDouble() ??
-                      (booking['subtotal'] as num?)?.toDouble() ??
-                      (dailyRate > 0 ? dailyRate * days : 0.0);
+
+                  final startRaw = booking['start_at']?.toString() ?? booking['start_date']?.toString();
+                  final endRaw = booking['end_at']?.toString() ?? booking['end_date']?.toString();
+                  final startDate = startRaw != null ? DateTime.tryParse(startRaw)?.toLocal() : null;
+                  final endDate = endRaw != null ? DateTime.tryParse(endRaw)?.toLocal() : null;
+
+                  int totalHours = 0;
+                  if (startDate != null && endDate != null && endDate.isAfter(startDate)) {
+                    totalHours = endDate.difference(startDate).inHours;
+                  }
+
+                  final fullDays = totalHours ~/ 24;
+                  final excessHours = totalHours % 24;
+
+                  String durationLabel = '';
+                  if (fullDays > 0 && excessHours > 0) {
+                    durationLabel = '$fullDays Day(s) $excessHours Hour(s)';
+                  } else if (fullDays > 0) {
+                    durationLabel = '$fullDays Day(s)';
+                  } else if (excessHours > 0) {
+                    durationLabel = '$excessHours Hour(s)';
+                  } else {
+                    final fallbackDays = (booking['days'] as num?)?.toInt() ?? 1;
+                    durationLabel = '$fallbackDays Day(s)';
+                  }
+
+                  final hourlyRate = dailyRate > 0 ? dailyRate / 24.0 : 0.0;
+                  double subtotal = 0.0;
+                  if (totalHours > 0 && dailyRate > 0) {
+                    subtotal = (fullDays * dailyRate) + (excessHours * hourlyRate);
+                  } else {
+                    final fallbackDays = (booking['days'] as num?)?.toInt() ?? 1;
+                    subtotal = (booking['rental_subtotal'] as num?)?.toDouble() ??
+                        (booking['subtotal'] as num?)?.toDouble() ??
+                        (dailyRate > 0 ? dailyRate * fallbackDays : 0.0);
+                  }
 
                   if (dailyRate > 0) {
                     return Column(
@@ -7547,14 +7579,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                         _buildOperatorSafetyLine(
                           'Rental Duration',
-                          '$days Day(s) (Subtotal: PHP ${(subtotal > 0 ? subtotal : (dailyRate * days)).toStringAsFixed(2)})',
+                          '$durationLabel (Subtotal: PHP ${subtotal.toStringAsFixed(2)})',
                         ),
                       ],
                     );
                   }
                   return _buildOperatorSafetyLine(
                     'Rental Duration',
-                    '$days Day(s)',
+                    durationLabel,
                   );
                 }(),
                 if ((booking['delivery_fee'] as num?)?.toDouble() != null &&
