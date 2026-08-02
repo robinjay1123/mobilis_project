@@ -25,11 +25,78 @@ class BookingService {
   final supabase = Supabase.instance.client;
   static const List<String> _bookingBlockingStatuses = [
     'pending',
+    'Pending',
+    'PENDING',
+    'requested',
+    'Requested',
+    'REQUESTED',
+    'reserved',
+    'Reserved',
+    'RESERVED',
     'approved',
+    'Approved',
+    'APPROVED',
     'confirmed',
+    'Confirmed',
+    'CONFIRMED',
     'active',
+    'Active',
+    'ACTIVE',
     'ongoing',
+    'Ongoing',
+    'ONGOING',
+    'paid',
+    'Paid',
+    'PAID',
+    'unpaid',
+    'Unpaid',
+    'UNPAID',
+    'in_progress',
+    'In_Progress',
+    'IN_PROGRESS',
   ];
+
+  static const Set<String> _nonBlockingStatuses = {
+    'cancelled',
+    'canceled',
+    'rejected',
+    'completed',
+    'returned',
+    'expired',
+  };
+
+  static bool _isBlockingStatus(String? status) {
+    if (status == null) return false;
+    final normalized = status.toString().trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    return !_nonBlockingStatuses.contains(normalized);
+  }
+
+  static (DateTime, DateTime)? _bookingInterval(Map<String, dynamic> row) {
+    final startAt = row['start_at']?.toString().trim() ?? '';
+    final endAt = row['end_at']?.toString().trim() ?? '';
+    if (startAt.isNotEmpty && endAt.isNotEmpty) {
+      final start = DateTime.tryParse(startAt)?.toLocal();
+      final end = DateTime.tryParse(endAt)?.toLocal();
+      if (start != null && end != null && end.isAfter(start)) {
+        return (start, end);
+      }
+    }
+
+    final startDate = DateTime.tryParse(
+      row['start_date']?.toString().trim() ?? '',
+    );
+    final endDate = DateTime.tryParse(row['end_date']?.toString().trim() ?? '');
+    if (startDate == null || endDate == null) return null;
+    final start = DateTime(startDate.year, startDate.month, startDate.day);
+    final inclusiveEnd = DateTime(endDate.year, endDate.month, endDate.day).add(const Duration(days: 1));
+    return (
+      start,
+      inclusiveEnd.isAfter(start)
+          ? inclusiveEnd
+          : start.add(const Duration(days: 1)),
+    );
+  }
 
   /// App-side fallback for projects where the scheduled database job is not
   /// available. The database function is idempotent and only touches overdue
@@ -346,17 +413,21 @@ class BookingService {
 
       final overlappingBookings = await supabase
           .from('bookings')
-          .select('id')
+          .select('id,start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
-          .inFilter('status', _bookingBlockingStatuses)
-          // Half-open overlap rule:
-          // overlap if new_start < existing_end AND new_end > existing_start
-          .lt('start_at', endAt.toIso8601String())
-          .gt('end_at', startAt.toIso8601String())
-          .limit(1);
+          .inFilter('status', _bookingBlockingStatuses);
 
-      if (overlappingBookings.isNotEmpty) {
-        throw Exception('Selected dates are unavailable for bookings');
+      for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+        final status = b['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
+        final interval = _bookingInterval(b);
+        if (interval == null) continue;
+        final (existingStart, existingEnd) = interval;
+        if (startAt.isBefore(existingEnd) && endAt.isAfter(existingStart)) {
+          throw Exception(
+            'Selected dates or hours overlap with an existing or pending booking.',
+          );
+        }
       }
 
       final bookingPayload = <String, dynamic>{

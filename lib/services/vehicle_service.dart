@@ -16,11 +16,52 @@ class VehicleService {
       'vehicle_images!vehicle_images_vehicle_id_fkey(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',
+    'Pending',
+    'PENDING',
+    'requested',
+    'Requested',
+    'REQUESTED',
+    'reserved',
+    'Reserved',
+    'RESERVED',
     'approved',
+    'Approved',
+    'APPROVED',
     'confirmed',
+    'Confirmed',
+    'CONFIRMED',
     'active',
+    'Active',
+    'ACTIVE',
     'ongoing',
+    'Ongoing',
+    'ONGOING',
+    'paid',
+    'Paid',
+    'PAID',
+    'unpaid',
+    'Unpaid',
+    'UNPAID',
+    'in_progress',
+    'In_Progress',
+    'IN_PROGRESS',
   ];
+
+  static const Set<String> _nonBlockingStatuses = {
+    'cancelled',
+    'canceled',
+    'rejected',
+    'completed',
+    'returned',
+    'expired',
+  };
+
+  static bool _isBlockingStatus(String? status) {
+    if (status == null) return false;
+    final normalized = status.toString().trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    return !_nonBlockingStatuses.contains(normalized);
+  }
 
   factory VehicleService() => _instance;
   VehicleService._internal();
@@ -700,11 +741,13 @@ class VehicleService {
 
       final response = await supabase
           .from('bookings')
-          .select('start_at,end_at,start_date,end_date')
+          .select('start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
           .inFilter('status', _bookingBlockingStatuses);
       final intervalsByDay = <String, List<(DateTime, DateTime)>>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
+        final status = row['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
         if (interval == null) continue;
         final (start, end) = interval;
@@ -746,12 +789,14 @@ class VehicleService {
     try {
       final response = await supabase
           .from('bookings')
-          .select('start_at,end_at,start_date,end_date')
+          .select('start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
           .inFilter('status', _bookingBlockingStatuses);
 
       final dates = <String, DateTime>{};
       for (final row in List<Map<String, dynamic>>.from(response)) {
+        final status = row['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
         if (interval == null) continue;
         final (start, endExclusive) = interval;
@@ -802,11 +847,13 @@ class VehicleService {
 
       final bookingRows = await supabase
           .from('bookings')
-          .select('start_at,end_at,start_date,end_date')
+          .select('start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
           .inFilter('status', _bookingBlockingStatuses);
       final bookedIntervals = <(DateTime, DateTime)>[];
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final status = row['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
         if (interval == null) continue;
         final (start, end) = interval;
@@ -873,10 +920,12 @@ class VehicleService {
 
       final bookingRows = await supabase
           .from('bookings')
-          .select('start_at,end_at,start_date,end_date')
+          .select('start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
           .inFilter('status', _bookingBlockingStatuses);
       for (final row in List<Map<String, dynamic>>.from(bookingRows)) {
+        final status = row['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
         final interval = _bookingInterval(row);
         if (interval == null) continue;
         final (bookedStart, bookedEnd) = interval;
