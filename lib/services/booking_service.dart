@@ -9,6 +9,7 @@ import 'user_restriction_service.dart';
 import 'vehicle_service.dart';
 import 'booking_inspection_service.dart';
 import 'trip_rating_service.dart';
+import 'loyalty_service.dart';
 import '../utils/pricing_policy.dart';
 
 
@@ -2035,11 +2036,8 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (status != 'active' &&
-        status != 'ongoing' &&
-        status != 'return_pending_inspection') {
-      if (status == 'completed') return;
-      throw Exception('Only ongoing bookings can complete a return checklist');
+    if (status == 'completed' || status == 'cancelled' || status == 'rejected') {
+      return;
     }
     await _postInspectionAuditToBookingChat(
       booking: booking,
@@ -2050,34 +2048,33 @@ class BookingService {
     final returnedAt = DateTime.now();
     final now = returnedAt.toIso8601String();
     final lateReturn = _lateReturnValues(booking, returnedAt);
-    final actor = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', inspectorId)
-        .maybeSingle();
-    final actorRole = actor?['role']?.toString().trim().toLowerCase();
-    final firstReviewerRole = actorRole == 'partner' ? 'partner' : 'operator';
-    final coversTotal = booking['reservation_payment_covers_total'] == true;
-    final lateFee = lateReturn['late_return_fee'] as double;
-    final isFullyPaid = coversTotal && lateFee <= 0;
-    final completionStage = isFullyPaid
-        ? '${firstReviewerRole}_rating'
-        : 'awaiting_payment';
 
     await supabase
         .from('bookings')
         .update({
-          'status': 'awaiting_completion',
+          'status': 'completed',
           'returned_at': now,
-          'completed_at': null,
-          'completion_stage': completionStage,
-          'final_payment_status': isFullyPaid ? 'paid' : 'pending',
-          if (isFullyPaid) 'final_payment_confirmed_at': now,
-          if (isFullyPaid) 'final_payment_confirmed_by': inspectorId,
+          'completed_at': now,
+          'completion_stage': 'completed',
+          'final_payment_status': 'paid',
+          'final_payment_confirmed_at': now,
+          'final_payment_confirmed_by': inspectorId,
           ...lateReturn,
           'updated_at': now,
         })
         .eq('id', bookingId);
+
+    try {
+      await LoyaltyService().awardPointsForCompletedBooking(bookingId);
+    } catch (e) {
+      debugPrint('Could not award loyalty points: $e');
+    }
+
+    try {
+      await TripRatingService().syncRatingFlowForBooking(bookingId);
+    } catch (e) {
+      debugPrint('Could not sync rating flow: $e');
+    }
 
     final driverId = booking['driver_id']?.toString();
     if (driverId?.isNotEmpty == true) {
@@ -2100,36 +2097,10 @@ class BookingService {
     if (renterId?.isNotEmpty == true) {
       await NotificationService().createNotification(
         userId: renterId!,
-        title: isFullyPaid
-            ? 'Vehicle Returned - Rating Required'
-            : 'Vehicle Returned - Final Payment Required',
-        message:
-            'The after-return checklist is complete. The trip will be completed after full payment and all required ratings. Late fee: ${PricingPolicy.peso(lateFee)}.',
-        type: 'booking_awaiting_completion',
+        title: 'Vehicle Return Inspected & Trip Completed',
+        message: 'The return inspection is complete and your trip is marked as completed! Don\'t forget to rate your experience.',
+        type: 'trip_completed',
         data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
-      );
-    }
-
-    final vehicle = booking['vehicles'] is Map<String, dynamic>
-        ? Map<String, dynamic>.from(booking['vehicles'])
-        : <String, dynamic>{};
-    String? firstReviewerId;
-    if (firstReviewerRole == 'partner') {
-      firstReviewerId = vehicle['owner_id']?.toString();
-    } else {
-      firstReviewerId = booking['operator_id']?.toString().trim();
-      if (firstReviewerId == null || firstReviewerId.isEmpty) {
-        firstReviewerId = inspectorId;
-      }
-    }
-    if (isFullyPaid && firstReviewerId?.isNotEmpty == true) {
-      await NotificationService().createNotification(
-        userId: firstReviewerId!,
-        title: 'Mandatory Renter Rating Required',
-        message:
-            'The return checklist and payment are complete. Rate the renter to continue trip completion.',
-        type: 'trip_rating_required',
-        data: {'booking_id': bookingId, 'reviewer_role': firstReviewerRole},
       );
     }
   }

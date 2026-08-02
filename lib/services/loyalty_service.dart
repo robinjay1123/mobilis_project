@@ -136,16 +136,31 @@ class LoyaltyService {
   }
 
   /// Award points and notify renter when a booking is completed
-  Future<void> awardPointsForCompletedBooking({
-    required String renterId,
-    required String bookingId,
-    required double totalCost,
+  Future<void> awardPointsForCompletedBooking(
+    String bookingId, {
+    String? renterId,
+    double totalCost = 0.0,
   }) async {
-    if (renterId.trim().isEmpty) return;
     try {
-      final profile = await getLoyaltyProfile(renterId);
+      String resolvedRenterId = renterId ?? '';
+      double resolvedCost = totalCost;
+
+      if (resolvedRenterId.isEmpty) {
+        final b = await _supabase
+            .from('bookings')
+            .select('renter_id, total_cost')
+            .eq('id', bookingId)
+            .maybeSingle();
+        if (b != null) {
+          resolvedRenterId = b['renter_id']?.toString() ?? '';
+          resolvedCost = (b['total_cost'] as num?)?.toDouble() ?? totalCost;
+        }
+      }
+      if (resolvedRenterId.trim().isEmpty) return;
+
+      final profile = await getLoyaltyProfile(resolvedRenterId);
       final newTripCount = profile.completedTripsCount + 1;
-      final pointsEarned = 150 + ((totalCost / 100).floor() * 5);
+      final pointsEarned = 150 + ((resolvedCost / 100).floor() * 5);
       final newPoints = profile.loyaltyPoints + pointsEarned;
 
       // Check if new voucher unlocked
@@ -158,7 +173,7 @@ class LoyaltyService {
       }
 
       await NotificationService().createNotification(
-        userId: renterId,
+        userId: resolvedRenterId,
         title: '🎉 Loyalty Points Earned!',
         message:
             'You earned +$pointsEarned PSDC Loyalty Points for completing your trip! Total Points: $newPoints.$unlockMsg',

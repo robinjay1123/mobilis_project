@@ -983,8 +983,8 @@ class TripRatingService {
     final renterId = completionContext['renter_id']?.toString();
     if (renterId != null && renterId.isNotEmpty) {
       await LoyaltyService().awardPointsForCompletedBooking(
+        bookingId,
         renterId: renterId,
-        bookingId: bookingId,
         totalCost: (completionContext['total_price'] as num?)?.toDouble() ?? 0.0,
       );
     }
