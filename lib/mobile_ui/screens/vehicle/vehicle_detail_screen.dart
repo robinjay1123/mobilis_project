@@ -321,6 +321,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Future<void> _selectDates() async {
     if (!await _ensureVehicleBookable()) return;
 
+    final isHourly = _bookingMode == BookingMode.hourly;
     final now = DateTime.now();
     final firstDate = DateTime(now.year, now.month, now.day);
     final initialDate = _clampToBookableDate(
@@ -329,11 +330,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     var initialEnd = _clampToBookableDate(_selectedEndDate ?? initialDate);
     if (initialEnd.isBefore(initialDate)) initialEnd = initialDate;
 
+    // Hourly bookings span at most 2 calendar days (e.g. 10pm day 1 → 2am day 2).
+    // Clamp the end date to start+1 when in hourly mode.
+    if (isHourly && initialEnd.isAfter(initialDate.add(const Duration(days: 1)))) {
+      initialEnd = initialDate.add(const Duration(days: 1));
+    }
+
+    final DateTime hourlyLastDate = firstDate.add(const Duration(days: 365));
     final DateTimeRange? picked = await _showBookingCalendarDialog(
       firstDate: firstDate,
-      lastDate: firstDate.add(const Duration(days: 365)),
+      lastDate: hourlyLastDate,
       initialStart: _selectedStartDate ?? initialDate,
       initialEnd: _selectedEndDate ?? initialEnd,
+      isHourly: isHourly,
     );
 
     if (picked == null) {
@@ -358,6 +367,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     required DateTime lastDate,
     required DateTime initialStart,
     required DateTime initialEnd,
+    bool isHourly = false,
   }) {
     var focusedDay = initialStart;
     DateTime? rangeStart = initialStart;
@@ -415,6 +425,42 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                         ],
                       ),
+                      if (isHourly) ...[
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppColors.primary.withAlpha(80),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 14,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Hourly bookings: select 1 or 2 consecutive dates only.',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 12,
@@ -489,6 +535,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             );
                             return;
                           }
+                          // Hourly mode: max 2 calendar days
+                          if (isHourly &&
+                              start != null &&
+                              end != null &&
+                              _dateOnly(end)
+                                  .difference(_dateOnly(start))
+                                  .inDays >
+                                  1) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Hourly bookings can span at most 2 days',
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
 
                           setDialogState(() {
                             rangeStart = start;
@@ -514,6 +578,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               rangeStart = selectedDay;
                               rangeEnd = null;
                             } else if (selectedDay.isBefore(rangeStart!)) {
+                              // Hourly: also check the flipped range
+                              if (isHourly &&
+                                  _dateOnly(rangeStart!)
+                                      .difference(_dateOnly(selectedDay))
+                                      .inDays >
+                                      1) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Hourly bookings can span at most 2 days',
+                                    ),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
                               rangeEnd = rangeStart;
                               rangeStart = selectedDay;
                             } else {
@@ -526,6 +606,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   const SnackBar(
                                     content: Text(
                                       'Selected range includes unavailable dates',
+                                    ),
+                                    backgroundColor: AppColors.error,
+                                  ),
+                                );
+                                return;
+                              }
+                              // Hourly: max 2 days
+                              if (isHourly &&
+                                  _dateOnly(selectedDay)
+                                      .difference(_dateOnly(rangeStart!))
+                                      .inDays >
+                                      1) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Hourly bookings can span at most 2 days',
                                     ),
                                     backgroundColor: AppColors.error,
                                   ),

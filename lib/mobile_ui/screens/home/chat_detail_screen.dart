@@ -58,6 +58,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _showSupportFaqs = true;
   bool _liveSupportEnabled = false;
   bool _showBookingActivity = true;
+  String? _bookingStatus; // tracks live booking status for read-only enforcement
   List<_SupportFaq>? _configuredSupportFaqs;
   final List<Map<String, String>> _supportAssistantMessages = [];
   final List<Map<String, dynamic>> _pendingMessages = [];
@@ -71,6 +72,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final UserRestrictionService _restrictionService = UserRestrictionService();
   UserRestrictionState _restrictionState = UserRestrictionState.empty;
   Timer? _restrictionTicker;
+
+  static const _readOnlyStatuses = {
+    'completed',
+    'returned',
+    'cancelled',
+    'canceled',
+    'rejected',
+    'declined',
+    'expired',
+  };
+
+  bool get _isConversationReadOnly =>
+      _bookingStatus != null &&
+      _readOnlyStatuses.contains(_bookingStatus!.trim().toLowerCase());
 
   String get _normalizedRole {
     final role = widget.userRole.trim().toLowerCase();
@@ -175,6 +190,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _bookingContextFuture = widget.isCustomerService
         ? Future<Map<String, dynamic>?>.value(null)
         : ChatService().getConversationBookingContext(widget.conversationId);
+    _bookingContextFuture.then((booking) {
+      if (!mounted) return;
+      final status = booking?['status']?.toString().trim().toLowerCase();
+      if (status != null) setState(() => _bookingStatus = status);
+    });
     _loadRestrictionState();
     _messageController.addListener(_handleTypingChanged);
     _setupTypingChannel();
@@ -1656,6 +1676,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           // the support inbox.
           if (widget.isCustomerService && !_liveSupportEnabled)
             _buildOpenAdminChatButton(cardColor)
+          else if (_isConversationReadOnly)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: cardColor,
+                border: Border(
+                  top: BorderSide(
+                    color: isDark
+                        ? AppColors.borderColor
+                        : AppColors.lightBorderColor,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 16,
+                    color: isDark
+                        ? AppColors.textSecondary
+                        : AppColors.lightTextSecondary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'This conversation is read-only — booking is ${_bookingStatus ?? 'completed'}.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark
+                          ? AppColors.textSecondary
+                          : AppColors.lightTextSecondary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            )
           else
             Container(
               padding: const EdgeInsets.all(12),
