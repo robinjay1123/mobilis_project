@@ -277,7 +277,18 @@ class TripRatingService {
         ? 'operator'
         : rawRole;
 
-    final operatorId = firstText([
+    final resolvedRenterId = firstText([
+      renter['id'],
+      renter['user_id'],
+      context['renter_id'],
+    ]);
+    final resolvedRenter = <String, dynamic>{
+      if (renter.isNotEmpty) ...renter,
+      if (resolvedRenterId.isNotEmpty) 'id': resolvedRenterId,
+      'full_name': renter['full_name'] ?? context['renter_name'] ?? 'Renter',
+    };
+
+    final resolvedOperatorId = firstText([
       operatorUser['id'],
       operatorUser['user_id'],
       context['operator_id'],
@@ -287,13 +298,33 @@ class TripRatingService {
       context['processed_by'],
       context['operator_user_id'],
     ]);
-    if (operatorUser.isEmpty && operatorId.isNotEmpty) {
-      operatorUser = {
-        'id': operatorId,
-        'full_name': 'Operator',
-        'role': 'operator',
-      };
-    }
+    final resolvedOperator = <String, dynamic>{
+      if (operatorUser.isNotEmpty) ...operatorUser,
+      if (resolvedOperatorId.isNotEmpty) 'id': resolvedOperatorId,
+      'full_name': operatorUser['full_name'] ?? 'PSDC Operator',
+    };
+
+    final resolvedOwnerId = firstText([
+      owner['id'],
+      owner['user_id'],
+      vehicle['owner_id'],
+    ]);
+    final resolvedOwner = <String, dynamic>{
+      if (owner.isNotEmpty) ...owner,
+      if (resolvedOwnerId.isNotEmpty) 'id': resolvedOwnerId,
+      'full_name': owner['full_name'] ?? 'Vehicle Partner',
+    };
+
+    final resolvedDriverId = firstText([
+      driverUser['id'],
+      driverUser['user_id'],
+      context['driver_id'],
+    ]);
+    final resolvedDriver = <String, dynamic>{
+      if (driverUser.isNotEmpty) ...driverUser,
+      if (resolvedDriverId.isNotEmpty) 'id': resolvedDriverId,
+      'full_name': driverUser['full_name'] ?? 'Driver',
+    };
 
     final targets = <Map<String, dynamic>>[];
 
@@ -317,31 +348,19 @@ class TripRatingService {
     }
 
     final ownerRole = _ownerRole(context, owner);
-    final hasDriver =
-        text(driverUser['id']).isNotEmpty ||
-        text(driverUser['user_id']).isNotEmpty;
+    final hasDriver = resolvedDriverId.isNotEmpty;
     final isPartnerVehicle = ownerRole == 'partner';
 
     if (cleanRole == 'renter') {
-      if (isPartnerVehicle && owner.isNotEmpty) {
-        addTarget(owner, 'partner', 'How was the partner and vehicle service?');
+      if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
+        addTarget(resolvedOwner, 'partner', 'How was the partner and vehicle service?');
       }
-      if (operatorUser.isNotEmpty || operatorId.isNotEmpty) {
-        final opUserId = firstText([operatorUser['id'], operatorUser['user_id'], operatorId]);
-        if (opUserId.isNotEmpty) {
-          targets.add({
-            'userId': opUserId,
-            'role': 'operator',
-            'name': operatorUser.isNotEmpty ? _displayName(operatorUser) : 'PSDC Operator',
-            'avatarUrl': _displayAvatar(operatorUser),
-            'prompt': 'How was the PSDC operator and rental service?',
-            'alreadyRated': false,
-          });
-        }
+      if (resolvedOperatorId.isNotEmpty) {
+        addTarget(resolvedOperator, 'operator', 'How was the PSDC operator and rental service?');
       }
       if (hasDriver) {
         addTarget(
-          driverUser,
+          resolvedDriver,
           'driver',
           'How was your experience with the driver?',
         );
@@ -370,32 +389,32 @@ class TripRatingService {
         });
       }
     } else if (cleanRole == 'driver') {
-      addTarget(renter, 'renter', 'How was the renter during the trip?');
-      if (operatorUser.isNotEmpty) {
-        addTarget(operatorUser, 'operator', 'How was the operator support?');
+      addTarget(resolvedRenter, 'renter', 'How was the renter during the trip?');
+      if (resolvedOperatorId.isNotEmpty) {
+        addTarget(resolvedOperator, 'operator', 'How was the operator support?');
       }
-      if (isPartnerVehicle && owner.isNotEmpty) {
-        addTarget(owner, 'partner', 'How was the partner vehicle support?');
+      if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
+        addTarget(resolvedOwner, 'partner', 'How was the partner vehicle support?');
       }
     } else if (cleanRole == 'partner') {
-      if (renter.isNotEmpty || renterId.isNotEmpty) {
-        addTarget(renter, 'renter', 'How was the renter during this booking?', allowSelf: true);
+      if (resolvedRenterId.isNotEmpty) {
+        addTarget(resolvedRenter, 'renter', 'How was the renter during this booking?', allowSelf: true);
       }
       if (hasDriver) {
-        addTarget(driverUser, 'driver', 'How was the assigned driver?');
+        addTarget(resolvedDriver, 'driver', 'How was the assigned driver?');
       }
-      if (operatorUser.isNotEmpty) {
-        addTarget(operatorUser, 'operator', 'How was the operator support?');
+      if (resolvedOperatorId.isNotEmpty) {
+        addTarget(resolvedOperator, 'operator', 'How was the operator support?');
       }
     } else if (cleanRole == 'operator') {
-      if (renter.isNotEmpty || renterId.isNotEmpty) {
-        addTarget(renter, 'renter', 'How was the renter during this booking?', allowSelf: true);
+      if (resolvedRenterId.isNotEmpty) {
+        addTarget(resolvedRenter, 'renter', 'How was the renter during this booking?', allowSelf: true);
       }
       if (hasDriver) {
-        addTarget(driverUser, 'driver', 'How was the assigned driver?');
+        addTarget(resolvedDriver, 'driver', 'How was the assigned driver?');
       }
-      if (isPartnerVehicle && owner.isNotEmpty) {
-        addTarget(owner, 'partner', 'How was the partner coordination?');
+      if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
+        addTarget(resolvedOwner, 'partner', 'How was the partner coordination?');
       }
     }
 

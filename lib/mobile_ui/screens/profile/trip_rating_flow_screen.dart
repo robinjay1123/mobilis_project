@@ -115,9 +115,11 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
             : 'There are no pending reviews for you at this trip stage.';
         emptyIcon = Icons.check_circle_outline_rounded;
         emptyIconColor = AppColors.success;
-      } else if (stage.isNotEmpty && stage != expectedStage) {
-        emptyTitle = 'Rating not ready yet';
-        emptyMessage = _stageWaitingMessage(stage);
+      } else {
+        emptyTitle = 'Rating Not Ready Yet';
+        emptyMessage = stage.isNotEmpty
+            ? _stageWaitingMessage(stage)
+            : 'Vehicle return, return inspection, and payment verification must be completed before trip ratings can begin.';
         emptyIcon = Icons.hourglass_bottom_rounded;
         emptyIconColor = AppColors.warning;
       }
