@@ -6939,9 +6939,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       if (statusLower == 'active' ||
                           statusLower == 'ongoing' ||
                           statusLower == 'return_pending_inspection' ||
-                          group == BookingStatusGroup.ongoing)
+                          group == BookingStatusGroup.ongoing ||
+                          booking['returned_at'] != null ||
+                          booking['returnedAt'] != null)
                         ElevatedButton.icon(
-                          onPressed: statusLower == 'return_pending_inspection'
+                          onPressed: (statusLower == 'return_pending_inspection' ||
+                                  booking['returned_at'] != null ||
+                                  booking['returnedAt'] != null)
                               ? () {
                                   Navigator.pop(dialogContext);
                                   _showInspectionDialog(
@@ -6952,26 +6956,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor:
-                                statusLower == 'return_pending_inspection'
-                                ? _operatorGold
-                                : Colors.grey.shade800,
+                                (statusLower == 'return_pending_inspection' ||
+                                        booking['returned_at'] != null ||
+                                        booking['returnedAt'] != null)
+                                    ? _operatorGold
+                                    : Colors.grey.shade800,
                             foregroundColor:
-                                statusLower == 'return_pending_inspection'
-                                ? _operatorNavyDeep
-                                : Colors.grey.shade500,
+                                (statusLower == 'return_pending_inspection' ||
+                                        booking['returned_at'] != null ||
+                                        booking['returnedAt'] != null)
+                                    ? _operatorNavyDeep
+                                    : Colors.grey.shade500,
                             disabledBackgroundColor: Colors.grey.shade800,
                             disabledForegroundColor: Colors.grey.shade500,
                             minimumSize: const Size(0, 44),
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                           ),
                           icon: Icon(
-                            statusLower == 'return_pending_inspection'
+                            (statusLower == 'return_pending_inspection' ||
+                                    booking['returned_at'] != null ||
+                                    booking['returnedAt'] != null)
                                 ? Icons.check_circle_outline_rounded
                                 : Icons.lock_clock_outlined,
                             size: 17,
                           ),
                           label: Text(
-                            statusLower == 'return_pending_inspection'
+                            (statusLower == 'return_pending_inspection' ||
+                                    booking['returned_at'] != null ||
+                                    booking['returnedAt'] != null)
                                 ? 'Confirm Return Inspection'
                                 : 'Confirm Return (Awaiting Renter)',
                             style: const TextStyle(fontWeight: FontWeight.bold),
