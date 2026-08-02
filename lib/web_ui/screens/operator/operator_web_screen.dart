@@ -7057,14 +7057,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.payments_outlined, size: 17),
                           label: const Text('Confirm Full Payment'),
                         ),
-                      if ((statusLower == 'awaiting_completion' ||
-                              statusLower == 'completed') &&
-                          statusLower != 'ongoing' &&
-                          statusLower != 'active' &&
-                          statusLower != 'approved' &&
-                          statusLower != 'return_pending_inspection' &&
-                          booking['return_inspected_at'] != null &&
-                          completionStage == 'operator_rating')
+                      if (statusLower == 'active' ||
+                          statusLower == 'ongoing' ||
+                          statusLower == 'return_pending_inspection' ||
+                          statusLower == 'awaiting_completion' ||
+                          statusLower == 'completed' ||
+                          group == BookingStatusGroup.ongoing)
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
