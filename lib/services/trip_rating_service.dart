@@ -271,6 +271,11 @@ class TripRatingService {
       };
     }
 
+    final rawRole = reviewerRole.trim().toLowerCase();
+    final cleanRole = (rawRole == 'admin' || rawRole == 'super_admin')
+        ? 'operator'
+        : rawRole;
+
     final operatorId = firstText([
       operatorUser['id'],
       operatorUser['user_id'],
@@ -291,9 +296,15 @@ class TripRatingService {
 
     final targets = <Map<String, dynamic>>[];
 
-    void addTarget(Map<String, dynamic> user, String role, String prompt) {
+    void addTarget(
+      Map<String, dynamic> user,
+      String role,
+      String prompt, {
+      bool allowSelf = false,
+    }) {
       final userId = firstText([user['id'], user['user_id']]);
-      if (userId.isEmpty || userId == reviewerUserId) return;
+      if (userId.isEmpty) return;
+      if (userId == reviewerUserId && !allowSelf) return;
       targets.add({
         'userId': userId,
         'role': role,
@@ -304,7 +315,6 @@ class TripRatingService {
       });
     }
 
-    final cleanRole = reviewerRole.trim().toLowerCase();
     final ownerRole = _ownerRole(context, owner);
     final hasDriver =
         text(driverUser['id']).isNotEmpty ||
@@ -312,14 +322,21 @@ class TripRatingService {
     final isPartnerVehicle = ownerRole == 'partner';
 
     if (cleanRole == 'renter') {
-      if (isPartnerVehicle) {
+      if (isPartnerVehicle && owner.isNotEmpty) {
         addTarget(owner, 'partner', 'How was the partner and vehicle service?');
-      } else {
-        addTarget(
-          operatorUser,
-          'operator',
-          'How was the PSDC operator and rental service?',
-        );
+      }
+      if (operatorUser.isNotEmpty || operatorId.isNotEmpty) {
+        final opUserId = firstText([operatorUser['id'], operatorUser['user_id'], operatorId]);
+        if (opUserId.isNotEmpty) {
+          targets.add({
+            'userId': opUserId,
+            'role': 'operator',
+            'name': operatorUser.isNotEmpty ? _displayName(operatorUser) : 'PSDC Operator',
+            'avatarUrl': _displayAvatar(operatorUser),
+            'prompt': 'How was the PSDC operator and rental service?',
+            'alreadyRated': false,
+          });
+        }
       }
       if (hasDriver) {
         addTarget(
@@ -328,15 +345,56 @@ class TripRatingService {
           'How was your experience with the driver?',
         );
       }
+      // Renter also rates the vehicle
+      final vehicleId = firstText([vehicle['id'], context['vehicle_id']]);
+      if (vehicleId.isNotEmpty) {
+        final vehicleName = text(vehicle['vehicle_name']).isNotEmpty
+            ? text(vehicle['vehicle_name'])
+            : [text(vehicle['brand']), text(vehicle['model'])]
+                  .where((s) => s.isNotEmpty)
+                  .join(' ');
+        final fallbackName = text(context['car_name']).isNotEmpty
+            ? text(context['car_name'])
+            : text(context['carName']);
+        final imageUrl = text(vehicle['image_url']);
+        targets.add({
+          'userId': vehicleId,
+          'role': 'vehicle',
+          'name': vehicleName.isNotEmpty
+              ? vehicleName
+              : (fallbackName.isNotEmpty ? fallbackName : 'Rental Vehicle'),
+          'avatarUrl': imageUrl,
+          'prompt': 'How was the vehicle overall?',
+          'alreadyRated': false,
+        });
+      }
     } else if (cleanRole == 'driver') {
       addTarget(renter, 'renter', 'How was the renter during the trip?');
+      if (operatorUser.isNotEmpty) {
+        addTarget(operatorUser, 'operator', 'How was the operator support?');
+      }
+      if (isPartnerVehicle && owner.isNotEmpty) {
+        addTarget(owner, 'partner', 'How was the partner vehicle support?');
+      }
     } else if (cleanRole == 'partner') {
-      if (isPartnerVehicle) {
-        addTarget(renter, 'renter', 'How was the renter during this booking?');
+      if (renter.isNotEmpty || renterId.isNotEmpty) {
+        addTarget(renter, 'renter', 'How was the renter during this booking?', allowSelf: true);
+      }
+      if (hasDriver) {
+        addTarget(driverUser, 'driver', 'How was the assigned driver?');
+      }
+      if (operatorUser.isNotEmpty) {
+        addTarget(operatorUser, 'operator', 'How was the operator support?');
       }
     } else if (cleanRole == 'operator') {
-      if (!isPartnerVehicle) {
-        addTarget(renter, 'renter', 'How was the renter during this booking?');
+      if (renter.isNotEmpty || renterId.isNotEmpty) {
+        addTarget(renter, 'renter', 'How was the renter during this booking?', allowSelf: true);
+      }
+      if (hasDriver) {
+        addTarget(driverUser, 'driver', 'How was the assigned driver?');
+      }
+      if (isPartnerVehicle && owner.isNotEmpty) {
+        addTarget(owner, 'partner', 'How was the partner coordination?');
       }
     }
 
@@ -374,7 +432,7 @@ class TripRatingService {
     final expectedStage = '${cleanRole}_rating';
     if (includePreviouslySubmittedForRecovery &&
         uniqueTargets.isNotEmpty &&
-        activeStage == expectedStage) {
+        (activeStage == expectedStage || activeStage == 'awaiting_completion' || activeStage == 'operator_rating' || activeStage == 'renter_rating')) {
       return uniqueTargets;
     }
 
@@ -513,7 +571,12 @@ class TripRatingService {
     ]);
 
     var authorized = false;
-    switch (reviewerRole) {
+    final normalizedReviewerRole =
+        (reviewerRole == 'admin' || reviewerRole == 'super_admin')
+            ? 'operator'
+            : reviewerRole.trim().toLowerCase();
+
+    switch (normalizedReviewerRole) {
       case 'renter':
         authorized = reviewerUserId == renterId;
         break;
@@ -521,7 +584,16 @@ class TripRatingService {
         authorized = reviewerUserId == driverUserId;
         break;
       case 'partner':
-        authorized = ownerRole == 'partner' && reviewerUserId == ownerId;
+        authorized = (ownerRole == 'partner' && reviewerUserId == ownerId);
+        if (!authorized) {
+          final user = await supabase
+              .from('users')
+              .select('role')
+              .eq('id', reviewerUserId)
+              .maybeSingle();
+          final role = user?['role']?.toString().trim().toLowerCase();
+          authorized = role == 'operator' || role == 'admin' || role == 'super_admin';
+        }
         break;
       case 'operator':
         final user = await supabase
@@ -530,12 +602,10 @@ class TripRatingService {
             .eq('id', reviewerUserId)
             .maybeSingle();
         final role = user?['role']?.toString().trim().toLowerCase();
-        final isOpsUser = role == 'operator' || role == 'admin';
+        final isOpsUser =
+            role == 'operator' || role == 'admin' || role == 'super_admin';
         if (isOpsUser) {
-          authorized =
-              operatorId.isEmpty ||
-              operatorId == reviewerUserId ||
-              ownerRole == 'partner';
+          authorized = true;
         }
         break;
     }
