@@ -7407,6 +7407,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (totalCost - amountPaid).clamp(0.0, double.infinity);
     final totalPaymentDue = remainingRentalBalance + latePenaltyFee;
 
+    // If fully paid upfront and 0 late penalty fee, skip payment window directly!
+    if (totalPaymentDue <= 0) {
+      try {
+        await BookingService().renterInitiateReturn(
+          bookingId: bookingId,
+          renterId: renterId,
+          paymentMethod: 'none',
+          paymentReference: '',
+          proofUrl: null,
+          lateHours: lateHours,
+          lateFee: latePenaltyFee,
+          settledAmount: 0.0,
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Vehicle return initiated! Please rate your trip experience.',
+            ),
+            backgroundColor: AppColors.success,
+          ),
+        );
+
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => TripRatingFlowScreen(
+              bookingId: bookingId,
+              reviewerRole: 'renter',
+            ),
+          ),
+        );
+
+        _loadBookings();
+        return;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error initiating vehicle return: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+    }
+
     String selectedPaymentMethod = 'psdc_qr';
     final referenceController = TextEditingController();
     XFile? receiptFile;
