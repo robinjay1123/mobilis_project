@@ -6936,12 +6936,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.visibility_outlined, size: 17),
                           label: const Text('View Pre-Trip Checklist'),
                         ),
-                      if (statusLower == 'active' ||
-                          statusLower == 'ongoing' ||
-                          statusLower == 'return_pending_inspection' ||
-                          group == BookingStatusGroup.ongoing ||
-                          booking['returned_at'] != null ||
-                          booking['returnedAt'] != null)
+                      if ((statusLower == 'active' ||
+                              statusLower == 'ongoing' ||
+                              statusLower == 'return_pending_inspection' ||
+                              group == BookingStatusGroup.ongoing ||
+                              booking['returned_at'] != null ||
+                              booking['returnedAt'] != null) &&
+                          statusLower != 'completed' &&
+                          group != BookingStatusGroup.completed)
                         ElevatedButton.icon(
                           onPressed: (statusLower == 'return_pending_inspection' ||
                                   booking['returned_at'] != null ||
@@ -7485,14 +7487,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ],
                 ),
                 Divider(color: Colors.white.withOpacity(0.12), height: 22),
-                const Text(
-                  'FINAL PAYMENT & PENALTY BREAKDOWN',
-                  style: TextStyle(
-                    color: Color(0xFF91A9BE),
-                    fontSize: 9,
-                    letterSpacing: 1,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'FINAL PAYMENT & PENALTY BREAKDOWN',
+                      style: TextStyle(
+                        color: Color(0xFF91A9BE),
+                        fontSize: 9,
+                        letterSpacing: 1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (booking['final_payment_status'] == 'paid' ||
+                        status.trim().toLowerCase() == 'completed')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 12),
+                            SizedBox(width: 4),
+                            Text(
+                              'Payment Verified',
+                              style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 _buildOperatorSafetyLine(
@@ -7514,7 +7542,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 if ((booking['late_return_fee'] as num?)?.toDouble() != null &&
                     ((booking['late_return_fee'] as num).toDouble() > 0))
                   _buildOperatorSafetyLine(
-                    'Late Return Penalty (₱300/hr)',
+                    'Late Return Penalty (${(booking['late_return_hours'] as num?)?.toInt() ?? 1}h @ ₱300/hr)',
                     'PHP ${(booking['late_return_fee'] as num).toDouble().toStringAsFixed(2)}',
                   ),
                 _buildOperatorSafetyLine(
@@ -7522,15 +7550,53 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'PHP ${((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0).toStringAsFixed(2)} (${booking['reservation_payment_method'] ?? 'E-Wallet'} ref: ${booking['reservation_payment_reference'] ?? 'N/A'})',
                 ),
                 if (booking['final_payment_reference'] != null ||
-                    booking['renter_return_payment_amount'] != null)
+                    booking['renter_return_payment_amount'] != null ||
+                    booking['final_payment_method'] != null)
                   _buildOperatorSafetyLine(
-                    'Final Return Settlement Paid',
+                    'Final Return Settlement',
                     'PHP ${((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)} (${booking['final_payment_method'] ?? 'E-Wallet'} ref: ${booking['final_payment_reference'] ?? 'N/A'})',
                   ),
                 _buildOperatorSafetyLine(
                   'Total Final Trip Cost',
-                  'PHP ${((booking['total_price'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
+                  'PHP ${((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                 ),
+                if (booking['final_payment_proof_url'] != null ||
+                    booking['payment_proof_url'] != null ||
+                    booking['proof_url'] != null) ...[
+                  const SizedBox(height: 10),
+                  _buildOperatorEvidenceChip(
+                    Icons.receipt_outlined,
+                    'Renter Settlement Receipt',
+                    booking['final_payment_proof_url'] ??
+                        booking['payment_proof_url'] ??
+                        booking['proof_url'],
+                  ),
+                ],
+                if (booking['final_payment_status'] == 'pending' &&
+                    status.trim().toLowerCase() != 'completed') ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await _confirmOperatorFinalPayment(booking);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _operatorGold,
+                        foregroundColor: _operatorNavyDeep,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: const Icon(Icons.verified_user_rounded, size: 16),
+                      label: const Text(
+                        'Confirm Final Payment & Verify Receipt',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
