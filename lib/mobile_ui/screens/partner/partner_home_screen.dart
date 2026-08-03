@@ -107,6 +107,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   // 🔔 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
   RealtimeChannel? _notificationsSubscription;
+  Timer? _notificationsAutoRefreshTimer;
   final UserRestrictionService _restrictionService = UserRestrictionService();
   UserRestrictionState _restrictionState = UserRestrictionState.empty;
   final Set<String> _shownRestrictionNotificationIds = {};
@@ -167,6 +168,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     _loadPartnerData();
     _initializeConnectivity();
     _setupBookingsListener(); // 🔔 Listen for real-time bookings
+    _notificationsAutoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        if (mounted) _loadPartnerData();
+      },
+    );
   }
 
   @override
@@ -174,6 +181,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     _pushNotificationTapSubscription?.cancel();
     _bookingsSubscription?.unsubscribe();
     _notificationsSubscription?.unsubscribe();
+    _notificationsAutoRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -370,7 +378,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
       _notificationsSubscription!
           .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
+            event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'notifications',
             filter: PostgresChangeFilter(
@@ -379,37 +387,28 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               value: userId,
             ),
             callback: (payload) {
-              final newNotification =
-                  payload.newRecord as Map<String, dynamic>?;
-              if (newNotification == null || !mounted) return;
+              if (!mounted) return;
+              _loadPartnerData();
+              if (payload.eventType == PostgresChangeEvent.insert) {
+                final newNotification =
+                    payload.newRecord as Map<String, dynamic>?;
+                if (newNotification == null) return;
+                final title =
+                    newNotification['title']?.toString().trim().isNotEmpty ==
+                            true
+                        ? newNotification['title'].toString().trim()
+                        : 'New notification';
+                final message =
+                    newNotification['message']?.toString().trim().isNotEmpty ==
+                            true
+                        ? newNotification['message'].toString().trim()
+                        : 'You have a new update.';
 
-              setState(() {
-                notifications.insert(0, newNotification);
-              });
-
-              final title =
-                  newNotification['title']?.toString().trim().isNotEmpty == true
-                  ? newNotification['title'].toString().trim()
-                  : 'New notification';
-              final message =
-                  newNotification['message']?.toString().trim().isNotEmpty ==
-                      true
-                  ? newNotification['message'].toString().trim()
-                  : 'You have a new update.';
-
-              NotificationPermissionService().showBrowserNotification(
-                title: title,
-                body: message,
-              );
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$title\n$message'),
-                  backgroundColor: AppColors.primary,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-              _maybeShowRestrictionNotification();
+                NotificationPermissionService().showBrowserNotification(
+                  title: title,
+                  body: message,
+                );
+              }
             },
           )
           .subscribe();
@@ -3003,6 +3002,32 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   icon: Icons.notifications_outlined,
                   badge:
                       '${notifications.where((item) => item['is_read'] != true).length} unread',
+                  action: _partnerUnreadNotificationCount > 0
+                      ? TextButton.icon(
+                          onPressed: _markAllNotificationsRead,
+                          icon: const Icon(
+                            Icons.done_all,
+                            size: 16,
+                            color: AppColors.primary,
+                          ),
+                          label: const Text(
+                            'Mark all read',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        )
+                      : null,
                 ),
               ),
               const SizedBox(height: 18),

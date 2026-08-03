@@ -135,12 +135,36 @@ class _DocumentExpiryNotificationsScreenState
     }
   }
 
+  Future<void> _markAllAsRead() async {
+    try {
+      final user = supabase.auth.currentUser;
+      if (user == null) return;
+      await notificationService.markAllAsRead(user.id);
+      await _loadExpiringDocuments();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All notifications marked as read')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error marking all as read: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Document Expiry Notifications'),
         elevation: 0,
+        actions: [
+          if (_expiringDocuments.any((n) => n['is_read'] != true))
+            IconButton(
+              icon: const Icon(Icons.done_all),
+              tooltip: 'Mark all as read',
+              onPressed: _markAllAsRead,
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

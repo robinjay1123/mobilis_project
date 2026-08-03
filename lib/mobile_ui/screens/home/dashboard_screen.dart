@@ -104,6 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // 🔔 Real-time notifications listener
   RealtimeChannel? _notificationsSubscription;
+  Timer? _notificationsAutoRefreshTimer;
 
   // 📅 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
@@ -148,6 +149,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _setupVerificationListener(); // 🔄 Listen for real-time verification updates
     _loadNotifications(); // 🔔 Load notifications
     _setupNotificationsListener(); // 🔔 Listen for new notifications
+    _notificationsAutoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        if (mounted) _loadNotifications();
+      },
+    );
     _setupBookingsListener(); // 📅 Listen for booking updates
     _setupConversationMembershipListener();
   }
@@ -159,6 +166,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _verificationSubscription?.unsubscribe(); // ✅ Clean up realtime listener
     _notificationsSubscription
         ?.unsubscribe(); // ✅ Clean up notifications listener
+    _notificationsAutoRefreshTimer?.cancel();
     _bookingsSubscription?.unsubscribe(); // ✅ Clean up bookings listener
     _conversationMembershipSubscription?.unsubscribe();
     _messagesSubscription?.unsubscribe();
@@ -434,6 +442,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _markAllNotificationsRead() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    try {
+      await NotificationService().markAllAsRead(user.id);
+      await _loadNotifications();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('All notifications marked as read'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error marking all notifications read: $e');
+    }
+  }
+
   Future<void> _markAllMessagesRead() async {
     final userId = AuthService().currentUser?.id;
     if (userId == null) return;
@@ -618,7 +645,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       _notificationsSubscription!
           .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
+            event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'notifications',
             filter: PostgresChangeFilter(
@@ -627,20 +654,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
               value: user.id,
             ),
             callback: (payload) {
-              final newNotification =
-                  payload.newRecord as Map<String, dynamic>?;
-              if (newNotification != null && mounted) {
-                if (isMessageNotification(newNotification)) return;
-                final title =
-                    newNotification['title']?.toString() ?? 'Notification';
-                final message = newNotification['message']?.toString() ?? '';
-                setState(() {
-                  _notifications.insert(0, newNotification);
-                });
-                NotificationPermissionService().showBrowserNotification(
-                  title: title,
-                  body: message,
-                );
+              if (!mounted) return;
+              _loadNotifications();
+              if (payload.eventType == PostgresChangeEvent.insert) {
+                final newNotification =
+                    payload.newRecord as Map<String, dynamic>?;
+                if (newNotification != null) {
+                  if (isMessageNotification(newNotification)) return;
+                  final title =
+                      newNotification['title']?.toString() ?? 'Notification';
+                  final message = newNotification['message']?.toString() ?? '';
+                  NotificationPermissionService().showBrowserNotification(
+                    title: title,
+                    body: message,
+                  );
+                }
               }
             },
           )
@@ -4807,6 +4835,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     subtitle: 'Booking updates, approvals, and trip reminders',
                     icon: Icons.notifications_outlined,
                     badge: '$_unreadNotificationCount unread',
+                    action: _unreadNotificationCount > 0
+                        ? TextButton.icon(
+                            onPressed: _markAllNotificationsRead,
+                            icon: const Icon(
+                              Icons.done_all,
+                              size: 16,
+                              color: AppColors.primary,
+                            ),
+                            label: const Text(
+                              'Mark all read',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          )
+                        : null,
                   ),
                   const SizedBox(height: 18),
                   // Empty State

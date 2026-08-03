@@ -111,6 +111,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
+  Timer? _notificationsRefreshTimer;
   Timer? _bookingFlowRefreshDebounce;
   Timer? _conversationFlowRefreshDebounce;
   RealtimeChannel? _bookingFlowChannel;
@@ -183,11 +184,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
     );
+    _notificationsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        if (mounted) _loadNotifications();
+      },
+    );
   }
 
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
+    _notificationsRefreshTimer?.cancel();
     _bookingFlowRefreshDebounce?.cancel();
     _conversationFlowRefreshDebounce?.cancel();
     _bookingFlowChannel?.unsubscribe();

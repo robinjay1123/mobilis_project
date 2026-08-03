@@ -3431,11 +3431,55 @@ class _NotificationsTab extends StatefulWidget {
 class _NotificationsTabState extends State<_NotificationsTab> {
   late Future<List<Map<String, dynamic>>> _notificationsFuture;
   final Set<String> _shownBrowserNotificationIds = {};
+  Timer? _autoRefreshTimer;
+  RealtimeChannel? _notificationsSubscription;
 
   @override
   void initState() {
     super.initState();
     _notificationsFuture = _loadNotifications();
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        if (mounted) _refresh();
+      },
+    );
+    _setupNotificationsListener();
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    _notificationsSubscription?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupNotificationsListener() {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+    try {
+      final supabase = Supabase.instance.client;
+      _notificationsSubscription = supabase.realtime.channel(
+        'public:notifications:user_id=eq.$userId',
+      );
+      _notificationsSubscription!
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'notifications',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'user_id',
+              value: userId,
+            ),
+            callback: (payload) {
+              if (mounted) _refresh();
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('⚠️ Error setting up driver notifications listener: $e');
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadNotifications() async {
@@ -3696,6 +3740,32 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                 icon: Icons.notifications_outlined,
                 badge:
                     '${notifications.where((item) => item['is_read'] != true).length} unread',
+                action: notifications.any((item) => item['is_read'] != true)
+                    ? TextButton.icon(
+                        onPressed: markAllAsRead,
+                        icon: const Icon(
+                          Icons.done_all,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                        label: const Text(
+                          'Mark all read',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      )
+                    : null,
               ),
               const SizedBox(height: 18),
               ...notifications.map((notification) {

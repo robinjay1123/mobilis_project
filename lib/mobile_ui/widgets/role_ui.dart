@@ -53,6 +53,7 @@ class RoleTabHeader extends StatelessWidget {
   final String subtitle;
   final IconData icon;
   final String? badge;
+  final Widget? action;
 
   const RoleTabHeader({
     super.key,
@@ -60,6 +61,7 @@ class RoleTabHeader extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     this.badge,
+    this.action,
   });
 
   @override
@@ -120,25 +122,39 @@ class RoleTabHeader extends StatelessWidget {
               ],
             ),
           ),
-          if (badge != null) ...[
+          if (badge != null || action != null) ...[
             const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.45),
-                ),
-              ),
-              child: Text(
-                badge!,
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    child: Text(
+                      badge!,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                if (action != null) ...[
+                  if (badge != null) const SizedBox(height: 6),
+                  action!,
+                ],
+              ],
             ),
           ],
         ],
