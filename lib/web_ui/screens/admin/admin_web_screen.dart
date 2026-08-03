@@ -80,6 +80,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   RealtimeChannel? _supportTypingChannel;
   final Map<String, String> _supportTypingUsers = {};
   final Map<String, Timer> _supportTypingExpiryTimers = {};
+  Timer? _supportTypingStopTimer;
+
   // Action Logs state & timers
   List<Map<String, dynamic>> _actionLogs = [];
   bool _isLoadingActionLogs = false;
@@ -8102,7 +8104,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             children: [
               if (parsedTime != null)
                 RelativeTimeText(
-                  dateTime: parsedTime,
+                  value: parsedTime,
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
