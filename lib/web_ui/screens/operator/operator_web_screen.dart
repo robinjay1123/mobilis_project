@@ -16272,6 +16272,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   void _showEditVehicleDialog(Map<String, dynamic> vehicle, bool isDark) {
+    final formKey = GlobalKey<FormState>();
     final isPartnerVehicle =
         vehicle['_source'] == 'partner' ||
         vehicle['source'] == 'partner' ||
@@ -16280,50 +16281,42 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         vehicle['partner_vehicle_id'] ??
         vehicle['_partner_vehicle_id'] ??
         vehicle['id'];
-    final brandController = TextEditingController(text: vehicle['brand'] ?? '');
-    final modelController = TextEditingController(text: vehicle['model'] ?? '');
-    final plateController = TextEditingController(
-      text: vehicle['plate_number']?.toString() ?? '',
-    );
-    final categoryController = TextEditingController(
-      text: vehicle['category'] ?? '',
-    );
-    final vehicleTypeController = TextEditingController(
-      text: vehicle['vehicle_type'] ?? '',
-    );
-    final vehicleNameController = TextEditingController(
-      text: vehicle['vehicle_name'] ?? '',
-    );
-    final descriptionController = TextEditingController(
-      text: vehicle['description'] ?? '',
-    );
-    final colorController = TextEditingController(text: vehicle['color'] ?? '');
-    final transmissionController = TextEditingController(
-      text: vehicle['transmission'] ?? 'Manual',
-    );
-    final locationController = TextEditingController(
-      text: vehicle['location'] ?? '',
-    );
-    final latitudeController = TextEditingController(
-      text: vehicle['latitude'] != null
-          ? (vehicle['latitude'] as num?)?.toString() ?? ''
-          : '',
-    );
-    final longitudeController = TextEditingController(
-      text: vehicle['longitude'] != null
-          ? (vehicle['longitude'] as num?)?.toString() ?? ''
-          : '',
-    );
-    final yearController = TextEditingController(
-      text: (vehicle['year'] ?? '').toString(),
-    );
-    final priceController = TextEditingController(
-      text: (vehicle['price_per_day'] ?? '').toString(),
-    );
-    final pricePerHourController = TextEditingController(
-      text: (vehicle['price_per_hour'] ?? '').toString(),
-    );
-    String selectedStatus = vehicle['status'] ?? 'active';
+
+    _brandController.text = vehicle['brand']?.toString() ?? '';
+    _modelController.text = vehicle['model']?.toString() ?? '';
+    _plateController.text = vehicle['plate_number']?.toString() ?? '';
+    _yearController.text = (vehicle['year'] ?? '').toString();
+    _colorController.text = vehicle['color']?.toString() ?? '';
+    _vehicleNameController.text = vehicle['vehicle_name']?.toString() ?? '';
+    _seatsController.text = (vehicle['seats'] ?? '5').toString();
+    _priceController.text = (vehicle['price_per_day'] ?? '').toString();
+    _pricePerHourController.text = (vehicle['price_per_hour'] ?? '').toString();
+    _locationController.text = vehicle['location']?.toString() ?? '';
+    _latitudeController.text =
+        vehicle['latitude'] != null ? vehicle['latitude'].toString() : '';
+    _longitudeController.text =
+        vehicle['longitude'] != null ? vehicle['longitude'].toString() : '';
+    _descriptionController.text = vehicle['description']?.toString() ?? '';
+
+    var category = (vehicle['category']?.toString().trim().isNotEmpty == true)
+        ? vehicle['category'].toString().trim()
+        : 'Sedan';
+    var vehicleType =
+        (vehicle['vehicle_type']?.toString().trim().isNotEmpty == true)
+            ? vehicle['vehicle_type'].toString().trim()
+            : 'Sedan';
+    var fuelType =
+        (vehicle['fuel_type']?.toString().trim().isNotEmpty == true)
+            ? vehicle['fuel_type'].toString().trim()
+            : 'Unleaded';
+    var transmission =
+        (vehicle['transmission']?.toString().trim().isNotEmpty == true)
+            ? vehicle['transmission'].toString().trim()
+            : 'Automatic';
+    var status = (vehicle['status']?.toString().trim().isNotEmpty == true)
+        ? vehicle['status'].toString().trim()
+        : 'active';
+
     final List<Map<String, dynamic>> existingImages =
         List<Map<String, dynamic>>.from(
           (vehicle['vehicle_images'] as List?) ?? [],
@@ -16331,29 +16324,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final List<XFile> newImages = [];
     bool isUpdating = false;
 
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
+      builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final foreground = isDark ? Colors.white : _operatorInk;
+          final panelColor = isDark ? _operatorNavyDeep : Colors.white;
+          final borderColor =
+              isDark ? Colors.white24 : Colors.blueGrey.shade200;
+
           Future<void> pickNewImages() async {
             if (isPartnerVehicle) return;
             try {
-              if (kIsWeb) {
-                final picked = await _imagePicker.pickMultiImage();
-                if (picked.isNotEmpty) {
-                  setDialogState(() => newImages.addAll(picked));
-                }
-              } else {
-                final picked = await _imagePicker.pickImage(
-                  source: ImageSource.gallery,
-                );
-                if (picked != null) {
-                  setDialogState(() => newImages.add(picked));
-                }
+              final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+              if (picked.isNotEmpty) {
+                setDialogState(() {
+                  final remaining =
+                      5 - (existingImages.length + newImages.length);
+                  if (remaining > 0) newImages.addAll(picked.take(remaining));
+                });
               }
             } catch (e) {
-              debugPrint('Error picking images: $e');
+              debugPrint('Error picking new images: $e');
             }
           }
 
@@ -16364,798 +16357,624 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               await _supabase.from('vehicle_images').delete().eq('id', id);
               setDialogState(() => existingImages.removeAt(index));
             } catch (e) {
-              debugPrint('Error deleting existing image: $e');
+              debugPrint('Error deleting image: $e');
             }
           }
 
-          final previewImage = newImages.isNotEmpty
-              ? _buildImageWidget(
-                  newImages.first,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(8),
-                )
-              : existingImages.isNotEmpty
-              ? OptimizedNetworkImage(
-                  imageUrl: existingImages.first['image_url'] ?? '',
-                  fit: BoxFit.cover,
-                  errorWidget: Center(
-                    child: Icon(
-                      Icons.image_not_supported,
-                      color: isDark ? Colors.grey[600] : Colors.grey.shade400,
-                    ),
-                  ),
-                )
-              : Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.image_outlined,
-                        size: 50,
-                        color: isDark ? Colors.grey[600] : Colors.grey.shade400,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No images',
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.grey[600]
-                              : Colors.grey.shade400,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
+          final totalImagesCount = existingImages.length + newImages.length;
 
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 40,
-              vertical: 24,
-            ),
-            child: Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(maxWidth: 800, maxHeight: 1000),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+          Widget imagePanel() => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Edit Vehicle',
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: isUpdating
-                              ? null
-                              : () => Navigator.pop(context),
-                          child: Icon(
-                            Icons.close,
-                            color: isUpdating
-                                ? Colors.grey
-                                : (isDark
-                                      ? Colors.grey[400]
-                                      : Colors.grey.shade600),
-                          ),
-                        ),
-                      ],
+                  const Text(
+                    'VEHICLE IMAGES',
+                    style: TextStyle(
+                      color: _operatorGold,
+                      fontSize: 10,
+                      letterSpacing: 0.8,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const Divider(height: 1),
-                  // Scrollable content
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Preview
-                          Container(
-                            width: double.infinity,
-                            height: 150,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isDark
-                                    ? Colors.grey[700]!
-                                    : Colors.grey.shade300,
-                              ),
-                              color: isDark
-                                  ? Colors.black26
-                                  : Colors.grey.shade50,
-                            ),
-                            child: previewImage,
-                          ),
-                          const SizedBox(height: 12),
-                          // Thumbnails
-                          if (existingImages.isNotEmpty || newImages.isNotEmpty)
-                            SizedBox(
-                              height: 90,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount:
-                                    existingImages.length + newImages.length,
-                                itemBuilder: (context, index) {
-                                  if (index < existingImages.length) {
-                                    final img = existingImages[index];
-                                    return Padding(
-                                      padding: const EdgeInsets.only(right: 12),
-                                      child: Stack(
-                                        children: [
-                                          Container(
-                                            width: 90,
-                                            height: 90,
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: isDark
-                                                    ? Colors.grey[700]!
-                                                    : Colors.grey.shade300,
-                                              ),
-                                            ),
-                                            child: OptimizedNetworkImage(
-                                              imageUrl: img['image_url'] ?? '',
-                                              fit: BoxFit.cover,
-                                              errorWidget: const Center(
-                                                child: Icon(
-                                                  Icons.image_not_supported,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: -6,
-                                            right: -6,
-                                            child: GestureDetector(
-                                              onTap: () =>
-                                                  removeExistingImage(index),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  4,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.red,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.close,
-                                                  color: Colors.white,
-                                                  size: 14,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: isPartnerVehicle ? null : pickNewImages,
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      height: 220,
+                      width: double.infinity,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.025)
+                            : const Color(0xFFF7F9FA),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: borderColor, width: 1.2),
+                      ),
+                      child: totalImagesCount > 0
+                          ? Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (newImages.isNotEmpty)
+                                  _buildImageWidget(
+                                    newImages.first,
+                                    fit: BoxFit.cover,
+                                    borderRadius: BorderRadius.circular(17),
+                                  )
+                                else
+                                  OptimizedNetworkImage(
+                                    imageUrl:
+                                        existingImages.first['image_url'] ?? '',
+                                    fit: BoxFit.cover,
+                                    errorWidget: Center(
+                                      child: Icon(
+                                        Icons.directions_car_outlined,
+                                        size: 58,
+                                        color:
+                                            isDark ? Colors.white38 : Colors.grey,
                                       ),
-                                    );
-                                  } else {
-                                    final newImg =
-                                        newImages[index -
-                                            existingImages.length];
-                                    return Padding(
-                                      padding: const EdgeInsets.only(right: 12),
-                                      child: Stack(
-                                        children: [
-                                          Container(
-                                            width: 90,
-                                            height: 90,
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: isDark
-                                                    ? Colors.grey[700]!
-                                                    : Colors.grey.shade300,
-                                              ),
-                                            ),
-                                            child: _buildImageWidget(
-                                              newImg,
-                                              fit: BoxFit.cover,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: -6,
-                                            right: -6,
-                                            child: GestureDetector(
-                                              onTap: () => setDialogState(
-                                                () => newImages.removeAt(
-                                                  index - existingImages.length,
-                                                ),
-                                              ),
-                                              child: Container(
-                                                padding: const EdgeInsets.all(
-                                                  4,
-                                                ),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.red,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.close,
-                                                  color: Colors.white,
-                                                  size: 14,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                          const SizedBox(height: 12),
-                          if (isPartnerVehicle)
-                            Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.08),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: AppColors.primary.withOpacity(0.35),
-                                ),
-                              ),
-                              child: Text(
-                                'Partner vehicles are price-managed by operators. Vehicle details and images stay read-only here.',
-                                style: TextStyle(
-                                  color: isDark ? Colors.white : Colors.black87,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: isPartnerVehicle
-                                      ? null
-                                      : pickNewImages,
-                                  icon: const Icon(Icons.add_photo_alternate),
-                                  label: const Text('Add Image'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppColors.primary,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
                                     ),
                                   ),
-                                ),
-                              ),
-                              if (newImages.isNotEmpty) ...[
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () =>
-                                        setDialogState(() => newImages.clear()),
-                                    icon: const Icon(Icons.clear, size: 18),
-                                    label: const Text('Clear New'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
+                                Positioned(
+                                  right: 12,
+                                  bottom: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 11,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _operatorNavyDeep.withValues(
+                                        alpha: 0.88,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$totalImagesCount/5 images',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
                                   ),
                                 ),
                               ],
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: brandController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration('Brand', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: modelController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration('Model', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: plateController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            textCapitalization: TextCapitalization.characters,
-                            decoration: _fieldDecoration(
-                              'Plate Number',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: categoryController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration('Category', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: vehicleTypeController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration(
-                              'Vehicle Type',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: vehicleNameController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration(
-                              'Vehicle Name',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: colorController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration('Color', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: transmissionController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            decoration: _fieldDecoration(
-                              'Transmission (Manual/Automatic)',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: descriptionController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            maxLines: 4,
-                            decoration: _fieldDecoration('Description', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: yearController,
-                            readOnly: isPartnerVehicle,
-                            cursorColor: AppColors.primary,
-                            keyboardType: TextInputType.number,
-                            decoration: _fieldDecoration('Year', isDark),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: priceController,
-                            cursorColor: AppColors.primary,
-                            keyboardType: TextInputType.number,
-                            decoration: _fieldDecoration(
-                              'Price per Day (PHP)',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: pricePerHourController,
-                            cursorColor: AppColors.primary,
-                            keyboardType: TextInputType.number,
-                            decoration: _fieldDecoration(
-                              'Price per Hour (PHP)',
-                              isDark,
-                            ),
-                            style: _fieldTextStyle(isDark),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: locationController,
-                                  readOnly: isPartnerVehicle,
-                                  cursorColor: AppColors.primary,
-                                  decoration: _fieldDecoration(
-                                    'Location',
-                                    isDark,
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 58,
+                                  height: 58,
+                                  decoration: BoxDecoration(
+                                    color: _operatorNavy.withValues(alpha: 0.75),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                  style: _fieldTextStyle(isDark),
+                                  child: const Icon(
+                                    Icons.cloud_upload_outlined,
+                                    color: _operatorGold,
+                                    size: 30,
+                                  ),
                                 ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Upload vehicle images',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : _operatorInk,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  'JPG or PNG - up to 5 images',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.blueGrey,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                                const SizedBox(height: 13),
+                                const Text(
+                                  'Browse files',
+                                  style: TextStyle(
+                                    color: _operatorGold,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                  if (totalImagesCount > 0) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 62,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: totalImagesCount,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final isExisting = index < existingImages.length;
+                          return Stack(
+                            children: [
+                              SizedBox(
+                                width: 70,
+                                child: isExisting
+                                    ? OptimizedNetworkImage(
+                                        imageUrl:
+                                            existingImages[index]['image_url'] ??
+                                                '',
+                                        fit: BoxFit.cover,
+                                        borderRadius: BorderRadius.circular(11),
+                                      )
+                                    : _buildImageWidget(
+                                        newImages[index - existingImages.length],
+                                        fit: BoxFit.cover,
+                                        borderRadius: BorderRadius.circular(11),
+                                      ),
                               ),
-                              const SizedBox(width: 8),
-                              Container(
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Material(
-                                  color: Colors.transparent,
+                              if (!isPartnerVehicle)
+                                Positioned(
+                                  top: 3,
+                                  right: 3,
                                   child: InkWell(
-                                    onTap: isPartnerVehicle
-                                        ? null
-                                        : () => _getCurrentVehicleLocation(
-                                            onLocationFound:
-                                                (
-                                                  location,
-                                                  latitude,
-                                                  longitude,
-                                                ) {
-                                                  setDialogState(() {
-                                                    locationController.text =
-                                                        location;
-                                                    latitudeController.text =
-                                                        latitude;
-                                                    longitudeController.text =
-                                                        longitude;
-                                                  });
-                                                },
+                                    onTap: () {
+                                      if (isExisting) {
+                                        removeExistingImage(index);
+                                      } else {
+                                        setDialogState(
+                                          () => newImages.removeAt(
+                                            index - existingImages.length,
                                           ),
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(12),
-                                      child: Icon(
-                                        Icons.location_searching,
-                                        color: Colors.black,
+                                        );
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.all(3),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                        borderRadius: BorderRadius.circular(7),
+                                      ),
+                                      child: const Icon(
+                                        Icons.close,
+                                        color: Colors.white,
+                                        size: 13,
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
                             ],
+                          );
+                        },
+                      ),
+                    ),
+                    if (!isPartnerVehicle) ...[
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: totalImagesCount >= 5 ? null : pickNewImages,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _operatorGold,
+                          side: BorderSide(color: borderColor),
+                          minimumSize: const Size(double.infinity, 48),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
                           ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: latitudeController,
-                                  readOnly: true,
-                                  cursorColor: AppColors.primary,
-                                  keyboardType: TextInputType.number,
-                                  decoration: _fieldDecoration(
-                                    'Latitude',
-                                    isDark,
-                                  ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.add_photo_alternate_outlined,
+                          size: 19,
+                        ),
+                        label: const Text(
+                          'Add More Images',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ],
+                ],
+              );
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 20,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 1120,
+                maxHeight: 820,
+              ),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: panelColor,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black38,
+                      blurRadius: 36,
+                      offset: Offset(0, 18),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(38, 28, 24, 24),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Edit Vehicle',
                                   style: TextStyle(
-                                    color: isDark
-                                        ? Colors.grey[500]
-                                        : Colors.grey.shade600,
-                                    fontSize: 14,
+                                    color: foreground,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextField(
-                                  controller: longitudeController,
-                                  readOnly: true,
-                                  cursorColor: AppColors.primary,
-                                  keyboardType: TextInputType.number,
-                                  decoration: _fieldDecoration(
-                                    'Longitude',
-                                    isDark,
-                                  ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  'Update vehicle details, pricing, and deployment status.',
                                   style: TextStyle(
                                     color: isDark
-                                        ? Colors.grey[500]
-                                        : Colors.grey.shade600,
-                                    fontSize: 14,
+                                        ? Colors.white54
+                                        : Colors.blueGrey.shade600,
+                                    fontSize: 13,
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: selectedStatus,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'active',
-                                child: Text('Active'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'inactive',
-                                child: Text('Inactive'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'maintenance',
-                                child: Text('Maintenance'),
-                              ),
-                            ],
-                            onChanged: isPartnerVehicle
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: isUpdating
                                 ? null
-                                : (value) => selectedStatus = value ?? 'active',
-                            decoration: _fieldDecoration('Status', isDark),
-                            dropdownColor: isDark
-                                ? AppColors.darkCard
-                                : Colors.white,
-                            style: _fieldTextStyle(isDark),
+                                : () => Navigator.pop(dialogContext),
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(44, 44),
+                              padding: const EdgeInsets.all(12),
+                            ),
+                            icon: Icon(Icons.close_rounded, color: foreground),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const Divider(height: 1),
-                  // Footer actions
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: isUpdating
-                              ? null
-                              : () => Navigator.pop(context),
-                          child: Text(
-                            'Cancel',
-                            style: TextStyle(
-                              color: isUpdating
-                                  ? Colors.grey
-                                  : (isDark
-                                        ? Colors.grey[400]
-                                        : Colors.grey.shade700),
+                    Divider(
+                      height: 1,
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 850;
+                          final imgPanel = imagePanel();
+                          final formPanel = Form(
+                            key: formKey,
+                            child: _buildRegisterVehicleFields(
+                              isDark: isDark,
+                              category: category,
+                              vehicleType: vehicleType,
+                              fuelType: fuelType,
+                              transmission: transmission,
+                              status: status,
+                              onCategoryChanged: (value) => setDialogState(
+                                () => category = value ?? category,
+                              ),
+                              onVehicleTypeChanged: (value) => setDialogState(
+                                () => vehicleType = value ?? vehicleType,
+                              ),
+                              onFuelTypeChanged: (value) => setDialogState(
+                                () => fuelType = value ?? fuelType,
+                              ),
+                              onTransmissionChanged: (value) => setDialogState(
+                                () => transmission = value ?? transmission,
+                              ),
+                              onStatusChanged: (value) => setDialogState(
+                                () => status = value ?? status,
+                              ),
+                              setDialogState: setDialogState,
+                            ),
+                          );
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.all(38),
+                            child: compact
+                                ? Column(
+                                    children: [
+                                      imgPanel,
+                                      const SizedBox(height: 28),
+                                      formPanel,
+                                    ],
+                                  )
+                                : Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SizedBox(width: 285, child: imgPanel),
+                                      const SizedBox(width: 38),
+                                      Expanded(child: formPanel),
+                                    ],
+                                  ),
+                          );
+                        },
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(30, 18, 30, 22),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isUpdating
+                                ? null
+                                : () => Navigator.pop(dialogContext),
+                            style: TextButton.styleFrom(
+                              foregroundColor: isDark
+                                  ? Colors.white70
+                                  : Colors.blueGrey.shade700,
+                              minimumSize: const Size(110, 52),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 16,
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontWeight: FontWeight.w700),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: isUpdating
-                              ? null
-                              : () async {
-                                  final normalizedPlate = plateController.text
-                                      .trim()
-                                      .toUpperCase();
-                                  if (!isPartnerVehicle &&
-                                      normalizedPlate.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Plate number is required.',
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                    return;
-                                  }
-                                  setDialogState(() => isUpdating = true);
-                                  try {
-                                    if (isPartnerVehicle) {
-                                      await _supabase
-                                          .from('partner_vehicles')
-                                          .update({
-                                            'price_per_day':
-                                                double.tryParse(
-                                                  priceController.text,
-                                                ) ??
-                                                0.0,
-                                            'price_per_hour':
-                                                double.tryParse(
-                                                  pricePerHourController.text,
-                                                ) ??
-                                                0.0,
-                                            'updated_at': DateTime.now()
-                                                .toIso8601String(),
-                                          })
-                                          .eq('id', partnerVehicleId);
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: isUpdating
+                                ? null
+                                : () async {
+                                    if (!(formKey.currentState?.validate() ??
+                                        false)) {
+                                      return;
+                                    }
+                                    final normalizedPlate = _plateController.text
+                                        .trim()
+                                        .toUpperCase();
+                                    setDialogState(() => isUpdating = true);
+                                    try {
+                                      if (isPartnerVehicle) {
+                                        await _supabase
+                                            .from('partner_vehicles')
+                                            .update({
+                                              'price_per_day':
+                                                  double.tryParse(
+                                                    _priceController.text.trim(),
+                                                  ) ??
+                                                  0.0,
+                                              'price_per_hour':
+                                                  double.tryParse(
+                                                    _pricePerHourController.text
+                                                        .trim(),
+                                                  ) ??
+                                                  0.0,
+                                              'updated_at': DateTime.now()
+                                                  .toIso8601String(),
+                                            })
+                                            .eq('id', partnerVehicleId);
 
-                                      await _supabase
-                                          .from('partner_vehicle_applications')
-                                          .update({
-                                            'price_per_day':
-                                                double.tryParse(
-                                                  priceController.text,
-                                                ) ??
-                                                0.0,
-                                            'price_per_hour':
-                                                double.tryParse(
-                                                  pricePerHourController.text,
-                                                ) ??
-                                                0.0,
-                                          })
-                                          .eq(
-                                            'partner_vehicle_id',
-                                            partnerVehicleId,
-                                          );
-                                    } else {
-                                      await _supabase
-                                          .from('vehicles')
-                                          .update({
-                                            'brand': brandController.text,
-                                            'model': modelController.text,
-                                            'plate_number': normalizedPlate,
-                                            'category': categoryController.text,
-                                            'vehicle_type':
-                                                vehicleTypeController.text,
-                                            'vehicle_name':
-                                                vehicleNameController.text,
-                                            'description':
-                                                descriptionController.text,
-                                            'color': colorController.text,
-                                            'transmission':
-                                                transmissionController
-                                                    .text
-                                                    .isEmpty
-                                                ? 'Manual'
-                                                : transmissionController.text,
-                                            'year':
-                                                int.tryParse(
-                                                  yearController.text,
-                                                ) ??
-                                                0,
-                                            'price_per_day':
-                                                double.tryParse(
-                                                  priceController.text,
-                                                ) ??
-                                                0.0,
-                                            'price_per_hour':
-                                                double.tryParse(
-                                                  pricePerHourController.text,
-                                                ) ??
-                                                0.0,
-                                            'location': locationController.text,
-                                            'latitude':
-                                                double.tryParse(
-                                                  latitudeController.text,
-                                                ) ??
-                                                0.0,
-                                            'longitude':
-                                                double.tryParse(
-                                                  longitudeController.text,
-                                                ) ??
-                                                0.0,
-                                            'status': selectedStatus,
-                                          })
-                                          .eq('id', vehicle['id']);
+                                        await _supabase
+                                            .from('partner_vehicle_applications')
+                                            .update({
+                                              'price_per_day':
+                                                  double.tryParse(
+                                                    _priceController.text.trim(),
+                                                  ) ??
+                                                  0.0,
+                                              'price_per_hour':
+                                                  double.tryParse(
+                                                    _pricePerHourController.text
+                                                        .trim(),
+                                                  ) ??
+                                                  0.0,
+                                            })
+                                            .eq(
+                                              'partner_vehicle_id',
+                                              partnerVehicleId,
+                                            );
+                                      } else {
+                                        await _supabase
+                                            .from('vehicles')
+                                            .update({
+                                              'brand':
+                                                  _brandController.text.trim(),
+                                              'model':
+                                                  _modelController.text.trim(),
+                                              'plate_number': normalizedPlate,
+                                              'category': category,
+                                              'vehicle_type': vehicleType,
+                                              'vehicle_name':
+                                                  _vehicleNameController.text
+                                                      .trim(),
+                                              'description':
+                                                  _descriptionController.text
+                                                      .trim(),
+                                              'color':
+                                                  _colorController.text.trim(),
+                                              'fuel_type': fuelType,
+                                              'transmission': transmission,
+                                              'year':
+                                                  int.tryParse(
+                                                    _yearController.text.trim(),
+                                                  ) ??
+                                                  0,
+                                              'seats':
+                                                  int.tryParse(
+                                                    _seatsController.text.trim(),
+                                                  ) ??
+                                                  5,
+                                              'price_per_day':
+                                                  double.tryParse(
+                                                    _priceController.text.trim(),
+                                                  ) ??
+                                                  0.0,
+                                              'price_per_hour':
+                                                  double.tryParse(
+                                                    _pricePerHourController.text
+                                                        .trim(),
+                                                  ) ??
+                                                  0.0,
+                                              'location':
+                                                  _locationController.text
+                                                      .trim(),
+                                              'latitude': double.tryParse(
+                                                _latitudeController.text.trim(),
+                                              ),
+                                              'longitude': double.tryParse(
+                                                _longitudeController.text
+                                                    .trim(),
+                                              ),
+                                              'status': status,
+                                              'is_available': status == 'active',
+                                            })
+                                            .eq('id', vehicle['id']);
 
-                                      final List<String> uploadErrors = [];
-                                      for (
-                                        int i = 0;
-                                        i < newImages.length;
-                                        i++
-                                      ) {
-                                        final fileName =
-                                            'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                                        final ownerId =
-                                            vehicle['owner_id'] ??
-                                            _supabase.auth.currentUser?.id;
-                                        final filePath =
-                                            'vehicles/${ownerId ?? 'unknown'}/$fileName';
-                                        try {
-                                          final originalImageBytes =
-                                              await newImages[i].readAsBytes();
-                                          final imageBytes =
-                                              await ImageOptimizationService.optimizeForUpload(
-                                                originalImageBytes,
-                                                fileName: fileName,
-                                              );
-                                          await _supabase.storage
-                                              .from(_vehicleImagesBucket)
-                                              .uploadBinary(
-                                                filePath,
-                                                imageBytes,
-                                                fileOptions: const FileOptions(
-                                                  cacheControl: '31536000',
-                                                  upsert: false,
-                                                ),
-                                              );
-                                          final imageUrl = _supabase.storage
-                                              .from(_vehicleImagesBucket)
-                                              .getPublicUrl(filePath);
-                                          await _supabase
-                                              .from('vehicle_images')
-                                              .insert({
-                                                'vehicle_id': vehicle['id'],
-                                                'image_url': imageUrl,
-                                                'display_order':
-                                                    existingImages.length + i,
-                                              });
-                                        } catch (e) {
-                                          debugPrint(
-                                            'Error uploading new image: $e',
-                                          );
-                                          uploadErrors.add(e.toString());
+                                        for (
+                                          int i = 0;
+                                          i < newImages.length;
+                                          i++
+                                        ) {
+                                          final fileName =
+                                              'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                          final ownerId =
+                                              vehicle['owner_id'] ??
+                                              _supabase.auth.currentUser?.id;
+                                          final filePath =
+                                              'vehicles/${ownerId ?? 'unknown'}/$fileName';
+                                          try {
+                                            final originalImageBytes =
+                                                await newImages[i].readAsBytes();
+                                            final imageBytes =
+                                                await ImageOptimizationService.optimizeForUpload(
+                                                  originalImageBytes,
+                                                  fileName: fileName,
+                                                );
+                                            await _supabase.storage
+                                                .from(_vehicleImagesBucket)
+                                                .uploadBinary(
+                                                  filePath,
+                                                  imageBytes,
+                                                  fileOptions: const FileOptions(
+                                                    cacheControl: '31536000',
+                                                    upsert: false,
+                                                  ),
+                                                );
+                                            final imageUrl = _supabase.storage
+                                                .from(_vehicleImagesBucket)
+                                                .getPublicUrl(filePath);
+                                            await _supabase
+                                                .from('vehicle_images')
+                                                .insert({
+                                                  'vehicle_id': vehicle['id'],
+                                                  'image_url': imageUrl,
+                                                  'display_order':
+                                                      existingImages.length + i,
+                                                });
+                                          } catch (e) {
+                                            debugPrint(
+                                              'Error uploading image $i: $e',
+                                            );
+                                          }
                                         }
                                       }
 
-                                      if (uploadErrors.isNotEmpty) {
+                                      if (dialogContext.mounted) {
+                                        Navigator.pop(dialogContext);
+                                      }
+                                      await _loadVehicles();
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Vehicle updated successfully!',
+                                            ),
+                                            backgroundColor: Color(0xFF178A5B),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
                                         ScaffoldMessenger.of(
                                           context,
                                         ).showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              'Some images failed: ${uploadErrors.first}',
+                                              'Unable to update vehicle: $e',
                                             ),
-                                            backgroundColor: Colors.orange,
+                                            backgroundColor: const Color(
+                                              0xFFC93C47,
+                                            ),
                                           ),
                                         );
                                       }
+                                    } finally {
+                                      if (mounted) {
+                                        setDialogState(
+                                          () => isUpdating = false,
+                                        );
+                                      }
                                     }
-
-                                    Navigator.pop(context);
-                                    _loadVehicles();
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Vehicle updated successfully!',
-                                        ),
-                                        backgroundColor: Colors.green,
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Error: $e'),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  } finally {
-                                    setDialogState(() => isUpdating = false);
-                                  }
-                                },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 32,
-                              vertical: 12,
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _operatorGold,
+                              foregroundColor: _operatorNavyDeep,
+                              elevation: 0,
+                              minimumSize: const Size(190, 54),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 30,
+                                vertical: 17,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            elevation: 2,
-                          ),
-                          child: isUpdating
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
+                            icon: isUpdating
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: _operatorNavyDeep,
                                     ),
-                                  ),
-                                )
-                              : const Text(
-                                  'Update Vehicle',
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                        ),
-                      ],
+                                  )
+                                : const Icon(Icons.edit_rounded, size: 20),
+                            label: Text(
+                              isUpdating
+                                  ? 'Updating Vehicle...'
+                                  : 'Update Vehicle',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -17197,16 +17016,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             .delete()
             .eq('id', vehicleId);
         _loadVehicles();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vehicle deleted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Vehicle deleted successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
@@ -17243,20 +17066,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       vehicle['is_available'] = isPosted;
       await _loadVehicles();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isPosted
-                ? 'Vehicle posted successfully!'
-                : 'Vehicle unlisted successfully!',
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isPosted
+                  ? 'Vehicle posted successfully!'
+                  : 'Vehicle unlisted successfully!',
+            ),
+            backgroundColor: Colors.green,
           ),
-          backgroundColor: Colors.green,
-        ),
-      );
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
