@@ -153,6 +153,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<XFile> _selectedImages = [];
   final Map<String, Future<Uint8List>> _selectedImageBytes = {};
   bool _isSubmittingVehicle = false;
+  bool _isPerformingOperation = false;
+  String _operationLoadingMessage = 'Processing booking action...';
+
+  void _showOperationLoading(String message) {
+    if (!mounted) return;
+    setState(() {
+      _isPerformingOperation = true;
+      _operationLoadingMessage = message;
+    });
+  }
+
+  void _hideOperationLoading() {
+    if (!mounted) return;
+    setState(() {
+      _isPerformingOperation = false;
+    });
+  }
 
   @override
   void initState() {
@@ -714,6 +731,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
     if (confirmed != true) return;
 
+    _showOperationLoading('Confirming full payment & updating revenue...');
     try {
       await BookingService().confirmFinalPayment(
         bookingId: bookingId,
@@ -742,6 +760,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      _hideOperationLoading();
     }
   }
 
@@ -1561,6 +1581,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> booking, {
     String? driverId,
   }) async {
+    _showOperationLoading(
+      driverId != null
+          ? 'Assigning driver & processing booking approval...'
+          : 'Finalizing booking & creating group chat...',
+    );
     try {
       final bookingId = booking['id']?.toString() ?? '';
       if (bookingId.isEmpty) {
@@ -1611,6 +1636,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
         );
       }
+    } finally {
+      _hideOperationLoading();
     }
   }
 
@@ -2964,21 +2991,86 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     return Theme(
       data: WebPortalTheme.resolve(context, isDark: isDark),
-      child: Scaffold(
-        backgroundColor: isDark ? const Color(0xFF101827) : _operatorPage,
-        body: Row(
-          children: [
-            _buildSidebar(isDark, isCompact),
-            Expanded(
-              child: Column(
-                children: [
-                  _buildTopBar(isDark),
-                  Expanded(child: _buildContent(isDark)),
-                ],
+      child: Stack(
+        children: [
+          Scaffold(
+            backgroundColor: isDark ? const Color(0xFF101827) : _operatorPage,
+            body: Row(
+              children: [
+                _buildSidebar(isDark, isCompact),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _buildTopBar(isDark),
+                      Expanded(child: _buildContent(isDark)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_isPerformingOperation)
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  color: Colors.black.withOpacity(0.7),
+                  alignment: Alignment.center,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 24,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF172235),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white12),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black45,
+                          blurRadius: 30,
+                          offset: Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppColors.primary,
+                            ),
+                            strokeWidth: 4,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          _operationLoadingMessage,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Please wait while the action completes...',
+                          style: TextStyle(
+                            color: Color(0xFF91A9BE),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -10027,12 +10119,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       return;
     }
 
+    _showOperationLoading(
+      inspectionType == 'before'
+          ? 'Uploading evidence & saving pre-trip inspection...'
+          : 'Uploading evidence & submitting return inspection...',
+    );
+
     try {
-      if (selectedEvidence.isNotEmpty && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Uploading checklist evidence...')),
-        );
-      }
       final evidenceUrls = <String>[];
       for (final file in selectedEvidence) {
         final bytes = file.bytes;
@@ -10112,11 +10205,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to save checklist: $e'),
-          backgroundColor: AppColors.error,
+          content: Text('❌ Inspection save error: $e'),
+          backgroundColor: Colors.red,
         ),
       );
     } finally {
+      _hideOperationLoading();
       for (final controller in inspectionControllers) {
         controller.dispose();
       }
