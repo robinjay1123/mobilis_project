@@ -2149,7 +2149,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final samePoint =
         (pickupPoint.latitude - destinationPoint.latitude).abs() < 0.0001 &&
         (pickupPoint.longitude - destinationPoint.longitude).abs() < 0.0001;
-    return samePoint ? [pickupPoint] : [pickupPoint, destinationPoint];
+    if (samePoint) return [pickupPoint];
+
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${pickupPoint.longitude},${pickupPoint.latitude};'
+        '${destinationPoint.longitude},${destinationPoint.latitude}'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinates = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinates != null && coordinates.length >= 2) {
+            final roadPoints = coordinates.map((coordinate) {
+              final pair = coordinate as List<dynamic>;
+              return MobilisMapPoint(
+                latitude: (pair[1] as num).toDouble(),
+                longitude: (pair[0] as num).toDouble(),
+              );
+            }).toList();
+            return roadPoints;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Unable to fetch OSRM road route points: $e');
+    }
+
+    return [pickupPoint, destinationPoint];
   }
 
   bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
