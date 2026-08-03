@@ -564,7 +564,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         );
         return;
       }
-      if (completionStage != 'operator_rating') {
+      // These stages indicate return is done — advance to operator_rating if needed.
+      const rateableStages = {
+        'operator_rating',
+        'awaiting_completion',
+        'awaiting_after_checklist',
+        'awaiting_payment',
+      };
+      if (!rateableStages.contains(completionStage)) {
         throw Exception(
           'Complete the return checklist and final payment before rating the renter.',
         );
@@ -9093,7 +9100,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     statusLower !=
                                         'return_pending_inspection' &&
                                     booking['return_inspected_at'] != null &&
-                                    completionStage == 'operator_rating')
+                                    (completionStage == 'operator_rating' ||
+                                        completionStage == 'awaiting_completion' ||
+                                        completionStage ==
+                                            'awaiting_after_checklist' ||
+                                        completionStage == 'awaiting_payment') &&
+                                    booking['operator_trip_confirmed_at'] ==
+                                        null)
                                   ElevatedButton.icon(
                                     onPressed: () =>
                                         _openOperatorRenterRating(booking),

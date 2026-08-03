@@ -5535,7 +5535,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               : null,
           onExtend: isApprovedTrip ? () => _showTripExtensionDialog(booking) : null,
           onReturn: isApprovedTrip ? () => _handleRenterReturnVehicle(booking) : null,
-          onSuccessfulTrip: completionStage == 'renter_rating'
+          onSuccessfulTrip: (completionStage == 'renter_rating' ||
+              // Also allow rating when booking is completed but renter hasn't confirmed
+              ((completionStage == 'completed' ||
+                      completionStage == 'awaiting_completion') &&
+                  booking['renter_trip_confirmed_at'] == null))
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
                   completionStage: completionStage,
@@ -5993,7 +5997,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
-    if (completionStage == 'renter_rating') {
+    if (completionStage == 'renter_rating' ||
+        (completionStage == 'completed' ||
+            completionStage == 'awaiting_completion')) {
       final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => TripRatingFlowScreen(

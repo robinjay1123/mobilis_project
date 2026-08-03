@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/auth_service.dart';
 import '../../../services/trip_rating_service.dart';
@@ -103,6 +104,61 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
       final expectedStage = '${cleanReviewerRole}_rating';
       final isAlreadyCompleted = status == 'completed' || stage == 'completed';
+
+      // Check if the reviewer's confirmed_at is null — they haven't rated yet
+      final confirmedAtKey = '${cleanReviewerRole}_trip_confirmed_at';
+      final reviewerHasNotConfirmed =
+          bookingContext?[confirmedAtKey] == null;
+
+      // Post-return stages where we can still allow rating
+      const rateableStages = {
+        'awaiting_completion',
+        'awaiting_after_checklist',
+        'awaiting_payment',
+        'operator_rating',
+        'renter_rating',
+        'partner_rating',
+        'driver_rating',
+        'completed',
+      };
+
+      // If reviewer hasn't confirmed and booking is in a rateable state,
+      // force-advance the completion_stage to this reviewer's stage so
+      // buildTargetsForBooking can find pending targets.
+      if (reviewerHasNotConfirmed &&
+          (rateableStages.contains(stage) ||
+              rateableStages.contains(status)) &&
+          bookingContext != null) {
+        try {
+          await Supabase.instance.client
+              .from('bookings')
+              .update({
+                'completion_stage': expectedStage,
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              })
+              .eq('id', widget.bookingId);
+
+          // Reload targets with the updated stage
+          final retriedTargets =
+              await _tripRatingService.buildTargetsForBooking(
+            bookingId: widget.bookingId,
+            reviewerUserId: reviewerId,
+            reviewerRole: widget.reviewerRole,
+            operatorFallbackUserId: operatorFallbackUserId,
+            includePreviouslySubmittedForRecovery: true,
+          );
+
+          if (!mounted) return;
+          setState(() {
+            _targets = retriedTargets;
+            _isLoading = false;
+          });
+          return;
+        } catch (e) {
+          debugPrint('[RatingFlow] Could not advance stage: $e');
+        }
+      }
+
       if (isAlreadyCompleted) {
         completionRecovered = await _tripRatingService
             .reconcileCompletedBooking(
