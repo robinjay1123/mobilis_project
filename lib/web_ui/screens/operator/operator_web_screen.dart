@@ -561,11 +561,63 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (actorId == null || actorId.isEmpty) {
         throw Exception('Sign in again before rating this trip.');
       }
-      if (completionStage == 'awaiting_payment') {
+
+      // Check if payment is still pending and not paid
+      if (completionStage == 'awaiting_payment' &&
+          latestBooking['final_payment_status'] != 'paid') {
         await _confirmOperatorFinalPayment(latestBooking);
         return;
       }
-      if (completionStage == 'completed') {
+
+      // Check if there are any pending targets for operator to rate
+      final pendingTargets = await TripRatingService().buildTargetsForBooking(
+        bookingId: bookingId,
+        reviewerUserId: actorId,
+        reviewerRole: 'operator',
+        includePreviouslySubmittedForRecovery: false,
+        operatorFallbackUserId: actorId,
+      );
+
+      // IF OPERATOR STILL HAS PENDING RATINGS TO SUBMIT:
+      if (pendingTargets.isNotEmpty) {
+        final now = DateTime.now().toUtc().toIso8601String();
+        final ratingStageUpdate = <String, dynamic>{
+          'completion_stage': 'operator_rating',
+          'updated_at': now,
+        };
+        if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
+          ratingStageUpdate['operator_id'] = actorId;
+        }
+        await _supabase
+            .from('bookings')
+            .update(ratingStageUpdate)
+            .eq('id', bookingId);
+
+        final submitted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 48,
+              vertical: 32,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: TripRatingFlowScreen(
+                  bookingId: bookingId,
+                  reviewerRole: 'operator',
+                  title: 'Rate Renter',
+                  subtitle:
+                      'Rate the renter before this trip moves to final completion.',
+                ),
+              ),
+            ),
+          ),
+        );
+        if (submitted != true) return;
         final reconciled = await TripRatingService().reconcileCompletedBooking(
           bookingId,
           operatorFallbackUserId: actorId,
@@ -581,65 +633,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           SnackBar(
             content: Text(
               reconciled
-                  ? 'Trip is already completed. Revenue is updated.'
-                  : 'This trip and its required ratings are already completed.',
+                  ? 'Renter rating saved. Trip completed and revenue updated.'
+                  : 'Renter rating saved. Waiting for remaining required ratings.',
             ),
-            backgroundColor: reconciled ? Colors.green : Colors.orange,
+            backgroundColor: Colors.green,
           ),
         );
         return;
       }
-      // These stages indicate return is done — advance to operator_rating if needed.
-      const rateableStages = {
-        'operator_rating',
-        'awaiting_completion',
-        'awaiting_after_checklist',
-        'awaiting_payment',
-      };
-      if (!rateableStages.contains(completionStage)) {
-        throw Exception(
-          'Complete the return checklist and final payment before rating the renter.',
-        );
-      }
 
-      final now = DateTime.now().toUtc().toIso8601String();
-      final ratingStageUpdate = <String, dynamic>{
-        'completion_stage': 'operator_rating',
-        'updated_at': now,
-      };
-      if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
-        ratingStageUpdate['operator_id'] = actorId;
-      }
-      await _supabase
-          .from('bookings')
-          .update(ratingStageUpdate)
-          .eq('id', bookingId);
-
-      final submitted = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 48,
-            vertical: 32,
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: TripRatingFlowScreen(
-                bookingId: bookingId,
-                reviewerRole: 'operator',
-                title: 'Rate Renter',
-                subtitle:
-                    'Rate the renter before this trip moves to final completion.',
-              ),
-            ),
-          ),
-        ),
-      );
-      if (submitted != true) return;
+      // IF OPERATOR HAS ALREADY SUBMITTED RATING FOR THIS BOOKING:
       final reconciled = await TripRatingService().reconcileCompletedBooking(
         bookingId,
         operatorFallbackUserId: actorId,
@@ -655,10 +658,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         SnackBar(
           content: Text(
             reconciled
-                ? 'Renter rating saved. Trip completed and revenue updated.'
-                : 'Renter rating saved. Waiting for the remaining required ratings.',
+                ? 'Trip is already completed and revenue updated.'
+                : 'Your rating for this trip has already been submitted.',
           ),
-          backgroundColor: Colors.green,
+          backgroundColor: reconciled ? Colors.green : Colors.blue,
         ),
       );
     } catch (e) {

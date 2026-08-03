@@ -896,28 +896,58 @@ class BookingService {
     if (booking == null) throw Exception('Booking not found');
 
     final state = getTripCompletionState(booking);
+    final finalPaymentStatus = (booking['final_payment_status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (finalPaymentStatus == 'paid' || state['isFullyPaid'] == true) {
+      return booking;
+    }
+
     final expectedRole = state['firstReviewerRole']?.toString() ?? 'operator';
     final normalizedRole = actorRole.trim().toLowerCase();
-    if (normalizedRole != expectedRole) {
+    if (normalizedRole != expectedRole &&
+        normalizedRole != 'operator' &&
+        normalizedRole != 'admin') {
       throw Exception(
         expectedRole == 'partner'
             ? 'Only the vehicle partner can confirm this final payment'
             : 'Only the PSDC operator can confirm this final payment',
       );
     }
-    final stage = state['completionStage']?.toString() ?? '';
-    if (stage != 'awaiting_payment' && stage != '${expectedRole}_rating') {
+    final stage = state['completionStage']?.toString().toLowerCase() ?? '';
+    final status = (booking['status'] ?? '').toString().toLowerCase();
+    final hasAfterInspection = await _hasAfterInspection(bookingId);
+
+    const validPaymentStages = {
+      'awaiting_payment',
+      'operator_rating',
+      'partner_rating',
+      'driver_rating',
+      'renter_rating',
+      'awaiting_completion',
+      'completed',
+    };
+
+    if (!validPaymentStages.contains(stage) &&
+        !hasAfterInspection &&
+        status != 'completed' &&
+        status != 'returned') {
       throw Exception('The vehicle return checklist is not ready for payment');
     }
 
     final now = DateTime.now().toUtc().toIso8601String();
+    final nextStage = (stage == 'completed' || stage == 'renter_rating')
+        ? stage
+        : '${expectedRole}_rating';
+
     await supabase
         .from('bookings')
         .update({
           'final_payment_status': 'paid',
           'final_payment_confirmed_at': now,
           'final_payment_confirmed_by': actorId,
-          'completion_stage': '${expectedRole}_rating',
+          'completion_stage': nextStage,
           'updated_at': now,
         })
         .eq('id', bookingId);
@@ -943,6 +973,20 @@ class BookingService {
       );
     }
     return await getBookingById(bookingId) ?? booking;
+  }
+
+  Future<bool> _hasAfterInspection(String bookingId) async {
+    try {
+      final response = await supabase
+          .from('booking_vehicle_inspections')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .eq('inspection_type', 'after')
+          .limit(1);
+      return (response as List).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<Map<String, dynamic>> confirmSuccessfulTrip({
