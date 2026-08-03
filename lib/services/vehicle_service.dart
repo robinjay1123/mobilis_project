@@ -677,8 +677,19 @@ class VehicleService {
         query = query.ilike('transmission', '%$transmission%');
       }
       if (minSeats != null) query = query.gte('seats', minSeats);
-      if (location != null && location.isNotEmpty) {
-        query = query.ilike('location', '%$location%');
+      if (location != null && location.trim().isNotEmpty) {
+        final loc = location.trim();
+        query = query.or(
+          'location.ilike.%$loc%,'
+          'city.ilike.%$loc%,'
+          'province.ilike.%$loc%,'
+          'address.ilike.%$loc%,'
+          'pickup_location.ilike.%$loc%,'
+          'brand.ilike.%$loc%,'
+          'model.ilike.%$loc%,'
+          'vehicle_name.ilike.%$loc%,'
+          'description.ilike.%$loc%',
+        );
       }
 
       final response = await query.order('created_at', ascending: false);

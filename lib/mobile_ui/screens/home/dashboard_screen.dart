@@ -845,12 +845,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .toString()
           .toLowerCase();
       final source = (vehicle['source'] ?? '').toString().toLowerCase();
+      final location = (vehicle['location'] ?? '').toString().toLowerCase();
+      final city = (vehicle['city'] ?? '').toString().toLowerCase();
+      final province = (vehicle['province'] ?? '').toString().toLowerCase();
+      final address = (vehicle['address'] ?? vehicle['pickup_location'] ?? '')
+          .toString()
+          .toLowerCase();
+      final description = (vehicle['description'] ?? '')
+          .toString()
+          .toLowerCase();
+      final transmission = (vehicle['transmission'] ?? '')
+          .toString()
+          .toLowerCase();
+      final fuelType = (vehicle['fuel_type'] ?? '')
+          .toString()
+          .toLowerCase();
+
       return brand.contains(search) ||
           model.contains(search) ||
           vehicleName.contains(search) ||
           vehicleType.contains(search) ||
           category.contains(search) ||
-          source.contains(search);
+          source.contains(search) ||
+          location.contains(search) ||
+          city.contains(search) ||
+          province.contains(search) ||
+          address.contains(search) ||
+          description.contains(search) ||
+          transmission.contains(search) ||
+          fuelType.contains(search);
     }).toList();
 
     if (_nearbyLatitude != null && _nearbyLongitude != null) {
@@ -862,13 +885,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final distance = _vehicleDistanceKm(copy);
         if (distance != null) {
           copy['distance_km'] = distance;
-          if (distance <= 75) {
+          // When a search query is active (e.g. searching for a friend in another city),
+          // do NOT discard vehicles further than 75km! Keep all location matches.
+          if (search.isNotEmpty || distance <= 75) {
             nearby.add(copy);
           }
           continue;
         }
 
-        if (_vehicleMatchesNearbyText(copy)) {
+        if (search.isNotEmpty || _vehicleMatchesNearbyText(copy)) {
           fallbackNearby.add(copy);
         }
       }
@@ -3327,7 +3352,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onChanged: (_) => _applyVehicleFilters(),
                       style: TextStyle(color: textColor),
                       decoration: InputDecoration(
-                        hintText: 'Find a car near you...',
+                        hintText:
+                            'Search city, location, brand, or model...',
                         hintStyle: TextStyle(color: tertiaryTextColor),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
