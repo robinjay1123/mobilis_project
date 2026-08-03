@@ -63,7 +63,7 @@ class AdminService {
       final response = await supabase
           .from('users')
           .select(
-            'id, email, full_name, phone, role, created_at, id_verified, application_status',
+            'id, email, full_name, phone, role, created_at, id_verified',
           )
           .eq('role', role)
           .order('created_at', ascending: false);

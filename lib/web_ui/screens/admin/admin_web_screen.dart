@@ -325,9 +325,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     setState(() => _isLoading = true);
 
     try {
+      await _loadAllUsers();
       await Future.wait([
         _loadStats(),
-        _loadAllUsers(),
         _loadAllBookings(),
         _loadAllVehicles(),
         _loadTrackingLocations(),
@@ -960,15 +960,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadStats() async {
     try {
-      final usersResponse = await _supabase.from('users').select('id, role');
-      final users = List<Map<String, dynamic>>.from(usersResponse);
-      _totalUsers = users.length;
-      _totalPartners = users
-          .where((user) => (user['role'] as String? ?? '') == 'partner')
-          .length;
-      _totalOperators = users
-          .where((user) => (user['role'] as String? ?? '') == 'operator')
-          .length;
+      if (_allUsers.isNotEmpty) {
+        _totalUsers = _allUsers.length;
+        _totalPartners = _allUsers
+            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+            .length;
+        _totalOperators = _allUsers
+            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+            .length;
+      } else {
+        final usersResponse = await _supabase.from('users').select('id, role');
+        final users = List<Map<String, dynamic>>.from(usersResponse);
+        _totalUsers = users.length;
+        _totalPartners = users
+            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+            .length;
+        _totalOperators = users
+            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+            .length;
+      }
 
       final vehiclesResponse = await _supabase.from('vehicles').select('id');
       final partnerVehiclesResponse = await _supabase
@@ -1006,16 +1016,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAllUsers() async {
     try {
-      // Fetch all user fields explicitly — avoids RLS ambiguity with select('*')
-      final response = await _supabase
-          .from('users')
-          .select(
-            'id, email, full_name, phone, role, created_at, id_verified, '
-            'verification_status, application_status, is_psdc_driver, '
-            'updated_at, avatar_url',
-          )
-          .order('created_at', ascending: false);
+      List<dynamic> response = [];
 
+      // 1. Try safe select with fallback
+      try {
+        response = await _supabase
+            .from('users')
+            .select(
+              'id, email, full_name, phone, role, created_at, id_verified, '
+              'verification_status, updated_at, avatar_url',
+            )
+            .order('created_at', ascending: false);
+      } catch (e1) {
+        debugPrint('Detailed users query skipped, trying basic fields: $e1');
+        try {
+          response = await _supabase
+              .from('users')
+              .select('id, email, full_name, phone, role, created_at')
+              .order('created_at', ascending: false);
+        } catch (e2) {
+          debugPrint('Basic users query error: $e2');
+        }
+      }
+
+      // 2. Fetch driver data for PSDC driver merge
       List<Map<String, dynamic>> driversResponse = [];
       try {
         driversResponse = List<Map<String, dynamic>>.from(
@@ -1032,20 +1056,61 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           d['user_id']?.toString() ?? '': d,
       };
 
-      _allUsers = List<Map<String, dynamic>>.from(response).map((user) {
+      final userList = <Map<String, dynamic>>[];
+      final seenUserIds = <String>{};
+
+      for (final user in List<Map<String, dynamic>>.from(response)) {
         final userId = user['id']?.toString() ?? '';
+        if (userId.isEmpty) continue;
+        seenUserIds.add(userId);
+
         final driverData = driversMap[userId];
         final isPsdcDriver = user['is_psdc_driver'] == true ||
             driverData?['is_psdc_driver'] == true ||
             driverData?['driver_tier'] == 'psdc';
-        return {
+
+        userList.add({
           ...user,
           'is_psdc_driver': isPsdcDriver,
           'driver_id': driverData?['id'],
-        };
-      }).toList();
+        });
+      }
 
-      debugPrint('Admin: loaded ${_allUsers.length} users');
+      // 3. Fallback: Check if any users exist in user_verifications or bookings missing from main user query
+      try {
+        final verificationUsers = await _supabase
+            .from('user_verifications')
+            .select('user_id, users:user_id(id, email, full_name, phone, role, created_at)');
+        for (final v in List<Map<String, dynamic>>.from(verificationUsers)) {
+          final uMap = v['users'] as Map<String, dynamic>?;
+          final uid = uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
+          if (uid.isNotEmpty && !seenUserIds.contains(uid)) {
+            seenUserIds.add(uid);
+            userList.add({
+              'id': uid,
+              'email': uMap?['email'] ?? 'User Email',
+              'full_name': uMap?['full_name'] ?? 'User ($uid)',
+              'phone': uMap?['phone'] ?? '',
+              'role': uMap?['role'] ?? 'renter',
+              'created_at': uMap?['created_at'] ?? DateTime.now().toIso8601String(),
+              'id_verified': true,
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('Verification users merge note: $e');
+      }
+
+      _allUsers = userList;
+      _totalUsers = _allUsers.length;
+      _totalPartners = _allUsers
+          .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+          .length;
+      _totalOperators = _allUsers
+          .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+          .length;
+
+      debugPrint('Admin: successfully loaded ${_allUsers.length} users');
     } on PostgrestException catch (e) {
       debugPrint('Admin _loadAllUsers Postgrest error: ${e.message} code=${e.code}');
       _allUsers = [];
