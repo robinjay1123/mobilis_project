@@ -654,12 +654,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final actorId = _supabase.auth.currentUser?.id;
     if (bookingId.isEmpty || actorId == null) return;
 
+    final finalReceiptUrl = (booking['final_payment_proof_url'] ??
+            booking['payment_proof_url'] ??
+            booking['proof_url'] ??
+            booking['reservation_payment_proof_url'])
+        ?.toString()
+        .trim();
+    final hasReceipt = finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Confirm Full Payment'),
-        content: const Text(
-          'Confirm that the full rental balance and any late-return fee have been paid. This action unlocks the mandatory renter rating.',
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Confirm that the full rental balance and any late-return fee have been paid. This action unlocks the mandatory renter rating.',
+              ),
+              if (hasReceipt) ...[
+                const SizedBox(height: 14),
+                const Text(
+                  'Attached Renter Payment Receipt:',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: OnDemandNetworkImage(
+                      imageUrl: finalReceiptUrl,
+                      width: 240,
+                      height: 160,
+                      fit: BoxFit.cover,
+                      label: 'Receipt Proof',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -7646,43 +7685,190 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'Total Final Trip Cost',
                   'PHP ${((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                 ),
-                if (booking['final_payment_proof_url'] != null ||
-                    booking['payment_proof_url'] != null ||
-                    booking['proof_url'] != null) ...[
-                  const SizedBox(height: 10),
-                  _buildOperatorEvidenceChip(
-                    Icons.receipt_outlined,
-                    'Renter Settlement Receipt',
-                    booking['final_payment_proof_url'] ??
-                        booking['payment_proof_url'] ??
-                        booking['proof_url'],
-                  ),
-                ],
-                if (booking['final_payment_status'] == 'pending' &&
-                    status.trim().toLowerCase() != 'completed') ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        await _confirmOperatorFinalPayment(booking);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _operatorGold,
-                        foregroundColor: _operatorNavyDeep,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                () {
+                  final finalReceiptUrl = (booking['final_payment_proof_url'] ??
+                          booking['payment_proof_url'] ??
+                          booking['proof_url'] ??
+                          booking['reservation_payment_proof_url'])
+                      ?.toString()
+                      .trim();
+                  final hasFinalReceipt =
+                      finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
+                  final isFullPaymentAtReservation =
+                      booking['reservation_payment_type'] == 'full_payment' ||
+                          (((booking['reservation_fee_amount'] as num?)
+                                      ?.toDouble() ??
+                                  0) >=
+                              (((booking['total_price'] as num?)?.toDouble() ??
+                                      (booking['total_cost'] as num?)
+                                          ?.toDouble() ??
+                                      0) -
+                                  1));
+                  final isPaymentSubmitted =
+                      booking['renter_return_payment_submitted'] == true ||
+                          (booking['final_payment_reference']
+                                  ?.toString()
+                                  .trim()
+                                  .isNotEmpty ==
+                              true) ||
+                          booking['final_payment_status'] == 'paid' ||
+                          booking['final_payment_status'] == 'submitted' ||
+                          hasFinalReceipt ||
+                          isFullPaymentAtReservation;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasFinalReceipt) ...[
+                        const SizedBox(height: 14),
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.receipt_long_outlined,
+                              color: _operatorGold,
+                              size: 16,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'RENTER ATTACHED RECEIPT',
+                              style: TextStyle(
+                                color: Color(0xFF91A9BE),
+                                fontSize: 9,
+                                letterSpacing: 1,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      icon: const Icon(Icons.verified_user_rounded, size: 16),
-                      label: const Text(
-                        'Confirm Final Payment & Verify Receipt',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
-                  ),
-                ],
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0D1928),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: OnDemandNetworkImage(
+                                  imageUrl: finalReceiptUrl,
+                                  width: 80,
+                                  height: 80,
+                                  fit: BoxFit.cover,
+                                  label: 'Receipt',
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Payment Proof Receipt',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      booking['final_payment_reference'] != null
+                                          ? 'Ref: ${booking['final_payment_reference']}'
+                                          : 'Uploaded by renter for settlement',
+                                      style: const TextStyle(
+                                        color: Color(0xFF91A9BE),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    OutlinedButton.icon(
+                                      onPressed: () => _showReceiptProofDialog(
+                                          finalReceiptUrl, isDark),
+                                      icon: const Icon(
+                                          Icons.open_in_full_rounded,
+                                          size: 14),
+                                      label: const Text('View Full Receipt',
+                                          style: TextStyle(fontSize: 11)),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: _operatorGold,
+                                        side: const BorderSide(
+                                            color: _operatorGold),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 4),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (booking['final_payment_status'] == 'pending' &&
+                          status.trim().toLowerCase() != 'completed') ...[
+                        const SizedBox(height: 12),
+                        if (isPaymentSubmitted)
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () async {
+                                await _confirmOperatorFinalPayment(booking);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _operatorGold,
+                                foregroundColor: _operatorNavyDeep,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              icon: const Icon(Icons.verified_user_rounded,
+                                  size: 16),
+                              label: const Text(
+                                'Confirm Final Payment & Verify Receipt',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: Colors.amber.withOpacity(0.4)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.hourglass_bottom_rounded,
+                                    color: Colors.amber, size: 18),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Awaiting renter final payment & receipt upload',
+                                    style: TextStyle(
+                                      color: Colors.amber[200] ?? Colors.amber,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ],
+                  );
+                }(),
               ],
             ),
           ),
@@ -9073,25 +9259,67 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           : Colors.grey.shade600,
                                     ),
                                   ),
-                                if (completionStage == 'awaiting_payment' &&
-                                    !_isPartnerOwnedBooking(booking))
-                                  ElevatedButton.icon(
-                                    onPressed: () =>
-                                        _confirmOperatorFinalPayment(booking),
-                                    icon: const Icon(
-                                      Icons.payments_outlined,
-                                      size: 16,
-                                    ),
-                                    label: const Text('Confirm Full Payment'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.primary,
-                                      foregroundColor: Colors.black,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
-                                      ),
-                                    ),
-                                  ),
+                                () {
+                                  final finalReceiptUrl = (booking['final_payment_proof_url'] ??
+                                          booking['payment_proof_url'] ??
+                                          booking['proof_url'] ??
+                                          booking['reservation_payment_proof_url'])
+                                      ?.toString()
+                                      .trim();
+                                  final hasFinalReceipt =
+                                      finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
+                                  final isFullPaymentAtReservation =
+                                      booking['reservation_payment_type'] == 'full_payment' ||
+                                          (((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) >=
+                                              (((booking['total_price'] as num?)?.toDouble() ??
+                                                      (booking['total_cost'] as num?)?.toDouble() ??
+                                                      0) -
+                                                  1));
+                                  final isPaymentSubmitted =
+                                      booking['renter_return_payment_submitted'] == true ||
+                                          (booking['final_payment_reference']
+                                                  ?.toString()
+                                                  .trim()
+                                                  .isNotEmpty ==
+                                              true) ||
+                                          booking['final_payment_status'] == 'paid' ||
+                                          booking['final_payment_status'] == 'submitted' ||
+                                          hasFinalReceipt ||
+                                          isFullPaymentAtReservation;
+
+                                  if (completionStage == 'awaiting_payment' &&
+                                      !_isPartnerOwnedBooking(booking)) {
+                                    if (isPaymentSubmitted) {
+                                      return ElevatedButton.icon(
+                                        onPressed: () =>
+                                            _confirmOperatorFinalPayment(booking),
+                                        icon: const Icon(
+                                          Icons.payments_outlined,
+                                          size: 16,
+                                        ),
+                                        label: const Text('Confirm Full Payment'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.primary,
+                                          foregroundColor: Colors.black,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 8,
+                                          ),
+                                        ),
+                                      );
+                                    } else {
+                                      return Text(
+                                        'Awaiting renter payment',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: isDark ? Colors.amber[300] : Colors.amber[800],
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                  return const SizedBox.shrink();
+                                }(),
                                 if ((statusLower == 'awaiting_completion' ||
                                         statusLower == 'completed') &&
                                     statusLower != 'ongoing' &&
