@@ -13,7 +13,6 @@ import '../../../services/booking_service.dart';
 import '../../../services/booking_receipt_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
-import '../../../services/notification_permission_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/trip_rating_service.dart';
