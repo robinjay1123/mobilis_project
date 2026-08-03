@@ -652,6 +652,7 @@ class VehicleService {
     String? color,
     int? minSeats,
     String? fuelType,
+    String? transmission,
     String? category,
   }) async {
     try {
@@ -671,6 +672,9 @@ class VehicleService {
       if (color != null && color.isNotEmpty) query = query.eq('color', color);
       if (fuelType != null && fuelType.isNotEmpty) {
         query = query.eq('fuel_type', fuelType);
+      }
+      if (transmission != null && transmission.isNotEmpty) {
+        query = query.ilike('transmission', '%$transmission%');
       }
       if (minSeats != null) query = query.gte('seats', minSeats);
       if (location != null && location.isNotEmpty) {

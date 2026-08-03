@@ -33,6 +33,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
   String? _selectedColor;
   String? _selectedFuelType;
+  String? _selectedTransmission;
   int? _minSeats;
   DateTime? _availableFrom;
   DateTime? _availableTo;
@@ -203,6 +204,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
             : _locationController.text,
         color: _selectedColor,
         fuelType: _selectedFuelType,
+        transmission: _selectedTransmission,
         category: _selectedCategoryForQuery,
         minPrice: minPrice,
         maxPrice: maxPrice,
@@ -211,15 +213,23 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
         availableTo: _availableTo,
       );
 
+      var filtered = vehicles;
+      if (_selectedTransmission != null && _selectedTransmission!.isNotEmpty) {
+        filtered = filtered.where((v) {
+          final trans = v['transmission']?.toString().toLowerCase() ?? '';
+          return trans.contains(_selectedTransmission!.toLowerCase());
+        }).toList();
+      }
+
       if (!mounted) return;
       setState(() {
         _results
           ..clear()
-          ..addAll(vehicles);
+          ..addAll(filtered);
         _isSearching = false;
       });
 
-      if (vehicles.isEmpty && mounted) {
+      if (filtered.isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -259,6 +269,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       _maxPriceController.clear();
       _selectedColor = null;
       _selectedFuelType = null;
+      _selectedTransmission = null;
       _minSeats = null;
       _availableFrom = null;
       _availableTo = null;
@@ -562,7 +573,422 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
     );
   }
 
+  Widget _buildFilterPanel() {
+    final activeFiltersCount = [
+      _selectedTransmission,
+      _selectedFuelType,
+      _selectedColor,
+      _minSeats,
+      _brandController.text.trim().isNotEmpty ? true : null,
+      _modelController.text.trim().isNotEmpty ? true : null,
+      _minPriceController.text.trim().isNotEmpty ? true : null,
+      _maxPriceController.text.trim().isNotEmpty ? true : null,
+      _availableFrom,
+      _availableTo,
+    ].where((item) => item != null).length;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      margin: const EdgeInsets.only(top: 14, bottom: 8),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.tune, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Vehicle Specifications',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  if (activeFiltersCount > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$activeFiltersCount Active',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              if (activeFiltersCount > 0)
+                GestureDetector(
+                  onTap: _clearFilters,
+                  child: const Text(
+                    'Reset All',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const Divider(height: 24, color: AppColors.borderColor),
+
+          // ── TRANSMISSION ──
+          const Text(
+            'Transmission',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: ['All', 'Automatic', 'Manual'].map((type) {
+              final isSelected = (_selectedTransmission == null && type == 'All') ||
+                  _selectedTransmission == type;
+              return ChoiceChip(
+                label: Text(type),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedTransmission = type == 'All' ? null : type;
+                  });
+                },
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.darkBgTertiary,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+
+          // ── FUEL TYPE ──
+          const Text(
+            'Fuel Type',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: ['All', 'Gasoline', 'Diesel', 'Hybrid', 'Electric'].map((fuel) {
+              final isSelected = (_selectedFuelType == null && fuel == 'All') ||
+                  _selectedFuelType == fuel;
+              return ChoiceChip(
+                label: Text(fuel),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedFuelType = fuel == 'All' ? null : fuel;
+                  });
+                },
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.darkBgTertiary,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+
+          // ── BRAND & MODEL ──
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Brand / Make',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _brandController,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'e.g. Toyota',
+                        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                        filled: true,
+                        fillColor: AppColors.darkBgTertiary,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Model',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _modelController,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'e.g. Vlos',
+                        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                        filled: true,
+                        fillColor: AppColors.darkBgTertiary,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── COLOR ──
+          const Text(
+            'Vehicle Color',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 38,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: ['All', ..._colors].map((color) {
+                final isSelected = (_selectedColor == null && color == 'All') ||
+                    _selectedColor == color;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(color),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedColor = color == 'All' ? null : color;
+                      });
+                    },
+                    selectedColor: AppColors.primary,
+                    backgroundColor: AppColors.darkBgTertiary,
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.black : AppColors.textPrimary,
+                      fontSize: 11,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── SEATING CAPACITY ──
+          const Text(
+            'Minimum Seats',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            children: [null, 2, 4, 5, 6, 7, 8, 10].map((seats) {
+              final label = seats == null ? 'Any' : '$seats+ Seats';
+              final isSelected = _minSeats == seats;
+              return ChoiceChip(
+                label: Text(label),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() => _minSeats = selected ? seats : null);
+                },
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.darkBgTertiary,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+
+          // ── PRICE PER DAY RANGE ──
+          const Text(
+            'Price / Day (PHP)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _minPriceController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Min ₱',
+                    hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    filled: true,
+                    fillColor: AppColors.darkBgTertiary,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Text('–', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _maxPriceController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Max ₱',
+                    hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    filled: true,
+                    fillColor: AppColors.darkBgTertiary,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ── DATE RANGE AVAILABILITY ──
+          const Text(
+            'Booking Date Availability',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_today, size: 14),
+                  label: Text(
+                    _availableFrom == null
+                        ? 'Pickup Date'
+                        : '${_availableFrom!.month}/${_availableFrom!.day}/${_availableFrom!.year}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.borderColor),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: () => _selectDate(true),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.event, size: 14),
+                  label: Text(
+                    _availableTo == null
+                        ? 'Return Date'
+                        : '${_availableTo!.month}/${_availableTo!.day}/${_availableTo!.year}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.borderColor),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: () => _selectDate(false),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // ── APPLY BUTTON ──
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.tune_rounded),
+              label: const Text('Apply Specification Filters', style: TextStyle(fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                _performSearch();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
+
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -633,10 +1059,14 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                           ),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            side: const BorderSide(
-                              color: AppColors.borderColor,
+                            side: BorderSide(
+                              color: _showFilters
+                                  ? AppColors.primary
+                                  : AppColors.borderColor,
                             ),
-                            foregroundColor: AppColors.textPrimary,
+                            foregroundColor: _showFilters
+                                ? AppColors.primary
+                                : AppColors.textPrimary,
                             backgroundColor: AppColors.darkBgSecondary,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -665,7 +1095,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                       ),
                     ],
                   ),
+                  if (_showFilters) _buildFilterPanel(),
                   const SizedBox(height: 12),
+
                   // View all button
                   SizedBox(
                     width: double.infinity,
