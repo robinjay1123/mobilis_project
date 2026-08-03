@@ -943,17 +943,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAllUsers() async {
     try {
+      // Fetch all user fields explicitly — avoids RLS ambiguity with select('*')
       final response = await _supabase
           .from('users')
-          .select('*')
+          .select(
+            'id, email, full_name, phone, role, created_at, id_verified, '
+            'verification_status, application_status, is_psdc_driver, '
+            'updated_at, avatar_url',
+          )
           .order('created_at', ascending: false);
 
-      final driversResponse = await _supabase
-          .from('drivers')
-          .select('id, user_id, is_psdc_driver, driver_tier');
+      List<Map<String, dynamic>> driversResponse = [];
+      try {
+        driversResponse = List<Map<String, dynamic>>.from(
+          await _supabase
+              .from('drivers')
+              .select('id, user_id, is_psdc_driver, driver_tier'),
+        );
+      } catch (driverErr) {
+        debugPrint('Could not load drivers for PSDC merge: $driverErr');
+      }
+
       final driversMap = <String, Map<String, dynamic>>{
-        for (final d in List<Map<String, dynamic>>.from(driversResponse))
-          d['user_id']?.toString() ?? '': d
+        for (final d in driversResponse)
+          d['user_id']?.toString() ?? '': d,
       };
 
       _allUsers = List<Map<String, dynamic>>.from(response).map((user) {
@@ -968,8 +981,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           'driver_id': driverData?['id'],
         };
       }).toList();
+
+      debugPrint('Admin: loaded ${_allUsers.length} users');
+    } on PostgrestException catch (e) {
+      debugPrint('Admin _loadAllUsers Postgrest error: ${e.message} code=${e.code}');
+      _allUsers = [];
     } catch (e) {
-      debugPrint('Error loading users: $e');
+      debugPrint('Admin _loadAllUsers error: $e');
       _allUsers = [];
     }
   }
@@ -2013,6 +2031,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildSidebar(bool isDark) {
+    const adminNavy = Color(0xFF032A46);
+    const adminNavyDeep = Color(0xFF021F35);
+    const adminGold = Color(0xFFFFD740);
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: _sidebarExpanded ? 260 : 70,
@@ -2020,10 +2042,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF062A44), Color(0xFF071D31)],
+          colors: [adminNavy, adminNavyDeep],
         ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 20),
+          BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 24),
         ],
       ),
       child: ListView(
@@ -2032,12 +2054,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           SizedBox(
             height: 70,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 30,
-                    height: 30,
+                  // Logo with gold border
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: adminGold,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: adminGold, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: adminGold.withOpacity(0.35),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(6),
                     child: Image.asset(
                       'assets/icon/logo-black.png',
                       fit: BoxFit.contain,
@@ -2045,20 +2081,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                   if (_sidebarExpanded) ...[
                     const SizedBox(width: 12),
-                    const Text(
-                      'Mobilis Admin',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Mobilis',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        Text(
+                          'Admin Portal',
+                          style: TextStyle(
+                            color: adminGold,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],
               ),
             ),
           ),
-          const Divider(color: Colors.white12),
+          Divider(color: Colors.white.withOpacity(0.08), height: 1),
           const SizedBox(height: 10),
           if (_sidebarExpanded)
             Padding(
@@ -2068,25 +2120,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white.withOpacity(0.4),
+                  color: Colors.white.withOpacity(0.35),
                   letterSpacing: 1.5,
                 ),
               ),
             ),
           const SizedBox(height: 10),
-          _buildNavItem(0, Icons.dashboard, 'Dashboard', isDark),
+          _buildNavItem(0, Icons.dashboard_rounded, 'Dashboard', isDark),
           _buildNavItem(
             1,
-            Icons.people,
+            Icons.people_rounded,
             'Users',
             isDark,
             badge: _allUsers.length,
           ),
-          _buildNavItem(2, Icons.directions_car, 'Vehicles', isDark),
-          _buildNavItem(3, Icons.book, 'Bookings', isDark),
+          _buildNavItem(2, Icons.directions_car_rounded, 'Vehicles', isDark),
+          _buildNavItem(3, Icons.book_rounded, 'Bookings', isDark),
           _buildNavItem(
             4,
-            Icons.verified_user,
+            Icons.verified_user_rounded,
             'Verifications',
             isDark,
             badge: _pendingVerifications > 0 ? _pendingVerifications : null,
@@ -2100,10 +2152,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ? _pendingPartnerVehicleApplications.length
                 : null,
           ),
-          _buildNavItem(6, Icons.mail, 'Message Review', isDark),
+          _buildNavItem(6, Icons.mail_rounded, 'Message Review', isDark),
           _buildNavItem(
             7,
-            Icons.support_agent,
+            Icons.support_agent_rounded,
             'Customer Service',
             isDark,
             badge: _supportConversations.isNotEmpty
@@ -2119,25 +2171,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: Colors.white.withOpacity(0.4),
+                  color: Colors.white.withOpacity(0.35),
                   letterSpacing: 1.5,
                 ),
               ),
             ),
           const SizedBox(height: 10),
-          _buildNavItem(8, Icons.analytics, 'Analytics', isDark),
+          _buildNavItem(8, Icons.analytics_rounded, 'Analytics', isDark),
           _buildNavItem(
             10,
-            Icons.location_on,
+            Icons.location_on_rounded,
             'Live Tracking',
             isDark,
             badge: _trackingLocations.isNotEmpty
                 ? _trackingLocations.length
                 : null,
           ),
-          _buildNavItem(9, Icons.campaign_outlined, 'Announcements', isDark),
-          _buildNavItem(11, Icons.settings, 'Settings', isDark),
-          const Divider(color: Colors.white12, height: 1),
+          _buildNavItem(9, Icons.campaign_rounded, 'Announcements', isDark),
+          _buildNavItem(11, Icons.settings_rounded, 'Settings', isDark),
+          Divider(color: Colors.white.withOpacity(0.08), height: 1),
           InkWell(
             onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
             child: SizedBox(
@@ -2151,9 +2203,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   children: [
                     Icon(
                       _sidebarExpanded
-                          ? Icons.chevron_left
-                          : Icons.chevron_right,
-                      color: Colors.white60,
+                          ? Icons.chevron_left_rounded
+                          : Icons.chevron_right_rounded,
+                      color: Colors.white38,
                     ),
                   ],
                 ),
@@ -2173,6 +2225,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     int? badge,
   }) {
     final isSelected = _selectedIndex == index;
+    const adminGold = Color(0xFFFFD740);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -2183,8 +2236,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           height: 46,
           padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
           decoration: BoxDecoration(
-            color: isSelected ? AppColors.primary : null,
+            color: isSelected ? adminGold : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: adminGold.withOpacity(0.25),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
           ),
           child: Row(
             mainAxisAlignment: _sidebarExpanded
@@ -2193,7 +2255,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             children: [
               Icon(
                 icon,
-                color: isSelected ? Colors.black : Colors.white60,
+                color: isSelected ? const Color(0xFF021F35) : Colors.white54,
                 size: 22,
               ),
               if (_sidebarExpanded) ...[
@@ -2202,10 +2264,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: isSelected ? Colors.black : Colors.white70,
+                      color: isSelected
+                          ? const Color(0xFF021F35)
+                          : Colors.white70,
                       fontWeight: isSelected
-                          ? FontWeight.w600
+                          ? FontWeight.w700
                           : FontWeight.normal,
+                      fontSize: 13.5,
                     ),
                   ),
                 ),
@@ -2217,14 +2282,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? Colors.black.withOpacity(0.14)
-                          : Colors.red,
+                          ? const Color(0xFF021F35).withOpacity(0.18)
+                          : Colors.red.shade600,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       badge.toString(),
                       style: TextStyle(
-                        color: isSelected ? Colors.black : Colors.white,
+                        color: isSelected
+                            ? const Color(0xFF021F35)
+                            : Colors.white,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
@@ -2239,56 +2306,82 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildTopBar(bool isDark) {
+    const adminNavyDeep = Color(0xFF021F35);
+    const adminGold = Color(0xFFFFD740);
+
     return Container(
       height: 70,
       padding: const EdgeInsets.symmetric(horizontal: 30),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : Colors.white,
+        color: isDark ? adminNavyDeep : Colors.white,
         border: Border(
           bottom: BorderSide(
-            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+            color: isDark
+                ? Colors.white.withOpacity(0.07)
+                : Colors.grey.shade200,
           ),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Text(
             _getPageTitle(),
             style: TextStyle(
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
+              color: isDark ? Colors.white : const Color(0xFF021F35),
+              letterSpacing: 0.3,
             ),
           ),
           const Spacer(),
-          _buildQuickAction('Export', Icons.download, Colors.green, () {
+          _buildQuickAction('Export', Icons.download_rounded, Colors.green, () {
             _generateAndExportReport(isDark);
           }),
-          const SizedBox(width: 20),
-          IconButton(
-            onPressed: () => widget.onThemeToggle?.call(!isDark),
-            icon: Icon(
-              isDark ? Icons.light_mode : Icons.dark_mode,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          IconButton(
-            onPressed: _loadDashboardData,
-            icon: Icon(
-              Icons.refresh,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
           const SizedBox(width: 16),
+          Tooltip(
+            message: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+            child: IconButton(
+              onPressed: () => widget.onThemeToggle?.call(!isDark),
+              icon: Icon(
+                isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                color: isDark ? Colors.white70 : const Color(0xFF032A46),
+              ),
+            ),
+          ),
+          Tooltip(
+            message: 'Refresh',
+            child: IconButton(
+              onPressed: _loadDashboardData,
+              icon: Icon(
+                Icons.refresh_rounded,
+                color: isDark ? Colors.white70 : const Color(0xFF032A46),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: adminGold,
                 borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: adminGold.withOpacity(0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -2304,11 +2397,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   const Text(
                     'Admin',
                     style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF021F35),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
                     ),
                   ),
-                  const Icon(Icons.arrow_drop_down, color: Colors.black),
+                  const Icon(
+                    Icons.arrow_drop_down,
+                    color: Color(0xFF021F35),
+                    size: 20,
+                  ),
                 ],
               ),
             ),
@@ -2317,7 +2415,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 value: 'profile',
                 child: Row(
                   children: [
-                    Icon(Icons.person),
+                    Icon(Icons.person_rounded),
                     SizedBox(width: 10),
                     Text('Profile'),
                   ],
@@ -2328,7 +2426,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 value: 'logout',
                 child: Row(
                   children: [
-                    Icon(Icons.logout, color: Colors.red),
+                    Icon(Icons.logout_rounded, color: Colors.red),
                     SizedBox(width: 10),
                     Text('Logout', style: TextStyle(color: Colors.red)),
                   ],

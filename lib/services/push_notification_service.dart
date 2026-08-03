@@ -12,8 +12,72 @@ import 'notification_permission_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp();
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
+  } catch (e) {
+    debugPrint('Firebase background init error: $e');
+  }
+
+  final notification = message.notification;
+  final title =
+      notification?.title ?? message.data['title']?.toString() ?? 'Mobilis';
+  final body =
+      notification?.body ??
+      message.data['body']?.toString() ??
+      message.data['message']?.toString() ??
+      'You have a new notification';
+
+  if (!kIsWeb) {
+    try {
+      final localNotifications = FlutterLocalNotificationsPlugin();
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
+      const iosSettings = DarwinInitializationSettings();
+      const settings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
+      await localNotifications.initialize(settings);
+
+      const androidDetails = AndroidNotificationDetails(
+        'mobilis_general',
+        'Mobilis Notifications',
+        channelDescription: 'General app notifications',
+        importance: Importance.max,
+        priority: Priority.high,
+        icon: '@mipmap/ic_launcher',
+        playSound: true,
+        enableVibration: true,
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      await localNotifications.show(
+        title.hashCode ^ body.hashCode,
+        title,
+        body,
+        details,
+        payload: jsonEncode({
+          ...message.data,
+          'type':
+              message.data['type'] ?? message.data['notification_type'] ?? '',
+          'title': title,
+          'message': body,
+        }),
+      );
+    } catch (e) {
+      debugPrint('Background local notification display error: $e');
+    }
   }
 }
 
@@ -34,6 +98,10 @@ class PushNotificationService {
       StreamController<Map<String, dynamic>>.broadcast();
   Map<String, dynamic>? _pendingNotificationTap;
 
+  StreamSubscription? _realtimeSubscription;
+  final Set<String> _seenNotificationIds = {};
+  String? _activeUserId;
+
   bool get isReady => _firebaseReady;
   Stream<Map<String, dynamic>> get notificationTaps =>
       _notificationTapController.stream;
@@ -48,30 +116,39 @@ class PushNotificationService {
     if (_initialized) return;
     _initialized = true;
 
-    await _initializeFirebase();
-    if (!_firebaseReady) return;
-
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     await _initializeLocalNotifications();
+
+    await _initializeFirebase();
+
     await _requestPermissions();
 
-    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
-    FirebaseMessaging.instance.onTokenRefresh.listen(_saveTokenForCurrentUser);
+    if (_firebaseReady) {
+      FirebaseMessaging.onBackgroundMessage(
+        firebaseMessagingBackgroundHandler,
+      );
+      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+      FirebaseMessaging.instance.onTokenRefresh.listen(
+        _saveTokenForCurrentUser,
+      );
+
+      final initialMessage =
+          await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) {
+        _handleNotificationTap(initialMessage);
+      }
+    }
 
     await syncTokenForCurrentUser();
-
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      _handleNotificationTap(initialMessage);
-    }
   }
 
   Future<void> syncTokenForCurrentUser() async {
-    if (!_firebaseReady) return;
-
     final currentUser = AuthService().currentUser;
     if (currentUser == null) return;
+
+    startRealtimeNotificationListener(currentUser.id);
+
+    if (!_firebaseReady) return;
 
     try {
       final token = await _getMessagingToken();
@@ -87,6 +164,110 @@ class PushNotificationService {
     } catch (e) {
       debugPrint('Push token sync failed: $e');
     }
+  }
+
+  void startRealtimeNotificationListener(String userId) {
+    if (_activeUserId == userId && _realtimeSubscription != null) return;
+    _realtimeSubscription?.cancel();
+    _activeUserId = userId;
+
+    try {
+      final client = Supabase.instance.client;
+      _realtimeSubscription = client
+          .from('notifications')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', userId)
+          .listen(
+            (rows) {
+              if (_seenNotificationIds.isEmpty) {
+                // Populate initial state to prevent alerting on historical notifications
+                for (final row in rows) {
+                  final id = row['id']?.toString();
+                  if (id != null) _seenNotificationIds.add(id);
+                }
+                return;
+              }
+
+              for (final row in rows) {
+                final id = row['id']?.toString();
+                if (id == null) continue;
+                final isRead = row['is_read'] == true;
+                final createdAtStr = row['created_at']?.toString();
+                final title =
+                    row['title']?.toString() ?? 'Mobilis Notification';
+                final message = row['message']?.toString() ?? '';
+
+                if (!_seenNotificationIds.contains(id)) {
+                  _seenNotificationIds.add(id);
+                  if (!isRead) {
+                    final createdAt =
+                        createdAtStr != null
+                            ? DateTime.tryParse(createdAtStr)
+                            : null;
+                    if (createdAt == null ||
+                        DateTime.now().difference(createdAt).inMinutes < 10) {
+                      showSystemNotification(
+                        title: title,
+                        body: message,
+                        payload:
+                            row['data'] is Map
+                                ? Map<String, dynamic>.from(row['data'])
+                                : {},
+                      );
+                    }
+                  }
+                }
+              }
+            },
+            onError: (error) {
+              debugPrint('Realtime notification stream error: $error');
+            },
+          );
+    } catch (e) {
+      debugPrint('Failed to subscribe to realtime notifications: $e');
+    }
+  }
+
+  Future<void> showSystemNotification({
+    required String title,
+    required String body,
+    Map<String, dynamic>? payload,
+  }) async {
+    if (kIsWeb) {
+      await NotificationPermissionService().showBrowserNotification(
+        title: title,
+        body: body,
+      );
+      return;
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      'mobilis_general',
+      'Mobilis Notifications',
+      channelDescription: 'General app notifications',
+      importance: Importance.max,
+      priority: Priority.high,
+      icon: '@mipmap/ic_launcher',
+      playSound: true,
+      enableVibration: true,
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _localNotifications.show(
+      title.hashCode ^ body.hashCode,
+      title,
+      body,
+      details,
+      payload: payload != null ? jsonEncode(payload) : null,
+    );
   }
 
   Future<void> _initializeFirebase() async {
@@ -122,7 +303,11 @@ class PushNotificationService {
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
-    const iosSettings = DarwinInitializationSettings();
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
     const settings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -146,8 +331,8 @@ class PushNotificationService {
       },
     );
 
-    final launchDetails = await _localNotifications
-        .getNotificationAppLaunchDetails();
+    final launchDetails =
+        await _localNotifications.getNotificationAppLaunchDetails();
     final launchPayload = launchDetails?.notificationResponse?.payload;
     if (launchDetails?.didNotificationLaunchApp == true &&
         launchPayload != null &&
@@ -180,16 +365,35 @@ class PushNotificationService {
   }
 
   Future<void> _requestPermissions() async {
-    try {
-      final settings = await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-      debugPrint('FCM permission status: ${settings.authorizationStatus}');
-    } catch (e) {
-      debugPrint('FCM permission request failed: $e');
+    if (_firebaseReady) {
+      try {
+        final settings = await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+          provisional: false,
+        );
+        debugPrint('FCM permission status: ${settings.authorizationStatus}');
+      } catch (e) {
+        debugPrint('FCM permission request failed: $e');
+      }
+    }
+
+    if (!kIsWeb) {
+      try {
+        await _localNotifications
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.requestNotificationsPermission();
+        await _localNotifications
+            .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin
+            >()
+            ?.requestPermissions(alert: true, badge: true, sound: true);
+      } catch (e) {
+        debugPrint('Local notifications permission request failed: $e');
+      }
     }
 
     await NotificationPermissionService().ensurePrompted();
@@ -205,41 +409,15 @@ class PushNotificationService {
         message.data['message']?.toString() ??
         'You have a new notification';
 
-    if (kIsWeb) {
-      await NotificationPermissionService().showBrowserNotification(
-        title: title,
-        body: body,
-      );
-      return;
-    }
-
-    final android = message.notification?.android;
-    final androidDetails = AndroidNotificationDetails(
-      'mobilis_general',
-      'Mobilis Notifications',
-      channelDescription: 'General app notifications',
-      importance: Importance.max,
-      priority: Priority.high,
-      icon: android?.smallIcon,
-    );
-
-    const iosDetails = DarwinNotificationDetails();
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotifications.show(
-      title.hashCode ^ body.hashCode,
-      title,
-      body,
-      details,
-      payload: jsonEncode({
+    await showSystemNotification(
+      title: title,
+      body: body,
+      payload: {
         ...message.data,
         'type': message.data['type'] ?? message.data['notification_type'] ?? '',
         'title': title,
         'message': body,
-      }),
+      },
     );
   }
 
