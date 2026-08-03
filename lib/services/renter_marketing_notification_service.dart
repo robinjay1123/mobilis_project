@@ -222,7 +222,7 @@ class RenterMarketingNotificationService {
         '🚀 Triggering daily renter marketing notification: ${prompt.title}',
       );
 
-      // Create notification record in Supabase database
+      // Create notification record in Supabase database (PushNotificationService handles system popup)
       await NotificationService().createNotification(
         userId: user.id,
         title: prompt.title,
@@ -234,12 +234,6 @@ class RenterMarketingNotificationService {
           'action_route': '/vehicle-search',
           'event': 'renter_promo',
         },
-      );
-
-      // Display system/browser notification popup
-      await NotificationPermissionService().showBrowserNotification(
-        title: prompt.title,
-        body: prompt.message,
       );
 
       // Save history to preferences

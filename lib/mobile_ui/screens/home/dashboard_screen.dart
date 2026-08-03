@@ -658,20 +658,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             callback: (payload) {
               if (!mounted) return;
               _loadNotifications();
-              if (payload.eventType == PostgresChangeEvent.insert) {
-                final newNotification =
-                    payload.newRecord as Map<String, dynamic>?;
-                if (newNotification != null) {
-                  if (isMessageNotification(newNotification)) return;
-                  final title =
-                      newNotification['title']?.toString() ?? 'Notification';
-                  final message = newNotification['message']?.toString() ?? '';
-                  NotificationPermissionService().showBrowserNotification(
-                    title: title,
-                    body: message,
-                  );
-                }
-              }
             },
           )
           .subscribe();

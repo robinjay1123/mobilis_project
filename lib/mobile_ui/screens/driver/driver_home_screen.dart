@@ -3777,16 +3777,6 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                 final notificationId = notification['id']?.toString() ?? '';
                 final visual = notificationVisualFor(notification);
 
-                if (!isRead &&
-                    notificationId.isNotEmpty &&
-                    !_shownBrowserNotificationIds.contains(notificationId)) {
-                  _shownBrowserNotificationIds.add(notificationId);
-                  NotificationPermissionService().showBrowserNotification(
-                    title: title,
-                    body: message,
-                  );
-                }
-
                 return InkWell(
                   onTap: () => _openNotificationModal(notification),
                   borderRadius: BorderRadius.circular(12),

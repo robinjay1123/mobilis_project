@@ -389,26 +389,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             callback: (payload) {
               if (!mounted) return;
               _loadPartnerData();
-              if (payload.eventType == PostgresChangeEvent.insert) {
-                final newNotification =
-                    payload.newRecord as Map<String, dynamic>?;
-                if (newNotification == null) return;
-                final title =
-                    newNotification['title']?.toString().trim().isNotEmpty ==
-                            true
-                        ? newNotification['title'].toString().trim()
-                        : 'New notification';
-                final message =
-                    newNotification['message']?.toString().trim().isNotEmpty ==
-                            true
-                        ? newNotification['message'].toString().trim()
-                        : 'You have a new update.';
-
-                NotificationPermissionService().showBrowserNotification(
-                  title: title,
-                  body: message,
-                );
-              }
             },
           )
           .subscribe();
