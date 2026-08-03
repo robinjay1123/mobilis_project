@@ -1160,7 +1160,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   DateTime? get _endAtLocal {
     final d = _selectedEndDate;
-    final time = _bookingMode == BookingMode.daily ? _startTime : _returnTime;
+    final time = _returnTime ?? _startTime;
     if (d == null || time == null) return null;
     return DateTime(d.year, d.month, d.day, time.hour, time.minute);
   }
@@ -1180,15 +1180,95 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   double get _rentalSubtotal {
-    final pricePerHour =
-        (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
-    if (pricePerHour > 0) return pricePerHour * _billableHours;
-
     final pricePerDay = (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-    final days = _selectedStartDate == null || _selectedEndDate == null
-        ? 0
-        : _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
-    return pricePerDay * (days < 0 ? 0 : days);
+    final pricePerHour = (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+
+    if (_bookingMode == BookingMode.hourly) {
+      final hours = _billableHours;
+      if (pricePerHour > 0) {
+        return pricePerHour * hours;
+      } else if (pricePerDay > 0) {
+        return (pricePerDay / 24.0) * hours;
+      }
+      return 0.0;
+    }
+
+    // ── DAILY BOOKING MODE ──
+    final start = _startAtLocal;
+    final end = _endAtLocal;
+    if (start == null || end == null) {
+      final days = _selectedStartDate == null || _selectedEndDate == null
+          ? 0
+          : _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
+      return pricePerDay * (days < 0 ? 0 : days);
+    }
+
+    final duration = end.difference(start);
+    final totalMinutes = duration.inMinutes;
+    if (totalMinutes <= 0) return 0.0;
+
+    final totalHours = (totalMinutes / 60.0).ceil();
+
+    // 24 hours = 1 full day
+    int fullDays = totalHours ~/ 24;
+    int excessHours = totalHours % 24;
+
+    // Minimum 1 day for daily mode
+    if (fullDays == 0) {
+      fullDays = 1;
+      excessHours = 0;
+    }
+
+    final dayCost = fullDays * pricePerDay;
+
+    double excessCost = 0.0;
+    if (excessHours > 0) {
+      final hourlyRate = pricePerHour > 0 ? pricePerHour : (pricePerDay / 24.0);
+      excessCost = excessHours * hourlyRate;
+      // Cap excess cost at 1 full day rate
+      if (pricePerDay > 0 && excessCost > pricePerDay) {
+        excessCost = pricePerDay;
+      }
+    }
+
+    return dayCost + excessCost;
+  }
+
+  String _getFormattedDurationString() {
+    if (_bookingMode == BookingMode.hourly) {
+      final hours = _billableHours;
+      return '$hours hour${hours == 1 ? '' : 's'}';
+    }
+
+    final start = _startAtLocal;
+    final end = _endAtLocal;
+    if (start == null || end == null) {
+      final days = _selectedStartDate == null || _selectedEndDate == null
+          ? 0
+          : _selectedEndDate!.difference(_selectedStartDate!).inDays + 1;
+      return '$days day${days == 1 ? '' : 's'}';
+    }
+
+    final totalMinutes = end.difference(start).inMinutes;
+    if (totalMinutes <= 0) return '0 days';
+
+    final totalHours = (totalMinutes / 60.0).ceil();
+    int fullDays = totalHours ~/ 24;
+    int excessHours = totalHours % 24;
+
+    if (fullDays == 0) {
+      fullDays = 1;
+      excessHours = 0;
+    }
+
+    final startFmt = _format12Hour(_startTime?.hour ?? 9, _startTime?.minute ?? 0);
+    final returnFmt = _format12Hour((_returnTime ?? _startTime)?.hour ?? 9, (_returnTime ?? _startTime)?.minute ?? 0);
+
+    if (excessHours == 0) {
+      return '$fullDays day${fullDays == 1 ? '' : 's'} ($startFmt - $returnFmt)';
+    } else {
+      return '$fullDays day${fullDays == 1 ? '' : 's'} + $excessHours excess hr${excessHours == 1 ? '' : 's'} ($startFmt - $returnFmt)';
+    }
   }
 
   double get _deliveryFee {
@@ -3697,29 +3777,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       child: Column(
                         children: [
                           _buildSummaryRow(
-                            ((_vehicle?['price_per_hour'] as num?)
-                                            ?.toDouble() ??
-                                        0.0) >
-                                    0
-                                ? 'Hourly rate'
-                                : 'Daily rate',
-                            ((_vehicle?['price_per_hour'] as num?)
-                                            ?.toDouble() ??
-                                        0.0) >
-                                    0
-                                ? '₱${formatAmount(((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0))}'
-                                : '₱${formatAmount(pricePerDay)}',
+                            'Rental mode',
+                            _bookingMode == BookingMode.hourly ? 'Hourly rate' : 'Daily rate',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildSummaryRow(
+                            'Rate',
+                            _bookingMode == BookingMode.hourly
+                                ? '₱${formatAmount(((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0))}/hr'
+                                : '₱${formatAmount(pricePerDay)}/day',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
                             'Duration',
-                            ((_vehicle?['price_per_hour'] as num?)
-                                            ?.toDouble() ??
-                                        0.0) >
-                                    0
-                                ? '$_billableHours hour${_billableHours == 1 ? '' : 's'}'
-                                : '${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1)} day${(_selectedEndDate!.difference(_selectedStartDate!).inDays + 1) == 1 ? '' : 's'}',
+                            _getFormattedDurationString(),
                           ),
+
                           if (_requiresPickupMap) ...[
                             const SizedBox(height: 8),
                             _buildSummaryRow(
