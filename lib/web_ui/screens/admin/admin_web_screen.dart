@@ -90,6 +90,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Timer? _actionLogsRefreshTimer;
   RealtimeChannel? _actionLogsSubscription;
 
+  // Verifications & Applications tab filters
+  String _verificationRoleFilter = 'all'; // 'all', 'renter', 'driver', 'partner'
+  String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
+
   // Pagination & Search
   int _currentUserPage = 1;
   final int _usersPerPage = 10;
@@ -4297,21 +4301,56 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildVerificationsContent(bool isDark) {
-    final pendingVerifications = _verificationRecords
+    // 1. Calculate role stats for badges
+    int allCount = _verificationRecords.length;
+    int renterCount = 0;
+    int driverCount = 0;
+    int partnerCount = 0;
+
+    for (final r in _verificationRecords) {
+      final user = r['users'] as Map<String, dynamic>?;
+      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
+      final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+      if (role == 'renter') {
+        renterCount++;
+      } else if (isDriver) {
+        driverCount++;
+      } else if (role == 'partner') {
+        partnerCount++;
+      }
+    }
+
+    // 2. Filter records based on selected role sub-tab
+    final filteredRecords = _verificationRecords.where((r) {
+      if (_verificationRoleFilter == 'all') return true;
+      final user = r['users'] as Map<String, dynamic>?;
+      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
+      final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+
+      if (_verificationRoleFilter == 'renter') return role == 'renter';
+      if (_verificationRoleFilter == 'driver') return isDriver;
+      if (_verificationRoleFilter == 'partner') return role == 'partner';
+      return true;
+    }).toList();
+
+    // 3. Separate filtered records into pending, approved, rejected
+    final pendingVerifications = filteredRecords
         .where(
           (r) =>
               (r['verification_status']?.toString().toLowerCase() ?? '') ==
               'pending',
         )
         .toList();
-    final approvedVerifications = _verificationRecords
+    final approvedVerifications = filteredRecords
         .where(
           (r) =>
               (r['verification_status']?.toString().toLowerCase() ?? '') ==
-              'verified',
+                  'verified' ||
+              (r['verification_status']?.toString().toLowerCase() ?? '') ==
+                  'approved',
         )
         .toList();
-    final rejectedVerifications = _verificationRecords
+    final rejectedVerifications = filteredRecords
         .where(
           (r) =>
               (r['verification_status']?.toString().toLowerCase() ?? '') ==
@@ -4322,7 +4361,117 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header Card with Role Filter Sub-Tabs
+          Container(
+            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.verified_user_rounded,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'User Verifications',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Filter and review identity verification submissions by user role (Renters, Drivers, Partners).',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                  height: 1,
+                ),
+                const SizedBox(height: 16),
+
+                // Role Filter Sub-Tabs Chips
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildVerificationRoleTab(
+                      'all',
+                      'All Users',
+                      allCount,
+                      isDark,
+                    ),
+                    _buildVerificationRoleTab(
+                      'renter',
+                      'Renters',
+                      renterCount,
+                      isDark,
+                      icon: Icons.directions_car_rounded,
+                      color: Colors.purple,
+                    ),
+                    _buildVerificationRoleTab(
+                      'driver',
+                      'Drivers',
+                      driverCount,
+                      isDark,
+                      icon: Icons.badge_rounded,
+                      color: Colors.blue,
+                    ),
+                    _buildVerificationRoleTab(
+                      'partner',
+                      'Partners',
+                      partnerCount,
+                      isDark,
+                      icon: Icons.handshake_rounded,
+                      color: Colors.amber,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Verification Sections
           _buildVerificationSection(
             title: 'Pending Verifications',
             records: pendingVerifications,
@@ -4341,6 +4490,68 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             isDark: isDark,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVerificationRoleTab(
+    String key,
+    String label,
+    int count,
+    bool isDark, {
+    IconData? icon,
+    Color? color,
+  }) {
+    final isSelected = _verificationRoleFilter == key;
+    final activeColor = color ?? AppColors.primary;
+
+    return ChoiceChip(
+      avatar: icon != null
+          ? Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.black : activeColor,
+            )
+          : null,
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.black.withValues(alpha: 0.2)
+                  : activeColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.black : activeColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _verificationRoleFilter = key);
+        }
+      },
+      selectedColor: activeColor,
+      backgroundColor:
+          isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+      labelStyle: TextStyle(
+        color: isSelected
+            ? Colors.black
+            : (isDark ? Colors.white : Colors.black87),
+        fontSize: 13,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
       ),
     );
   }
@@ -4532,12 +4743,237 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildApplicationsContentEnhanced(bool isDark) {
-    final records = _pendingPartnerVehicleApplications;
+    final vehicleRecords = _pendingPartnerVehicleApplications;
+    final driverRecords = _verificationRecords.where((r) {
+      final user = r['users'] as Map<String, dynamic>?;
+      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
+      return role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+    }).toList();
+
+    final showVehicles =
+        _applicationTypeFilter == 'all' || _applicationTypeFilter == 'vehicle';
+    final showDrivers =
+        _applicationTypeFilter == 'all' || _applicationTypeFilter == 'driver';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildCard(
+          // Header Card with Sub-Tabs
+          Container(
+            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.assignment_outlined,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Application Management',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Review and manage incoming Partner vehicle listings and Driver onboarding applications.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                  height: 1,
+                ),
+                const SizedBox(height: 16),
+
+                // Application Sub-Tab Chips
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildApplicationTypeTab(
+                      'all',
+                      'All Applications',
+                      vehicleRecords.length + driverRecords.length,
+                      isDark,
+                    ),
+                    _buildApplicationTypeTab(
+                      'vehicle',
+                      'Partner Vehicle Listings',
+                      vehicleRecords.length,
+                      isDark,
+                      icon: Icons.directions_car_rounded,
+                      color: Colors.amber,
+                    ),
+                    _buildApplicationTypeTab(
+                      'driver',
+                      'Driver Onboarding',
+                      driverRecords.length,
+                      isDark,
+                      icon: Icons.badge_rounded,
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Partner Vehicle Applications Section
+          if (showVehicles) ...[
+            _buildPartnerVehicleApplicationsSection(vehicleRecords, isDark),
+            if (showDrivers && driverRecords.isNotEmpty) const SizedBox(height: 24),
+          ],
+
+          // Driver Applications Section
+          if (showDrivers) ...[
+            _buildDriverApplicationsSection(driverRecords, isDark),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApplicationTypeTab(
+    String key,
+    String label,
+    int count,
+    bool isDark, {
+    IconData? icon,
+    Color? color,
+  }) {
+    final isSelected = _applicationTypeFilter == key;
+    final activeColor = color ?? AppColors.primary;
+
+    return ChoiceChip(
+      avatar: icon != null
+          ? Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.black : activeColor,
+            )
+          : null,
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.black.withValues(alpha: 0.2)
+                  : activeColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.black : activeColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _applicationTypeFilter = key);
+        }
+      },
+      selectedColor: activeColor,
+      backgroundColor:
+          isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+      labelStyle: TextStyle(
+        color: isSelected
+            ? Colors.black
+            : (isDark ? Colors.white : Colors.black87),
+        fontSize: 13,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildDriverApplicationsSection(
+    List<Map<String, dynamic>> driverRecords,
+    bool isDark,
+  ) {
+    return _buildCard(
+      'Driver Onboarding Applications (${driverRecords.length})',
+      driverRecords.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text(
+                  'No pending driver applications.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              children: driverRecords
+                  .map(
+                    (record) => Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _buildVerificationCard(record, isDark),
+                    ),
+                  )
+                  .toList(),
+            ),
+      isDark,
+    );
+  }
+
+  Widget _buildPartnerVehicleApplicationsSection(
+    List<Map<String, dynamic>> records,
+    bool isDark,
+  ) {
+    return _buildCard(
             'Partner Vehicle Applications (${records.length})',
             records.isEmpty
                 ? Center(
@@ -4986,6 +5422,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         badgeColor = Colors.orange;
     }
 
+    final userRole = (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter').toLowerCase().trim();
+    Color roleBg = Colors.purple.withValues(alpha: 0.15);
+    Color roleText = Colors.purple;
+    String roleTag = 'RENTER';
+
+    if (userRole == 'driver' || isDriverRecord) {
+      roleTag = 'DRIVER';
+      roleBg = Colors.blue.withValues(alpha: 0.15);
+      roleText = Colors.blue;
+    } else if (userRole == 'partner') {
+      roleTag = 'PARTNER';
+      roleBg = Colors.amber.withValues(alpha: 0.15);
+      roleText = Colors.amber;
+    } else if (userRole == 'admin') {
+      roleTag = 'ADMIN';
+      roleBg = Colors.teal.withValues(alpha: 0.15);
+      roleText = Colors.teal;
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -5007,7 +5462,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   children: [
                     Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: Text(
                             submittedName?.isNotEmpty == true
                                 ? submittedName!
@@ -5019,13 +5474,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: roleBg,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            roleTag,
+                            style: TextStyle(
+                              color: roleText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: badgeColor.withOpacity(0.15),
+                            color: badgeColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
