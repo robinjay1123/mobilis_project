@@ -101,6 +101,9 @@ class PushNotificationService {
   StreamSubscription? _realtimeSubscription;
   final Set<String> _seenNotificationIds = {};
   String? _activeUserId;
+  // Tracks the moment this listener session started — only show notifications
+  // created AFTER this timestamp to avoid re-alerting on historical rows.
+  DateTime? _listenerStartedAt;
 
   bool get isReady => _firebaseReady;
   Stream<Map<String, dynamic>> get notificationTaps =>
@@ -170,6 +173,11 @@ class PushNotificationService {
     if (_activeUserId == userId && _realtimeSubscription != null) return;
     _realtimeSubscription?.cancel();
     _activeUserId = userId;
+    _seenNotificationIds.clear();
+
+    // Record when this session starts — only notifications created AFTER this
+    // moment will trigger a local system notification.
+    _listenerStartedAt = DateTime.now().subtract(const Duration(seconds: 5));
 
     try {
       final client = Supabase.instance.client;
@@ -179,44 +187,48 @@ class PushNotificationService {
           .eq('user_id', userId)
           .listen(
             (rows) {
-              if (_seenNotificationIds.isEmpty) {
-                // Populate initial state to prevent alerting on historical notifications
-                for (final row in rows) {
-                  final id = row['id']?.toString();
-                  if (id != null) _seenNotificationIds.add(id);
-                }
-                return;
-              }
+              final sessionStart = _listenerStartedAt;
+              if (sessionStart == null) return;
 
               for (final row in rows) {
                 final id = row['id']?.toString();
                 if (id == null) continue;
+
+                // Skip IDs we've already processed in this session
+                if (_seenNotificationIds.contains(id)) continue;
+                _seenNotificationIds.add(id);
+
                 final isRead = row['is_read'] == true;
+                if (isRead) continue; // already read — no alert needed
+
                 final createdAtStr = row['created_at']?.toString();
+                final createdAt =
+                    createdAtStr != null
+                        ? DateTime.tryParse(createdAtStr)?.toLocal()
+                        : null;
+
+                // Only alert on notifications created after this session started
+                // (avoids re-alerting on all historical unread notifications)
+                if (createdAt == null || createdAt.isBefore(sessionStart)) {
+                  continue;
+                }
+
                 final title =
                     row['title']?.toString() ?? 'Mobilis Notification';
                 final message = row['message']?.toString() ?? '';
 
-                if (!_seenNotificationIds.contains(id)) {
-                  _seenNotificationIds.add(id);
-                  if (!isRead) {
-                    final createdAt =
-                        createdAtStr != null
-                            ? DateTime.tryParse(createdAtStr)
-                            : null;
-                    if (createdAt == null ||
-                        DateTime.now().difference(createdAt).inMinutes < 10) {
-                      showSystemNotification(
-                        title: title,
-                        body: message,
-                        payload:
-                            row['data'] is Map
-                                ? Map<String, dynamic>.from(row['data'])
-                                : {},
-                      );
-                    }
-                  }
-                }
+                debugPrint(
+                  'Realtime notification received: $title — $message (id: $id)',
+                );
+
+                showSystemNotification(
+                  title: title,
+                  body: message,
+                  payload:
+                      row['data'] is Map
+                          ? Map<String, dynamic>.from(row['data'])
+                          : {},
+                );
               }
             },
             onError: (error) {

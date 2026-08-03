@@ -640,6 +640,8 @@ class NotificationService {
               'message': message,
               'type': type,
               'payload': data,
+              'status': 'pending', // required: Edge Function filters .eq('status','pending')
+              'created_at': DateTime.now().toIso8601String(),
             },
           )
           .toList();
