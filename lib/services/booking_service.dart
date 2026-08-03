@@ -941,15 +941,22 @@ class BookingService {
         ? stage
         : '${expectedRole}_rating';
 
+    final updateData = <String, dynamic>{
+      'final_payment_status': 'paid',
+      'final_payment_confirmed_at': now,
+      'final_payment_confirmed_by': actorId,
+      'updated_at': now,
+    };
+
+    if (hasAfterInspection || booking['returned_at'] != null || status == 'completed') {
+      updateData['status'] = 'completed';
+      updateData['completed_at'] = now;
+      updateData['completion_stage'] = 'completed';
+    }
+
     await supabase
         .from('bookings')
-        .update({
-          'final_payment_status': 'paid',
-          'final_payment_confirmed_at': now,
-          'final_payment_confirmed_by': actorId,
-          'completion_stage': nextStage,
-          'updated_at': now,
-        })
+        .update(updateData)
         .eq('id', bookingId);
 
     final vehicle = booking['vehicles'] is Map<String, dynamic>
@@ -2138,10 +2145,12 @@ class BookingService {
   }
 
   /// Records the returned vehicle after the responsible operator or partner
-  /// submits the after checklist. Completion waits for payment and ratings.
+  /// submits the after checklist. If payment is confirmed, booking is completed.
+  /// If payment is unpaid, return goes through but booking stays ongoing / awaiting payment.
   Future<void> completeBookingAfterInspection({
     required String bookingId,
     required String inspectorId,
+    bool confirmPaymentIfUnpaid = false,
   }) async {
     final inspectionService = BookingInspectionService();
     await inspectionService.assertResponsibleInspector(
@@ -2169,25 +2178,45 @@ class BookingService {
     final now = returnedAt.toIso8601String();
     final lateReturn = _lateReturnValues(booking, returnedAt);
 
-    await supabase
-        .from('bookings')
-        .update({
-          'status': 'completed',
-          'returned_at': now,
-          'completed_at': now,
-          'completion_stage': 'completed',
-          'final_payment_status': 'paid',
-          'final_payment_confirmed_at': now,
-          'final_payment_confirmed_by': inspectorId,
-          ...lateReturn,
-          'updated_at': now,
-        })
-        .eq('id', bookingId);
+    final currentPaymentStatus =
+        booking['final_payment_status']?.toString().trim().toLowerCase() ??
+        'pending';
+    final isPaid = currentPaymentStatus == 'paid' || confirmPaymentIfUnpaid;
 
-    try {
-      await LoyaltyService().awardPointsForCompletedBooking(bookingId);
-    } catch (e) {
-      debugPrint('Could not award loyalty points: $e');
+    if (isPaid) {
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'completed',
+            'returned_at': now,
+            'completed_at': now,
+            'completion_stage': 'completed',
+            'final_payment_status': 'paid',
+            'final_payment_confirmed_at': now,
+            'final_payment_confirmed_by': inspectorId,
+            ...lateReturn,
+            'updated_at': now,
+          })
+          .eq('id', bookingId);
+
+      try {
+        await LoyaltyService().awardPointsForCompletedBooking(bookingId);
+      } catch (e) {
+        debugPrint('Could not award loyalty points: $e');
+      }
+    } else {
+      // Payment has NOT been confirmed yet. Return goes through, but booking stays ongoing!
+      await supabase
+          .from('bookings')
+          .update({
+            'status': 'ongoing',
+            'returned_at': now,
+            'completion_stage': 'awaiting_payment',
+            'final_payment_status': 'pending',
+            ...lateReturn,
+            'updated_at': now,
+          })
+          .eq('id', bookingId);
     }
 
     try {
@@ -2205,11 +2234,14 @@ class BookingService {
       try {
         await supabase
             .from('driver_job_assignments')
-            .update({'status': 'awaiting_completion', 'updated_at': now})
+            .update({
+              'status': isPaid ? 'completed' : 'awaiting_completion',
+              'updated_at': now,
+            })
             .eq('booking_id', bookingId)
             .eq('driver_id', driverId);
       } catch (e) {
-        debugPrint('Could not complete driver assignment: $e');
+        debugPrint('Could not update driver assignment: $e');
       }
     }
 

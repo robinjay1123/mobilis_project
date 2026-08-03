@@ -10258,37 +10258,103 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           bookingId: bookingId,
           inspectorId: currentUserId,
         );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Release checklist submitted. The trip is now ongoing.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
       } else {
+        final currentPaymentStatus = (booking['final_payment_status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        bool confirmPaymentNow = false;
+
+        if (currentPaymentStatus != 'paid') {
+          final choice = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                  SizedBox(width: 10),
+                  Text(
+                    'Final Payment Unchecked',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              content: const Text(
+                'The final payment for this booking has not been checked or confirmed yet.\n\n'
+                'Approving the return now will record the vehicle checklist. Would you like to confirm the payment now, or proceed anyway?',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'cancel'),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary)),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'proceed_unpaid'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.orange),
+                    foregroundColor: Colors.orange,
+                  ),
+                  child: const Text('Proceed Return (Stay Ongoing)'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, 'confirm_payment'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                  ),
+                  child: const Text('Confirm Payment & Complete'),
+                ),
+              ],
+            ),
+          );
+
+          if (choice == 'cancel' || choice == null) {
+            _hideOperationLoading();
+            return;
+          }
+          if (choice == 'confirm_payment') {
+            confirmPaymentNow = true;
+          }
+        }
+
         await BookingService().completeBookingAfterInspection(
           bookingId: bookingId,
           inspectorId: currentUserId,
+          confirmPaymentIfUnpaid: confirmPaymentNow,
+        );
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              (currentPaymentStatus == 'paid' || confirmPaymentNow)
+                  ? 'Return checklist submitted. Trip completed successfully!'
+                  : 'Return checklist submitted. Trip remains ongoing until final payment is confirmed.',
+            ),
+            backgroundColor: AppColors.success,
+          ),
         );
       }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            inspectionType == 'before'
-                ? 'Checklist submitted. The booking is now ongoing.'
-                : 'Return checklist submitted. Confirm payment and complete the required ratings next.',
-          ),
-          backgroundColor: AppColors.success,
-        ),
-      );
       await _loadDashboardData(showLoading: false);
-      if (inspectionType == 'after' && mounted) {
-        final latestBooking =
-            await BookingService().getBookingById(bookingId) ?? booking;
-        final completionStage = BookingService()
-            .getTripCompletionState(latestBooking)['completionStage']
-            ?.toString();
-        if (completionStage == 'operator_rating') {
-          await _openOperatorRenterRating(latestBooking);
-        } else {
-          await _confirmOperatorFinalPayment(latestBooking);
-        }
-      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
