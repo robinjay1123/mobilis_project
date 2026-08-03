@@ -412,24 +412,13 @@ class PushNotificationService {
   }
 
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
-    final notification = message.notification;
-    final title =
-        notification?.title ?? message.data['title']?.toString() ?? 'Mobilis';
-    final body =
-        notification?.body ??
-        message.data['body']?.toString() ??
-        message.data['message']?.toString() ??
-        'You have a new notification';
-
-    await showSystemNotification(
-      title: title,
-      body: body,
-      payload: {
-        ...message.data,
-        'type': message.data['type'] ?? message.data['notification_type'] ?? '',
-        'title': title,
-        'message': body,
-      },
+    // When the app is OPEN, the Supabase Realtime listener already detects
+    // new rows in the 'notifications' table and shows the system popup.
+    // Showing here too would cause a duplicate notification.
+    // FCM background/killed-app delivery is handled by firebaseMessagingBackgroundHandler.
+    debugPrint(
+      'FCM foreground message received (Realtime listener handles display): '
+      '${message.messageId} — title: ${message.notification?.title ?? message.data['title']}',
     );
   }
 
