@@ -79,7 +79,9 @@ NotificationTarget resolveNotificationTarget(
   } else if (type == 'announcement' || searchable.contains('announcement')) {
     destination = NotificationDestination.announcement;
   } else if (type.contains('vehicle') ||
-      searchable.contains('vehicle approval')) {
+      type.contains('marketing') ||
+      searchable.contains('vehicle approval') ||
+      searchable.contains('promo')) {
     destination = NotificationDestination.vehicles;
   } else if (bookingId != null ||
       type == 'booking' ||

@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'notification_service.dart';
+import 'renter_marketing_notification_service.dart';
 
 class AdminService {
   static final AdminService _instance = AdminService._internal();
@@ -207,6 +208,22 @@ class AdminService {
       debugPrint('Announcement push dispatch trigger failed: $e');
     }
 
+    return recipients;
+  }
+
+  /// Trigger a daily marketing promo notification to all renters
+  Future<int> triggerRenterMarketingPromo() async {
+    final promo = RenterMarketingNotificationService().getTodayPromoPrompt();
+    final recipients = await NotificationService().broadcastAnnouncement(
+      title: promo.title,
+      message: promo.message,
+      targetRole: 'renter',
+    );
+    try {
+      await supabase.functions.invoke('send-push-queue');
+    } catch (e) {
+      debugPrint('Marketing promo push dispatch trigger failed: $e');
+    }
     return recipients;
   }
 

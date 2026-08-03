@@ -21,6 +21,7 @@ import '../../../services/chat_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/notification_permission_service.dart';
 import '../../../services/push_notification_service.dart';
+import '../../../services/renter_marketing_notification_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
@@ -149,6 +150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _setupVerificationListener(); // 🔄 Listen for real-time verification updates
     _loadNotifications(); // 🔔 Load notifications
     _setupNotificationsListener(); // 🔔 Listen for new notifications
+    RenterMarketingNotificationService().checkAndTriggerDailyRenterNotification();
     _notificationsAutoRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) {
