@@ -80,7 +80,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   RealtimeChannel? _supportTypingChannel;
   final Map<String, String> _supportTypingUsers = {};
   final Map<String, Timer> _supportTypingExpiryTimers = {};
-  Timer? _supportTypingStopTimer;
+  // Action Logs state & timers
+  List<Map<String, dynamic>> _actionLogs = [];
+  bool _isLoadingActionLogs = false;
+  String _actionLogSearchQuery = '';
+  String _actionLogCategoryFilter = 'all';
+  Timer? _actionLogsRefreshTimer;
+  RealtimeChannel? _actionLogsSubscription;
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -124,15 +130,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _loadReservationPaymentSettings();
     _loadSupportFaqSettings();
     _setupSupportMessagesListener();
+    _loadActionLogs(showLoading: false);
+    _setupActionLogsRealtimeListener();
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
+    );
+    _actionLogsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _loadActionLogs(showLoading: false),
     );
   }
 
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
+    _actionLogsRefreshTimer?.cancel();
+    _actionLogsSubscription?.unsubscribe();
     _supportMessagesSubscription?.unsubscribe();
     _supportTypingChannel?.unsubscribe();
     _supportTypingStopTimer?.cancel();
@@ -316,12 +330,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadPendingVerifications(),
         _loadPendingPartnerVehicleApplications(),
         _loadPriceChangeRequests(),
+        _loadActionLogs(showLoading: false),
       ]);
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
     }
 
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadActionLogs({bool showLoading = true}) async {
+    if (showLoading && mounted) {
+      setState(() => _isLoadingActionLogs = true);
+    }
+    try {
+      final logs = await AdminService().getSystemActionLogs(limit: 200);
+      if (mounted) {
+        setState(() {
+          _actionLogs = logs;
+          _isLoadingActionLogs = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading action logs: $e');
+      if (mounted) setState(() => _isLoadingActionLogs = false);
+    }
+  }
+
+  void _setupActionLogsRealtimeListener() {
+    _actionLogsSubscription = _supabase
+        .channel('admin-action-logs')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'admin_audit_logs',
+          callback: (_) => _loadActionLogs(showLoading: false),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          callback: (_) => _loadActionLogs(showLoading: false),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'booking_vehicle_inspections',
+          callback: (_) => _loadActionLogs(showLoading: false),
+        )
+        .subscribe();
   }
 
   Future<void> _loadAnnouncements() async {
@@ -1990,6 +2047,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return 'Live Tracking';
       case 11:
         return 'Settings';
+      case 12:
+        return 'Action Logs';
       default:
         return 'Dashboard';
     }
@@ -2025,6 +2084,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return _buildTrackingContent(isDark);
       case 11:
         return _buildSettingsContent(isDark);
+      case 12:
+        return _buildActionLogsContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -2178,6 +2239,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           const SizedBox(height: 10),
           _buildNavItem(8, Icons.analytics_rounded, 'Analytics', isDark),
+          _buildNavItem(
+            12,
+            Icons.fact_check_rounded,
+            'Action Logs',
+            isDark,
+            badge: _actionLogs.isNotEmpty ? _actionLogs.length : null,
+          ),
           _buildNavItem(
             10,
             Icons.location_on_rounded,
@@ -7606,5 +7674,454 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     buffer.writeln(divider);
 
     return buffer.toString();
+  }
+
+  Widget _buildActionLogsContent(bool isDark) {
+    final search = _actionLogSearchQuery.trim().toLowerCase();
+    final category = _actionLogCategoryFilter;
+
+    final filteredLogs = _actionLogs.where((log) {
+      final matchesSearch = search.isEmpty ||
+          (log['notes']?.toString().toLowerCase().contains(search) ?? false) ||
+          (log['actor_name']?.toString().toLowerCase().contains(search) ?? false) ||
+          (log['booking_id']?.toString().toLowerCase().contains(search) ?? false) ||
+          (log['action_type']?.toString().toLowerCase().contains(search) ?? false) ||
+          (log['category']?.toString().toLowerCase().contains(search) ?? false);
+
+      if (!matchesSearch) return false;
+
+      if (category == 'all') return true;
+      final logCat = log['category']?.toString() ?? '';
+      if (category == 'approvals') {
+        return logCat == 'BOOKING APPROVAL' || logCat == 'PARTNER APPROVAL';
+      }
+      if (category == 'drivers') return logCat == 'DRIVER ASSIGNMENT';
+      if (category == 'renters') return logCat == 'RENTER REQUEST';
+      if (category == 'payments') {
+        return logCat == 'PAYMENT CONFIRMED' || logCat == 'RETURN INSPECTION' || logCat == 'TRIP COMPLETED';
+      }
+      if (category == 'verifications') return logCat == 'USER VERIFICATION';
+
+      return true;
+    }).toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.fact_check_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Action & Audit Logs',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.green.withValues(alpha: 0.5),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.circle,
+                                  color: Colors.green,
+                                  size: 8,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  'REALTIME LIVE',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Audit trail of all booking approvals, driver assignments, renter requests, partner actions, inspections, and payment confirmations.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _loadActionLogs(showLoading: true),
+                  icon: const Icon(Icons.refresh_rounded),
+                  tooltip: 'Refresh Action Logs',
+                  style: IconButton.styleFrom(
+                    backgroundColor: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade200,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Filters row
+          Row(
+            children: [
+              // Search Input
+              Expanded(
+                child: TextField(
+                  onChanged: (val) =>
+                      setState(() => _actionLogSearchQuery = val),
+                  style: const TextStyle(fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Search by Booking ID, Actor, Renter, Driver...',
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    filled: true,
+                    fillColor: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade100,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+
+              // Category chips
+              Wrap(
+                spacing: 8,
+                children: [
+                  _buildActionLogCategoryChip('all', 'All Activity', isDark),
+                  _buildActionLogCategoryChip('approvals', 'Approvals', isDark),
+                  _buildActionLogCategoryChip('drivers', 'Driver Assign', isDark),
+                  _buildActionLogCategoryChip('renters', 'Renter Requests', isDark),
+                  _buildActionLogCategoryChip('payments', 'Returns & Payment', isDark),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Logs List
+          Expanded(
+            child: _isLoadingActionLogs
+                ? const Center(child: CircularProgressIndicator())
+                : filteredLogs.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.history_rounded,
+                              size: 48,
+                              color: Colors.grey.shade600,
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'No action logs found',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              search.isNotEmpty
+                                  ? 'Try clearing your search query'
+                                  : 'System action logs will appear here live in real-time.',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: filteredLogs.length,
+                        itemBuilder: (context, index) {
+                          final item = filteredLogs[index];
+                          return _buildActionLogCard(item, isDark);
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionLogCategoryChip(
+    String key,
+    String label,
+    bool isDark,
+  ) {
+    final isSelected = _actionLogCategoryFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _actionLogCategoryFilter = key);
+        }
+      },
+      selectedColor: AppColors.primary,
+      backgroundColor: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.black : (isDark ? Colors.white : Colors.black87),
+        fontSize: 12,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+    );
+  }
+
+  Widget _buildActionLogCard(Map<String, dynamic> item, bool isDark) {
+    final category = item['category']?.toString() ?? 'SYSTEM';
+    final notes = item['notes']?.toString() ?? '';
+    final actorName = item['actor_name']?.toString() ?? 'System';
+    final actorRole = item['actor_role']?.toString() ?? 'operator';
+    final timestampStr = item['timestamp']?.toString() ?? '';
+    final bookingId = item['booking_id']?.toString() ?? '';
+
+    Color iconColor = AppColors.primary;
+    IconData iconData = Icons.info_rounded;
+    Color badgeBg = AppColors.primary.withValues(alpha: 0.15);
+    Color badgeText = AppColors.primary;
+
+    if (category == 'BOOKING APPROVAL') {
+      iconColor = Colors.green;
+      iconData = Icons.check_circle_rounded;
+      badgeBg = Colors.green.withValues(alpha: 0.15);
+      badgeText = Colors.green;
+    } else if (category == 'DRIVER ASSIGNMENT') {
+      iconColor = Colors.blue;
+      iconData = Icons.badge_rounded;
+      badgeBg = Colors.blue.withValues(alpha: 0.15);
+      badgeText = Colors.blue;
+    } else if (category == 'RENTER REQUEST') {
+      iconColor = Colors.purple;
+      iconData = Icons.directions_car_rounded;
+      badgeBg = Colors.purple.withValues(alpha: 0.15);
+      badgeText = Colors.purple;
+    } else if (category == 'PAYMENT CONFIRMED') {
+      iconColor = Colors.amber;
+      iconData = Icons.payments_rounded;
+      badgeBg = Colors.amber.withValues(alpha: 0.15);
+      badgeText = Colors.amber;
+    } else if (category == 'RETURN INSPECTION') {
+      iconColor = Colors.orange;
+      iconData = Icons.fact_check_rounded;
+      badgeBg = Colors.orange.withValues(alpha: 0.15);
+      badgeText = Colors.orange;
+    } else if (category == 'USER VERIFICATION') {
+      iconColor = Colors.teal;
+      iconData = Icons.verified_user_rounded;
+      badgeBg = Colors.teal.withValues(alpha: 0.15);
+      badgeText = Colors.teal;
+    }
+
+    final parsedTime = DateTime.tryParse(timestampStr);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Icon Avatar
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: badgeBg,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(iconData, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 14),
+
+          // Content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        category,
+                        style: TextStyle(
+                          color: badgeText,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      actorName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        actorRole.toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  notes,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (bookingId.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.confirmation_number_outlined,
+                        size: 13,
+                        color: Colors.grey.shade500,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Booking ID: ${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Timestamp
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (parsedTime != null)
+                RelativeTimeText(
+                  dateTime: parsedTime,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              const SizedBox(height: 2),
+              if (parsedTime != null)
+                Text(
+                  '${parsedTime.hour.toString().padLeft(2, '0')}:${parsedTime.minute.toString().padLeft(2, '0')}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -917,35 +917,300 @@ class AdminService {
     }
   }
 
-  /// Get audit log for entity
-  Future<List<Map<String, dynamic>>> getAuditLog({
-    String? entityId,
-    String? entityType,
-    int limit = 50,
+  /// Get unified system action logs & audit trail with rich details
+  Future<List<Map<String, dynamic>>> getSystemActionLogs({
+    int limit = 150,
   }) async {
     try {
-      debugPrint('Fetching audit log');
+      final logs = <Map<String, dynamic>>[];
+      final seenKeys = <String>{};
 
-      var query = supabase.from('admin_audit_logs').select('*');
+      // 1. Fetch direct audit log entries from admin_audit_logs
+      try {
+        final rawAuditRows = await supabase
+            .from('admin_audit_logs')
+            .select('*')
+            .order('created_at', ascending: false)
+            .limit(limit);
+        for (final row in List<Map<String, dynamic>>.from(rawAuditRows)) {
+          final id = row['id']?.toString() ?? '';
+          final key = 'audit-$id';
+          if (seenKeys.contains(key)) continue;
+          seenKeys.add(key);
 
-      if (entityId != null) {
-        query = query.eq('entity_id', entityId);
+          final action = row['action']?.toString() ?? 'system_action';
+          final entityType = row['entity_type']?.toString() ?? '';
+          final notes = row['notes']?.toString() ?? '';
+          final createdAt = row['created_at']?.toString() ?? '';
+          final metadata = row['metadata'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(row['metadata'])
+              : <String, dynamic>{};
+
+          String category = 'SYSTEM';
+          if (action.contains('approved') || action.contains('confirm')) {
+            category = 'BOOKING APPROVAL';
+          } else if (action.contains('driver') || action.contains('assign')) {
+            category = 'DRIVER ASSIGNMENT';
+          } else if (action.contains('payment')) {
+            category = 'PAYMENT CONFIRMED';
+          } else if (action.contains('partner')) {
+            category = 'PARTNER APPROVAL';
+          } else if (action.contains('verification')) {
+            category = 'USER VERIFICATION';
+          }
+
+          logs.add({
+            'id': key,
+            'timestamp': createdAt,
+            'category': category,
+            'action_type': action,
+            'entity_type': entityType,
+            'actor_name': metadata['actor_name']?.toString() ?? metadata['operator_name']?.toString() ?? 'System / Operator',
+            'actor_role': metadata['actor_role']?.toString() ?? 'operator',
+            'notes': notes.isNotEmpty ? notes : '$action ($entityType)',
+            'booking_id': row['booking_id']?.toString(),
+            'driver_id': row['driver_id']?.toString(),
+            'vehicle_id': row['vehicle_id']?.toString(),
+            'metadata': metadata,
+          });
+        }
+      } catch (e) {
+        debugPrint('Warning fetching raw audit logs: $e');
       }
 
-      if (entityType != null) {
-        query = query.eq('entity_type', entityType);
+      // 2. Synthesize rich action logs from bookings
+      try {
+        final bookingRows = await supabase
+            .from('bookings')
+            .select('''
+              id,
+              status,
+              completion_stage,
+              created_at,
+              updated_at,
+              operator_trip_confirmed_at,
+              partner_trip_confirmed_at,
+              picked_up_at,
+              returned_at,
+              completed_at,
+              final_payment_status,
+              final_payment_confirmed_at,
+              final_payment_confirmed_by,
+              with_driver,
+              driver_id,
+              operator_id,
+              renter_id,
+              vehicle_id,
+              renter:users!renter_id(full_name, email, role),
+              vehicle:vehicles!vehicle_id(brand, model, vehicle_name, owner_id),
+              driver_user:users!driver_id(full_name),
+              operator_user:users!operator_id(full_name)
+            ''')
+            .order('updated_at', ascending: false)
+            .limit(limit);
+
+        for (final booking in List<Map<String, dynamic>>.from(bookingRows)) {
+          final bookingId = booking['id']?.toString() ?? '';
+          final shortId = bookingId.length > 8
+              ? '#${bookingId.substring(0, 8).toUpperCase()}'
+              : '#$bookingId';
+
+          final renterMap = booking['renter'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['renter'])
+              : <String, dynamic>{};
+          final renterName = renterMap['full_name']?.toString().trim().isNotEmpty == true
+              ? renterMap['full_name'].toString().trim()
+              : 'Renter (${renterMap['email'] ?? 'Unknown'})';
+
+          final vehicleMap = booking['vehicle'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['vehicle'])
+              : <String, dynamic>{};
+          final vehicleName = vehicleMap['vehicle_name']?.toString().trim().isNotEmpty == true
+              ? vehicleMap['vehicle_name'].toString().trim()
+              : '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
+          final vehicleDisplay = vehicleName.isNotEmpty ? vehicleName : 'Vehicle';
+
+          final driverMap = booking['driver_user'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['driver_user'])
+              : <String, dynamic>{};
+          final driverName = driverMap['full_name']?.toString().trim().isNotEmpty == true
+              ? driverMap['full_name'].toString().trim()
+              : 'Assigned Driver';
+
+          final operatorMap = booking['operator_user'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(booking['operator_user'])
+              : <String, dynamic>{};
+          final operatorName = operatorMap['full_name']?.toString().trim().isNotEmpty == true
+              ? operatorMap['full_name'].toString().trim()
+              : 'Operator Desk';
+
+          final createdAt = booking['created_at']?.toString();
+          final status = (booking['status'] ?? '').toString().toLowerCase();
+
+          // Log A: Booking Created by Renter
+          if (createdAt != null && createdAt.isNotEmpty) {
+            final key = 'create-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': createdAt,
+                'category': 'RENTER REQUEST',
+                'action_type': 'booking_requested',
+                'entity_type': 'booking',
+                'actor_name': renterName,
+                'actor_role': 'renter',
+                'notes': '$renterName submitted rental reservation $shortId for $vehicleDisplay',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+
+          // Log B: Booking Approved by Operator / Partner
+          final approvedAt = booking['operator_trip_confirmed_at']?.toString() ??
+              booking['partner_trip_confirmed_at']?.toString();
+          if (approvedAt != null && approvedAt.isNotEmpty && (status == 'approved' || status == 'confirmed' || status == 'active' || status == 'ongoing' || status == 'completed')) {
+            final key = 'approve-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': approvedAt,
+                'category': 'BOOKING APPROVAL',
+                'action_type': 'booking_approved',
+                'entity_type': 'booking',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName approved reservation $shortId for Renter $renterName ($vehicleDisplay)',
+                'booking_id': bookingId,
+                'metadata': {'operator_name': operatorName, 'renter_name': renterName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+
+          // Log C: Driver Assigned
+          final driverId = booking['driver_id']?.toString();
+          if (driverId != null && driverId.isNotEmpty) {
+            final key = 'driver-$bookingId-$driverId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': booking['updated_at']?.toString() ?? createdAt ?? '',
+                'category': 'DRIVER ASSIGNMENT',
+                'action_type': 'driver_assigned',
+                'entity_type': 'booking',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName assigned Driver $driverName to reservation $shortId',
+                'booking_id': bookingId,
+                'driver_id': driverId,
+                'metadata': {'operator_name': operatorName, 'driver_name': driverName},
+              });
+            }
+          }
+
+          // Log D: Final Payment Confirmed
+          final paymentStatus = booking['final_payment_status']?.toString().toLowerCase();
+          final paymentConfirmedAt = booking['final_payment_confirmed_at']?.toString();
+          if (paymentStatus == 'paid' && paymentConfirmedAt != null && paymentConfirmedAt.isNotEmpty) {
+            final key = 'payment-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': paymentConfirmedAt,
+                'category': 'PAYMENT CONFIRMED',
+                'action_type': 'payment_confirmed',
+                'entity_type': 'booking',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName confirmed full final payment for reservation $shortId (Renter: $renterName)',
+                'booking_id': bookingId,
+                'metadata': {'operator_name': operatorName, 'renter_name': renterName},
+              });
+            }
+          }
+
+          // Log E: Trip Completed
+          final completedAt = booking['completed_at']?.toString();
+          if (status == 'completed' && completedAt != null && completedAt.isNotEmpty) {
+            final key = 'complete-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': completedAt,
+                'category': 'TRIP COMPLETED',
+                'action_type': 'booking_completed',
+                'entity_type': 'booking',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': 'Reservation $shortId for Renter $renterName ($vehicleDisplay) is fully completed',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Warning synthesizing booking action logs: $e');
       }
 
-      final response = await query
-          .order('created_at', ascending: false)
-          .limit(limit);
+      // 3. Fetch Vehicle Return Inspections
+      try {
+        final inspectionRows = await supabase
+            .from('booking_vehicle_inspections')
+            .select('id, booking_id, inspection_type, inspector_id, completed_at, inspector:users!inspector_id(full_name, role)')
+            .order('completed_at', ascending: false)
+            .limit(limit);
 
-      return List<Map<String, dynamic>>.from(response);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error fetching audit log: ${e.message}');
-      return [];
+        for (final row in List<Map<String, dynamic>>.from(inspectionRows)) {
+          final id = row['id']?.toString() ?? '';
+          final key = 'inspection-$id';
+          if (seenKeys.contains(key)) continue;
+          seenKeys.add(key);
+
+          final type = row['inspection_type']?.toString() ?? 'inspection';
+          final bookingId = row['booking_id']?.toString() ?? '';
+          final shortId = bookingId.length > 8 ? '#${bookingId.substring(0, 8).toUpperCase()}' : '#$bookingId';
+          final inspectorMap = row['inspector'] is Map<String, dynamic>
+              ? Map<String, dynamic>.from(row['inspector'])
+              : <String, dynamic>{};
+          final inspectorName = inspectorMap['full_name']?.toString().trim().isNotEmpty == true
+              ? inspectorMap['full_name'].toString().trim()
+              : 'Inspector / Operator';
+          final inspectorRole = inspectorMap['role']?.toString().trim() ?? 'operator';
+          final completedAt = row['completed_at']?.toString() ?? '';
+
+          logs.add({
+            'id': key,
+            'timestamp': completedAt,
+            'category': type == 'after' ? 'RETURN INSPECTION' : 'RELEASE INSPECTION',
+            'action_type': 'inspection_$type',
+            'entity_type': 'inspection',
+            'actor_name': inspectorName,
+            'actor_role': inspectorRole,
+            'notes': '$inspectorName completed $type-trip vehicle inspection checklist for reservation $shortId',
+            'booking_id': bookingId,
+            'metadata': {'inspector_name': inspectorName, 'inspection_type': type},
+          });
+        }
+      } catch (e) {
+        debugPrint('Warning fetching inspection action logs: $e');
+      }
+
+      // 4. Sort all combined logs by timestamp descending
+      logs.sort((a, b) {
+        final aTime = DateTime.tryParse(a['timestamp']?.toString() ?? '') ?? DateTime(1970);
+        final bTime = DateTime.tryParse(b['timestamp']?.toString() ?? '') ?? DateTime(1970);
+        return bTime.compareTo(aTime);
+      });
+
+      return logs.take(limit).toList();
     } catch (e) {
-      debugPrint('Error fetching audit log: $e');
+      debugPrint('Error getting system action logs: $e');
       return [];
     }
   }
