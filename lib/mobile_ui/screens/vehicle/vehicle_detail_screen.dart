@@ -362,6 +362,56 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     }
   }
 
+  void _showDateLimitModal(BuildContext dialogContext, String message) {
+    showDialog(
+      context: dialogContext,
+      builder: (modalContext) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppColors.borderColor),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Date Selection Limit',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 14,
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(modalContext),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'Got it',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<DateTimeRange?> _showBookingCalendarDialog({
     required DateTime firstDate,
     required DateTime lastDate,
@@ -510,11 +560,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           if ((startDay != null &&
                                   bookedDays.contains(startDay)) ||
                               (endDay != null && bookedDays.contains(endDay))) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('That date is unavailable'),
-                                backgroundColor: AppColors.error,
-                              ),
+                            _showDateLimitModal(
+                              dialogContext,
+                              'That date is unavailable.',
                             );
                             return;
                           }
@@ -525,13 +573,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 end,
                                 bookedDays,
                               )) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Selected range includes unavailable dates',
-                                ),
-                                backgroundColor: AppColors.error,
-                              ),
+                            _showDateLimitModal(
+                              dialogContext,
+                              'Selected range includes unavailable dates.',
                             );
                             return;
                           }
@@ -543,13 +587,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   .difference(_dateOnly(start))
                                   .inDays >
                                   1) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Hourly bookings can span at most 2 days',
-                                ),
-                                backgroundColor: AppColors.error,
-                              ),
+                            _showDateLimitModal(
+                              dialogContext,
+                              'Hourly bookings can span at most 2 days (1 to 2 consecutive dates only).',
                             );
                             return;
                           }
@@ -563,11 +603,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         onDaySelected: (selectedDay, focused) {
                           final selectedDate = _dateOnly(selectedDay);
                           if (bookedDays.contains(selectedDate)) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('That date is unavailable'),
-                                backgroundColor: AppColors.error,
-                              ),
+                            _showDateLimitModal(
+                              dialogContext,
+                              'That date is unavailable.',
                             );
                             return;
                           }
@@ -584,13 +622,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                       .difference(_dateOnly(selectedDay))
                                       .inDays >
                                       1) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Hourly bookings can span at most 2 days',
-                                    ),
-                                    backgroundColor: AppColors.error,
-                                  ),
+                                _showDateLimitModal(
+                                  dialogContext,
+                                  'Hourly bookings can span at most 2 days (1 to 2 consecutive dates only).',
                                 );
                                 return;
                               }
@@ -602,13 +636,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 selectedDay,
                                 bookedDays,
                               )) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Selected range includes unavailable dates',
-                                    ),
-                                    backgroundColor: AppColors.error,
-                                  ),
+                                _showDateLimitModal(
+                                  dialogContext,
+                                  'Selected range includes unavailable dates.',
                                 );
                                 return;
                               }
@@ -618,13 +648,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                       .difference(_dateOnly(rangeStart!))
                                       .inDays >
                                       1) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Hourly bookings can span at most 2 days',
-                                    ),
-                                    backgroundColor: AppColors.error,
-                                  ),
+                                _showDateLimitModal(
+                                  dialogContext,
+                                  'Hourly bookings can span at most 2 days (1 to 2 consecutive dates only).',
                                 );
                                 return;
                               }
