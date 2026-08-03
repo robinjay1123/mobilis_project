@@ -1761,7 +1761,7 @@ class BookingService {
       final response = await supabase
           .from('drivers')
           .select(
-            'id, user_id, verification_status, driver_tier, rating, total_trips, users!drivers_user_id_fkey(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude)',
+            'id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver, users!drivers_user_id_fkey(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver)',
           );
 
       final drivers = List<Map<String, dynamic>>.from(response)
@@ -1790,6 +1790,11 @@ class BookingService {
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
             final user = driver['users'] as Map<String, dynamic>? ?? {};
+            final isPsdc = driver['is_psdc_driver'] == true ||
+                user['is_psdc_driver'] == true ||
+                driver['driver_tier']?.toString().toLowerCase() == 'psdc';
+            normalized['is_psdc_driver'] = isPsdc;
+
             final latitude = (user['latitude'] as num?)?.toDouble();
             final longitude = (user['longitude'] as num?)?.toDouble();
             if (latitude != null &&

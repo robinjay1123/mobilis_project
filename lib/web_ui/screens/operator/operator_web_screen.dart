@@ -2152,8 +2152,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return samePoint ? [pickupPoint] : [pickupPoint, destinationPoint];
   }
 
-  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) =>
-      vehicle['owner_role']?.toString().trim().toLowerCase() == 'partner';
+  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
+    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase() ?? '';
+    final source = vehicle['source']?.toString().trim().toLowerCase() ?? '';
+    final isPartner = vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null ||
+        vehicle['partner_name'] != null;
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final ownerRoleNested = owner?['role']?.toString().trim().toLowerCase() ?? '';
+    return ownerRole == 'partner' || source == 'partner' || isPartner || ownerRoleNested == 'partner';
+  }
 
   List<Map<String, double>> _driverProximityTargets(
     Map<String, dynamic> vehicle,
@@ -2340,6 +2348,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       final name =
                                           user['full_name']?.toString() ??
                                           'Unknown driver';
+                                      final isPsdcDriver = driver['is_psdc_driver'] == true ||
+                                          user['is_psdc_driver'] == true ||
+                                          driver['driver_tier']?.toString().toLowerCase() == 'psdc';
                                       final selected =
                                           selectedDriverId == driverId;
                                       final rating =
@@ -2389,7 +2400,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                 decoration: BoxDecoration(
                                                   color: selected
                                                       ? _operatorNavy
-                                                      : const Color(0xFF173D5B),
+                                                      : (isPsdcDriver
+                                                          ? const Color(0xFFD97706)
+                                                          : const Color(0xFF173D5B)),
                                                   borderRadius:
                                                       BorderRadius.circular(14),
                                                 ),
@@ -2409,16 +2422,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.start,
                                                   children: [
-                                                    Text(
-                                                      name,
-                                                      style: TextStyle(
-                                                        color: selected
-                                                            ? _operatorNavyDeep
-                                                            : Colors.white,
-                                                        fontSize: 15,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                      ),
+                                                    Row(
+                                                      children: [
+                                                        Text(
+                                                          name,
+                                                          style: TextStyle(
+                                                            color: selected
+                                                                ? _operatorNavyDeep
+                                                                : Colors.white,
+                                                            fontSize: 15,
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                        ),
+                                                        if (isPsdcDriver) ...[
+                                                          const SizedBox(width: 8),
+                                                          Container(
+                                                            padding: const EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 3,
+                                                            ),
+                                                            decoration: BoxDecoration(
+                                                              color: selected
+                                                                  ? _operatorNavy
+                                                                  : const Color(0xFFF59E0B),
+                                                              borderRadius: BorderRadius.circular(12),
+                                                            ),
+                                                            child: Text(
+                                                              'PSDC DRIVER',
+                                                              style: TextStyle(
+                                                                color: selected
+                                                                    ? Colors.white
+                                                                    : Colors.black,
+                                                                fontSize: 9,
+                                                                fontWeight: FontWeight.w900,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ],
                                                     ),
                                                     const SizedBox(height: 5),
                                                     Text(
@@ -2426,7 +2468,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                         '$trips completed trips',
                                                         '${rating.toStringAsFixed(1)} rating',
                                                         if (distance != null)
-                                                          '${distance.toStringAsFixed(1)} km away',
+                                                          partnerVehicle
+                                                              ? '${distance.toStringAsFixed(1)} km from partner vehicle${index == 1 ? ' (Nearest)' : ''}'
+                                                              : '${distance.toStringAsFixed(1)} km away',
                                                       ].join('  |  '),
                                                       style: TextStyle(
                                                         color: selected

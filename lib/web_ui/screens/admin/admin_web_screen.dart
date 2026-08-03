@@ -948,7 +948,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .select('*')
           .order('created_at', ascending: false);
 
-      _allUsers = List<Map<String, dynamic>>.from(response);
+      final driversResponse = await _supabase
+          .from('drivers')
+          .select('id, user_id, is_psdc_driver, driver_tier');
+      final driversMap = <String, Map<String, dynamic>>{
+        for (final d in List<Map<String, dynamic>>.from(driversResponse))
+          d['user_id']?.toString() ?? '': d
+      };
+
+      _allUsers = List<Map<String, dynamic>>.from(response).map((user) {
+        final userId = user['id']?.toString() ?? '';
+        final driverData = driversMap[userId];
+        final isPsdcDriver = user['is_psdc_driver'] == true ||
+            driverData?['is_psdc_driver'] == true ||
+            driverData?['driver_tier'] == 'psdc';
+        return {
+          ...user,
+          'is_psdc_driver': isPsdcDriver,
+          'driver_id': driverData?['id'],
+        };
+      }).toList();
     } catch (e) {
       debugPrint('Error loading users: $e');
       _allUsers = [];
@@ -1763,6 +1782,76 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _togglePsdcDriverStatus(Map<String, dynamic> user) async {
+    final userId = user['id']?.toString() ?? '';
+    if (userId.isEmpty) return;
+
+    final currentStatus = user['is_psdc_driver'] == true;
+    final newStatus = !currentStatus;
+
+    try {
+      await _supabase
+          .from('users')
+          .update({
+            'is_psdc_driver': newStatus,
+            'role': newStatus ? 'driver' : (user['role'] ?? 'driver'),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', userId);
+
+      final driverRow = await _supabase
+          .from('drivers')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (driverRow == null) {
+        await _supabase.from('drivers').insert({
+          'user_id': userId,
+          'license_number': _placeholderLicenseNumber(userId),
+          'license_expiry': _placeholderLicenseExpiry,
+          'license_verified': true,
+          'nbi_verified': true,
+          'verification_status': 'verified',
+          'is_psdc_driver': newStatus,
+          'driver_tier': newStatus ? 'psdc' : 'standard',
+          'rating': 5.0,
+          'total_trips': 0,
+        });
+      } else {
+        await _supabase.from('drivers').update({
+          'is_psdc_driver': newStatus,
+          'driver_tier': newStatus ? 'psdc' : 'standard',
+          'verification_status': 'verified',
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('user_id', userId);
+      }
+
+      await _loadAllUsers();
+      if (!mounted) return;
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newStatus
+                ? '✅ User flagged as Official PSDC Driver'
+                : '⚪ Driver status set to Standard Driver',
+          ),
+          backgroundColor: newStatus ? Colors.amber.shade800 : Colors.blueGrey,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update PSDC driver flag: $e'),
+          backgroundColor: AppColors.error,
+        ),
       );
     }
   }
@@ -2642,11 +2731,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final filteredUsers = _allUsers.where((user) {
       final name = (user['full_name'] ?? '').toLowerCase();
       final email = (user['email'] ?? '').toLowerCase();
-      final role = user['role'] as String? ?? 'renter';
+      final role = (user['role'] as String? ?? 'renter').toLowerCase();
+      final isPsdc = user['is_psdc_driver'] == true;
       final matchesSearch =
           name.contains(_userSearchQuery.toLowerCase()) ||
           email.contains(_userSearchQuery.toLowerCase());
-      final matchesRole = _userRoleFilter == 'all' || role == _userRoleFilter;
+      final matchesRole = _userRoleFilter == 'all' ||
+          role == _userRoleFilter ||
+          (_userRoleFilter == 'psdc' && isPsdc);
       return matchesSearch && matchesRole;
     }).toList();
 
@@ -2661,6 +2753,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final partnersCount = _allUsers.where((u) => u['role'] == 'partner').length;
     final operatorsCount = _allUsers
         .where((u) => u['role'] == 'operator')
+        .length;
+    final psdcDriversCount = _allUsers
+        .where((u) => u['is_psdc_driver'] == true)
         .length;
     final verifiedCount = _allUsers
         .where((u) => u['id_verified'] == true)
@@ -2709,6 +2804,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   operatorsCount.toString(),
                   Icons.admin_panel_settings,
                   Colors.orange,
+                  isDark,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildUserStatCard(
+                  'PSDC Drivers',
+                  psdcDriversCount.toString(),
+                  Icons.verified_outlined,
+                  const Color(0xFFF59E0B),
                   isDark,
                 ),
               ),
@@ -2823,6 +2928,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         'Operators',
                         style: TextStyle(
                           color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'driver',
+                      child: Text(
+                        'Drivers',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'psdc',
+                      child: Text(
+                        '🛡️ PSDC Drivers',
+                        style: TextStyle(
+                          color: isDark ? Colors.amber.shade300 : Colors.amber.shade900,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
@@ -2957,6 +3081,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     final index = entry.key;
                     final user = entry.value;
                     final role = user['role'] as String? ?? 'renter';
+                    final isPsdcDriver = user['is_psdc_driver'] == true;
                     final isVerified = user['id_verified'] as bool? ?? false;
                     final isLast = index == paginatedUsers.length - 1;
 
@@ -2983,16 +3108,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   children: [
                                     CircleAvatar(
                                       radius: 18,
-                                      backgroundColor: Colors.blue.withOpacity(
-                                        0.2,
-                                      ),
+                                      backgroundColor: isPsdcDriver
+                                          ? const Color(0xFFF59E0B).withOpacity(0.2)
+                                          : Colors.blue.withOpacity(0.2),
                                       child: Text(
                                         (user['full_name'] as String?)?[0]
                                                 .toString()
                                                 .toUpperCase() ??
                                             'U',
-                                        style: const TextStyle(
-                                          color: Colors.blue,
+                                        style: TextStyle(
+                                          color: isPsdcDriver
+                                              ? const Color(0xFFF59E0B)
+                                              : Colors.blue,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -3023,7 +3150,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   ),
                                 ),
                               ),
-                              Expanded(child: _buildRoleBadge(role)),
+                              Expanded(
+                                child: _buildRoleBadge(
+                                  role,
+                                  isPsdcDriver: isPsdcDriver,
+                                ),
+                              ),
                               Expanded(
                                 child: Center(
                                   child: Tooltip(
@@ -3049,11 +3181,42 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                     onSelected: (value) {
                                       if (value == 'delete') {
                                         _deleteUser(user['id']);
+                                      } else if (value == 'toggle_psdc') {
+                                        _togglePsdcDriverStatus(user);
                                       } else {
                                         _updateUserRole(user['id'], value);
                                       }
                                     },
                                     itemBuilder: (context) => [
+                                      PopupMenuItem(
+                                        value: 'toggle_psdc',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              isPsdcDriver
+                                                  ? Icons.remove_moderator_outlined
+                                                  : Icons.verified_outlined,
+                                              size: 18,
+                                              color: isPsdcDriver
+                                                  ? Colors.orange
+                                                  : AppColors.primary,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              isPsdcDriver
+                                                  ? 'Unflag as PSDC Driver'
+                                                  : 'Flag as PSDC Driver',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: isPsdcDriver
+                                                    ? Colors.orange
+                                                    : AppColors.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuDivider(),
                                       const PopupMenuItem(
                                         value: 'renter',
                                         child: Text('Set as Renter'),
@@ -3065,6 +3228,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       const PopupMenuItem(
                                         value: 'operator',
                                         child: Text('Set as Operator'),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'driver',
+                                        child: Text('Set as Driver'),
                                       ),
                                       const PopupMenuDivider(),
                                       const PopupMenuItem(
@@ -3084,6 +3251,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ],
                     );
                   }).toList(),
+
                 if (totalPages > 1)
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -3216,7 +3384,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildRoleBadge(String role) {
+  Widget _buildRoleBadge(String role, {bool isPsdcDriver = false}) {
+    if (isPsdcDriver) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFD97706).withOpacity(0.18),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.verified_outlined, size: 13, color: Color(0xFFF59E0B)),
+            SizedBox(width: 4),
+            Text(
+              'PSDC DRIVER',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFFF59E0B),
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     Color color;
     switch (role) {
       case 'partner':
@@ -3227,6 +3422,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         break;
       case 'admin':
         color = Colors.red;
+        break;
+      case 'driver':
+        color = Colors.teal;
         break;
       default:
         color = Colors.green;
