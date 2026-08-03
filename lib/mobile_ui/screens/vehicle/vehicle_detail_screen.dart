@@ -3808,10 +3808,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
+  String _format12Hour(int hour, [int minute = 0]) {
+    final h = hour % 12 == 0 ? 12 : hour % 12;
+    final m = minute.toString().padLeft(2, '0');
+    final period = hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $period';
+  }
+
   Widget _buildReadOnlySlotGrid({
     required DateTime date,
     required Set<int> availableHours,
   }) {
+    final now = DateTime.now();
+    final isToday = DateUtils.isSameDay(date, now);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth < 340 ? 3 : 4;
@@ -3822,12 +3832,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           spacing: spacing,
           runSpacing: spacing,
           children: [
-            for (var hour = 6; hour <= 22; hour++)
+            for (var hour = 0; hour <= 23; hour++)
               SizedBox(
                 width: width,
                 child: _TimeSlotTile(
-                  label: TimeOfDay(hour: hour, minute: 0).format(context),
-                  isAvailable: availableHours.contains(hour),
+                  label: _format12Hour(hour),
+                  isAvailable: availableHours.contains(hour) &&
+                      (!isToday || hour > now.hour),
                   isSelected: false,
                   onTap: null,
                 ),
@@ -3847,6 +3858,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final availableByHour = <int, DateTime>{
       for (final slot in availableSlots) slot.hour: slot,
     };
+    final now = DateTime.now();
+    final isToday = DateUtils.isSameDay(date, now);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = constraints.maxWidth < 340 ? 3 : 4;
@@ -3857,14 +3871,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           spacing: spacing,
           runSpacing: spacing,
           children: [
-            for (var hour = 6; hour <= 22; hour++)
+            for (var hour = 0; hour <= 23; hour++)
               SizedBox(
                 width: width,
                 child: _TimeSlotTile(
-                  label: TimeOfDay(hour: hour, minute: 0).format(context),
-                  isAvailable: availableByHour.containsKey(hour),
+                  label: _format12Hour(hour),
+                  isAvailable: availableByHour.containsKey(hour) &&
+                      (!isToday || hour > now.hour),
                   isSelected: selectedTime?.hour == hour,
-                  onTap: availableByHour[hour] == null
+                  onTap: (availableByHour[hour] == null || (isToday && hour <= now.hour))
                       ? null
                       : () => onSelected(availableByHour[hour]!),
                 ),
@@ -3974,7 +3989,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Daily Mode: Return time is automatically set to ${_startTime!.format(context)} on ${_formatDate(endDate)}.',
+                      'Daily Mode: Return time is automatically set to ${_format12Hour(_startTime!.hour, _startTime!.minute)} on ${_formatDate(endDate)}.',
                       style: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 12,

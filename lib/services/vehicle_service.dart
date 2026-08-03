@@ -821,8 +821,8 @@ class VehicleService {
     required DateTime date,
     DateTime? rentalStart,
     bool selectingEnd = false,
-    int firstHour = 6,
-    int lastHour = 22,
+    int firstHour = 0,
+    int lastHour = 23,
   }) async {
     final day = DateTime(date.year, date.month, date.day);
     final windowStart = rentalStart ?? day;
@@ -888,7 +888,8 @@ class VehicleService {
             ? candidate
             : candidate.add(const Duration(hours: 1));
         if (!intervalEnd.isAfter(intervalStart)) continue;
-        if (!selectingEnd && !candidate.isAfter(now)) continue;
+        if (!candidate.isAfter(now)) continue;
+        if (selectingEnd && !candidate.isAfter(rentalStart!)) continue;
         if (rangeHasUnavailableDay(intervalStart, intervalEnd)) continue;
         if (overlapsBooking(intervalStart, intervalEnd)) continue;
         slots.add(candidate);
