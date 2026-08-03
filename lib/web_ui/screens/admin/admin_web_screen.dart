@@ -4863,6 +4863,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           // Partner Vehicle Applications Section
           if (showVehicles) ...[
             _buildPartnerVehicleApplicationsSection(vehicleRecords, isDark),
+            const SizedBox(height: 24),
+            _buildPriceChangeRequestsSection(isDark),
             if (showDrivers && driverRecords.isNotEmpty) const SizedBox(height: 24),
           ],
 
@@ -5201,10 +5203,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     }).toList(),
                   ),
             isDark,
-          ),
-          const SizedBox(height: 20),
-          _buildCard(
-            'Price Change Requests (${_priceChangeRequests.length})',
+          );
+  }
+
+  Widget _buildPriceChangeRequestsSection(bool isDark) {
+    return _buildCard(
+      'Price Change Requests (${_priceChangeRequests.length})',
             _priceChangeRequests.isEmpty
                 ? Center(
                     child: Padding(
@@ -5328,10 +5332,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     }).toList(),
                   ),
             isDark,
-          ),
-        ],
-      ),
-    );
+          );
   }
 
   Widget _buildVerificationSection({
