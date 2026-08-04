@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 enum GpsConnectionStatus {
   pendingVerification,
   verified,
@@ -55,6 +53,7 @@ class VehicleTracker {
   final String? operatorId;
   final String provider;
   final String deviceIdentifier;
+  final String? encryptedPassword;
   final GpsConnectionStatus connectionStatus;
   final double? lastLatitude;
   final double? lastLongitude;
@@ -74,6 +73,7 @@ class VehicleTracker {
     this.operatorId,
     this.provider = 'aika168',
     required this.deviceIdentifier,
+    this.encryptedPassword,
     this.connectionStatus = GpsConnectionStatus.pendingVerification,
     this.lastLatitude,
     this.lastLongitude,
@@ -95,6 +95,7 @@ class VehicleTracker {
       operatorId: json['operator_id']?.toString(),
       provider: json['provider']?.toString() ?? 'aika168',
       deviceIdentifier: json['device_identifier']?.toString() ?? '',
+      encryptedPassword: json['encrypted_password']?.toString(),
       connectionStatus: GpsConnectionStatusExtension.fromString(
         json['connection_status']?.toString(),
       ),

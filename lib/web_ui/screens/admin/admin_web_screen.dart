@@ -1747,6 +1747,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'verified_by': _supabase.auth.currentUser?.id,
             'partner_vehicle_id': partnerVehicleId,
             'created_vehicle_id': vehicleId,
+            'rejection_reason': null,
+          })
           .eq('id', appId);
 
       try {

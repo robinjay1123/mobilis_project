@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
-import '../../models/gps_tracker_model.dart';
-import '../../services/gps_service.dart';
-import '../theme/app_colors.dart';
-import '../widgets/leaflet_map.dart';
+import '../../../models/gps_tracker_model.dart';
+import '../../../services/gps_service.dart';
+import '../../theme/app_colors.dart';
+import '../../widgets/leaflet_map.dart';
 
 class VehicleTrackingMapScreen extends StatefulWidget {
   final String vehicleTitle;
@@ -33,7 +34,7 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
   bool _isLoading = true;
   bool _isFetching = false;
   bool _autoFollow = true;
-  double _currentZoom = 15.0;
+  final double _currentZoom = 15.0;
 
   @override
   void initState() {
@@ -76,11 +77,9 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
 
       if (pos != null && _autoFollow) {
         try {
-          _mapController.move(
-            pos.latitude == 0 ? 15.928312 : pos.latitude,
-            pos.longitude == 0 ? 120.348901 : pos.longitude,
-            _currentZoom,
-          );
+          final targetLat = pos.latitude == 0 ? 15.928312 : pos.latitude;
+          final targetLng = pos.longitude == 0 ? 120.348901 : pos.longitude;
+          _mapController.move(LatLng(targetLat, targetLng), _currentZoom);
         } catch (_) {}
       }
     } catch (e) {
@@ -97,7 +96,7 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
     final lat = _currentPosition?.latitude ?? widget.tracker.lastLatitude ?? 15.928312;
     final lng = _currentPosition?.longitude ?? widget.tracker.lastLongitude ?? 120.348901;
     try {
-      _mapController.move(lat, lng, _currentZoom);
+      _mapController.move(LatLng(lat, lng), _currentZoom);
     } catch (_) {}
   }
 

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../models/gps_tracker_model.dart';
-import '../../services/gps_service.dart';
-import '../theme/app_colors.dart';
+import '../../../models/gps_tracker_model.dart';
+import '../../../services/gps_service.dart';
+import '../../theme/app_colors.dart';
 
 class ConnectGpsTrackerScreen extends StatefulWidget {
   final String? vehicleId;
@@ -202,7 +202,7 @@ class _ConnectGpsTrackerScreenState extends State<ConnectGpsTrackerScreen> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _selectedProvider,
+                initialValue: _selectedProvider,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: isDark ? AppColors.darkBgSecondary : Colors.grey.shade100,

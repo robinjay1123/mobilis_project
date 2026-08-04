@@ -191,7 +191,7 @@ class GpsService {
       final position = await providerImpl.getLatestPosition(
         vehicleId: tracker.vehicleId ?? tracker.partnerVehicleId ?? tracker.id,
         deviceIdentifier: tracker.deviceIdentifier,
-        password: tracker.encrypted_password ?? '',
+        password: tracker.encryptedPassword ?? '',
       );
 
       if (position != null) {
