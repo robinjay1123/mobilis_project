@@ -22,7 +22,8 @@ import '../../../utils/booking_status.dart';
 import '../../../utils/csv_export.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/notification_target.dart';
-import '../../../utils/notification_visual.dart';
+import '../../../services/notification_visual.dart';
+import '../../../services/gps_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
@@ -141,6 +142,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _transmissionController = TextEditingController();
   final TextEditingController _seatsController = TextEditingController();
+  final TextEditingController _gpsDeviceIdController = TextEditingController();
+  final TextEditingController _gpsPasswordController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _messageScrollController = ScrollController();
   final ScrollController _dashboardQueueScrollController = ScrollController();
@@ -216,6 +219,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _longitudeController.dispose();
     _transmissionController.dispose();
     _seatsController.dispose();
+    _gpsDeviceIdController.dispose();
+    _gpsPasswordController.dispose();
     _messageController.dispose();
     _messageScrollController.dispose();
     _dashboardQueueScrollController.dispose();
@@ -14859,6 +14864,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _locationController.clear();
     _latitudeController.clear();
     _longitudeController.clear();
+    _gpsDeviceIdController.clear();
+    _gpsPasswordController.clear();
     _selectedImages = [];
     _selectedStatus = 'active';
   }
@@ -14927,6 +14934,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .select('id')
           .single();
       final vehicleId = vehicleResponse['id'].toString();
+
+      if (_gpsDeviceIdController.text.trim().isNotEmpty) {
+        try {
+          await GpsService().verifyAndConnectTracker(
+            vehicleId: vehicleId,
+            provider: 'aika168',
+            deviceIdentifier: _gpsDeviceIdController.text.trim(),
+            password: _gpsPasswordController.text.trim(),
+          );
+        } catch (trackerErr) {
+          debugPrint('GPS Tracker pairing note during operator vehicle creation: $trackerErr');
+        }
+      }
 
       var uploadedImageCount = 0;
       for (var index = 0; index < _selectedImages.length; index++) {
@@ -15636,6 +15656,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 validator: _requiredVehicleField,
               ),
               fullWidth: true,
+            ),
+            field(
+              const Padding(
+                padding: EdgeInsets.only(top: 8, bottom: 4),
+                child: Text(
+                  'GPS TRACKER SETUP (OPTIONAL - AIKA168)',
+                  style: TextStyle(
+                    color: _operatorGold,
+                    fontSize: 11,
+                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              fullWidth: true,
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Tracker Device IMEI / ID',
+                hint: 'e.g. 868123456789012',
+                controller: _gpsDeviceIdController,
+                isDark: isDark,
+              ),
+            ),
+            field(
+              _registerVehicleField(
+                label: 'Tracker Password',
+                hint: 'Default: 123456',
+                controller: _gpsPasswordController,
+                obscureText: true,
+                isDark: isDark,
+              ),
             ),
           ],
         );
