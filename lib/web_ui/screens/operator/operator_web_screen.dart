@@ -14763,6 +14763,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     String? Function(String?)? validator,
     TextInputType? keyboardType,
     int maxLines = 1,
+    bool obscureText = false,
     Widget? suffixIcon,
   }) {
     return Column(
@@ -14783,6 +14784,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           validator: validator,
           keyboardType: keyboardType,
           maxLines: maxLines,
+          obscureText: obscureText,
           cursorColor: _operatorGold,
           style: TextStyle(
             color: isDark ? Colors.white : _operatorInk,
