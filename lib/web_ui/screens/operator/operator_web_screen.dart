@@ -15698,55 +15698,59 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ),
             field(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    height: 46,
-                    child: ElevatedButton.icon(
-                      onPressed: _isTestingGps
-                          ? null
-                          : () => _testGpsConnection(setDialogState),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isGpsVerified == true
-                            ? Colors.green.shade700
-                            : _operatorNavy,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SizedBox(
+                  height: 46,
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isTestingGps
+                        ? null
+                        : () => _testGpsConnection(setDialogState),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _isGpsVerified == true
+                          ? Colors.green.shade700
+                          : _operatorNavy,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
                       ),
-                      icon: _isTestingGps
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              _isGpsVerified == true
-                                  ? Icons.check_circle_rounded
-                                  : Icons.sensors_rounded,
-                              size: 18,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: _isTestingGps
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
                             ),
-                      label: Text(
-                        _isTestingGps
-                            ? 'Testing AIKA168...'
-                            : (_isGpsVerified == true
-                                ? 'Tracker Verified'
-                                : 'Test & Connect Tracker'),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
+                          )
+                        : Icon(
+                            _isGpsVerified == true
+                                ? Icons.check_circle_rounded
+                                : Icons.sensors_rounded,
+                            size: 18,
+                          ),
+                    label: Text(
+                      _isTestingGps
+                          ? 'Testing AIKA168...'
+                          : (_isGpsVerified == true
+                              ? 'Tracker Verified'
+                              : 'Test & Connect Tracker'),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        letterSpacing: 0.3,
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
+              fullWidth: true,
             ),
             if (_gpsTestMessage != null) ...[
               field(
