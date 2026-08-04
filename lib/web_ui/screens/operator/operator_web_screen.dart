@@ -13464,6 +13464,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           );
         }
+        final isPartnerTab = _vehicleView == 'partner';
         return Column(
           children: [
             Container(
@@ -13473,11 +13474,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   : const Color(0xFFF7F8FA),
               child: Row(
                 children: [
-                  _vehicleHeaderLabel('Vehicle', 4, isDark),
+                  _vehicleHeaderLabel('Vehicle', isPartnerTab ? 5 : 4, isDark),
                   _vehicleHeaderLabel('Owner', 3, isDark),
                   _vehicleHeaderLabel('Status', 2, isDark),
                   _vehicleHeaderLabel('Pricing', 3, isDark),
-                  _vehicleHeaderLabel('Listing', 2, isDark),
+                  if (!isPartnerTab)
+                    _vehicleHeaderLabel('Listing', 2, isDark),
                   _vehicleHeaderLabel('Actions', 2, isDark),
                 ],
               ),
@@ -13525,7 +13527,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     final foreground = isDark ? Colors.white : _operatorInk;
-    final owner = vehicle['_source'] == 'partner'
+    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    final owner = isPartner
         ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
         : 'PSDC';
     final available = _operatorVehicleIsAvailable(vehicle);
@@ -13542,7 +13545,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Row(
         children: [
-          cell(_buildOperatorVehicleIdentity(vehicle, isDark), 4),
+          cell(_buildOperatorVehicleIdentity(vehicle, isDark), isPartner ? 5 : 4),
           cell(
             Text(
               owner,
@@ -13564,30 +13567,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
             3,
           ),
-          cell(
-            Row(
-              children: [
-                Transform.scale(
-                  scale: 0.72,
-                  child: Switch(
-                    value: posted,
-                    onChanged: (value) => _togglePostingStatus(vehicle, value),
-                    activeTrackColor: _operatorGold,
-                    activeThumbColor: _operatorNavyDeep,
+          if (!isPartner)
+            cell(
+              Row(
+                children: [
+                  Transform.scale(
+                    scale: 0.72,
+                    child: Switch(
+                      value: posted,
+                      onChanged: (value) => _togglePostingStatus(vehicle, value),
+                      activeTrackColor: _operatorGold,
+                      activeThumbColor: _operatorNavyDeep,
+                    ),
                   ),
-                ),
-                Text(
-                  posted ? 'POSTED' : 'HIDDEN',
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
+                  Text(
+                    posted ? 'POSTED' : 'HIDDEN',
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              2,
             ),
-            2,
-          ),
           cell(_buildOperatorVehicleMenu(vehicle, isDark), 2),
         ],
       ),
@@ -14132,45 +14136,50 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                             ],
                           );
-                          final manageButton = ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.pop(dialogContext);
-                              _showEditVehicleDialog(vehicle, isDark);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: Size(
-                                compactFooter ? double.infinity : 0,
-                                50,
+                          Widget? manageButton;
+                          if (!isPartner) {
+                            manageButton = ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(dialogContext);
+                                _showEditVehicleDialog(vehicle, isDark);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: Size(
+                                  compactFooter ? double.infinity : 0,
+                                  50,
+                                ),
+                                backgroundColor: _operatorNavy,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 22,
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
                               ),
-                              backgroundColor: _operatorNavy,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 22,
-                                vertical: 16,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            icon: const Icon(Icons.tune_rounded, size: 18),
-                            label: Text(
-                              isPartner ? 'Manage Price' : 'Manage Vehicle',
-                            ),
-                          );
+                              icon: const Icon(Icons.tune_rounded, size: 18),
+                              label: const Text('Manage Vehicle'),
+                            );
+                          }
                           if (compactFooter) {
                             return Column(
                               children: [
                                 details,
-                                const SizedBox(height: 16),
-                                manageButton,
+                                if (manageButton != null) ...[
+                                  const SizedBox(height: 16),
+                                  manageButton,
+                                ],
                               ],
                             );
                           }
                           return Row(
                             children: [
                               Expanded(child: details),
-                              const SizedBox(width: 30),
-                              manageButton,
+                              if (manageButton != null) ...[
+                                const SizedBox(width: 30),
+                                manageButton,
+                              ],
                             ],
                           );
                         },
@@ -14376,7 +14385,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildOperatorVehicleMenu(Map<String, dynamic> vehicle, bool isDark) {
     final posted = vehicle['is_posted'] == true;
-    final isPartner = vehicle['_source'] == 'partner';
+    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    if (isPartner) {
+      return OutlinedButton.icon(
+        onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
+        icon: const Icon(Icons.visibility_outlined, size: 14),
+        label: const Text(
+          'View',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: isDark ? Colors.white : _operatorInk,
+          side: BorderSide(
+            color: isDark ? Colors.white24 : Colors.blueGrey.shade300,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      );
+    }
     return PopupMenuButton<String>(
       tooltip: 'Vehicle actions',
       onSelected: (action) {
@@ -14457,6 +14485,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     final available = _operatorVehicleIsAvailable(vehicle);
+    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -14477,14 +14506,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Row(
             children: [
               Expanded(child: _buildOperatorVehicleStatus(available, isDark)),
-              Text(
-                vehicle['is_posted'] == true ? 'POSTED' : 'HIDDEN',
-                style: TextStyle(
-                  color: isDark ? Colors.grey[300] : _operatorInk,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
+              if (!isPartner)
+                Text(
+                  vehicle['is_posted'] == true ? 'POSTED' : 'HIDDEN',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[300] : _operatorInk,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD4AF37).withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'Partner Vehicle',
+                    style: TextStyle(
+                      color: Color(0xFFD4AF37),
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
         ],
