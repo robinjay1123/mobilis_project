@@ -19,6 +19,7 @@ import '../../../services/terms_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/notification_service.dart';
+import '../../../services/gps_service.dart';
 import '../../../services/admin_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/support_faq_service.dart';
@@ -1746,9 +1747,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'verified_by': _supabase.auth.currentUser?.id,
             'partner_vehicle_id': partnerVehicleId,
             'created_vehicle_id': vehicleId,
-            'rejection_reason': null,
-          })
           .eq('id', appId);
+
+      try {
+        await GpsService().transferTrackerToVehicle(
+          applicationId: appId,
+          targetVehicleId: partnerVehicleId?.toString() ?? vehicleId.toString(),
+          isPartnerVehicle: partnerVehicleId != null,
+        );
+      } catch (trackerErr) {
+        debugPrint('GPS tracker transfer note: $trackerErr');
+      }
 
       final vehicleTitle =
           '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();

@@ -6,9 +6,14 @@ import 'dart:io';
 import '../../../services/auth_service.dart';
 import '../../../services/partner_service.dart';
 import '../../../services/vehicle_service.dart';
+import '../../../services/gps_service.dart';
+import '../../../models/gps_tracker_model.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
+import 'connect_gps_tracker_screen.dart';
+import 'gps_tracker_settings_screen.dart';
+import 'vehicle_tracking_map_screen.dart';
 
 class VehicleAvailabilityScreen extends StatefulWidget {
   const VehicleAvailabilityScreen({super.key});
@@ -988,9 +993,184 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 isAvailable: value,
               ),
             ),
+            const SizedBox(height: 8),
+            _buildGpsTrackingCard(application),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildGpsTrackingCard(Map<String, dynamic> application) {
+    final vehicleId = _approvedVehicleId(application);
+    final appId = application['id']?.toString() ?? '';
+
+    return FutureBuilder<VehicleTracker?>(
+      future: vehicleId.isNotEmpty
+          ? GpsService().getTrackerForVehicle(vehicleId)
+          : GpsService().getTrackerForApplication(appId),
+      builder: (context, snapshot) {
+        final tracker = snapshot.data;
+        final isConnected = tracker != null && tracker.isConnected;
+
+        return Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isConnected
+                ? Colors.green.withValues(alpha: 0.08)
+                : Colors.orange.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isConnected
+                  ? Colors.green.withValues(alpha: 0.3)
+                  : Colors.orange.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.gps_fixed_rounded,
+                        color: isConnected ? Colors.green : Colors.orange,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'GPS Tracking',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: isConnected ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isConnected
+                          ? Colors.green.withValues(alpha: 0.15)
+                          : Colors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      isConnected ? '● Connected' : 'Not Connected',
+                      style: TextStyle(
+                        color: isConnected ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (isConnected && tracker != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Provider: ${tracker.provider.toUpperCase()}  •  ID: ${tracker.maskedDeviceId}',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          final vehicleTitle = '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
+                          final plateNumber = application['plate_number']?.toString() ?? '';
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => VehicleTrackingMapScreen(
+                                vehicleTitle: vehicleTitle.isNotEmpty ? vehicleTitle : 'Vehicle',
+                                plateNumber: plateNumber,
+                                tracker: tracker,
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.map_rounded, size: 16),
+                        label: const Text(
+                          'Track Vehicle',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final updated = await Navigator.push<bool>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => GpsTrackerSettingsScreen(tracker: tracker),
+                          ),
+                        );
+                        if (updated == true) setState(() {});
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      icon: const Icon(Icons.settings_rounded, size: 16),
+                      label: const Text('GPS Settings', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final newTracker = await Navigator.push<VehicleTracker>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ConnectGpsTrackerScreen(
+                            vehicleId: vehicleId.isNotEmpty ? vehicleId : null,
+                            vehicleApplicationId: appId.isNotEmpty ? appId : null,
+                          ),
+                        ),
+                      );
+                      if (newTracker != null) setState(() {});
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      side: BorderSide(color: Colors.orange.withValues(alpha: 0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_link_rounded, size: 16, color: Colors.orange),
+                    label: const Text(
+                      'Connect GPS Tracker',
+                      style: TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 
