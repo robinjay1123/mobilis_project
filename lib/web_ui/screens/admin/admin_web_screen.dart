@@ -1940,15 +1940,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final newStatus = !currentStatus;
 
     try {
-      await _supabase
-          .from('users')
-          .update({
-            'is_psdc_driver': newStatus,
-            'role': newStatus ? 'driver' : (user['role'] ?? 'driver'),
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', userId);
+      // 1. Update user role on users table (role = 'driver')
+      try {
+        await _supabase
+            .from('users')
+            .update({
+              'role': 'driver',
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', userId);
+      } catch (userErr) {
+        debugPrint('Updating user role note: $userErr');
+      }
 
+      // 2. Upsert / update drivers table for PSDC driver flag & tier
       final driverRow = await _supabase
           .from('drivers')
           .select('id')
@@ -1956,25 +1961,49 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .maybeSingle();
 
       if (driverRow == null) {
-        await _supabase.from('drivers').insert({
-          'user_id': userId,
-          'license_number': _placeholderLicenseNumber(userId),
-          'license_expiry': _placeholderLicenseExpiry,
-          'license_verified': true,
-          'nbi_verified': true,
-          'verification_status': 'verified',
-          'is_psdc_driver': newStatus,
-          'driver_tier': newStatus ? 'psdc' : 'standard',
-          'rating': 5.0,
-          'total_trips': 0,
-        });
+        try {
+          await _supabase.from('drivers').insert({
+            'user_id': userId,
+            'license_number': _placeholderLicenseNumber(userId),
+            'license_expiry': _placeholderLicenseExpiry,
+            'license_verified': true,
+            'nbi_verified': true,
+            'verification_status': 'verified',
+            'is_psdc_driver': newStatus,
+            'driver_tier': newStatus ? 'psdc' : 'standard',
+            'rating': 5.0,
+            'total_trips': 0,
+          });
+        } catch (insertErr) {
+          debugPrint('Driver insert with is_psdc_driver failed, trying driver_tier: $insertErr');
+          await _supabase.from('drivers').insert({
+            'user_id': userId,
+            'license_number': _placeholderLicenseNumber(userId),
+            'license_expiry': _placeholderLicenseExpiry,
+            'license_verified': true,
+            'nbi_verified': true,
+            'verification_status': 'verified',
+            'driver_tier': newStatus ? 'psdc' : 'standard',
+            'rating': 5.0,
+            'total_trips': 0,
+          });
+        }
       } else {
-        await _supabase.from('drivers').update({
-          'is_psdc_driver': newStatus,
-          'driver_tier': newStatus ? 'psdc' : 'standard',
-          'verification_status': 'verified',
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('user_id', userId);
+        try {
+          await _supabase.from('drivers').update({
+            'is_psdc_driver': newStatus,
+            'driver_tier': newStatus ? 'psdc' : 'standard',
+            'verification_status': 'verified',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('user_id', userId);
+        } catch (updateErr) {
+          debugPrint('Driver update with is_psdc_driver failed, trying driver_tier: $updateErr');
+          await _supabase.from('drivers').update({
+            'driver_tier': newStatus ? 'psdc' : 'standard',
+            'verification_status': 'verified',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('user_id', userId);
+        }
       }
 
       await _loadAllUsers();
