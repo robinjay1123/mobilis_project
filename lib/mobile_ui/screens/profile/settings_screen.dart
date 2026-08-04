@@ -60,10 +60,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'Pickup',
   };
 
+  int _activeWebTab = 0;
+  late final TextEditingController _webNameController = TextEditingController();
+  late final TextEditingController _webPhoneController = TextEditingController();
+  late final TextEditingController _webPositionController = TextEditingController();
+  bool _isSavingWebProfile = false;
+
   @override
   void initState() {
     super.initState();
     _loadAccount();
+  }
+
+  @override
+  void dispose() {
+    _webNameController.dispose();
+    _webPhoneController.dispose();
+    _webPositionController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAccount() async {
@@ -78,6 +92,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _profile = results[0] as Map<String, dynamic>? ?? const {};
         _role = (results[1] as String? ?? 'renter').toLowerCase();
         _isLoading = false;
+        _webNameController.text = _operatorFullName;
+        _webPhoneController.text = _operatorPhone;
+        _webPositionController.text = _operatorPosition;
       });
       if (widget.operatorMode) await _loadOperatorPreferences();
     } catch (_) {
@@ -894,380 +911,1688 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _saveInlineWebProfile() async {
+    if (_isSavingWebProfile) return;
+    setState(() => _isSavingWebProfile = true);
+    try {
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+      if (user == null) throw Exception('No signed-in operator found.');
+      final newName = _webNameController.text.trim();
+      final newPhone = _webPhoneController.text.trim();
+      final newPos = _webPositionController.text.trim();
+
+      if (newName.isEmpty) throw Exception('Name cannot be empty.');
+      if (newPhone.length != 11) throw Exception('Contact number must be 11 digits.');
+
+      await supabase.from('users').update({
+        'name': newName,
+        'full_name': newName,
+        'phone': newPhone,
+      }).eq('id', user.id);
+
+      await supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            ...?user.userMetadata,
+            'full_name': newName,
+            'name': newName,
+            'phone': newPhone,
+            'position': newPos,
+          },
+        ),
+      );
+      await _loadAccount();
+      widget.onProfileUpdated?.call();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Operator profile updated successfully.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update profile: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingWebProfile = false);
+    }
+  }
+
   Widget _buildOperatorSettings() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final contentWidth = constraints.maxWidth.clamp(0.0, 1440.0).toDouble();
-        final twoColumns = contentWidth >= 1040;
-        final cardWidth = twoColumns ? (contentWidth - 24) / 2 : contentWidth;
-        Widget card(String title, List<Widget> children) => SizedBox(
-          width: cardWidth,
-          child: _SettingsSection(title: title, children: children),
-        );
+        final isWide = constraints.maxWidth >= 840;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
 
-        final avatar = _operatorAvatarUrl;
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(36, 30, 36, 44),
-          children: [
-            Align(
-              alignment: Alignment.topLeft,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1440),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(22),
-                      decoration: BoxDecoration(
-                        color: _surfaceColor(context),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: _borderColor(context)),
-                        boxShadow: Theme.of(context).brightness == Brightness.dark
-                            ? const []
-                            : [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.06),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1360),
+            child: Padding(
+              padding: EdgeInsets.all(isWide ? 28.0 : 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildWebHeaderCard(isDark),
+                  const SizedBox(height: 20),
+                  Expanded(
+                    child: isWide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 260,
+                                child: _buildWebSidebarNav(isDark),
+                              ),
+                              const SizedBox(width: 24),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  child: _buildWebTabContent(isDark),
                                 ),
-                              ],
+                              ),
+                            ],
+                          )
+                        : Column(
+                            children: [
+                              _buildWebHorizontalTabs(isDark),
+                              const SizedBox(height: 16),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  child: _buildWebTabContent(isDark),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWebHeaderCard(bool isDark) {
+    final isOnline = _operatorPreferences['operator_online_status'] ?? true;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        color: _surfaceColor(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _borderColor(context)),
+        boxShadow: isDark
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.tune_rounded,
+              color: AppColors.primary,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Operator Settings',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
                       ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            width: 54,
-                            height: 54,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            child: const Icon(
-                              Icons.tune_rounded,
-                              color: AppColors.primary,
-                              size: 28,
-                            ),
+                          Icon(
+                            Icons.verified_user_rounded,
+                            size: 13,
+                            color: AppColors.primary,
                           ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Operator Settings',
-                                  style: TextStyle(
-                                    color: _primaryTextColor(context),
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Manage profile, workflow preferences, security, notifications, and support without leaving the operator console.',
-                                  style: TextStyle(
-                                    color: _secondaryTextColor(context),
-                                    fontSize: 13.5,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(width: 4),
+                          Text(
+                            'Console Admin',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Wrap(
-                      spacing: 24,
-                      runSpacing: 24,
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Manage profile, workflow preferences, security, notifications, and support.',
+                  style: TextStyle(
+                    color: _secondaryTextColor(context),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Header Status Badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isOnline
+                  ? AppColors.success.withValues(alpha: 0.12)
+                  : Colors.grey.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isOnline
+                    ? AppColors.success.withValues(alpha: 0.3)
+                    : Colors.grey.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: isOnline ? AppColors.success : Colors.grey,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isOnline ? 'Online' : 'Offline',
+                  style: TextStyle(
+                    color: isOnline ? AppColors.success : _secondaryTextColor(context),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 22,
+                  width: 36,
+                  child: Switch(
+                    value: isOnline,
+                    onChanged: (val) => _setOperatorPreference('operator_online_status', val),
+                    activeThumbColor: AppColors.success,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWebSidebarNav(bool isDark) {
+    final tabs = [
+      _WebCategoryItem(0, 'Profile & Identity', Icons.badge_outlined, 'Avatar, details & role'),
+      _WebCategoryItem(1, 'Workflow & Availability', Icons.tune_rounded, 'Status, hours & vehicles'),
+      _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, 'Operational alerts'),
+      _WebCategoryItem(3, 'Account & Security', Icons.shield_outlined, 'Password & email'),
+      _WebCategoryItem(4, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & display'),
+      _WebCategoryItem(5, 'Support & System', Icons.help_outline_rounded, 'Help center & info'),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _surfaceColor(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _borderColor(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Text(
+              'SETTINGS',
+              style: TextStyle(
+                color: _secondaryTextColor(context),
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          ...tabs.map((tab) {
+            final isSelected = _activeWebTab == tab.id;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: () => setState(() => _activeWebTab = tab.id),
+                  borderRadius: BorderRadius.circular(12),
+                  hoverColor: AppColors.primary.withValues(alpha: 0.08),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.primary.withValues(alpha: 0.14)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      border: isSelected
+                          ? Border.all(color: AppColors.primary.withValues(alpha: 0.3))
+                          : null,
+                    ),
+                    child: Row(
                       children: [
-                        card('Profile Settings', [
-                          _SettingsMenuRow(
-                            icon: Icons.badge_outlined,
-                            title: 'Full Name',
-                            subtitle: _operatorFullName.isEmpty
-                                ? 'Add operator name'
-                                : _operatorFullName,
-                            onTap: _editOperatorProfile,
+                        if (isSelected)
+                          Container(
+                            width: 3.5,
+                            height: 18,
+                            margin: const EdgeInsets.only(right: 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
-                          _SettingsMenuRow(
-                            icon: Icons.photo_camera_outlined,
-                            title: 'Profile Picture',
-                            subtitle: 'Upload or replace your operator photo',
-                            trailing: Container(
-                              width: 42,
-                              height: 42,
-                              clipBehavior: Clip.antiAlias,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(
-                                  alpha: 0.16,
+                        Icon(
+                          tab.icon,
+                          size: 20,
+                          color: isSelected
+                              ? AppColors.primary
+                              : _secondaryTextColor(context),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                tab.title,
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? (isDark ? Colors.white : Colors.black87)
+                                      : _primaryTextColor(context),
+                                  fontSize: 13,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                                 ),
-                                borderRadius: BorderRadius.circular(11),
                               ),
-                              child: avatar.isEmpty
-                                  ? const Icon(
-                                      Icons.person_outline_rounded,
-                                      color: AppColors.primary,
-                                    )
-                                  : Image.network(
-                                      avatar,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, _, _) => const Icon(
-                                        Icons.person_outline_rounded,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                            ),
-                            onTap: _uploadOperatorProfilePicture,
+                              Text(
+                                tab.subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: _secondaryTextColor(context),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
-                          _SettingsMenuRow(
-                            icon: Icons.phone_outlined,
-                            title: 'Contact Number',
-                            subtitle: _operatorPhone.isEmpty
-                                ? 'Add an 11-digit mobile number'
-                                : _operatorPhone,
-                            onTap: _editOperatorProfile,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+          const Spacer(),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.onSignOut ?? () {},
+                borderRadius: BorderRadius.circular(12),
+                hoverColor: AppColors.error.withValues(alpha: 0.1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.logout_rounded, size: 18, color: AppColors.error),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Sign Out Operator',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWebHorizontalTabs(bool isDark) {
+    final tabs = [
+      _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
+      _WebCategoryItem(1, 'Workflow', Icons.tune_rounded, ''),
+      _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, ''),
+      _WebCategoryItem(3, 'Security', Icons.shield_outlined, ''),
+      _WebCategoryItem(4, 'Appearance', Icons.palette_outlined, ''),
+      _WebCategoryItem(5, 'Support', Icons.help_outline_rounded, ''),
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: tabs.map((tab) {
+          final isSelected = _activeWebTab == tab.id;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              selected: isSelected,
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    tab.icon,
+                    size: 16,
+                    color: isSelected ? AppColors.primary : _secondaryTextColor(context),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(tab.title),
+                ],
+              ),
+              selectedColor: AppColors.primary.withValues(alpha: 0.16),
+              backgroundColor: _surfaceColor(context),
+              labelStyle: TextStyle(
+                color: isSelected ? AppColors.primary : _primaryTextColor(context),
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+              ),
+              onSelected: (_) => setState(() => _activeWebTab = tab.id),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildWebTabContent(bool isDark) {
+    switch (_activeWebTab) {
+      case 0:
+        return _buildWebProfileTabContent(isDark);
+      case 1:
+        return _buildWebWorkflowTabContent(isDark);
+      case 2:
+        return _buildWebNotificationsTabContent(isDark);
+      case 3:
+        return _buildWebSecurityTabContent(isDark);
+      case 4:
+        return _buildWebAppearanceTabContent(isDark);
+      case 5:
+        return _buildWebSupportTabContent(isDark);
+      default:
+        return _buildWebProfileTabContent(isDark);
+    }
+  }
+
+  // --- TAB 0: PROFILE & IDENTITY ---
+  Widget _buildWebProfileTabContent(bool isDark) {
+    final avatar = _operatorAvatarUrl;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Avatar Hero Banner Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 2),
+                    ),
+                    child: avatar.isEmpty
+                        ? const Icon(Icons.person_outline_rounded, size: 40, color: AppColors.primary)
+                        : Image.network(
+                            avatar,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const Icon(Icons.person_outline_rounded, size: 40, color: AppColors.primary),
                           ),
-                          _SettingsMenuRow(
-                            icon: Icons.alternate_email_rounded,
-                            title: 'Email Address',
-                            subtitle: _operatorEmail,
-                            onTap: _changeOperatorEmail,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.work_outline_rounded,
-                            title: 'Position',
-                            subtitle: _operatorPosition,
-                            onTap: _editOperatorProfile,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.star_outline_rounded,
-                            title: 'Ratings & Reviews',
-                            subtitle:
-                                'View ratings received from completed trips',
-                            onTap: _openOperatorRatingsModal,
-                          ),
-                        ]),
-                        card('Account Settings', [
-                          _SettingsMenuRow(
-                            icon: Icons.password_rounded,
-                            title: 'Change Password',
-                            subtitle: 'Send a secure reset link',
-                            onTap: _openAccountSecurity,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.mark_email_read_outlined,
-                            title: 'Change Email',
-                            subtitle: 'Update the operator login email',
-                            onTap: _changeOperatorEmail,
-                          ),
-                        ]),
-                        card('Notification Settings', [
-                          _SettingsMenuRow(
-                            icon: Icons.event_available_outlined,
-                            title: 'New Booking Notifications',
-                            subtitle: 'Notify me about new booking requests',
-                            trailing: _operatorToggle(
-                              'operator_notify_new_booking',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_notify_new_booking',
-                              !(_operatorPreferences['operator_notify_new_booking'] ??
-                                  true),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.event_busy_outlined,
-                            title: 'Booking Cancellation Alerts',
-                            subtitle: 'Cancellation and refund updates',
-                            trailing: _operatorToggle(
-                              'operator_notify_cancellation',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_notify_cancellation',
-                              !(_operatorPreferences['operator_notify_cancellation'] ??
-                                  true),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.payments_outlined,
-                            title: 'Payment Notifications',
-                            subtitle: 'Payment proof and settlement updates',
-                            trailing: _operatorToggle(
-                              'operator_notify_payment',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_notify_payment',
-                              !(_operatorPreferences['operator_notify_payment'] ??
-                                  true),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.assignment_ind_outlined,
-                            title: 'Driver Assignment Notifications',
-                            subtitle:
-                                'Assignment acceptance and rejection updates',
-                            trailing: _operatorToggle(
-                              'operator_notify_driver_assignment',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_notify_driver_assignment',
-                              !(_operatorPreferences['operator_notify_driver_assignment'] ??
-                                  true),
-                            ),
-                          ),
-                        ]),
-                        card('Availability Settings', [
-                          _SettingsMenuRow(
-                            icon: Icons.wifi_tethering_rounded,
-                            title: 'Online / Offline Status',
-                            subtitle:
-                                (_operatorPreferences['operator_online_status'] ??
-                                    true)
-                                ? 'Online and available for operations'
-                                : 'Offline',
-                            trailing: _operatorToggle(
-                              'operator_online_status',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_online_status',
-                              !(_operatorPreferences['operator_online_status'] ??
-                                  true),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.beach_access_outlined,
-                            title: 'Vacation Leave',
-                            subtitle: 'Optional availability pause',
-                            trailing: _operatorToggle(
-                              'operator_vacation_leave',
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_vacation_leave',
-                              !(_operatorPreferences['operator_vacation_leave'] ??
-                                  false),
-                            ),
-                          ),
-                        ]),
-                        card('Booking Preferences', [
-                          _SettingsMenuRow(
-                            icon: Icons.bolt_outlined,
-                            title: 'Auto-Accept Bookings',
-                            subtitle: 'Optional automatic approval mode',
-                            trailing: _operatorToggle('operator_auto_accept'),
-                            onTap: () => _setOperatorPreference(
-                              'operator_auto_accept',
-                              !(_operatorPreferences['operator_auto_accept'] ??
-                                  false),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.fact_check_outlined,
-                            title: 'Manual Booking Approval',
-                            subtitle: 'Review each request before approval',
-                            trailing: _operatorToggle(
-                              'operator_manual_approval',
-                              defaultValue: true,
-                            ),
-                            onTap: () => _setOperatorPreference(
-                              'operator_manual_approval',
-                              !(_operatorPreferences['operator_manual_approval'] ??
-                                  true),
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.directions_car_outlined,
-                            title: 'Preferred Vehicle Categories',
-                            subtitle: _operatorVehicleCategories.join(', '),
-                            onTap: _editOperatorCategories,
-                          ),
-                        ]),
-                        card('Language & Appearance', [
-                          _SettingsMenuRow(
-                            icon: Icons.language_rounded,
-                            title: 'Language',
-                            subtitle: _operatorLanguage,
-                            onTap: _changeOperatorLanguage,
-                          ),
-                          _SettingsMenuRow(
-                            icon: widget.isDarkMode
-                                ? Icons.dark_mode_outlined
-                                : Icons.light_mode_outlined,
-                            title: 'Dark Mode / Light Mode',
-                            subtitle: widget.isDarkMode
-                                ? 'Dark mode'
-                                : 'Light mode',
-                            trailing: Switch(
-                              value: widget.isDarkMode,
-                              onChanged: widget.onThemeToggle,
-                              activeThumbColor: AppColors.primary,
-                            ),
-                            onTap: () =>
-                                widget.onThemeToggle?.call(!widget.isDarkMode),
-                          ),
-                        ]),
-                        card('Help & Support', [
-                          _SettingsMenuRow(
-                            icon: Icons.admin_panel_settings_outlined,
-                            title: 'Contact Admin',
-                            subtitle: 'Open support messaging',
-                            onTap: widget.onOpenSupport ?? () {},
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.bug_report_outlined,
-                            title: 'Report a Problem',
-                            subtitle: 'Send a technical issue to admin support',
-                            onTap: widget.onOpenSupport ?? () {},
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.quiz_outlined,
-                            title: 'FAQs',
-                            subtitle: 'Operator help and common questions',
-                            onTap: _openHelpCentre,
-                          ),
-                        ]),
-                        card('About', [
-                          _SettingsMenuRow(
-                            icon: Icons.info_outline_rounded,
-                            title: 'App Version',
-                            subtitle: 'Mobilis by PSDC 1.0.0',
-                            onTap: _openAbout,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.privacy_tip_outlined,
-                            title: 'Privacy Policy',
-                            onTap: _openPrivacyPolicy,
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.article_outlined,
-                            title: 'Terms and Conditions',
-                            onTap: _openTerms,
-                          ),
-                        ]),
-                        card('Logout', [
-                          _SettingsMenuRow(
-                            icon: Icons.logout_rounded,
-                            title: 'Sign Out',
-                            subtitle: 'Sign out of the operator portal',
-                            foregroundColor: AppColors.error,
-                            showChevron: false,
-                            onTap: widget.onSignOut ?? () {},
-                          ),
-                        ]),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _surfaceColor(context), width: 3),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _operatorFullName.isEmpty ? 'Operator Desk' : _operatorFullName,
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _buildBadgeChip(Icons.work_outline_rounded, _operatorPosition),
+                        _buildBadgeChip(Icons.alternate_email_rounded, _operatorEmail),
+                        _buildBadgeChip(Icons.star_rounded, '4.9 Operator Rating', isGold: true),
                       ],
                     ),
                   ],
                 ),
               ),
+              const SizedBox(width: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _uploadOperatorProfilePicture,
+                    icon: const Icon(Icons.cloud_upload_outlined, size: 16),
+                    label: const Text('Upload Photo'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _editOperatorProfile,
+                    icon: const Icon(Icons.edit_outlined, size: 15),
+                    label: const Text('Edit Details'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Personal Details Web Form Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.badge_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Personal Credentials',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Update your display name, contact phone number, and position title.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              LayoutBuilder(
+                builder: (context, box) {
+                  final isTwoCol = box.maxWidth > 550;
+                  return Column(
+                    children: [
+                      if (isTwoCol)
+                        Row(
+                          children: [
+                            Expanded(child: _buildWebTextField('Full Name', _webNameController, Icons.person_outline_rounded)),
+                            const SizedBox(width: 16),
+                            Expanded(child: _buildWebTextField('Position', _webPositionController, Icons.work_outline_rounded)),
+                          ],
+                        )
+                      else ...[
+                        _buildWebTextField('Full Name', _webNameController, Icons.person_outline_rounded),
+                        const SizedBox(height: 14),
+                        _buildWebTextField('Position', _webPositionController, Icons.work_outline_rounded),
+                      ],
+                      const SizedBox(height: 14),
+                      if (isTwoCol)
+                        Row(
+                          children: [
+                            Expanded(child: _buildWebTextField('Contact Number', _webPhoneController, Icons.phone_outlined, keyboardType: TextInputType.phone)),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Email Address (Login)',
+                                TextEditingController(text: _operatorEmail),
+                                Icons.alternate_email_rounded,
+                                readOnly: true,
+                                suffixWidget: TextButton(
+                                  onPressed: _changeOperatorEmail,
+                                  child: const Text('Change'),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        _buildWebTextField('Contact Number', _webPhoneController, Icons.phone_outlined, keyboardType: TextInputType.phone),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Email Address (Login)',
+                          TextEditingController(text: _operatorEmail),
+                          Icons.alternate_email_rounded,
+                          readOnly: true,
+                          suffixWidget: TextButton(
+                            onPressed: _changeOperatorEmail,
+                            child: const Text('Change'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: _isSavingWebProfile ? null : _saveInlineWebProfile,
+                  icon: _isSavingWebProfile
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                      : const Icon(Icons.check_circle_outline_rounded, size: 18),
+                  label: Text(_isSavingWebProfile ? 'Saving...' : 'Save Profile Changes'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Ratings & Reviews Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.star_rounded, color: Colors.amber, size: 30),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Trip Ratings & Renter Reviews',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'View performance feedback and completed trip ratings from renters.',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              OutlinedButton.icon(
+                onPressed: _openOperatorRatingsModal,
+                icon: const Icon(Icons.reviews_outlined, size: 16),
+                label: const Text('View All Reviews'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primaryTextColor(context),
+                  side: BorderSide(color: _borderColor(context)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 1: WORKFLOW & AVAILABILITY ---
+  Widget _buildWebWorkflowTabContent(bool isDark) {
+    final isOnline = _operatorPreferences['operator_online_status'] ?? true;
+    final isVacation = _operatorPreferences['operator_vacation_leave'] ?? false;
+    final isAutoAccept = _operatorPreferences['operator_auto_accept'] ?? false;
+    final isManualApprove = _operatorPreferences['operator_manual_approval'] ?? true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Availability Status Panel
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.wifi_tethering_rounded, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Operational Status & Availability',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Control whether your operator desk accepts real-time vehicle booking requests.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+
+              // Switch Item 1: Online Status
+              _buildWebSwitchTile(
+                icon: Icons.power_settings_new_rounded,
+                title: 'Online / Operating Status',
+                subtitle: isOnline
+                    ? '🟢 Online — Live and accepting booking requests'
+                    : '🔴 Offline — Paused from accepting new bookings',
+                value: isOnline,
+                onChanged: (val) => _setOperatorPreference('operator_online_status', val),
+              ),
+              const Divider(height: 24),
+
+              // Switch Item 2: Vacation Leave
+              _buildWebSwitchTile(
+                icon: Icons.beach_access_outlined,
+                title: 'Vacation / Leave Pause Mode',
+                subtitle: isVacation
+                    ? '🏖️ Vacation Mode ON — New incoming requests are paused'
+                    : 'Regular operations active',
+                value: isVacation,
+                onChanged: (val) => _setOperatorPreference('operator_vacation_leave', val),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Operating Hours & Automation Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.schedule_rounded, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Operating Hours & Dispatch Automation',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Configure working hours and automated approval modes for incoming trips.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+
+              // Working Hours Selector Row
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _borderColor(context)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time_filled_rounded, color: AppColors.primary, size: 20),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Console Operating Hours',
+                            style: TextStyle(
+                              color: _primaryTextColor(context),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            _operatorWorkingHours,
+                            style: TextStyle(color: _secondaryTextColor(context), fontSize: 12.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: _editOperatorWorkingHours,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('Change Hours'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Switch Item: Auto Accept
+              _buildWebSwitchTile(
+                icon: Icons.bolt_rounded,
+                title: 'Auto-Accept Incoming Bookings',
+                subtitle: 'Automatically approve booking requests without manual confirmation',
+                value: isAutoAccept,
+                onChanged: (val) => _setOperatorPreference('operator_auto_accept', val),
+              ),
+              const Divider(height: 24),
+
+              // Switch Item: Manual Approval
+              _buildWebSwitchTile(
+                icon: Icons.fact_check_outlined,
+                title: 'Manual Booking Approval Mode',
+                subtitle: 'Require operator verification for each booking before confirmation',
+                value: isManualApprove,
+                onChanged: (val) => _setOperatorPreference('operator_manual_approval', val),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Vehicle Categories Preference Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.directions_car_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Supported Vehicle Categories',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _editOperatorCategories,
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: const Text('Manage Categories'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Vehicle types currently managed by your operator console.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _operatorVehicleCategories.map((cat) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle_rounded, size: 15, color: AppColors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          cat,
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 2: NOTIFICATIONS ---
+  Widget _buildWebNotificationsTabContent(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _surfaceColor(context),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _borderColor(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.notifications_active_outlined, color: AppColors.primary, size: 22),
+              const SizedBox(width: 10),
+              Text(
+                'Operational Alerts & Push Notifications',
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Select which dispatch events trigger live audio and banner notifications on your browser.',
+            style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+          ),
+          const SizedBox(height: 24),
+
+          _buildWebSwitchTile(
+            icon: Icons.event_available_outlined,
+            title: 'New Booking Request Alerts',
+            subtitle: 'Get notified immediately when a renter submits a new vehicle reservation',
+            value: _operatorPreferences['operator_notify_new_booking'] ?? true,
+            onChanged: (val) => _setOperatorPreference('operator_notify_new_booking', val),
+          ),
+          const Divider(height: 24),
+
+          _buildWebSwitchTile(
+            icon: Icons.event_busy_outlined,
+            title: 'Booking Cancellation & Refund Alerts',
+            subtitle: 'Receive instant alerts if a renter cancels or requests a booking modification',
+            value: _operatorPreferences['operator_notify_cancellation'] ?? true,
+            onChanged: (val) => _setOperatorPreference('operator_notify_cancellation', val),
+          ),
+          const Divider(height: 24),
+
+          _buildWebSwitchTile(
+            icon: Icons.payments_outlined,
+            title: 'Payment Receipt Submissions',
+            subtitle: 'Notifications when GCash / Bank transfer receipts are uploaded for verification',
+            value: _operatorPreferences['operator_notify_payment'] ?? true,
+            onChanged: (val) => _setOperatorPreference('operator_notify_payment', val),
+          ),
+          const Divider(height: 24),
+
+          _buildWebSwitchTile(
+            icon: Icons.assignment_ind_outlined,
+            title: 'Driver Assignment Updates',
+            subtitle: 'Alerts when assigned drivers accept, reject, or start scheduled trips',
+            value: _operatorPreferences['operator_notify_driver_assignment'] ?? true,
+            onChanged: (val) => _setOperatorPreference('operator_notify_driver_assignment', val),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- TAB 3: ACCOUNT & SECURITY ---
+  Widget _buildWebSecurityTabContent(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Password & Authentication Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.password_rounded, color: AppColors.primary, size: 28),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Password & Account Credentials',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Send a secure password reset link to your operator email address.',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                onPressed: _openAccountSecurity,
+                icon: const Icon(Icons.lock_reset_rounded, size: 16),
+                label: const Text('Change Password'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Email Credentials Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.mark_email_read_outlined, color: Colors.blue, size: 28),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Operator Console Login Email',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _operatorEmail,
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              OutlinedButton.icon(
+                onPressed: _changeOperatorEmail,
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Update Email'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primaryTextColor(context),
+                  side: BorderSide(color: _borderColor(context)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Security Role & Session Badge Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Console Access Level & Security',
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _buildSecurityBadge('Operator Level 1 Access', Icons.verified_user_outlined),
+                  const SizedBox(width: 12),
+                  _buildSecurityBadge('Supabase JWT Auth', Icons.security_rounded),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 4: APPEARANCE & THEME ---
+  Widget _buildWebAppearanceTabContent(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.palette_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Console Color Theme',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Choose your preferred visual theme for the operator management portal.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+
+              // Side-by-side Visual Theme Selectors
+              Row(
+                children: [
+                  // Dark Mode Card
+                  Expanded(
+                    child: _buildThemePreviewCard(
+                      title: 'Dark Mode',
+                      subtitle: 'Sleek dark theme optimized for long operational shifts.',
+                      icon: Icons.dark_mode_outlined,
+                      isSelected: isDark,
+                      previewColor: const Color(0xFF141721),
+                      onTap: () {
+                        if (!isDark) widget.onThemeToggle?.call(true);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  // Light Mode Card
+                  Expanded(
+                    child: _buildThemePreviewCard(
+                      title: 'Light Mode',
+                      subtitle: 'High contrast light theme for bright environments.',
+                      icon: Icons.light_mode_outlined,
+                      isSelected: !isDark,
+                      previewColor: const Color(0xFFF4F6FB),
+                      onTap: () {
+                        if (isDark) widget.onThemeToggle?.call(false);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Language Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.language_rounded, color: AppColors.primary, size: 26),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Portal Language',
+                      style: TextStyle(
+                        color: _primaryTextColor(context),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Current selection: $_operatorLanguage',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              OutlinedButton.icon(
+                onPressed: _changeOperatorLanguage,
+                icon: const Icon(Icons.translate_rounded, size: 16),
+                label: const Text('Change Language'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _primaryTextColor(context),
+                  side: BorderSide(color: _borderColor(context)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 5: SUPPORT & SYSTEM ---
+  Widget _buildWebSupportTabContent(bool isDark) {
+    return Column(
+      children: [
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 2.2,
+          children: [
+            _buildSupportCard(
+              icon: Icons.menu_book_rounded,
+              title: 'Operator Help Center',
+              subtitle: 'Read guidelines, policies & FAQs',
+              buttonText: 'Open FAQs',
+              onTap: _openHelpCentre,
+            ),
+            _buildSupportCard(
+              icon: Icons.support_agent_rounded,
+              title: 'Dispatch Admin Support',
+              subtitle: 'Connect with admin team via chat',
+              buttonText: 'Open Chat',
+              onTap: () => widget.onOpenSupport?.call(),
+            ),
+            _buildSupportCard(
+              icon: Icons.bug_report_outlined,
+              title: 'Report Technical Bug',
+              subtitle: 'Send a report to system support',
+              buttonText: 'Report Issue',
+              onTap: () => widget.onOpenSupport?.call(),
+            ),
+            _buildSupportCard(
+              icon: Icons.info_outline_rounded,
+              title: 'System Information',
+              subtitle: 'Mobilis by PSDC v1.0.0 (Web Build)',
+              buttonText: 'View Terms',
+              onTap: _openTerms,
             ),
           ],
-        );
-      },
+        ),
+      ],
+    );
+  }
+
+  // --- HELPER SUB-WIDGETS FOR WEB UI ---
+  Widget _buildWebSwitchTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: AppColors.primary, size: 20),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 12.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Switch.adaptive(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: AppColors.primary,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWebTextField(
+    String label,
+    TextEditingController controller,
+    IconData icon, {
+    bool readOnly = false,
+    TextInputType? keyboardType,
+    Widget? suffixWidget,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: _primaryTextColor(context),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          readOnly: readOnly,
+          keyboardType: keyboardType,
+          style: TextStyle(color: _primaryTextColor(context), fontSize: 14),
+          decoration: InputDecoration(
+            prefixIcon: Icon(icon, size: 18, color: _secondaryTextColor(context)),
+            suffixIcon: suffixWidget,
+            filled: true,
+            fillColor: readOnly
+                ? _borderColor(context).withValues(alpha: 0.2)
+                : _surfaceColor(context),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: _borderColor(context)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: _borderColor(context)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.primary),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildThemePreviewCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required Color previewColor,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected ? AppColors.primary : _borderColor(context),
+              width: isSelected ? 2 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: isSelected ? AppColors.primary : _secondaryTextColor(context), size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 15,
+                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (isSelected)
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check, size: 12, color: Colors.black),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                height: 48,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: previewColor,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _borderColor(context)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      Container(width: 24, height: 8, decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(4))),
+                      const SizedBox(width: 8),
+                      Container(width: 40, height: 8, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(4))),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(subtitle, style: TextStyle(color: _secondaryTextColor(context), fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSupportCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String buttonText,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _surfaceColor(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor(context)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: AppColors.primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(color: _primaryTextColor(context), fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(subtitle, style: TextStyle(color: _secondaryTextColor(context), fontSize: 12.5)),
+          const Spacer(),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton(
+              onPressed: onTap,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: Text(buttonText),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadgeChip(IconData icon, String label, {bool isGold = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: isGold
+            ? Colors.amber.withValues(alpha: 0.14)
+            : _borderColor(context).withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: isGold ? Border.all(color: Colors.amber.withValues(alpha: 0.4)) : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: isGold ? Colors.amber : _secondaryTextColor(context)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: isGold ? Colors.amber : _secondaryTextColor(context),
+              fontSize: 12,
+              fontWeight: isGold ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecurityBadge(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3664,3 +4989,12 @@ Color _borderColor(BuildContext context) {
       ? AppColors.borderColor
       : AppColors.lightBorderColor;
 }
+
+class _WebCategoryItem {
+  const _WebCategoryItem(this.id, this.title, this.icon, this.subtitle);
+  final int id;
+  final String title;
+  final IconData icon;
+  final String subtitle;
+}
+
