@@ -923,6 +923,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: _surfaceColor(context),
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(color: _borderColor(context)),
+                        boxShadow: Theme.of(context).brightness == Brightness.dark
+                            ? const []
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.06),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                       ),
                       child: Row(
                         children: [
@@ -1052,15 +1061,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             subtitle: 'Update the operator login email',
                             onTap: _changeOperatorEmail,
                           ),
-                          _SettingsMenuRow(
-                            icon: Icons.phonelink_lock_outlined,
-                            title: 'Two-Factor Authentication',
-                            subtitle: 'Optional - authenticator enrollment',
-                            onTap: () => _showOperatorSecurityInfo(
-                              'Two-Factor Authentication',
-                              'Two-factor authentication requires an enrolled authenticator. Contact the administrator to enable MFA enrollment for this operator account.',
-                            ),
-                          ),
                         ]),
                         card('Notification Settings', [
                           _SettingsMenuRow(
@@ -1122,12 +1122,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ]),
                         card('Availability Settings', [
-                          _SettingsMenuRow(
-                            icon: Icons.schedule_outlined,
-                            title: 'Working Hours',
-                            subtitle: _operatorWorkingHours,
-                            onTap: _editOperatorWorkingHours,
-                          ),
                           _SettingsMenuRow(
                             icon: Icons.wifi_tethering_rounded,
                             title: 'Online / Offline Status',
@@ -1191,33 +1185,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: 'Preferred Vehicle Categories',
                             subtitle: _operatorVehicleCategories.join(', '),
                             onTap: _editOperatorCategories,
-                          ),
-                        ]),
-                        card('Security', [
-                          _SettingsMenuRow(
-                            icon: Icons.history_rounded,
-                            title: 'Login History',
-                            subtitle: 'Review the current operator session',
-                            onTap: () => _showOperatorSecurityInfo(
-                              'Login History',
-                              'Current session: ${_operatorEmail.isEmpty ? 'Operator account' : _operatorEmail}\nSession checked: ${DateTime.now().toLocal()}',
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.devices_outlined,
-                            title: 'Active Devices',
-                            subtitle: 'View devices currently signed in',
-                            onTap: () => _showOperatorSecurityInfo(
-                              'Active Devices',
-                              'This browser is currently authenticated. Supabase securely manages the active access token for this session.',
-                            ),
-                          ),
-                          _SettingsMenuRow(
-                            icon: Icons.phonelink_erase_outlined,
-                            title: 'Logout All Devices',
-                            subtitle: 'End every active operator session',
-                            foregroundColor: AppColors.error,
-                            onTap: _logoutAllOperatorDevices,
                           ),
                         ]),
                         card('Language & Appearance', [
@@ -1544,6 +1511,15 @@ class _SettingsSection extends StatelessWidget {
             color: _surfaceColor(context),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: _borderColor(context)),
+            boxShadow: Theme.of(context).brightness == Brightness.dark
+                ? const []
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
           ),
           child: Column(
             children: [

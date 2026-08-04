@@ -18,15 +18,16 @@ class WebPortalTheme {
     return base.copyWith(
       scaffoldBackgroundColor: isDark
           ? const Color(0xFF07111D)
-          : const Color(0xFFF4F7FB),
+          : const Color(0xFFEDF1F6),
       cardTheme: CardThemeData(
         color: isDark ? const Color(0xFF102033) : Colors.white,
         surfaceTintColor: Colors.transparent,
-        elevation: 0,
+        elevation: isDark ? 0 : 3,
+        shadowColor: isDark ? Colors.transparent : Colors.black.withValues(alpha: 0.08),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: border),
+          side: BorderSide(color: isDark ? border : const Color(0xFFCBD5E1)),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(

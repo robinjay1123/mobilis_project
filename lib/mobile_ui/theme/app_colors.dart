@@ -12,9 +12,9 @@ class AppColors {
   static const Color darkCard = Color(0xFF252D3D);
 
   // Light Theme Background colors
-  static const Color lightBg = Color(0xFFF5F5F5);
+  static const Color lightBg = Color(0xFFEEF2F6);
   static const Color lightBgSecondary = Color(0xFFFFFFFF);
-  static const Color lightBgTertiary = Color(0xFFF0F0F0);
+  static const Color lightBgTertiary = Color(0xFFF1F5F9);
 
   // Dark Theme Text colors
   static const Color textPrimary = Color(0xFFFFFFFF);
@@ -30,7 +30,7 @@ class AppColors {
   static const Color borderColor = Color(0xFF374151);
 
   // Light Theme Border and divider colors
-  static const Color lightBorderColor = Color(0xFFE0E0E0);
+  static const Color lightBorderColor = Color(0xFFCBD5E1);
 
   // Status colors
   static const Color success = Color(0xFF10B981);
