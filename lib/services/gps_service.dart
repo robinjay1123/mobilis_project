@@ -24,6 +24,18 @@ class GpsService {
     return _providers[providerId.toLowerCase().trim()] ?? AikaGpsProvider();
   }
 
+  Future<bool> verifyCredentials({
+    required String provider,
+    required String deviceIdentifier,
+    required String password,
+  }) async {
+    final gpsProvider = getProvider(provider);
+    return await gpsProvider.verifyCredentials(
+      deviceIdentifier: deviceIdentifier,
+      password: password,
+    );
+  }
+
   String _encryptSecret(String text) {
     final bytes = utf8.encode('MOBILIS_GPS_SALT_$text');
     return sha256.convert(bytes).toString();

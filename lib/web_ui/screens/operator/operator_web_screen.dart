@@ -157,6 +157,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<XFile> _selectedImages = [];
   final Map<String, Future<Uint8List>> _selectedImageBytes = {};
   bool _isSubmittingVehicle = false;
+  bool _isTestingGps = false;
+  bool? _isGpsVerified;
+  String? _gpsTestMessage;
   bool _isPerformingOperation = false;
   String _operationLoadingMessage = 'Processing booking action...';
 
@@ -14868,6 +14871,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _longitudeController.clear();
     _gpsDeviceIdController.clear();
     _gpsPasswordController.clear();
+    _isTestingGps = false;
+    _isGpsVerified = null;
+    _gpsTestMessage = null;
     _selectedImages = [];
     _selectedStatus = 'active';
   }
@@ -15691,10 +15697,156 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 isDark: isDark,
               ),
             ),
+            field(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    height: 46,
+                    child: ElevatedButton.icon(
+                      onPressed: _isTestingGps
+                          ? null
+                          : () => _testGpsConnection(setDialogState),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isGpsVerified == true
+                            ? Colors.green.shade700
+                            : _operatorNavy,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: _isTestingGps
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _isGpsVerified == true
+                                  ? Icons.check_circle_rounded
+                                  : Icons.sensors_rounded,
+                              size: 18,
+                            ),
+                      label: Text(
+                        _isTestingGps
+                            ? 'Testing AIKA168...'
+                            : (_isGpsVerified == true
+                                ? 'Tracker Verified'
+                                : 'Test & Connect Tracker'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_gpsTestMessage != null) ...[
+              field(
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isGpsVerified == true
+                        ? Colors.green.withValues(alpha: 0.12)
+                        : Colors.red.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _isGpsVerified == true
+                          ? Colors.green.shade400
+                          : Colors.red.shade400,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _isGpsVerified == true
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.error_outline_rounded,
+                        color: _isGpsVerified == true
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _gpsTestMessage!,
+                          style: TextStyle(
+                            color: _isGpsVerified == true
+                                ? (isDark
+                                      ? Colors.green.shade300
+                                      : Colors.green.shade900)
+                                : (isDark
+                                      ? Colors.red.shade300
+                                      : Colors.red.shade900),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                fullWidth: true,
+              ),
+            ],
           ],
         );
       },
     );
+  }
+
+  Future<void> _testGpsConnection(
+    void Function(VoidCallback callback) setDialogState,
+  ) async {
+    final deviceId = _gpsDeviceIdController.text.trim();
+    final password = _gpsPasswordController.text.trim();
+
+    if (deviceId.isEmpty) {
+      setDialogState(() {
+        _isGpsVerified = false;
+        _gpsTestMessage = 'Please enter a Tracker Device IMEI / ID first.';
+      });
+      return;
+    }
+
+    setDialogState(() {
+      _isTestingGps = true;
+      _gpsTestMessage = null;
+      _isGpsVerified = null;
+    });
+
+    try {
+      final isValid = await GpsService().verifyCredentials(
+        provider: 'aika168',
+        deviceIdentifier: deviceId,
+        password: password,
+      );
+
+      setDialogState(() {
+        _isTestingGps = false;
+        _isGpsVerified = isValid;
+        _gpsTestMessage = isValid
+            ? '● Tracker Verified! AIKA168 Device Connection Successful.'
+            : 'Connection Failed: Invalid Device ID or Password on AIKA168.';
+      });
+    } catch (e) {
+      setDialogState(() {
+        _isTestingGps = false;
+        _isGpsVerified = false;
+        _gpsTestMessage = 'Error connecting to tracker: $e';
+      });
+    }
   }
 
   void _showLegacyAddVehicleDialog(bool isDark) {
