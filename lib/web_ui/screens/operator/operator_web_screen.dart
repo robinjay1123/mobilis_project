@@ -13480,7 +13480,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   _vehicleHeaderLabel('Pricing', 3, isDark),
                   if (!isPartnerTab)
                     _vehicleHeaderLabel('Listing', 2, isDark),
-                  _vehicleHeaderLabel('Actions', 2, isDark),
+                  _vehicleHeaderLabel('Actions', 2, isDark, alignment: Alignment.center),
                 ],
               ),
             ),
@@ -13507,16 +13507,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _vehicleHeaderLabel(String label, int flex, bool isDark) {
+  Widget _vehicleHeaderLabel(
+    String label,
+    int flex,
+    bool isDark, {
+    Alignment alignment = Alignment.centerLeft,
+  }) {
     return Expanded(
       flex: flex,
-      child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          color: isDark ? Colors.grey[400] : Colors.grey.shade600,
-          fontSize: 9,
-          letterSpacing: 0.7,
-          fontWeight: FontWeight.w800,
+      child: Align(
+        alignment: alignment,
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+            fontSize: 9,
+            letterSpacing: 0.7,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
     );
@@ -14471,7 +14479,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     if (isPartner) {
       return Align(
-        alignment: Alignment.centerLeft,
+        alignment: Alignment.center,
         child: ElevatedButton.icon(
           onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
           icon: const Icon(Icons.visibility_outlined, size: 14),
@@ -14505,7 +14513,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
     }
     return Align(
-      alignment: Alignment.centerLeft,
+      alignment: Alignment.center,
       child: PopupMenuButton<String>(
         tooltip: 'Vehicle actions',
         onSelected: (action) {
