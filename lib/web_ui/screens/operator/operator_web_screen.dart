@@ -22,7 +22,7 @@ import '../../../utils/booking_status.dart';
 import '../../../utils/csv_export.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/notification_target.dart';
-import '../../../services/notification_visual.dart';
+import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
