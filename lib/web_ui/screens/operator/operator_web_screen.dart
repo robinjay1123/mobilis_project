@@ -14658,6 +14658,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Widget _buildVehicleCard(Map<String, dynamic> vehicle, bool isDark) {
+    final isPartnerVehicle =
+        vehicle['_source'] == 'partner' ||
+        vehicle['source'] == 'partner' ||
+        vehicle['is_partner_vehicle'] == true;
+
     return _VehicleCard(
       brand: vehicle['brand'] ?? 'Unknown',
       model: vehicle['model'] ?? 'Model',
@@ -14672,10 +14677,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       year: (vehicle['year'] ?? '').toString(),
       pricePerDay: vehicle['price_per_day'] ?? 0,
       pricePerHour: vehicle['price_per_hour'] ?? 0,
-      isPosted: vehicle['is_posted'] ?? false,
+      isPosted: vehicle['is_posted'] ?? vehicle['is_available'] ?? false,
       images: (vehicle['vehicle_images'] as List?) ?? [],
       isDark: isDark,
       transmission: vehicle['transmission'] ?? '',
+      isPartnerVehicle: isPartnerVehicle,
       onEdit: () => _showEditVehicleDialog(vehicle, isDark),
       onDelete: () => _deleteVehicle(vehicle['id']),
       onTogglePost: (value) => _togglePostingStatus(vehicle, value),
@@ -16905,7 +16911,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Edit Vehicle',
+                                  isPartnerVehicle
+                                      ? 'Vehicle Details (Partner)'
+                                      : 'Edit Vehicle',
                                   style: TextStyle(
                                     color: foreground,
                                     fontSize: 26,
@@ -16914,7 +16922,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                                 const SizedBox(height: 5),
                                 Text(
-                                  'Update vehicle details, pricing, and deployment status.',
+                                  isPartnerVehicle
+                                      ? 'View partner vehicle specifications, pricing, and assigned tracker.'
+                                      : 'Update vehicle details, pricing, and deployment status.',
                                   style: TextStyle(
                                     color: isDark
                                         ? Colors.white54
@@ -17021,13 +17031,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 vertical: 16,
                               ),
                             ),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            child: Text(
+                              isPartnerVehicle ? 'Close' : 'Cancel',
+                              style: const TextStyle(fontWeight: FontWeight.w700),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
+                          if (!isPartnerVehicle) ...[
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
                             onPressed: isUpdating
                                 ? null
                                 : () async {
@@ -17258,10 +17269,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
               ),
             ),
           );
@@ -17571,6 +17583,7 @@ class _VehicleCard extends StatefulWidget {
   final bool isPosted;
   final List images;
   final bool isDark;
+  final bool isPartnerVehicle;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final ValueChanged<bool> onTogglePost;
@@ -17593,6 +17606,7 @@ class _VehicleCard extends StatefulWidget {
     required this.isPosted,
     required this.images,
     required this.isDark,
+    this.isPartnerVehicle = false,
     required this.onEdit,
     required this.onDelete,
     required this.onTogglePost,
@@ -17841,52 +17855,88 @@ class _VehicleCardState extends State<_VehicleCard> {
           // ── Posted status + toggle ─────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  widget.isPosted ? 'Posted' : 'Not posted',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: widget.isPosted
-                        ? AppColors.primary
-                        : (isDark ? Colors.grey : Colors.grey.shade500),
-                  ),
-                ),
-                // Compact toggle
-                GestureDetector(
-                  onTap: () => widget.onTogglePost(!widget.isPosted),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 36,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      color: widget.isPosted
-                          ? AppColors.primary
-                          : (isDark ? Colors.grey[700] : Colors.grey.shade300),
-                    ),
-                    child: AnimatedAlign(
-                      duration: const Duration(milliseconds: 200),
-                      alignment: widget.isPosted
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.all(2),
-                        child: Container(
-                          width: 16,
-                          height: 16,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
+            child: widget.isPartnerVehicle
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD4AF37).withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: const Text(
+                          'Partner Vehicle',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFD4AF37),
                           ),
                         ),
                       ),
-                    ),
+                      Text(
+                        widget.isPosted ? '● Available' : '● Unavailable',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: widget.isPosted
+                              ? AppColors.primary
+                              : (isDark ? Colors.grey : Colors.grey.shade500),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        widget.isPosted ? 'Posted' : 'Not posted',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: widget.isPosted
+                              ? AppColors.primary
+                              : (isDark ? Colors.grey : Colors.grey.shade500),
+                        ),
+                      ),
+                      // Compact toggle
+                      GestureDetector(
+                        onTap: () => widget.onTogglePost(!widget.isPosted),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 36,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            color: widget.isPosted
+                                ? AppColors.primary
+                                : (isDark
+                                      ? Colors.grey[700]
+                                      : Colors.grey.shade300),
+                          ),
+                          child: AnimatedAlign(
+                            duration: const Duration(milliseconds: 200),
+                            alignment: widget.isPosted
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: Container(
+                                width: 16,
+                                height: 16,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
 
           Divider(
@@ -17894,40 +17944,72 @@ class _VehicleCardState extends State<_VehicleCard> {
             color: isDark ? AppColors.borderColor : Colors.grey.shade200,
           ),
 
-          // ── Edit / Delete ──────────────────────────────────────────────
+          // ── Actions: View Details (Partner) OR Edit/Delete (Company) ───
           Padding(
             padding: const EdgeInsets.all(6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: widget.onEdit,
-                    icon: const Icon(Icons.edit, size: 13),
-                    label: const Text('Edit', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            child: widget.isPartnerVehicle
+                ? SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onEdit,
+                      icon: const Icon(Icons.visibility_outlined, size: 14),
+                      label: const Text(
+                        'View Details',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFD4AF37),
+                        side: BorderSide(
+                          color: isDark
+                              ? Colors.white24
+                              : Colors.blueGrey.shade200,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: widget.onEdit,
+                          icon: const Icon(Icons.edit, size: 13),
+                          label: const Text(
+                            'Edit',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: widget.onDelete,
+                          icon: const Icon(Icons.delete, size: 13),
+                          label: const Text(
+                            'Delete',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: widget.onDelete,
-                    icon: const Icon(Icons.delete, size: 13),
-                    label: const Text('Delete', style: TextStyle(fontSize: 11)),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
