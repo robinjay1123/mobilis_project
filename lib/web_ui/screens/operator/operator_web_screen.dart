@@ -13788,7 +13788,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _operatorDetailSectionTitle(
-                'Technical Specifications',
+                'Technical & Financial Specifications',
                 secondary,
               ),
               const SizedBox(height: 12),
@@ -13801,6 +13801,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     spacing: 12,
                     runSpacing: 12,
                     children: [
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Daily Rental Rate',
+                          'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} / day',
+                          Icons.payments_outlined,
+                          isDark,
+                        ),
+                      ),
+                      SizedBox(
+                        width: tileWidth,
+                        child: _operatorVehicleSpecTile(
+                          'Hourly Rental Rate',
+                          'PHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} / hour',
+                          Icons.schedule_outlined,
+                          isDark,
+                        ),
+                      ),
                       SizedBox(
                         width: tileWidth,
                         child: _operatorVehicleSpecTile(
@@ -13822,7 +13840,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       SizedBox(
                         width: tileWidth,
                         child: _operatorVehicleSpecTile(
-                          'Vehicle Type',
+                          'Vehicle Type / Category',
                           (vehicle['vehicle_type'] ??
                                   vehicle['category'] ??
                                   'Not provided')
@@ -13844,6 +13862,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   );
                 },
               ),
+              if (vehicle['description']?.toString().trim().isNotEmpty == true) ...[
+                const SizedBox(height: 20),
+                _operatorDetailSectionTitle(
+                  'Vehicle Description & Remarks',
+                  secondary,
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.04)
+                        : const Color(0xFFF5F6F7),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isDark ? Colors.white10 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: Text(
+                    vehicle['description'].toString(),
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
             ],
           );
 
@@ -13876,7 +13923,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     const SizedBox(height: 15),
                     _operatorVehicleHealthRow(
-                      'Listing',
+                      'Listing Status',
                       posted ? 'Posted' : 'Hidden',
                       Icons.campaign_outlined,
                       posted ? _operatorGold : secondary,
@@ -13889,6 +13936,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ? vehicle['location'].toString()
                           : 'Not provided',
                       Icons.location_on_outlined,
+                      _operatorGold,
+                      foreground,
+                    ),
+                    const SizedBox(height: 15),
+                    _operatorVehicleHealthRow(
+                      'Daily Price',
+                      'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                      Icons.account_balance_wallet_outlined,
                       _operatorGold,
                       foreground,
                     ),
@@ -14125,11 +14180,39 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 height: 38,
                                 color: isDark ? Colors.white12 : Colors.black12,
                               ),
-                              const SizedBox(width: 22),
+                              const SizedBox(width: 14),
                               Expanded(
                                 child: _operatorFooterValue(
                                   'CATEGORY',
                                   vehicle['category']?.toString() ?? 'Not set',
+                                  foreground,
+                                  secondary,
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 38,
+                                color: isDark ? Colors.white12 : Colors.black12,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: _operatorFooterValue(
+                                  'DAILY RATE',
+                                  'PHP ${((vehicle['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                  foreground,
+                                  secondary,
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 38,
+                                color: isDark ? Colors.white12 : Colors.black12,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: _operatorFooterValue(
+                                  'HOURLY RATE',
+                                  'PHP ${((vehicle['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
                                   foreground,
                                   secondary,
                                 ),
@@ -14387,95 +14470,114 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final posted = vehicle['is_posted'] == true;
     final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     if (isPartner) {
-      return OutlinedButton.icon(
-        onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
-        icon: const Icon(Icons.visibility_outlined, size: 14),
-        label: const Text(
-          'View',
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-        ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: isDark ? Colors.white : _operatorInk,
-          side: BorderSide(
-            color: isDark ? Colors.white24 : Colors.blueGrey.shade300,
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: ElevatedButton.icon(
+          onPressed: () => _showOperatorVehicleDetailsDialog(vehicle, isDark),
+          icon: const Icon(Icons.visibility_outlined, size: 14),
+          label: const Text(
+            'View Details',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isDark
+                ? const Color(0xFF1B2A44)
+                : const Color(0xFFEBF1F7),
+            foregroundColor: isDark
+                ? const Color(0xFFFFD56B)
+                : const Color(0xFF0F2B48),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(9),
+              side: BorderSide(
+                color: isDark
+                    ? const Color(0xFFD4AF37).withOpacity(0.4)
+                    : const Color(0xFF0F2B48).withOpacity(0.2),
+              ),
+            ),
+          ),
         ),
       );
     }
-    return PopupMenuButton<String>(
-      tooltip: 'Vehicle actions',
-      onSelected: (action) {
-        if (action == 'view') {
-          _showOperatorVehicleDetailsDialog(vehicle, isDark);
-        } else if (action == 'edit') {
-          _showEditVehicleDialog(vehicle, isDark);
-        } else if (action == 'toggle') {
-          _togglePostingStatus(vehicle, !posted);
-        } else if (action == 'delete') {
-          _deleteVehicle(vehicle['id']);
-        }
-      },
-      itemBuilder: (context) => [
-        const PopupMenuItem(
-          value: 'view',
-          child: Row(
-            children: [
-              Icon(Icons.visibility_outlined, size: 18),
-              SizedBox(width: 9),
-              Text('View Details'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'edit',
-          child: Row(
-            children: [
-              const Icon(Icons.edit_outlined, size: 18),
-              const SizedBox(width: 9),
-              Text(isPartner ? 'Manage Price' : 'Edit Vehicle'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'toggle',
-          child: Row(
-            children: [
-              Icon(
-                posted
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-                size: 18,
-              ),
-              const SizedBox(width: 9),
-              Text(posted ? 'Hide Listing' : 'Post Vehicle'),
-            ],
-          ),
-        ),
-        if (!isPartner)
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: PopupMenuButton<String>(
+        tooltip: 'Vehicle actions',
+        onSelected: (action) {
+          if (action == 'view') {
+            _showOperatorVehicleDetailsDialog(vehicle, isDark);
+          } else if (action == 'edit') {
+            _showEditVehicleDialog(vehicle, isDark);
+          } else if (action == 'toggle') {
+            _togglePostingStatus(vehicle, !posted);
+          } else if (action == 'delete') {
+            _deleteVehicle(vehicle['id']);
+          }
+        },
+        itemBuilder: (context) => [
           const PopupMenuItem(
-            value: 'delete',
+            value: 'view',
             child: Row(
               children: [
-                Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                Icon(Icons.visibility_outlined, size: 18),
                 SizedBox(width: 9),
-                Text('Delete Vehicle', style: TextStyle(color: Colors.red)),
+                Text('View Details'),
               ],
             ),
           ),
-      ],
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.06)
-              : const Color(0xFFF2F4F6),
-          borderRadius: BorderRadius.circular(10),
+          PopupMenuItem(
+            value: 'edit',
+            child: Row(
+              children: [
+                const Icon(Icons.edit_outlined, size: 18),
+                const SizedBox(width: 9),
+                Text(isPartner ? 'Manage Price' : 'Edit Vehicle'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'toggle',
+            child: Row(
+              children: [
+                Icon(
+                  posted
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 9),
+                Text(posted ? 'Hide Listing' : 'Post Vehicle'),
+              ],
+            ),
+          ),
+          if (!isPartner)
+            const PopupMenuItem(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                  SizedBox(width: 9),
+                  Text('Delete Vehicle', style: TextStyle(color: Colors.red)),
+                ],
+              ),
+            ),
+        ],
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withOpacity(0.06)
+                : const Color(0xFFF2F4F6),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.more_vert_rounded, size: 19),
         ),
-        child: const Icon(Icons.more_vert_rounded, size: 19),
       ),
     );
   }
