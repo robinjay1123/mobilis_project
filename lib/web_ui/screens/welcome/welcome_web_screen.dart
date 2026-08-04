@@ -18,17 +18,20 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> {
     WelcomePageData(
       title: 'DRIVE YOUR DREAM',
       description: 'Your trusted car rental platform for every journey.',
-      icon: Icons.directions_car,
+      icon: Icons.directions_car_rounded,
+      imagePath: 'assets/illustrations/slide_drive_dream.png',
     ),
     WelcomePageData(
       title: 'Easy Booking',
       description: 'Book your favorite car in just a few taps.',
-      icon: Icons.calendar_today,
+      icon: Icons.calendar_month_rounded,
+      imagePath: 'assets/illustrations/slide_easy_booking.png',
     ),
     WelcomePageData(
       title: 'Secure & Safe',
       description: 'All transactions are encrypted and verified.',
-      icon: Icons.shield_rounded,
+      icon: Icons.verified_user_rounded,
+      imagePath: 'assets/illustrations/slide_secure_safe.png',
     ),
   ];
 
@@ -251,19 +254,10 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-            ),
-            child: Image.asset(
-              'assets/icon/logo-black.png',
-              fit: BoxFit.contain,
-            ),
+          _WebCartoonIllustration(
+            imagePath: page.imagePath,
+            icon: page.icon,
           ),
-          const SizedBox(height: 48),
         ],
       ),
     );
@@ -274,10 +268,99 @@ class WelcomePageData {
   final String title;
   final String description;
   final IconData icon;
+  final String imagePath;
 
   WelcomePageData({
     required this.title,
     required this.description,
     required this.icon,
+    required this.imagePath,
   });
+}
+
+class _WebCartoonIllustration extends StatefulWidget {
+  final String imagePath;
+  final IconData icon;
+
+  const _WebCartoonIllustration({
+    required this.imagePath,
+    required this.icon,
+  });
+
+  @override
+  State<_WebCartoonIllustration> createState() =>
+      _WebCartoonIllustrationState();
+}
+
+class _WebCartoonIllustrationState extends State<_WebCartoonIllustration>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _floatController;
+
+  @override
+  void initState() {
+    super.initState();
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _floatController,
+      builder: (context, child) {
+        final dy = (1.0 - _floatController.value) * 10.0;
+        return Transform.translate(
+          offset: Offset(0, dy),
+          child: child,
+        );
+      },
+      child: Container(
+        width: 380,
+        height: 320,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.6),
+            width: 2.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.28),
+              blurRadius: 32,
+              spreadRadius: 4,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Image.asset(
+            widget.imagePath,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => Center(
+              child: Container(
+                width: 100,
+                height: 100,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(widget.icon, size: 54, color: Colors.black),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

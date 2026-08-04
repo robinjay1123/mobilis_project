@@ -18,17 +18,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     WelcomePageData(
       title: 'DRIVE YOUR DREAM',
       description: 'Your trusted car rental platform for every journey.',
-      icon: Icons.directions_car,
+      icon: Icons.directions_car_rounded,
+      imagePath: 'assets/illustrations/slide_drive_dream.png',
     ),
     WelcomePageData(
       title: 'Easy Booking',
       description: 'Book your favorite car in just a few taps.',
-      icon: Icons.calendar_today,
+      icon: Icons.calendar_month_rounded,
+      imagePath: 'assets/illustrations/slide_easy_booking.png',
     ),
     WelcomePageData(
       title: 'Secure & Safe',
       description: 'All transactions are encrypted and verified.',
-      icon: Icons.shield_rounded,
+      icon: Icons.verified_user_rounded,
+      imagePath: 'assets/illustrations/slide_secure_safe.png',
     ),
   ];
 
@@ -86,13 +89,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               },
               itemCount: pages.length,
               itemBuilder: (context, index) {
-                return _buildPage(pages[index]);
+                return _buildPage(pages[index], index);
               },
             ),
           ),
           // Dots indicator
           Padding(
-            padding: const EdgeInsets.only(bottom: 32),
+            padding: const EdgeInsets.only(bottom: 24),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
@@ -113,7 +116,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           ),
           // Action buttons
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
             child: Column(
               children: [
                 CustomButton(
@@ -136,10 +139,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     }
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
-                  height: 56,
+                  height: 52,
                   child: OutlinedButton(
                     onPressed: () async {
                       // Mark onboarding as complete
@@ -176,73 +179,65 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     );
   }
 
-  Widget _buildPage(WelcomePageData page) {
+  Widget _buildPage(WelcomePageData page, int pageIndex) {
+    final isActive = _currentPage == pageIndex;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Logo on first page, icon on others
-          _currentPage == 0
-              ? Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Image.asset(
-                        'assets/icon/logo-black.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Mobilis',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
-                )
-              : Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Image.asset(
-                    'assets/icon/logo-black.png',
-                    fit: BoxFit.contain,
-                  ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(10),
                 ),
-          const SizedBox(height: 48),
-          // Title
+                child: Image.asset(
+                  'assets/icon/logo-black.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Mobilis by PSDC',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          _InteractiveCartoonIllustration(
+            imagePath: page.imagePath,
+            icon: page.icon,
+            isActive: isActive,
+          ),
+          const SizedBox(height: 32),
           Text(
             page.title,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w700,
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
               color: AppColors.textPrimary,
               height: 1.3,
             ),
           ),
-          const SizedBox(height: 16),
-          // Description
+          const SizedBox(height: 12),
           Text(
             page.description,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               color: AppColors.textSecondary,
-              height: 1.5,
+              height: 1.45,
             ),
           ),
         ],
@@ -255,10 +250,117 @@ class WelcomePageData {
   final String title;
   final String description;
   final IconData icon;
+  final String imagePath;
 
   WelcomePageData({
     required this.title,
     required this.description,
     required this.icon,
+    required this.imagePath,
   });
+}
+
+class _InteractiveCartoonIllustration extends StatefulWidget {
+  final String imagePath;
+  final IconData icon;
+  final bool isActive;
+
+  const _InteractiveCartoonIllustration({
+    required this.imagePath,
+    required this.icon,
+    required this.isActive,
+  });
+
+  @override
+  State<_InteractiveCartoonIllustration> createState() =>
+      _InteractiveCartoonIllustrationState();
+}
+
+class _InteractiveCartoonIllustrationState
+    extends State<_InteractiveCartoonIllustration>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _floatController;
+  double _tapScale = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2500),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _floatController.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(_) => setState(() => _tapScale = 0.94);
+  void _onTapUp(_) => setState(() => _tapScale = 1.0);
+  void _onTapCancel() => setState(() => _tapScale = 1.0);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: AnimatedScale(
+        scale: _tapScale,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        child: AnimatedBuilder(
+          animation: _floatController,
+          builder: (context, child) {
+            final dy = (1.0 - _floatController.value) * 8.0;
+            return Transform.translate(
+              offset: Offset(0, dy),
+              child: child,
+            );
+          },
+          child: Container(
+            width: 260,
+            height: 220,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.6),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                  blurRadius: 24,
+                  spreadRadius: 2,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.asset(
+                widget.imagePath,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Center(
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(widget.icon, size: 44, color: Colors.black),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
