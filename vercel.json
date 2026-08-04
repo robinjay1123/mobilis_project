@@ -1,5 +1,5 @@
 {
-  "installCommand": "if [ ! -d flutter ]; then git clone https://github.com/flutter/flutter.git -b 3.38.7 --depth 1; fi && ./flutter/bin/flutter config --enable-web && ./flutter/bin/flutter pub get",
+  "installCommand": "git config --global --add safe.directory '*' && if [ ! -d flutter ]; then git clone https://github.com/flutter/flutter.git -b 3.38.7 --depth 1; fi && ./flutter/bin/flutter config --enable-web && ./flutter/bin/flutter pub get",
   "buildCommand": "./flutter/bin/flutter build web --release --base-href /",
   "outputDirectory": "build/web",
   "headers": [
