@@ -6,6 +6,7 @@ import '../../../utils/input_validation.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -91,6 +92,45 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   int _unreadSupportCount = 0;
   int _lastSeenSupportCount = 0;
 
+  // Bookings state & filters
+  String _bookingSearchQuery = '';
+  String _bookingStatusFilter = 'all';
+  String _bookingViewMode = 'cards'; // 'cards' vs 'table'
+
+  Future<void> _loadLastSeenCounts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _lastSeenActionLogCount = prefs.getInt('admin_last_seen_action_log_count') ?? 0;
+          _lastSeenSupportCount = prefs.getInt('admin_last_seen_support_count') ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading last seen counts: $e');
+    }
+  }
+
+  Future<void> _saveLastSeenActionLogCount(int count) async {
+    _lastSeenActionLogCount = count;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('admin_last_seen_action_log_count', count);
+    } catch (e) {
+      debugPrint('Error saving last seen action log count: $e');
+    }
+  }
+
+  Future<void> _saveLastSeenSupportCount(int count) async {
+    _lastSeenSupportCount = count;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('admin_last_seen_support_count', count);
+    } catch (e) {
+      debugPrint('Error saving last seen support count: $e');
+    }
+  }
+
   // Action Logs state & timers
   List<Map<String, dynamic>> _actionLogs = [];
   bool _isLoadingActionLogs = false;
@@ -140,7 +180,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+    _loadLastSeenCounts().then((_) {
+      _loadDashboardData();
+      _loadActionLogs(showLoading: false);
+    });
     _loadRentalTerms();
     _loadReservationPaymentSettings();
     _loadSupportFaqSettings();
@@ -369,21 +412,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final logs = await AdminService().getSystemActionLogs(limit: 200);
       if (mounted) {
         setState(() {
-          if (_actionLogs.isNotEmpty && logs.length > _actionLogs.length) {
-            final diff = logs.length - _actionLogs.length;
-            if (_selectedIndex == 12) {
-              _unreadActionLogsCount = 0;
-              _lastSeenActionLogCount = logs.length;
-            } else {
-              _unreadActionLogsCount += diff;
-            }
-          } else if (_lastSeenActionLogCount == 0 && logs.isNotEmpty) {
-            if (_selectedIndex == 12) {
-              _unreadActionLogsCount = 0;
-              _lastSeenActionLogCount = logs.length;
-            } else {
-              _unreadActionLogsCount = logs.length;
-            }
+          if (_selectedIndex == 12) {
+            _unreadActionLogsCount = 0;
+            _saveLastSeenActionLogCount(logs.length);
+          } else if (_lastSeenActionLogCount > 0 && logs.length > _lastSeenActionLogCount) {
+            _unreadActionLogsCount = logs.length - _lastSeenActionLogCount;
+          } else {
+            _unreadActionLogsCount = 0;
           }
           _actionLogs = logs;
           _isLoadingActionLogs = false;
@@ -526,11 +561,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       if (_selectedIndex == 7) {
         _unreadSupportCount = 0;
-        _lastSeenSupportCount = conversations.length;
-      } else if (_lastSeenSupportCount == 0 && conversations.isNotEmpty) {
-        _unreadSupportCount = conversations.length;
-      } else if (conversations.length > _lastSeenSupportCount) {
-        _unreadSupportCount += (conversations.length - _lastSeenSupportCount);
+        _saveLastSeenSupportCount(conversations.length);
+      } else if (_lastSeenSupportCount > 0 && conversations.length > _lastSeenSupportCount) {
+        _unreadSupportCount = conversations.length - _lastSeenSupportCount;
+      } else {
+        _unreadSupportCount = 0;
       }
 
 
@@ -2458,10 +2493,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             _selectedIndex = index;
             if (index == 12) {
               _unreadActionLogsCount = 0;
-              _lastSeenActionLogCount = _actionLogs.length;
+              _saveLastSeenActionLogCount(_actionLogs.length);
             } else if (index == 7) {
               _unreadSupportCount = 0;
-              _lastSeenSupportCount = _supportConversations.length;
+              _saveLastSeenSupportCount(_supportConversations.length);
             }
           });
         },
@@ -4152,132 +4187,841 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildBookingsContent(bool isDark) {
-    final sortedBookings = [..._allBookings]
-      ..sort((a, b) {
-        return bookingStatusOrder
-            .indexOf(bookingStatusGroup(a['status']))
-            .compareTo(
-              bookingStatusOrder.indexOf(bookingStatusGroup(b['status'])),
-            );
-      });
+    // 1. Calculate status counts
+    final allCount = _allBookings.length;
+    int pendingCount = 0;
+    int confirmedCount = 0;
+    int activeCount = 0;
+    int completedCount = 0;
+    int cancelledCount = 0;
+
+    for (final b in _allBookings) {
+      final st = (b['status']?.toString() ?? 'pending').toLowerCase();
+      if (st == 'pending') {
+        pendingCount++;
+      } else if (st == 'confirmed' || st == 'approved') {
+        confirmedCount++;
+      } else if (st == 'active' || st == 'in_trip' || st == 'in-trip') {
+        activeCount++;
+      } else if (st == 'completed') {
+        completedCount++;
+      } else if (st == 'cancelled' || st == 'rejected') {
+        cancelledCount++;
+      }
+    }
+
+    // 2. Filter bookings by search query & status chip
+    final query = _bookingSearchQuery.trim().toLowerCase();
+    final filteredBookings = _allBookings.where((booking) {
+      final status = (booking['status']?.toString() ?? 'pending').toLowerCase();
+
+      // Status filter
+      if (_bookingStatusFilter != 'all') {
+        if (_bookingStatusFilter == 'pending' && status != 'pending') return false;
+        if (_bookingStatusFilter == 'confirmed' &&
+            status != 'confirmed' &&
+            status != 'approved') return false;
+        if (_bookingStatusFilter == 'active' &&
+            status != 'active' &&
+            status != 'in_trip' &&
+            status != 'in-trip') return false;
+        if (_bookingStatusFilter == 'completed' && status != 'completed') return false;
+        if (_bookingStatusFilter == 'cancelled' &&
+            status != 'cancelled' &&
+            status != 'rejected') return false;
+      }
+
+      // Search query
+      if (query.isEmpty) return true;
+      final bookingId = booking['id']?.toString().toLowerCase() ?? '';
+      final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+      final vehicleTitle =
+          '${vehicle?['brand'] ?? ''} ${vehicle?['model'] ?? ''} ${vehicle?['plate_number'] ?? ''}'
+              .toLowerCase();
+      final renter = booking['renter'] as Map<String, dynamic>?;
+      final renterName = renter?['full_name']?.toString().toLowerCase() ?? '';
+      final renterEmail = renter?['email']?.toString().toLowerCase() ?? '';
+      final driver = booking['drivers'] as Map<String, dynamic>?;
+      final driverUser = driver?['users'] as Map<String, dynamic>?;
+      final driverName = driverUser?['full_name']?.toString().toLowerCase() ?? '';
+      final pickup = booking['pickup_location']?.toString().toLowerCase() ?? '';
+      final dropoff = booking['dropoff_location']?.toString().toLowerCase() ?? '';
+
+      return bookingId.contains(query) ||
+          vehicleTitle.contains(query) ||
+          renterName.contains(query) ||
+          renterEmail.contains(query) ||
+          driverName.contains(query) ||
+          pickup.contains(query) ||
+          dropoff.contains(query);
+    }).toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
-      child: _buildCard(
-        'All Bookings (${_allBookings.length})',
-        _allBookings.isEmpty
-            ? const Center(child: Text('No bookings found'))
-            : SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columns: [
-                    DataColumn(
-                      label: Text(
-                        'Vehicle',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Summary Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.book_rounded,
+                        color: AppColors.primary,
+                        size: 24,
                       ),
                     ),
-                    DataColumn(
-                      label: Text(
-                        'Renter',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Status',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Total',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                    DataColumn(
-                      label: Text(
-                        'Tracking',
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bookings & Trip Operations',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Search, monitor, and manage all trip bookings, driver assignments, payment details, and live GPS tracking.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                  rows: sortedBookings.map((booking) {
-                    final vehicle =
-                        booking['vehicles'] as Map<String, dynamic>?;
-                    final user = booking['renter'] as Map<String, dynamic>?;
-                    final status = booking['status'] as String? ?? 'pending';
-                    final canTrack = _canTrackBooking(booking);
-                    final total =
-                        (booking['total_price'] as num?)?.toDouble() ??
-                        (booking['total_cost'] as num?)?.toDouble() ??
-                        0;
+                ),
+                const SizedBox(height: 16),
+                Divider(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                  height: 1,
+                ),
+                const SizedBox(height: 16),
 
-                    return DataRow(
-                      cells: [
-                        DataCell(
-                          Text(
-                            vehicle != null
-                                ? '${vehicle['brand']} ${vehicle['model']}'
-                                : 'Unknown',
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
-                          ),
+                // Controls Row: Search Bar, Status Filter Chips & View Mode Toggle
+                Row(
+                  children: [
+                    // Search Bar
+                    Expanded(
+                      child: TextField(
+                        onChanged: (val) =>
+                            setState(() => _bookingSearchQuery = val),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 13,
                         ),
-                        DataCell(
-                          Text(
-                            user?['full_name'] ?? 'Unknown',
-                            style: TextStyle(
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Search by Booking ID, Renter, Vehicle, Plate, Driver, or Destination...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade500,
+                            fontSize: 13,
                           ),
-                        ),
-                        DataCell(_buildStatusBadge(status)),
-                        DataCell(
-                          Text(
-                            'PHP ${total.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green,
-                            ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 18,
                           ),
-                        ),
-                        DataCell(
-                          ElevatedButton.icon(
-                            onPressed: canTrack
-                                ? () => _openTrackingForBooking(booking)
-                                : null,
-                            icon: const Icon(Icons.location_on, size: 16),
-                            label: const Text('Track'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.black,
-                              disabledBackgroundColor: isDark
-                                  ? Colors.grey.shade800
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.black26
+                              : Colors.grey.shade100,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
                                   : Colors.grey.shade300,
-                              disabledForegroundColor: isDark
-                                  ? Colors.grey.shade500
-                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
                             ),
                           ),
                         ),
-                      ],
-                    );
-                  }).toList(),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+
+                    // View Mode Toggle
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.black26 : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white10
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Cards View',
+                            icon: const Icon(Icons.grid_view_rounded, size: 18),
+                            color: _bookingViewMode == 'cards'
+                                ? AppColors.primary
+                                : (isDark ? Colors.white54 : Colors.grey.shade600),
+                            onPressed: () =>
+                                setState(() => _bookingViewMode = 'cards'),
+                          ),
+                          IconButton(
+                            tooltip: 'Table View',
+                            icon: const Icon(Icons.table_rows_rounded, size: 18),
+                            color: _bookingViewMode == 'table'
+                                ? AppColors.primary
+                                : (isDark ? Colors.white54 : Colors.grey.shade600),
+                            onPressed: () =>
+                                setState(() => _bookingViewMode = 'table'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 14),
+
+                // Status Filter Chips
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildBookingFilterChip(
+                      'all',
+                      'All Bookings',
+                      allCount,
+                      isDark,
+                    ),
+                    _buildBookingFilterChip(
+                      'pending',
+                      'Pending',
+                      pendingCount,
+                      isDark,
+                      color: Colors.orange,
+                    ),
+                    _buildBookingFilterChip(
+                      'confirmed',
+                      'Confirmed',
+                      confirmedCount,
+                      isDark,
+                      color: Colors.blue,
+                    ),
+                    _buildBookingFilterChip(
+                      'active',
+                      'Active / In-Trip',
+                      activeCount,
+                      isDark,
+                      color: Colors.green,
+                    ),
+                    _buildBookingFilterChip(
+                      'completed',
+                      'Completed',
+                      completedCount,
+                      isDark,
+                      color: Colors.teal,
+                    ),
+                    _buildBookingFilterChip(
+                      'cancelled',
+                      'Cancelled',
+                      cancelledCount,
+                      isDark,
+                      color: Colors.red,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // 3. Bookings List or Cards View
+          if (filteredBookings.isEmpty)
+            _buildCard(
+              'Bookings List (0)',
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.book_outlined,
+                        size: 48,
+                        color: isDark ? Colors.white38 : Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No bookings match your current search or filter criteria.',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-        isDark,
+              isDark,
+            )
+          else if (_bookingViewMode == 'cards')
+            Column(
+              children: filteredBookings
+                  .map((b) => _buildDetailedBookingCard(b, isDark))
+                  .toList(),
+            )
+          else
+            _buildBookingsMasterTable(filteredBookings, isDark),
+        ],
       ),
+    );
+  }
+
+  Widget _buildBookingFilterChip(
+    String key,
+    String label,
+    int count,
+    bool isDark, {
+    Color? color,
+  }) {
+    final isSelected = _bookingStatusFilter == key;
+    final chipColor = color ?? AppColors.primary;
+
+    return InkWell(
+      onTap: () => setState(() => _bookingStatusFilter = key),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? chipColor.withValues(alpha: 0.2)
+              : (isDark ? Colors.black26 : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? chipColor
+                : (isDark ? Colors.white10 : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected
+                    ? chipColor
+                    : (isDark ? Colors.white70 : Colors.black87),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? chipColor
+                    : (isDark ? Colors.white10 : Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? Colors.black
+                      : (isDark ? Colors.white : Colors.black),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailedBookingCard(
+    Map<String, dynamic> booking,
+    bool isDark,
+  ) {
+    final bookingId = booking['id']?.toString() ?? 'N/A';
+    final refCode = bookingId.length > 8
+        ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
+        : '#BK-$bookingId';
+    final status = (booking['status'] as String? ?? 'pending').toLowerCase();
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final renter = booking['renter'] as Map<String, dynamic>?;
+    final driver = booking['drivers'] as Map<String, dynamic>?;
+    final driverUser = driver?['users'] as Map<String, dynamic>?;
+    final withDriver = booking['with_driver'] == true;
+
+    final vehicleTitle = vehicle != null
+        ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+        : 'Unknown Vehicle';
+    final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+    final renterName = renter?['full_name']?.toString().trim() ?? 'Unknown Renter';
+    final renterPhone = renter?['phone']?.toString().trim() ?? '';
+    final driverName = driverUser?['full_name']?.toString().trim() ?? 'N/A';
+    final driverPhone = driverUser?['phone']?.toString().trim() ?? '';
+
+    final startDate = _formatDate(booking['start_date']);
+    final endDate = _formatDate(booking['end_date']);
+    final pickup = booking['pickup_location']?.toString().trim() ?? 'Not specified';
+    final dropoff = booking['dropoff_location']?.toString().trim() ??
+        booking['delivery_address']?.toString().trim() ??
+        'Not specified';
+
+    final totalCost = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['total_cost'] as num?)?.toDouble() ??
+        0;
+    final deposit = (booking['deposit_amount'] as num?)?.toDouble() ?? 0;
+    final paymentStatus =
+        (booking['payment_status'] as String? ?? 'pending').toLowerCase();
+
+    final canTrack = _canTrackBooking(booking);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF021F35) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : Colors.grey.shade300,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                SelectableText(
+                  refCode,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? AppColors.primary : Colors.blue.shade800,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                IconButton(
+                  tooltip: 'Copy Booking ID',
+                  icon: const Icon(Icons.copy_rounded, size: 14),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: bookingId));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Booking ID copied to clipboard'),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '• Booked ${_formatDate(booking['created_at'])}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                ),
+                const Spacer(),
+                _buildStatusBadge(status),
+              ],
+            ),
+          ),
+
+          // Main 4-Column Data Grid
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 900;
+                final colWidth = isNarrow
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - 36) / 4;
+
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    // Column 1: Vehicle & Owner
+                    SizedBox(
+                      width: colWidth,
+                      child: _buildBookingFieldBox(
+                        'Vehicle & License',
+                        vehicleTitle,
+                        isDark,
+                        subtitle: plateNumber.isNotEmpty
+                            ? 'Plate: $plateNumber'
+                            : 'No plate specified',
+                        icon: Icons.directions_car_filled_rounded,
+                      ),
+                    ),
+
+                    // Column 2: Renter & Driver
+                    SizedBox(
+                      width: colWidth,
+                      child: _buildBookingFieldBox(
+                        'Renter & Driver',
+                        renterName,
+                        isDark,
+                        subtitle: withDriver
+                            ? 'Driver: $driverName ${driverPhone.isNotEmpty ? "($driverPhone)" : ""}'
+                            : 'Self-Drive (No Driver)',
+                        icon: Icons.person_pin_rounded,
+                        highlightColor: withDriver ? Colors.blue : null,
+                      ),
+                    ),
+
+                    // Column 3: Rental Schedule & Locations
+                    SizedBox(
+                      width: colWidth,
+                      child: _buildBookingFieldBox(
+                        'Schedule & Route',
+                        '$startDate → $endDate',
+                        isDark,
+                        subtitle:
+                            'Pickup: $pickup\nDropoff: $dropoff',
+                        icon: Icons.route_rounded,
+                      ),
+                    ),
+
+                    // Column 4: Financial Summary & Payment
+                    SizedBox(
+                      width: colWidth,
+                      child: _buildBookingFieldBox(
+                        'Financial Breakdown',
+                        'PHP ${totalCost.toStringAsFixed(0)}',
+                        isDark,
+                        subtitle:
+                            'Deposit: PHP ${deposit.toStringAsFixed(0)} • Delivery: ₱75/km\nPayment: ${paymentStatus.toUpperCase()}',
+                        icon: Icons.payments_rounded,
+                        highlightColor: Colors.green,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+
+          // Footer Action Controls Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.02)
+                  : Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(16),
+              ),
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                if (renterPhone.isNotEmpty) ...[
+                  Icon(
+                    Icons.phone_outlined,
+                    size: 14,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Renter Contact: $renterPhone',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+
+                // Actions
+                if (canTrack)
+                  FilledButton.icon(
+                    onPressed: () => _openTrackingForBooking(booking),
+                    icon: const Icon(Icons.location_on_rounded, size: 16),
+                    label: const Text('Live GPS Track'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingFieldBox(
+    String label,
+    String value,
+    bool isDark, {
+    String? subtitle,
+    IconData? icon,
+    Color? highlightColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: highlightColor?.withValues(alpha: 0.4) ??
+              (isDark ? AppColors.borderColor : Colors.grey.shade300),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 13,
+                  color: highlightColor ?? (isDark ? Colors.white54 : Colors.grey.shade600),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 0.4,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: highlightColor ?? (isDark ? Colors.white : Colors.black87),
+            ),
+          ),
+          if (subtitle != null && subtitle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingsMasterTable(
+    List<Map<String, dynamic>> sortedBookings,
+    bool isDark,
+  ) {
+    return _buildCard(
+      'Bookings Master Table (${sortedBookings.length})',
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columns: [
+            DataColumn(
+              label: Text(
+                'Booking ID',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Vehicle',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Renter',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Status',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Total Cost',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Tracking',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+          ],
+          rows: sortedBookings.map((booking) {
+            final bookingId = booking['id']?.toString() ?? 'N/A';
+            final refCode = bookingId.length > 8
+                ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
+                : '#BK-$bookingId';
+            final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+            final user = booking['renter'] as Map<String, dynamic>?;
+            final status = booking['status'] as String? ?? 'pending';
+            final canTrack = _canTrackBooking(booking);
+            final total = (booking['total_price'] as num?)?.toDouble() ??
+                (booking['total_cost'] as num?)?.toDouble() ??
+                0;
+
+            return DataRow(
+              cells: [
+                DataCell(
+                  Text(
+                    refCode,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? AppColors.primary : Colors.blue.shade800,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    vehicle != null
+                        ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
+                        : 'Unknown',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    user?['full_name'] ?? 'Unknown',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
+                DataCell(_buildStatusBadge(status)),
+                DataCell(
+                  Text(
+                    'PHP ${total.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  ElevatedButton.icon(
+                    onPressed: canTrack
+                        ? () => _openTrackingForBooking(booking)
+                        : null,
+                    icon: const Icon(Icons.location_on, size: 16),
+                    label: const Text('Track'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      disabledBackgroundColor: isDark
+                          ? Colors.grey.shade800
+                          : Colors.grey.shade300,
+                      disabledForegroundColor: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+      isDark,
     );
   }
 
