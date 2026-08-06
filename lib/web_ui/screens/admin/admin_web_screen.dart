@@ -1198,10 +1198,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             driverData?['is_psdc_driver'] == true ||
             driverData?['driver_tier'] == 'psdc';
 
+        final userRole =
+            user['role']?.toString().trim().toLowerCase() ?? 'renter';
+        final isAdminOrOperator = userRole == 'admin' ||
+            userRole == 'operator' ||
+            userRole == 'superadmin' ||
+            userRole == 'staff';
+
         final verStatus =
             user['verification_status']?.toString().trim().toLowerCase() ?? '';
         final idVerified = user['id_verified'] == true || user['is_verified'] == true;
-        final isVerified = idVerified ||
+        final isVerified = isAdminOrOperator ||
+            idVerified ||
             verStatus == 'approved' ||
             verStatus == 'verified' ||
             verStatus == 'certified' ||
