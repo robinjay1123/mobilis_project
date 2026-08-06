@@ -1434,18 +1434,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildAdminAllSettingsPage(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildWebAppearanceTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebRentalTermsTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebReservationPaymentTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebFaqTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebProfileTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebWorkflowTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebNotificationsTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebSecurityTabContent(isDark),
+        const SizedBox(height: 24),
+        _buildWebSupportTabContent(isDark),
+      ],
+    );
+  }
+
   Widget _buildWebSidebarNav(bool isDark) {
     final tabs = widget.adminMode
         ? [
-            _WebCategoryItem(0, 'Profile & Credentials', Icons.badge_outlined, 'Admin details & position'),
-            _WebCategoryItem(1, 'Rental Terms & Policies', Icons.description_outlined, 'Renter agreement text'),
-            _WebCategoryItem(2, 'Reservation & Payments', Icons.payments_outlined, 'Deposit fee & QR uploader'),
-            _WebCategoryItem(3, 'FAQ Auto-Replies', Icons.question_answer_outlined, 'Customer support bot replies'),
-            _WebCategoryItem(4, 'Workflow & System Rules', Icons.tune_rounded, 'Auto-approval & operating mode'),
-            _WebCategoryItem(5, 'Notifications & Alerts', Icons.notifications_none_rounded, 'System & audit alerts'),
-            _WebCategoryItem(6, 'Account & Security', Icons.shield_outlined, 'Password & credentials'),
-            _WebCategoryItem(7, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & portal theme'),
-            _WebCategoryItem(8, 'Ratings & System Legal', Icons.help_outline_rounded, 'Reviews, terms & help'),
+            _WebCategoryItem(0, 'All Admin Settings', Icons.space_dashboard_outlined, 'Full view of all settings'),
+            _WebCategoryItem(1, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & portal theme'),
+            _WebCategoryItem(2, 'Rental Terms & Policies', Icons.description_outlined, 'Renter agreement text'),
+            _WebCategoryItem(3, 'Reservation & Payments', Icons.payments_outlined, 'Deposit fee & QR uploader'),
+            _WebCategoryItem(4, 'FAQ Auto-Replies', Icons.question_answer_outlined, 'Customer support bot replies'),
+            _WebCategoryItem(5, 'Profile & Credentials', Icons.badge_outlined, 'Admin details & position'),
+            _WebCategoryItem(6, 'Workflow & System Rules', Icons.tune_rounded, 'Auto-approval & operating mode'),
+            _WebCategoryItem(7, 'Notifications & Alerts', Icons.notifications_none_rounded, 'System & audit alerts'),
+            _WebCategoryItem(8, 'Account & Security', Icons.shield_outlined, 'Password & credentials'),
+            _WebCategoryItem(9, 'Ratings & System Legal', Icons.help_outline_rounded, 'Reviews, terms & help'),
           ]
         : [
             _WebCategoryItem(0, 'Profile & Identity', Icons.badge_outlined, 'Avatar, details & role'),
@@ -1595,15 +1621,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildWebHorizontalTabs(bool isDark) {
     final tabs = widget.adminMode
         ? [
-            _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
-            _WebCategoryItem(1, 'Rental Terms', Icons.description_outlined, ''),
-            _WebCategoryItem(2, 'Payments', Icons.payments_outlined, ''),
-            _WebCategoryItem(3, 'FAQ Auto-Replies', Icons.question_answer_outlined, ''),
-            _WebCategoryItem(4, 'Workflow', Icons.tune_rounded, ''),
-            _WebCategoryItem(5, 'Notifications', Icons.notifications_none_rounded, ''),
-            _WebCategoryItem(6, 'Security', Icons.shield_outlined, ''),
-            _WebCategoryItem(7, 'Appearance', Icons.palette_outlined, ''),
-            _WebCategoryItem(8, 'Support & Legal', Icons.help_outline_rounded, ''),
+            _WebCategoryItem(0, 'All Settings', Icons.space_dashboard_outlined, ''),
+            _WebCategoryItem(1, 'Appearance', Icons.palette_outlined, ''),
+            _WebCategoryItem(2, 'Rental Terms', Icons.description_outlined, ''),
+            _WebCategoryItem(3, 'Payments', Icons.payments_outlined, ''),
+            _WebCategoryItem(4, 'FAQ Auto-Replies', Icons.question_answer_outlined, ''),
+            _WebCategoryItem(5, 'Profile', Icons.badge_outlined, ''),
+            _WebCategoryItem(6, 'Workflow', Icons.tune_rounded, ''),
+            _WebCategoryItem(7, 'Notifications', Icons.notifications_none_rounded, ''),
+            _WebCategoryItem(8, 'Security', Icons.shield_outlined, ''),
+            _WebCategoryItem(9, 'Support & Legal', Icons.help_outline_rounded, ''),
           ]
         : [
             _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
@@ -1654,25 +1681,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (widget.adminMode) {
       switch (_activeWebTab) {
         case 0:
-          return _buildWebProfileTabContent(isDark);
+          return _buildAdminAllSettingsPage(isDark);
         case 1:
-          return _buildWebRentalTermsTabContent(isDark);
-        case 2:
-          return _buildWebReservationPaymentTabContent(isDark);
-        case 3:
-          return _buildWebFaqTabContent(isDark);
-        case 4:
-          return _buildWebWorkflowTabContent(isDark);
-        case 5:
-          return _buildWebNotificationsTabContent(isDark);
-        case 6:
-          return _buildWebSecurityTabContent(isDark);
-        case 7:
           return _buildWebAppearanceTabContent(isDark);
+        case 2:
+          return _buildWebRentalTermsTabContent(isDark);
+        case 3:
+          return _buildWebReservationPaymentTabContent(isDark);
+        case 4:
+          return _buildWebFaqTabContent(isDark);
+        case 5:
+          return _buildWebProfileTabContent(isDark);
+        case 6:
+          return _buildWebWorkflowTabContent(isDark);
+        case 7:
+          return _buildWebNotificationsTabContent(isDark);
         case 8:
+          return _buildWebSecurityTabContent(isDark);
+        case 9:
           return _buildWebSupportTabContent(isDark);
         default:
-          return _buildWebProfileTabContent(isDark);
+          return _buildAdminAllSettingsPage(isDark);
       }
     }
 
