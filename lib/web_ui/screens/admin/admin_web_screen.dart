@@ -97,6 +97,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _bookingStatusFilter = 'all';
   String _bookingViewMode = 'cards'; // 'cards' vs 'table'
 
+  // Vehicles tab & search state
+  String _vehicleTabFilter = 'all'; // 'all', 'psdc', 'partner'
+  String _vehicleSearchQuery = '';
+
   Future<void> _loadLastSeenCounts() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -3837,29 +3841,266 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildVehiclesContent(bool isDark) {
+    // 1. Separate PSDC vs Partner vehicles based on source & database origin
+    final psdcVehicles = _allVehicles.where((v) {
+      final source = (v['source']?.toString() ?? 'company').toLowerCase();
+      return source != 'partner' && v['is_partner_vehicle'] != true;
+    }).toList();
+
+    final partnerVehicles = _allVehicles.where((v) {
+      final source = (v['source']?.toString() ?? '').toLowerCase();
+      return source == 'partner' || v['is_partner_vehicle'] == true;
+    }).toList();
+
+    final totalCount = _allVehicles.length;
+    final psdcCount = psdcVehicles.length;
+    final partnerCount = partnerVehicles.length;
+
+    // 2. Select target list by active tab
+    List<Map<String, dynamic>> activeList;
+    if (_vehicleTabFilter == 'psdc') {
+      activeList = psdcVehicles;
+    } else if (_vehicleTabFilter == 'partner') {
+      activeList = partnerVehicles;
+    } else {
+      activeList = _allVehicles;
+    }
+
+    // 3. Search query filter
+    final query = _vehicleSearchQuery.trim().toLowerCase();
+    final filteredVehicles = activeList.where((v) {
+      if (query.isEmpty) return true;
+      final brand = (v['brand']?.toString() ?? '').toLowerCase();
+      final model = (v['model']?.toString() ?? '').toLowerCase();
+      final plate = (v['plate_number']?.toString() ?? '').toLowerCase();
+      final year = (v['year']?.toString() ?? '').toLowerCase();
+      final owner = v['owner'] as Map<String, dynamic>?;
+      final ownerName = (owner?['full_name']?.toString() ?? '').toLowerCase();
+      final partnerName = (v['partner_name']?.toString() ?? '').toLowerCase();
+
+      return brand.contains(query) ||
+          model.contains(query) ||
+          plate.contains(query) ||
+          year.contains(query) ||
+          ownerName.contains(query) ||
+          partnerName.contains(query);
+    }).toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
-      child: _buildCard(
-        'All Vehicles (${_allVehicles.length})',
-        _allVehicles.isEmpty
-            ? const Center(child: Text('No vehicles found'))
-            : LayoutBuilder(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Card with Tabs & Search
+          Container(
+            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.directions_car_filled_rounded,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Vehicles Fleet Management',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Manage company PSDC fleet vehicles and registered Partner vehicles on the platform.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                  height: 1,
+                ),
+                const SizedBox(height: 16),
+
+                // Search & Filter Bar
+                Row(
+                  children: [
+                    // Search Bar
+                    Expanded(
+                      child: TextField(
+                        onChanged: (val) =>
+                            setState(() => _vehicleSearchQuery = val),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Search vehicles by Brand, Model, Plate, Year, or Partner Name...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade500,
+                            fontSize: 13,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                          ),
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.black26
+                              : Colors.grey.shade100,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Separated Fleet Tabs
+                Row(
+                  children: [
+                    _buildVehicleTabChip(
+                      'all',
+                      'All Vehicles',
+                      totalCount,
+                      Icons.directions_car_rounded,
+                      isDark,
+                    ),
+                    const SizedBox(width: 10),
+                    _buildVehicleTabChip(
+                      'psdc',
+                      'PSDC Vehicles',
+                      psdcCount,
+                      Icons.business_rounded,
+                      isDark,
+                      accentColor: const Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(width: 10),
+                    _buildVehicleTabChip(
+                      'partner',
+                      'Partner Vehicles',
+                      partnerCount,
+                      Icons.handshake_rounded,
+                      isDark,
+                      accentColor: Colors.blue,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Vehicle Grid View
+          if (filteredVehicles.isEmpty)
+            _buildCard(
+              'Vehicles List (0)',
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.directions_car_outlined,
+                        size: 48,
+                        color: isDark ? Colors.white38 : Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No vehicles match your selected tab or search query.',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              isDark,
+            )
+          else
+            _buildCard(
+              _vehicleTabFilter == 'psdc'
+                  ? 'PSDC Company Fleet (${filteredVehicles.length})'
+                  : _vehicleTabFilter == 'partner'
+                      ? 'Partner Fleet Vehicles (${filteredVehicles.length})'
+                      : 'All Vehicles Fleet (${filteredVehicles.length})',
+              LayoutBuilder(
                 builder: (context, constraints) {
                   const spacing = 16.0;
                   final crossAxisCount = constraints.maxWidth >= 1200
                       ? 3
                       : constraints.maxWidth >= 760
-                      ? 2
-                      : 1;
-                  final cardWidth =
-                      (constraints.maxWidth -
+                          ? 2
+                          : 1;
+                  final cardWidth = (constraints.maxWidth -
                           (spacing * (crossAxisCount - 1))) /
                       crossAxisCount;
 
                   return Wrap(
                     spacing: spacing,
                     runSpacing: spacing,
-                    children: _allVehicles
+                    children: filteredVehicles
                         .map(
                           (vehicle) => SizedBox(
                             width: cardWidth,
@@ -3870,7 +4111,85 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   );
                 },
               ),
-        isDark,
+              isDark,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleTabChip(
+    String key,
+    String label,
+    int count,
+    IconData icon,
+    bool isDark, {
+    Color? accentColor,
+  }) {
+    final isSelected = _vehicleTabFilter == key;
+    final activeColor = accentColor ?? AppColors.primary;
+
+    return InkWell(
+      onTap: () => setState(() => _vehicleTabFilter = key),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: 0.2)
+              : (isDark ? Colors.black26 : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? Colors.white10 : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected
+                  ? activeColor
+                  : (isDark ? Colors.white70 : Colors.black54),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white70 : Colors.black87),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white10 : Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? Colors.black
+                      : (isDark ? Colors.white : Colors.black),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3951,7 +4270,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               children: [
                 Row(
                   children: [
-                    _buildSourceBadge(isPartner ? 'PARTNER' : 'COMPANY'),
+                    _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
                     const SizedBox(width: 8),
                     _buildPostedBadge(posted, isDark),
                     const Spacer(),
