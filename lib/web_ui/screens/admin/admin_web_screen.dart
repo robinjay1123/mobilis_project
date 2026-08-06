@@ -1102,13 +1102,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       List<dynamic> response = [];
 
-      // 1. Try safe select with fallback
+      // 1. Fetch approved verification user IDs for verification status accuracy
+      final approvedUserIds = <String>{};
+      try {
+        final verifications = await _supabase
+            .from('user_verifications')
+            .select('user_id, status, verification_status');
+        for (final v in List<Map<String, dynamic>>.from(verifications)) {
+          final uid = v['user_id']?.toString() ?? '';
+          final statusStr = (v['verification_status'] ?? v['status'])
+                  ?.toString()
+                  .toLowerCase() ??
+              '';
+          if (uid.isNotEmpty &&
+              (statusStr == 'approved' || statusStr == 'verified')) {
+            approvedUserIds.add(uid);
+          }
+        }
+      } catch (verErr) {
+        debugPrint('Could not load user_verifications status map: $verErr');
+      }
+
+      // 2. Try detailed select with fallback
       try {
         response = await _supabase
             .from('users')
             .select(
               'id, email, full_name, phone, role, created_at, id_verified, '
-              'verification_status, updated_at, avatar_url',
+              'verification_status, updated_at, avatar_url, profile_picture_url, profile_image, image_url',
             )
             .order('created_at', ascending: false);
       } catch (e1) {
@@ -1123,7 +1144,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         }
       }
 
-      // 2. Fetch driver data for PSDC driver merge
+      // 3. Fetch driver data for PSDC driver merge
       List<Map<String, dynamic>> driversResponse = [];
       try {
         driversResponse = List<Map<String, dynamic>>.from(
@@ -1153,18 +1174,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             driverData?['is_psdc_driver'] == true ||
             driverData?['driver_tier'] == 'psdc';
 
+        final verStatus =
+            user['verification_status']?.toString().toLowerCase() ?? '';
+        final isVerified = user['id_verified'] == true ||
+            verStatus == 'approved' ||
+            verStatus == 'verified' ||
+            approvedUserIds.contains(userId);
+
         userList.add({
           ...user,
+          'id_verified': isVerified,
           'is_psdc_driver': isPsdcDriver,
           'driver_id': driverData?['id'],
         });
       }
 
-      // 3. Fallback: Check if any users exist in user_verifications or bookings missing from main user query
+      // 4. Fallback: Check if any users exist in user_verifications or bookings missing from main user query
       try {
         final verificationUsers = await _supabase
             .from('user_verifications')
-            .select('user_id, users:user_id(id, email, full_name, phone, role, created_at)');
+            .select('user_id, users:user_id(id, email, full_name, phone, role, created_at, avatar_url)');
         for (final v in List<Map<String, dynamic>>.from(verificationUsers)) {
           final uMap = v['users'] as Map<String, dynamic>?;
           final uid = uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
@@ -1178,6 +1207,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               'role': uMap?['role'] ?? 'renter',
               'created_at': uMap?['created_at'] ?? DateTime.now().toIso8601String(),
               'id_verified': true,
+              'avatar_url': uMap?['avatar_url'],
             });
           }
         }
@@ -3417,49 +3447,65 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        flex: 2,
-                        child: Text(
-                          'Name',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
+                        flex: 3,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Name',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Email',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
                       ),
                       Expanded(
                         flex: 2,
-                        child: Text(
-                          'Email',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Role',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
                       ),
                       Expanded(
-                        child: Text(
-                          'Role',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
+                        flex: 2,
+                        child: Center(
+                          child: Text(
+                            'Verified',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
                       ),
                       Expanded(
-                        child: Text(
-                          'Verified',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Actions',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white : Colors.black,
+                        flex: 1,
+                        child: Center(
+                          child: Text(
+                            'Actions',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
                           ),
                         ),
                       ),
@@ -3503,7 +3549,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     return Column(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
                           decoration: BoxDecoration(
                             border: !isLast
                                 ? Border(
@@ -3518,78 +3567,72 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           child: Row(
                             children: [
                               Expanded(
-                                flex: 2,
+                                flex: 3,
                                 child: Row(
                                   children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: isPsdcDriver
-                                          ? const Color(0xFFF59E0B).withOpacity(0.2)
-                                          : Colors.blue.withOpacity(0.2),
-                                      child: Text(
-                                        (user['full_name'] as String?)?[0]
-                                                .toString()
-                                                .toUpperCase() ??
-                                            'U',
-                                        style: TextStyle(
-                                          color: isPsdcDriver
-                                              ? const Color(0xFFF59E0B)
-                                              : Colors.blue,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
+                                    _buildUserAvatarCell(user, isPsdcDriver),
                                     const SizedBox(width: 12),
                                     Expanded(
-                                      child: Text(
-                                        user['full_name'] ?? 'User',
-                                        style: TextStyle(
-                                          color: isDark
-                                              ? Colors.white
-                                              : Colors.black87,
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            user['full_name'] ?? 'User',
+                                            style: TextStyle(
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : Colors.black87,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          if ((user['phone'] as String? ?? '').isNotEmpty)
+                                            Text(
+                                              user['phone'].toString(),
+                                              style: TextStyle(
+                                                color: isDark
+                                                    ? Colors.white54
+                                                    : Colors.grey.shade600,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                        ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
                               Expanded(
-                                flex: 2,
+                                flex: 3,
                                 child: Text(
                                   user['email'] ?? '',
                                   style: TextStyle(
                                     color: isDark
                                         ? Colors.white70
                                         : Colors.black87,
+                                    fontSize: 13,
                                   ),
                                 ),
                               ),
                               Expanded(
-                                child: _buildRoleBadge(
-                                  role,
-                                  isPsdcDriver: isPsdcDriver,
+                                flex: 2,
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: _buildRoleBadge(
+                                    role,
+                                    isPsdcDriver: isPsdcDriver,
+                                  ),
                                 ),
                               ),
                               Expanded(
+                                flex: 2,
                                 child: Center(
-                                  child: Tooltip(
-                                    message: isVerified
-                                        ? 'ID Verified'
-                                        : 'Not Verified',
-                                    child: Icon(
-                                      isVerified
-                                          ? Icons.verified_user
-                                          : Icons.pending,
-                                      color: isVerified
-                                          ? Colors.green
-                                          : Colors.orange,
-                                      size: 20,
-                                    ),
-                                  ),
+                                  child: _buildVerificationBadge(isVerified),
                                 ),
                               ),
                               Expanded(
+                                flex: 1,
                                 child: Center(
                                   child: PopupMenuButton<String>(
                                     icon: const Icon(Icons.more_vert),
@@ -3792,6 +3835,132 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             style: TextStyle(
               color: isDark ? Colors.white70 : Colors.grey,
               fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getUserAvatarUrl(Map<String, dynamic> user) {
+    final direct = user['avatar_url']?.toString().trim() ??
+        user['profile_picture_url']?.toString().trim() ??
+        user['profile_image']?.toString().trim() ??
+        user['photo_url']?.toString().trim() ??
+        user['image_url']?.toString().trim() ??
+        '';
+    if (direct.isNotEmpty &&
+        (direct.startsWith('http') || direct.startsWith('gs://'))) {
+      return direct;
+    }
+    return '';
+  }
+
+  Widget _buildUserAvatarCell(Map<String, dynamic> user, bool isPsdcDriver) {
+    final avatarUrl = _getUserAvatarUrl(user);
+    final fullName = user['full_name']?.toString().trim() ?? 'User';
+    final initial = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U';
+
+    if (avatarUrl.isNotEmpty) {
+      return Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isPsdcDriver
+                ? const Color(0xFFF59E0B)
+                : AppColors.primary.withValues(alpha: 0.5),
+            width: 1.5,
+          ),
+        ),
+        child: ClipOval(
+          child: OptimizedNetworkImage(
+            imageUrl: avatarUrl,
+            width: 38,
+            height: 38,
+            fit: BoxFit.cover,
+            errorWidget: Container(
+              color: isPsdcDriver
+                  ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
+                  : Colors.blue.withValues(alpha: 0.2),
+              child: Center(
+                child: Text(
+                  initial,
+                  style: TextStyle(
+                    color: isPsdcDriver ? const Color(0xFFF59E0B) : Colors.blue,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 19,
+      backgroundColor: isPsdcDriver
+          ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
+          : Colors.blue.withValues(alpha: 0.2),
+      child: Text(
+        initial,
+        style: TextStyle(
+          color: isPsdcDriver ? const Color(0xFFF59E0B) : Colors.blue,
+          fontWeight: FontWeight.bold,
+          fontSize: 15,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVerificationBadge(bool isVerified) {
+    if (isVerified) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.verified_user_rounded, color: Colors.green, size: 14),
+            SizedBox(width: 5),
+            Text(
+              'Verified',
+              style: TextStyle(
+                color: Colors.green,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.gpp_maybe_rounded, color: Color(0xFFF59E0B), size: 14),
+          SizedBox(width: 5),
+          Text(
+            'Unverified',
+            style: TextStyle(
+              color: Color(0xFFF59E0B),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
