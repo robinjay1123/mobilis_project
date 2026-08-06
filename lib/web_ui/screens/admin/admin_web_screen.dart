@@ -4217,18 +4217,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       // Status filter
       if (_bookingStatusFilter != 'all') {
-        if (_bookingStatusFilter == 'pending' && status != 'pending') return false;
+        if (_bookingStatusFilter == 'pending' && status != 'pending') {
+          return false;
+        }
         if (_bookingStatusFilter == 'confirmed' &&
             status != 'confirmed' &&
-            status != 'approved') return false;
+            status != 'approved') {
+          return false;
+        }
         if (_bookingStatusFilter == 'active' &&
             status != 'active' &&
             status != 'in_trip' &&
-            status != 'in-trip') return false;
-        if (_bookingStatusFilter == 'completed' && status != 'completed') return false;
+            status != 'in-trip') {
+          return false;
+        }
+        if (_bookingStatusFilter == 'completed' && status != 'completed') {
+          return false;
+        }
         if (_bookingStatusFilter == 'cancelled' &&
             status != 'cancelled' &&
-            status != 'rejected') return false;
+            status != 'rejected') {
+          return false;
+        }
       }
 
       // Search query
