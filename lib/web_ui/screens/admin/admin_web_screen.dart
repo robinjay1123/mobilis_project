@@ -2267,63 +2267,61 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          SizedBox(
-            height: 70,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  // Logo with gold border
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: adminGold,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: adminGold, width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: adminGold.withOpacity(0.35),
-                          blurRadius: 10,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.all(6),
-                    child: Image.asset(
-                      'assets/icon/logo-black.png',
-                      fit: BoxFit.contain,
-                    ),
+          Container(
+            height: 92,
+            padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 20 : 14),
+            child: Row(
+              children: [
+                // Logo matching operator rounded square design
+                Container(
+                  width: 44,
+                  height: 44,
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: adminGold,
+                    borderRadius: BorderRadius.circular(13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: adminGold.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ],
                   ),
-                  if (_sidebarExpanded) ...[
-                    const SizedBox(width: 12),
-                    Column(
+                  child: Image.asset(
+                    'assets/icon/logo-black.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                if (_sidebarExpanded) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Mobilis',
+                          'Mobilis Admin',
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            letterSpacing: 0.5,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
                           ),
                         ),
-                        Text(
-                          'Admin Portal',
+                        const Text(
+                          'ADMIN PORTAL',
                           style: TextStyle(
                             color: adminGold,
-                            fontSize: 10,
+                            fontSize: 9,
+                            letterSpacing: 1.3,
                             fontWeight: FontWeight.w600,
-                            letterSpacing: 1.2,
                           ),
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
           Divider(color: Colors.white.withOpacity(0.08), height: 1),
@@ -9313,16 +9311,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => _loadActionLogs(showLoading: true),
-                  icon: const Icon(Icons.refresh_rounded),
-                  tooltip: 'Refresh Action Logs',
-                  style: IconButton.styleFrom(
-                    backgroundColor: isDark
-                        ? AppColors.darkBgSecondary
-                        : Colors.grey.shade200,
                   ),
                 ),
               ],
