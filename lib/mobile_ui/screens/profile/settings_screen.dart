@@ -2410,6 +2410,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _addNewFaqQuestion() {
+    setState(() {
+      final currentList = List<SupportFaq>.from(
+        _supportFaqsByRole[_supportFaqRole] ?? [],
+      );
+      final newKey = 'custom_${DateTime.now().millisecondsSinceEpoch}';
+      currentList.add(
+        SupportFaq(
+          key: newKey,
+          question: 'New Question for ${_supportFaqRole[0].toUpperCase()}${_supportFaqRole.substring(1)}s',
+          answer: 'Enter automatic reply here...',
+        ),
+      );
+      _supportFaqsByRole[_supportFaqRole] = currentList;
+    });
+  }
+
+  void _removeFaqQuestion(int index) {
+    setState(() {
+      final currentList = List<SupportFaq>.from(
+        _supportFaqsByRole[_supportFaqRole] ?? [],
+      );
+      if (index >= 0 && index < currentList.length) {
+        currentList.removeAt(index);
+        _supportFaqsByRole[_supportFaqRole] = currentList;
+      }
+    });
+  }
+
   // --- TAB 3 (ADMIN): CUSTOMER SUPPORT FAQ AUTO-REPLIES ---
   Widget _buildWebFaqTabContent(bool isDark) {
     final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
@@ -2444,38 +2473,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Configure automated responses and guidance questions shown to Renters, Partners, and Drivers in Customer Support.',
+                'Configure automated responses, questions, and answers shown to Renters, Partners, and Drivers in Customer Support.',
                 style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
               ),
               const SizedBox(height: 20),
 
-              // Role Tabs Selection Chips
-              Wrap(
-                spacing: 10,
+              // Role Tabs Selection Chips & Add Button
+              Row(
                 children: [
-                  for (final roleOption in const [
-                    {'key': 'renter', 'label': 'Renter Support'},
-                    {'key': 'partner', 'label': 'Partner Support'},
-                    {'key': 'driver', 'label': 'Driver Support'},
-                  ])
-                    ChoiceChip(
-                      selected: _supportFaqRole == roleOption['key'],
-                      label: Text(roleOption['label']!),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.16),
-                      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
-                      labelStyle: TextStyle(
-                        color: _supportFaqRole == roleOption['key']
-                            ? AppColors.primary
-                            : _primaryTextColor(context),
-                        fontWeight: _supportFaqRole == roleOption['key']
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        fontSize: 13,
-                      ),
-                      onSelected: (_) {
-                        setState(() => _supportFaqRole = roleOption['key']!);
-                      },
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      for (final roleOption in const [
+                        {'key': 'renter', 'label': 'Renter Support'},
+                        {'key': 'partner', 'label': 'Partner Support'},
+                        {'key': 'driver', 'label': 'Driver Support'},
+                      ])
+                        ChoiceChip(
+                          selected: _supportFaqRole == roleOption['key'],
+                          label: Text(roleOption['label']!),
+                          selectedColor: AppColors.primary.withValues(alpha: 0.16),
+                          backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                          labelStyle: TextStyle(
+                            color: _supportFaqRole == roleOption['key']
+                                ? AppColors.primary
+                                : _primaryTextColor(context),
+                            fontWeight: _supportFaqRole == roleOption['key']
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                          onSelected: (_) {
+                            setState(() => _supportFaqRole = roleOption['key']!);
+                          },
+                        ),
+                    ],
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                        ? null
+                        : _addNewFaqQuestion,
+                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                    label: const Text('Add FAQ Question'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -2487,11 +2534,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Center(child: CircularProgressIndicator()),
                 )
               else if (faqs.isEmpty)
-                Padding(
+                Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'No FAQ items found for this role.',
-                    style: TextStyle(color: _secondaryTextColor(context)),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _borderColor(context)),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.quiz_outlined, size: 36, color: _secondaryTextColor(context)),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No FAQ questions configured for ${_supportFaqRole}s.',
+                        style: TextStyle(color: _primaryTextColor(context), fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _addNewFaqQuestion,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add First FAQ'),
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.black),
+                      ),
+                    ],
                   ),
                 )
               else
@@ -2499,6 +2565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final index = entry.key;
                   final faq = entry.value;
                   return Container(
+                    key: ValueKey('${_supportFaqRole}_${faq.key}_$index'),
                     margin: const EdgeInsets.only(bottom: 16),
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
@@ -2518,7 +2585,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                                'Q${index + 1}',
+                                'FAQ #${index + 1}',
                                 style: const TextStyle(
                                   color: AppColors.primary,
                                   fontWeight: FontWeight.w800,
@@ -2526,24 +2593,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                faq.question,
-                                style: TextStyle(
-                                  color: _primaryTextColor(context),
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: _isSavingSupportFaqs
+                                  ? null
+                                  : () => _removeFaqQuestion(index),
+                              icon: const Icon(Icons.delete_outline),
+                              color: Colors.red.shade400,
+                              tooltip: 'Delete FAQ',
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextFormField(
+                          initialValue: faq.question,
+                          enabled: !_isSavingSupportFaqs,
+                          onChanged: (value) {
+                            _supportFaqsByRole[_supportFaqRole]![index] =
+                                faq.copyWith(question: value);
+                          },
+                          style: TextStyle(
+                            color: _primaryTextColor(context),
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Question',
+                            hintText: 'Enter customer question...',
+                            filled: true,
+                            fillColor: _surfaceColor(context),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: _borderColor(context)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: _borderColor(context)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppColors.primary),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
                           initialValue: faq.answer,
                           minLines: 2,
                           maxLines: 4,
+                          enabled: !_isSavingSupportFaqs,
                           onChanged: (value) {
                             _supportFaqsByRole[_supportFaqRole]![index] =
                                 faq.copyWith(answer: value);
@@ -2579,6 +2677,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                        ? null
+                        : _addNewFaqQuestion,
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Add Another Question'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
                   const Spacer(),
                   OutlinedButton.icon(
                     onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs

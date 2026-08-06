@@ -6467,43 +6467,89 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  void _addNewFaqQuestion() {
+    setState(() {
+      final currentList = List<SupportFaq>.from(
+        _supportFaqsByRole[_supportFaqRole] ?? [],
+      );
+      final newKey = 'custom_${DateTime.now().millisecondsSinceEpoch}';
+      currentList.add(
+        SupportFaq(
+          key: newKey,
+          question: 'New Question for ${_supportFaqRole[0].toUpperCase()}${_supportFaqRole.substring(1)}s',
+          answer: 'Enter automatic reply here...',
+        ),
+      );
+      _supportFaqsByRole[_supportFaqRole] = currentList;
+    });
+  }
+
+  void _removeFaqQuestion(int index) {
+    setState(() {
+      final currentList = List<SupportFaq>.from(
+        _supportFaqsByRole[_supportFaqRole] ?? [],
+      );
+      if (index >= 0 && index < currentList.length) {
+        currentList.removeAt(index);
+        _supportFaqsByRole[_supportFaqRole] = currentList;
+      }
+    });
+  }
+
   Widget _buildSupportFaqEditor(bool isDark) {
     final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Edit the automatic answers shown before a user opens a live admin chat.',
+          'Manage automatic FAQ replies for Renters, Partners, and Drivers. You can edit existing questions, add new questions & answers, or delete FAQs.',
           style: TextStyle(
             color: isDark ? Colors.grey : Colors.grey.shade600,
             height: 1.4,
           ),
         ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          children: const ['renter', 'partner', 'driver'].map((role) {
-            final selected = _supportFaqRole == role;
-            return ChoiceChip(
-              selected: selected,
-              onSelected: (_) => setState(() => _supportFaqRole = role),
-              label: Text('${role[0].toUpperCase()}${role.substring(1)}'),
-              selectedColor: AppColors.primary,
-              backgroundColor: isDark
-                  ? AppColors.darkBgSecondary
-                  : Colors.grey.shade100,
-              labelStyle: TextStyle(
-                color: selected
-                    ? Colors.black
-                    : (isDark ? Colors.white : Colors.black87),
-                fontWeight: FontWeight.w700,
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: ['renter', 'partner', 'driver'].map((role) {
+                final selected = _supportFaqRole == role;
+                return ChoiceChip(
+                  selected: selected,
+                  onSelected: (_) => setState(() => _supportFaqRole = role),
+                  label: Text('${role[0].toUpperCase()}${role.substring(1)}s'),
+                  selectedColor: AppColors.primary,
+                  backgroundColor: isDark
+                      ? AppColors.darkBgSecondary
+                      : Colors.grey.shade100,
+                  labelStyle: TextStyle(
+                    color: selected
+                        ? Colors.black
+                        : (isDark ? Colors.white : Colors.black87),
+                    fontWeight: FontWeight.w700,
+                  ),
+                  side: BorderSide(
+                    color: selected ? AppColors.primary : AppColors.borderColor,
+                  ),
+                );
+              }).toList(),
+            ),
+            const Spacer(),
+            ElevatedButton.icon(
+              onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                  ? null
+                  : _addNewFaqQuestion,
+              icon: const Icon(Icons.add_circle_outline, size: 18),
+              label: const Text('Add FAQ Question'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
-              side: BorderSide(
-                color: selected ? AppColors.primary : AppColors.borderColor,
-              ),
-            );
-          }).toList(),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         if (_isLoadingSupportFaqs)
@@ -6514,29 +6560,107 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           )
         else if (faqs.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 18),
-            child: Text('No FAQ configuration is available.'),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.borderColor),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.quiz_outlined,
+                  size: 40,
+                  color: isDark ? Colors.grey : Colors.grey.shade500,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'No FAQ questions configured for ${_supportFaqRole}s.',
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _addNewFaqQuestion,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add First FAQ'),
+                ),
+              ],
+            ),
           )
         else
           ...faqs.asMap().entries.map((entry) {
             final index = entry.key;
             final faq = entry.value;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 14),
+            return Container(
+              key: ValueKey('${_supportFaqRole}_${faq.key}_$index'),
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                ),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    faq.question,
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'FAQ #${index + 1}',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _isSavingSupportFaqs
+                            ? null
+                            : () => _removeFaqQuestion(index),
+                        icon: const Icon(Icons.delete_outline),
+                        color: Colors.red.shade400,
+                        tooltip: 'Delete FAQ',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    initialValue: faq.question,
+                    enabled: !_isSavingSupportFaqs,
+                    onChanged: (value) {
+                      _supportFaqsByRole[_supportFaqRole]![index] = faq
+                          .copyWith(question: value);
+                    },
                     style: TextStyle(
                       color: isDark ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: _settingsInputDecoration(
+                      isDark,
+                      label: 'Question',
+                      hint: 'Enter customer question...',
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   TextFormField(
-                    key: ValueKey('${_supportFaqRole}_${faq.key}'),
                     initialValue: faq.answer,
                     minLines: 3,
                     maxLines: 6,
@@ -6551,7 +6675,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     decoration: _settingsInputDecoration(
                       isDark,
-                      label: 'Automatic reply',
+                      label: 'Automatic Reply Answer',
                       hint: 'Enter the answer shown to users...',
                     ),
                   ),
@@ -6559,9 +6683,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               ),
             );
           }),
+        const SizedBox(height: 8),
         Row(
-          mainAxisAlignment: MainAxisAlignment.end,
           children: [
+            OutlinedButton.icon(
+              onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                  ? null
+                  : _addNewFaqQuestion,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Another Question'),
+            ),
+            const Spacer(),
             OutlinedButton.icon(
               onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
                   ? null

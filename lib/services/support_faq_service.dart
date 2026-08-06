@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,8 +14,24 @@ class SupportFaq {
     required this.answer,
   });
 
-  SupportFaq copyWith({String? answer}) =>
-      SupportFaq(key: key, question: question, answer: answer ?? this.answer);
+  SupportFaq copyWith({String? key, String? question, String? answer}) =>
+      SupportFaq(
+        key: key ?? this.key,
+        question: question ?? this.question,
+        answer: answer ?? this.answer,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'key': key,
+        'question': question,
+        'answer': answer,
+      };
+
+  factory SupportFaq.fromJson(Map<String, dynamic> json) => SupportFaq(
+        key: json['key']?.toString() ?? '',
+        question: json['question']?.toString() ?? '',
+        answer: json['answer']?.toString() ?? '',
+      );
 }
 
 class SupportFaqService {
@@ -113,6 +130,23 @@ class SupportFaqService {
 
   Future<List<SupportFaq>> getFaqs(String role) async {
     final normalizedRole = _normalizeRole(role);
+    final listKey = 'support_faqs_full_$normalizedRole';
+    try {
+      final row = await _supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', listKey)
+          .maybeSingle();
+      if (row != null && row['value'] != null && row['value'].toString().trim().isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(row['value'].toString());
+        return decoded
+            .map((item) => SupportFaq.fromJson(Map<String, dynamic>.from(item)))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('No custom FAQ list found, checking legacy keys: $e');
+    }
+
     final defaults = defaultsForRole(normalizedRole);
     final keys = defaults.map((faq) => _settingKey(normalizedRole, faq.key));
     try {
@@ -154,20 +188,40 @@ class SupportFaqService {
     final normalizedRole = _normalizeRole(role);
     final userId = _supabase.auth.currentUser?.id;
     final now = DateTime.now().toUtc().toIso8601String();
-    final rows = faqs.map((faq) {
-      final answer = faq.answer.trim();
-      if (answer.isEmpty) {
+
+    for (final faq in faqs) {
+      if (faq.question.trim().isEmpty) {
+        throw Exception('FAQ questions cannot be empty.');
+      }
+      if (faq.answer.trim().isEmpty) {
         throw Exception('FAQ answers cannot be empty.');
       }
+    }
+
+    // Save dynamic list as JSON
+    final listKey = 'support_faqs_full_$normalizedRole';
+    final jsonList = jsonEncode(faqs.map((f) => f.toJson()).toList());
+    await _supabase.from('app_settings').upsert({
+      'key': listKey,
+      'value': jsonList,
+      'description': 'Full FAQ question and answer list for $normalizedRole',
+      'updated_by': userId,
+      'updated_at': now,
+    }, onConflict: 'key');
+
+    // Also update individual keys for backwards compatibility
+    final rows = faqs.map((faq) {
       return {
         'key': _settingKey(normalizedRole, faq.key),
-        'value': answer,
+        'value': faq.answer.trim(),
         'description': 'Customer support auto-reply for ${faq.question}',
         'updated_by': userId,
         'updated_at': now,
       };
     }).toList();
-    await _supabase.from('app_settings').upsert(rows, onConflict: 'key');
+    if (rows.isNotEmpty) {
+      await _supabase.from('app_settings').upsert(rows, onConflict: 'key');
+    }
   }
 
   static String _normalizeRole(String role) {
