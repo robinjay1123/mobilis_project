@@ -198,7 +198,6 @@ class SupportFaqService {
       }
     }
 
-    // Save dynamic list as JSON
     final listKey = 'support_faqs_full_$normalizedRole';
     final jsonList = jsonEncode(faqs.map((f) => f.toJson()).toList());
     await _supabase.from('app_settings').upsert({
@@ -209,7 +208,6 @@ class SupportFaqService {
       'updated_at': now,
     }, onConflict: 'key');
 
-    // Also update individual keys for backwards compatibility
     final rows = faqs.map((faq) {
       return {
         'key': _settingKey(normalizedRole, faq.key),
