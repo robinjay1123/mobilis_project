@@ -5560,6 +5560,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         (record['id_type']?.toString().toLowerCase().contains('driver') ??
             false);
     final submittedName = (record['full_name'] as String?)?.trim();
+    final profileName = (user?['full_name'] as String?)?.trim();
+    final displayName = submittedName?.isNotEmpty == true
+        ? submittedName!
+        : (profileName?.isNotEmpty == true ? profileName! : 'Unknown User');
+
+    final userEmail = user?['email']?.toString().trim() ?? '';
+    final userPhone = (record['phone'] as String?)?.trim().isNotEmpty == true
+        ? record['phone'].toString().trim()
+        : (user?['phone']?.toString().trim() ?? '');
+    final userLocation = (record['location'] as String?)?.trim().isNotEmpty == true
+        ? record['location'].toString().trim()
+        : '';
+    final avatarUrl = user?['avatar_url']?.toString().trim();
+    final joinedAt = user?['created_at']?.toString() ?? record['created_at']?.toString();
+
     final idParts = (record['id_document_url'] as String? ?? '').split('|');
     final legacyIdUrls = idParts
         .where((part) => part.trim().isNotEmpty)
@@ -5570,465 +5585,795 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? record['id_front_url'].toString().trim()
         : legacyIdUrls.isNotEmpty
         ? legacyIdUrls.first
-        : null;
+        : '';
     final idBackUrl =
         record['id_back_url']?.toString().trim().isNotEmpty == true
         ? record['id_back_url'].toString().trim()
         : legacyIdUrls.length > 1
         ? legacyIdUrls[1]
-        : null;
-    final faceSelfieUrl = record['face_selfie_url']?.toString().trim();
-    final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim();
-    final driverSignatureUrl = record['driver_signature_url']
-        ?.toString()
-        .trim();
-    final driverNbiUrl = record['driver_nbi_url']?.toString().trim();
-    final driverYearsExperience = record['driver_years_experience']
-        ?.toString()
-        .trim();
-    final driverPreviousCompanies = record['driver_previous_companies']
-        ?.toString()
-        .trim();
-    final driverLicenseExpiry = record['driver_license_expiry']
-        ?.toString()
-        .trim();
-    final status = (record['verification_status'] as String? ?? 'pending')
-        .toLowerCase();
+        : '';
+    final faceSelfieUrl = record['face_selfie_url']?.toString().trim() ?? '';
+    final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim() ?? '';
+    final driverSignatureUrl = record['driver_signature_url']?.toString().trim() ?? '';
+    final driverNbiUrl = record['driver_nbi_url']?.toString().trim() ?? '';
+    final driverYearsExperience = record['driver_years_experience']?.toString().trim() ?? '';
+    final driverPreviousCompanies = record['driver_previous_companies']?.toString().trim() ?? '';
+    final driverLicenseExpiry = record['driver_license_expiry']?.toString().trim() ?? '';
+    final rejectionReason = record['rejection_reason']?.toString().trim() ?? '';
 
-    Color badgeColor;
+    final status = (record['verification_status'] as String? ?? 'pending').toLowerCase();
+
+    Color statusBadgeColor;
+    IconData statusIcon;
     switch (status) {
       case 'verified':
-        badgeColor = Colors.green;
+      case 'approved':
+        statusBadgeColor = Colors.green;
+        statusIcon = Icons.check_circle_rounded;
         break;
       case 'rejected':
-        badgeColor = Colors.red;
+        statusBadgeColor = Colors.red;
+        statusIcon = Icons.cancel_rounded;
         break;
       default:
-        badgeColor = Colors.orange;
+        statusBadgeColor = Colors.orange;
+        statusIcon = Icons.hourglass_top_rounded;
     }
 
     final userRole = (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter').toLowerCase().trim();
     Color roleBg = Colors.purple.withValues(alpha: 0.15);
     Color roleText = Colors.purple;
+    IconData roleIcon = Icons.directions_car_rounded;
     String roleTag = 'RENTER';
 
     if (userRole == 'driver' || isDriverRecord) {
       roleTag = 'DRIVER';
       roleBg = Colors.blue.withValues(alpha: 0.15);
       roleText = Colors.blue;
+      roleIcon = Icons.badge_rounded;
     } else if (userRole == 'partner') {
       roleTag = 'PARTNER';
       roleBg = Colors.amber.withValues(alpha: 0.15);
       roleText = Colors.amber;
+      roleIcon = Icons.handshake_rounded;
     } else if (userRole == 'admin') {
       roleTag = 'ADMIN';
       roleBg = Colors.teal.withValues(alpha: 0.15);
       roleText = Colors.teal;
+      roleIcon = Icons.admin_panel_settings_rounded;
+    }
+
+    // License expiry validity check
+    bool isLicenseExpired = false;
+    if (driverLicenseExpiry.isNotEmpty) {
+      final exp = DateTime.tryParse(driverLicenseExpiry);
+      if (exp != null && exp.isBefore(DateTime.now())) {
+        isLicenseExpired = true;
+      }
     }
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
-        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        color: isDark ? const Color(0xFF021F35) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          color: isDark
+              ? AppColors.primary.withValues(alpha: 0.3)
+              : Colors.grey.shade300,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            submittedName?.isNotEmpty == true
-                                ? submittedName!
-                                : (user?['full_name'] ?? 'Unknown User'),
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: roleBg,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            roleTag,
-                            style: TextStyle(
-                              color: roleText,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: badgeColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            status.toUpperCase(),
-                            style: TextStyle(
-                              color: badgeColor,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      user?['email'] ?? '',
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.grey.shade400
-                            : Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
+          // 1. User Header Banner
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
                 ),
               ),
-              if (status == 'pending') ...[
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        backgroundColor: isDark
-                            ? AppColors.darkBgSecondary
-                            : Colors.white,
-                        title: Text(
-                          'Approve Verification?',
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Avatar
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: roleText.withValues(alpha: 0.2),
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
+                      ? Text(
+                          displayName.isNotEmpty
+                              ? displayName[0].toUpperCase()
+                              : 'U',
                           style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black,
-                            fontWeight: FontWeight.w700,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: roleText,
                           ),
-                        ),
-                        content: Text(
-                          'This will mark this user as verified and notify them.',
-                          style: TextStyle(
-                            color: isDark
-                                ? Colors.grey.shade300
-                                : Colors.grey.shade700,
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayName,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
                             ),
-                            child: const Text('Approve'),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: roleBg,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: roleText.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(roleIcon, size: 13, color: roleText),
+                                const SizedBox(width: 4),
+                                Text(
+                                  roleTag,
+                                  style: TextStyle(
+                                    color: roleText,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBadgeColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: statusBadgeColor.withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(statusIcon, size: 13, color: statusBadgeColor),
+                                const SizedBox(width: 4),
+                                Text(
+                                  status.toUpperCase(),
+                                  style: TextStyle(
+                                    color: statusBadgeColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                    );
-                    if (confirmed != true) return;
-
-                    final adminId = _supabase.auth.currentUser?.id ?? '';
-                    final result =
-                        await VerificationService.approveVerification(
-                          verificationId: record['id'].toString(),
-                          adminId: adminId,
-                        );
-                    if (!mounted) return;
-                    if (result['success'] == true) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Verification approved')),
-                      );
-                      _loadDashboardData();
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            result['message']?.toString() ?? 'Approval failed',
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
-                    ),
-                    shape: const StadiumBorder(),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          if (userEmail.isNotEmpty) ...[
+                            Icon(
+                              Icons.email_outlined,
+                              size: 13,
+                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              userEmail,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                          if (userPhone.isNotEmpty) ...[
+                            Icon(
+                              Icons.phone_outlined,
+                              size: 13,
+                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              userPhone,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                          if (joinedAt != null) ...[
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 13,
+                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Joined ${_formatDate(joinedAt)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.white54
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ),
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('Approve'),
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final adminId = _supabase.auth.currentUser?.id ?? '';
-                    final result = await VerificationService.rejectVerification(
-                      verificationId: record['id'].toString(),
-                      rejectionReason: 'Rejected by admin',
-                      adminId: adminId,
-                    );
-                    if (!mounted) return;
-                    if (result['success'] == true) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Verification rejected')),
-                      );
-                      _loadDashboardData();
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            result['message']?.toString() ?? 'Rejection failed',
+                // Action Buttons
+                if (status == 'pending') ...[
+                  const SizedBox(width: 16),
+                  FilledButton.icon(
+                    onPressed: () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          backgroundColor: isDark
+                              ? AppColors.darkBgSecondary
+                              : Colors.white,
+                          title: Text(
+                            'Approve Verification?',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
+                          content: Text(
+                            'This will verify $displayName\'s identity and notify them immediately.',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey.shade300
+                                  : Colors.grey.shade700,
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(dialogContext, true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('Approve Verification'),
+                            ),
+                          ],
                         ),
                       );
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.redAccent),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
+                      if (confirmed != true) return;
+
+                      final adminId = _supabase.auth.currentUser?.id ?? '';
+                      final result =
+                          await VerificationService.approveVerification(
+                            verificationId: record['id'].toString(),
+                            adminId: adminId,
+                          );
+                      if (!mounted) return;
+                      if (result['success'] == true) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('$displayName verified successfully')),
+                        );
+                        _loadDashboardData();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              result['message']?.toString() ?? 'Approval failed',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    shape: const StadiumBorder(),
+                    icon: const Icon(Icons.check_circle_rounded, size: 18),
+                    label: const Text('Approve'),
                   ),
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  label: const Text('Reject'),
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final reason = await _showRejectionReasonDialog(
+                        context,
+                        displayName,
+                        isDark,
+                      );
+                      if (reason == null || reason.trim().isEmpty) return;
+
+                      final adminId = _supabase.auth.currentUser?.id ?? '';
+                      final result = await VerificationService.rejectVerification(
+                        verificationId: record['id'].toString(),
+                        rejectionReason: reason,
+                        adminId: adminId,
+                      );
+                      if (!mounted) return;
+                      if (result['success'] == true) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Verification rejected for $displayName')),
+                        );
+                        _loadDashboardData();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              result['message']?.toString() ?? 'Rejection failed',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.redAccent),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: const Text('Reject'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Rejection Reason Notice Banner (if rejected)
+          if (status == 'rejected' && rejectionReason.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              color: Colors.red.withValues(alpha: 0.1),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Rejection Reason: $rejectionReason',
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // 2. User Essential Data Fields Grid
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'USER ESSENTIAL DATA & EVALUATION METRICS',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 800;
+                    final itemWidth = isNarrow
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 36) / 4;
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Full Legal Name',
+                            displayName,
+                            isDark,
+                            icon: Icons.person_outline_rounded,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Email Address',
+                            userEmail.isNotEmpty ? userEmail : 'Not provided',
+                            isDark,
+                            icon: Icons.email_outlined,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Contact Phone',
+                            userPhone.isNotEmpty ? userPhone : 'Not provided',
+                            isDark,
+                            icon: Icons.phone_outlined,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Registered Address / City',
+                            userLocation.isNotEmpty ? userLocation : 'Not provided',
+                            isDark,
+                            icon: Icons.location_on_outlined,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Government ID Type',
+                            (record['id_type'] as String?)?.isNotEmpty == true
+                                ? record['id_type']
+                                : 'Not provided',
+                            isDark,
+                            icon: Icons.badge_outlined,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'ID Card Number',
+                            (record['id_number'] as String?)?.isNotEmpty == true
+                                ? record['id_number']
+                                : 'Not provided',
+                            isDark,
+                            icon: Icons.numbers_rounded,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Submitted Date & Time',
+                            _formatDate(record['created_at']),
+                            isDark,
+                            icon: Icons.schedule_rounded,
+                          ),
+                        ),
+                        SizedBox(
+                          width: itemWidth,
+                          child: _buildDetailCard(
+                            'Account Joined Date',
+                            _formatDate(joinedAt),
+                            isDark,
+                            icon: Icons.how_to_reg_rounded,
+                          ),
+                        ),
+
+                        // Driver credentials cards
+                        if (isDriverRecord) ...[
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'License Expiry Date',
+                              driverLicenseExpiry.isNotEmpty
+                                  ? '${_formatDate(driverLicenseExpiry)} ${isLicenseExpired ? "(EXPIRED)" : "(VALID)"}'
+                                  : 'Not provided',
+                              isDark,
+                              icon: Icons.event_available_rounded,
+                              highlightColor: isLicenseExpired ? Colors.red : null,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'Driving Experience',
+                              driverYearsExperience.isNotEmpty
+                                  ? '$driverYearsExperience year${driverYearsExperience == '1' ? '' : 's'}'
+                                  : 'Not specified',
+                              isDark,
+                              icon: Icons.time_to_leave_rounded,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'Previous Companies',
+                              driverPreviousCompanies.isNotEmpty
+                                  ? driverPreviousCompanies
+                                  : 'None listed',
+                              isDark,
+                              icon: Icons.business_outlined,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'Digital Signature Status',
+                              driverSignatureUrl.isNotEmpty
+                                  ? 'Submitted & Signed'
+                                  : 'Not submitted',
+                              isDark,
+                              icon: Icons.draw_rounded,
+                              highlightColor: driverSignatureUrl.isNotEmpty
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildDetailCard(
+                              'NBI Clearance Status',
+                              driverNbiUrl.isNotEmpty
+                                  ? 'Submitted Document'
+                                  : 'Not submitted',
+                              isDark,
+                              icon: Icons.verified_outlined,
+                              highlightColor: driverNbiUrl.isNotEmpty
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 24),
+                Text(
+                  'DOCUMENT VERIFICATION INSPECTION (TAP IMAGE TO ZOOM / INSPECT)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
+                    color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // 3. Document Proof Inspection Grid
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 800;
+                    final cardWidth = isNarrow
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 36) / 4;
+
+                    final docList = <Widget>[
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'ID Card (Front)',
+                          url: idFrontUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'ID Card (Back)',
+                          url: idBackUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Face Selfie (Liveness)',
+                          url: faceSelfieUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _buildDocumentPreview(
+                          title: 'Selfie Holding ID',
+                          url: selfieWithIdUrl,
+                          isDark: isDark,
+                          context: context,
+                        ),
+                      ),
+                      if (driverSignatureUrl.isNotEmpty)
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildDocumentPreview(
+                            title: 'Digital Signature',
+                            url: driverSignatureUrl,
+                            isDark: isDark,
+                            context: context,
+                          ),
+                        ),
+                      if (driverNbiUrl.isNotEmpty)
+                        SizedBox(
+                          width: cardWidth,
+                          child: _buildDocumentPreview(
+                            title: 'NBI Clearance',
+                            url: driverNbiUrl,
+                            isDark: isDark,
+                            context: context,
+                          ),
+                        ),
+                    ];
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: docList,
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // 4. Admin Evaluation Checklist
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.primary.withValues(alpha: 0.08)
+                        : AppColors.primary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.fact_check_rounded,
+                        color: AppColors.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Admin Verification Evaluation Checklist',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '✓ Ensure Full Name matches Government ID   •   ✓ Verify Face Selfie against ID photo   •   ✓ Confirm ID / Driver License is valid and unexpired.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
-            ],
-          ),
-          const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 700;
-              final imageWidgets = <Widget>[
-                if (idFrontUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'ID Front',
-                    url: idFrontUrl!,
-                    isDark: isDark,
-                  ),
-                if (idBackUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'ID Back',
-                    url: idBackUrl!,
-                    isDark: isDark,
-                  ),
-                if (faceSelfieUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'Face Selfie',
-                    url: faceSelfieUrl!,
-                    isDark: isDark,
-                  ),
-                if (selfieWithIdUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'Selfie Holding ID',
-                    url: selfieWithIdUrl!,
-                    isDark: isDark,
-                  ),
-                if (driverSignatureUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'Digital Signature',
-                    url: driverSignatureUrl!,
-                    isDark: isDark,
-                  ),
-                if (driverNbiUrl?.isNotEmpty == true)
-                  _buildDocumentPreview(
-                    title: 'NBI Clearance',
-                    url: driverNbiUrl!,
-                    isDark: isDark,
-                  ),
-              ];
-
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 240,
-                    child: _buildDetailCard(
-                      'Name',
-                      submittedName?.isNotEmpty == true
-                          ? submittedName!
-                          : (user?['full_name'] ?? 'Unknown User'),
-                      isDark,
-                    ),
-                  ),
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 240,
-                    child: _buildDetailCard(
-                      'ID Type',
-                      (record['id_type'] as String?)?.isNotEmpty == true
-                          ? record['id_type']
-                          : 'Not provided',
-                      isDark,
-                    ),
-                  ),
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 240,
-                    child: _buildDetailCard(
-                      'ID Number',
-                      (record['id_number'] as String?)?.isNotEmpty == true
-                          ? record['id_number']
-                          : 'Not provided',
-                      isDark,
-                    ),
-                  ),
-                  SizedBox(
-                    width: isNarrow ? constraints.maxWidth : 240,
-                    child: _buildDetailCard(
-                      'Submitted',
-                      _formatDate(record['created_at']),
-                      isDark,
-                    ),
-                  ),
-                  if (isDriverRecord &&
-                      (driverSignatureUrl == null ||
-                          driverSignatureUrl.isEmpty))
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'Digital Signature',
-                        'Not submitted',
-                        isDark,
-                      ),
-                    ),
-                  if (isDriverRecord &&
-                      (driverNbiUrl == null || driverNbiUrl.isEmpty))
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'NBI Clearance',
-                        'Not submitted',
-                        isDark,
-                      ),
-                    ),
-                  if (isDriverRecord &&
-                      driverYearsExperience?.isNotEmpty == true)
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'Driving Experience',
-                        '$driverYearsExperience year${driverYearsExperience == '1' ? '' : 's'}',
-                        isDark,
-                      ),
-                    ),
-                  if (isDriverRecord && driverLicenseExpiry?.isNotEmpty == true)
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        "License Expiry",
-                        _formatDate(driverLicenseExpiry),
-                        isDark,
-                      ),
-                    ),
-                  if (isDriverRecord &&
-                      driverPreviousCompanies?.isNotEmpty == true)
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'Previous Companies',
-                        driverPreviousCompanies!,
-                        isDark,
-                      ),
-                    ),
-                  if ((record['location'] as String?)?.trim().isNotEmpty ==
-                      true)
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'Location',
-                        record['location'] as String,
-                        isDark,
-                      ),
-                    ),
-                  if ((record['phone'] as String?)?.trim().isNotEmpty == true)
-                    SizedBox(
-                      width: isNarrow ? constraints.maxWidth : 240,
-                      child: _buildDetailCard(
-                        'Phone',
-                        record['phone'] as String,
-                        isDark,
-                      ),
-                    ),
-                  ...imageWidgets
-                      .map(
-                        (widget) => SizedBox(
-                          width: isNarrow ? constraints.maxWidth : 240,
-                          child: widget,
-                        ),
-                      )
-                      .toList(),
-                ],
-              );
-            },
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDetailCard(String label, String value, bool isDark) {
+  Widget _buildDetailCard(
+    String label,
+    String value,
+    bool isDark, {
+    IconData? icon,
+    Color? highlightColor,
+  }) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.black12 : Colors.white,
+        color: isDark ? Colors.black26 : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          color: highlightColor?.withValues(alpha: 0.4) ??
+              (isDark ? AppColors.borderColor : Colors.grey.shade300),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              letterSpacing: 0.4,
-              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 13,
+                  color: highlightColor ?? (isDark ? Colors.white54 : Colors.grey.shade600),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    letterSpacing: 0.4,
+                    color: highlightColor ?? (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(
             value,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13.5,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black,
+              color: highlightColor ?? (isDark ? Colors.white : Colors.black87),
             ),
           ),
         ],
@@ -6040,45 +6385,304 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     required String title,
     required String url,
     required bool isDark,
+    BuildContext? context,
   }) {
-    return InkWell(
-      onTap: () => _openUrl(url),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: isDark ? Colors.black12 : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  letterSpacing: 0.4,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                ),
-              ),
-            ),
-            AspectRatio(
-              aspectRatio: 4 / 3,
-              child: OnDemandNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.cover,
-                label: 'Tap to load document',
-              ),
-            ),
-          ],
+    final hasUrl = url.trim().isNotEmpty;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
         ),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.grey.shade100,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 0.4,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                    ),
+                  ),
+                ),
+                if (hasUrl) ...[
+                  InkWell(
+                    onTap: () => _openUrl(url),
+                    child: Icon(
+                      Icons.open_in_new_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white54 : Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: hasUrl
+                ? InkWell(
+                    onTap: () {
+                      if (context != null) {
+                        _showImageLightbox(context, title, url, isDark);
+                      } else {
+                        _openUrl(url);
+                      }
+                    },
+                    child: OnDemandNetworkImage(
+                      imageUrl: url,
+                      fit: BoxFit.cover,
+                      label: 'Tap to inspect document',
+                    ),
+                  )
+                : Container(
+                    color: isDark ? Colors.black26 : Colors.grey.shade200,
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.insert_drive_file_outlined,
+                          size: 28,
+                          color: isDark ? Colors.white38 : Colors.grey.shade500,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Not submitted',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.white38 : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showImageLightbox(
+    BuildContext context,
+    String title,
+    String url,
+    bool isDark,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: isDark ? const Color(0xFF021F35) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 800),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Open in new tab',
+                        icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                        onPressed: () => _openUrl(url),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    padding: const EdgeInsets.all(40),
+                    alignment: Alignment.center,
+                    color: Colors.grey.shade800,
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_rounded, size: 48, color: Colors.white54),
+                        SizedBox(height: 12),
+                        Text('Unable to load document image', style: TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _showRejectionReasonDialog(
+    BuildContext context,
+    String userName,
+    bool isDark,
+  ) async {
+    String selectedReason = 'Unclear or blurry ID document photo';
+    final customReasonController = TextEditingController();
+    final reasons = [
+      'Unclear or blurry ID document photo',
+      'Full name or ID number mismatch',
+      'Expired Driver\'s License or ID document',
+      'Face Selfie does not match ID photo',
+      'Missing NBI clearance or required digital signature',
+      'Other reason (Specify below)',
+    ];
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor:
+                  isDark ? AppColors.darkBgSecondary : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.gavel_rounded, color: Colors.red, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Reject Verification: $userName',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Please select a clear rejection reason to inform the applicant:',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ...reasons.map(
+                      (reason) => RadioListTile<String>(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          reason,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        value: reason,
+                        groupValue: selectedReason,
+                        activeColor: Colors.red,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() => selectedReason = val);
+                          }
+                        },
+                      ),
+                    ),
+                    if (selectedReason.startsWith('Other')) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: customReasonController,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Enter specific rejection feedback...',
+                          hintStyle: TextStyle(
+                            color: isDark ? Colors.white38 : Colors.grey,
+                          ),
+                          filled: true,
+                          fillColor:
+                              isDark ? Colors.black26 : Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: () {
+                    final finalReason = selectedReason.startsWith('Other')
+                        ? (customReasonController.text.trim().isNotEmpty
+                            ? customReasonController.text.trim()
+                            : 'Rejected by admin')
+                        : selectedReason;
+                    Navigator.pop(dialogContext, finalReason);
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Confirm Rejection'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
