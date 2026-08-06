@@ -1229,23 +1229,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAllVehicles() async {
     try {
-      final companyResponse = await _supabase
-          .from('vehicles')
-          .select('''
-            *,
-            owner:owner_id (full_name, email, role)
-          ''')
-          .order('created_at', ascending: false);
-
-      final companyVehicles = List<Map<String, dynamic>>.from(companyResponse)
-          .map((vehicle) {
-            final merged = Map<String, dynamic>.from(vehicle);
-            merged['source'] = 'company';
-            merged['source_label'] = 'Company';
-            return merged;
-          })
-          .toList();
-
+      // 1. Load Partner vehicles from partner_vehicles table
       List<Map<String, dynamic>> partnerVehicles = [];
       try {
         final partnerResponse = await _supabase
@@ -1272,6 +1256,44 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         partnerVehicles = List<Map<String, dynamic>>.from(
           fallback,
         ).map(_normalizeAdminPartnerVehicle).toList();
+      }
+
+      final partnerPlates = partnerVehicles
+          .map((pv) => pv['plate_number']?.toString().trim().toLowerCase() ?? '')
+          .where((p) => p.isNotEmpty)
+          .toSet();
+      final partnerIds = partnerVehicles
+          .map((pv) => pv['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      // 2. Load PSDC vehicles from vehicles table
+      final companyResponse = await _supabase
+          .from('vehicles')
+          .select('''
+            *,
+            owner:owner_id (full_name, email, role)
+          ''')
+          .order('created_at', ascending: false);
+
+      final companyVehicles = <Map<String, dynamic>>[];
+      for (final vehicle in List<Map<String, dynamic>>.from(companyResponse)) {
+        final merged = Map<String, dynamic>.from(vehicle);
+        final plate = merged['plate_number']?.toString().trim().toLowerCase() ?? '';
+        final id = merged['id']?.toString() ?? '';
+        final ownerRole = (merged['owner'] as Map<String, dynamic>?)?['role']?.toString().toLowerCase() ?? '';
+        final isPartnerFlag = merged['is_partner_vehicle'] == true ||
+            merged['partner_id'] != null ||
+            ownerRole == 'partner' ||
+            partnerPlates.contains(plate) ||
+            partnerIds.contains(id);
+
+        if (!isPartnerFlag) {
+          merged['source'] = 'company';
+          merged['source_label'] = 'PSDC';
+          merged['is_partner_vehicle'] = false;
+          companyVehicles.add(merged);
+        }
       }
 
       await _attachAdminVehicleImages(companyVehicles, partnerVehicles);
@@ -4228,55 +4250,56 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? vehicle['is_available'] == true
         : vehicle['is_posted'] == true;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? Colors.black26 : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+    return InkWell(
+      onTap: () => _showAdminVehicleDetailsDialog(vehicle, isDark),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? Colors.black26 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-            child: Container(
-              height: 150,
-              width: double.infinity,
-              color: isDark ? AppColors.darkBgTertiary : Colors.grey.shade200,
-              child: imageUrl.isEmpty
-                  ? Icon(
-                      Icons.directions_car,
-                      size: 52,
-                      color: isDark ? Colors.grey[600] : Colors.grey.shade500,
-                    )
-                  : OptimizedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorWidget: Icon(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              child: Container(
+                height: 150,
+                width: double.infinity,
+                color: isDark ? AppColors.darkBgTertiary : Colors.grey.shade200,
+                child: imageUrl.isEmpty
+                    ? Icon(
                         Icons.directions_car,
                         size: 52,
                         color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                      )
+                    : OptimizedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        errorWidget: Icon(
+                          Icons.directions_car,
+                          size: 52,
+                          color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                        ),
                       ),
-                    ),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
-                    const SizedBox(width: 8),
-                    _buildPostedBadge(posted, isDark),
-                    const Spacer(),
-                    _buildStatusBadge(status),
-                  ],
-                ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
+                      const SizedBox(width: 8),
+                      _buildPostedBadge(posted, isDark),
+                    ],
+                  ),
                 const SizedBox(height: 12),
                 Text(
                   '$brand $model${year.isNotEmpty ? ' ($year)' : ''}',
@@ -4350,6 +4373,465 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+  void _showAdminVehicleDetailsDialog(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) {
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final source = vehicle['source']?.toString().toLowerCase() ?? 'company';
+    final isPartner = source == 'partner' || vehicle['is_partner_vehicle'] == true;
+    final ownerFullName = owner?['full_name']?.toString().trim() ?? '';
+    final ownerName = ownerFullName.isNotEmpty
+        ? ownerFullName
+        : (vehicle['partner_name']?.toString().trim() ??
+            (isPartner ? 'Mobilis Partner' : 'PSDC Fleet Operator'));
+    final ownerEmail = owner?['email']?.toString().trim() ??
+        vehicle['partner_email']?.toString().trim() ??
+        '';
+    final ownerPhone = owner?['phone']?.toString().trim() ??
+        vehicle['partner_phone']?.toString().trim() ??
+        '';
+
+    final imageUrl = _adminPrimaryVehicleImageUrl(vehicle);
+    final rawImages = vehicle['vehicle_images'];
+    final imageList = <String>[];
+    if (imageUrl.isNotEmpty) imageList.add(imageUrl);
+    if (rawImages is List) {
+      for (final img in rawImages) {
+        if (img is Map) {
+          final url = img['image_url']?.toString().trim() ?? '';
+          if (url.isNotEmpty && !imageList.contains(url)) {
+            imageList.add(url);
+          }
+        }
+      }
+    }
+
+    final pricePerDay = (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
+    final pricePerHour = (vehicle['price_per_hour'] as num?)?.toDouble() ?? 0;
+    final brand = vehicle['brand']?.toString().trim().isNotEmpty == true
+        ? vehicle['brand'].toString()
+        : 'Unknown';
+    final model = vehicle['model']?.toString().trim().isNotEmpty == true
+        ? vehicle['model'].toString()
+        : 'Model';
+    final year = vehicle['year']?.toString() ?? '';
+    final plate = vehicle['plate_number']?.toString().trim() ?? 'N/A';
+    final vehicleType =
+        vehicle['vehicle_type']?.toString().trim().isNotEmpty == true
+        ? vehicle['vehicle_type'].toString()
+        : vehicle['category']?.toString() ?? 'Standard';
+    final transmission = vehicle['transmission']?.toString() ?? 'Manual';
+    final fuelType = vehicle['fuel_type']?.toString() ?? 'Gasoline';
+    final seats = vehicle['seats']?.toString() ?? '5';
+    final posted = isPartner
+        ? vehicle['is_available'] == true
+        : vehicle['is_posted'] == true;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        String activeImage = imageList.isNotEmpty ? imageList.first : '';
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Dialog(
+              backgroundColor: isDark ? const Color(0xFF021F35) : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: AppColors.primary.withValues(alpha: 0.4),
+                  width: 1.5,
+                ),
+              ),
+              child: Container(
+                width: 840,
+                constraints: const BoxConstraints(maxHeight: 740),
+                child: Column(
+                  children: [
+                    // Header Bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : Colors.grey.shade100,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: isDark ? Colors.white10 : Colors.grey.shade200,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.directions_car_filled_rounded,
+                              color: AppColors.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      '$brand $model ${year.isNotEmpty ? "($year)" : ""}',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w900,
+                                        color: isDark ? Colors.white : Colors.black,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    _buildSourceBadge(
+                                      isPartner ? 'PARTNER' : 'PSDC',
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildPostedBadge(posted, isDark),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Plate Number: $plate • Category: $vehicleType',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? Colors.white60
+                                        : Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Close',
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Scrollable Body
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Gallery Preview Box
+                            Container(
+                              height: 250,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? AppColors.darkBgTertiary
+                                    : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white10
+                                      : Colors.grey.shade300,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: activeImage.isEmpty
+                                    ? Center(
+                                        child: Icon(
+                                          Icons.directions_car,
+                                          size: 64,
+                                          color: isDark
+                                              ? Colors.white30
+                                              : Colors.grey.shade400,
+                                        ),
+                                      )
+                                    : OptimizedNetworkImage(
+                                        imageUrl: activeImage,
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        height: 250,
+                                      ),
+                              ),
+                            ),
+
+                            if (imageList.length > 1) ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                height: 60,
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: imageList.length,
+                                  itemBuilder: (context, index) {
+                                    final img = imageList[index];
+                                    final isSelected = img == activeImage;
+                                    return GestureDetector(
+                                      onTap: () =>
+                                          setModalState(() => activeImage = img),
+                                      child: Container(
+                                        margin:
+                                            const EdgeInsets.only(right: 10),
+                                        width: 80,
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? AppColors.primary
+                                                : Colors.transparent,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          child: OptimizedNetworkImage(
+                                            imageUrl: img,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+
+                            const SizedBox(height: 24),
+
+                            // Specifications Grid (4 Columns)
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isNarrow = constraints.maxWidth < 650;
+                                final colWidth = isNarrow
+                                    ? constraints.maxWidth
+                                    : (constraints.maxWidth - 24) / 2;
+
+                                return Wrap(
+                                  spacing: 24,
+                                  runSpacing: 20,
+                                  children: [
+                                    // Section 1: Spec details
+                                    SizedBox(
+                                      width: colWidth,
+                                      child: _buildVehicleSpecSectionCard(
+                                        'VEHICLE SPECIFICATIONS',
+                                        Icons.tune_rounded,
+                                        isDark,
+                                        [
+                                          _buildModalDetailRow('Brand & Model', '$brand $model', isDark),
+                                          _buildModalDetailRow('Model Year', year.isNotEmpty ? year : 'N/A', isDark),
+                                          _buildModalDetailRow('Plate Number', plate, isDark),
+                                          _buildModalDetailRow('Vehicle Category', vehicleType, isDark),
+                                          _buildModalDetailRow('Seating Capacity', '$seats Seats', isDark),
+                                          _buildModalDetailRow('Transmission', transmission, isDark),
+                                          _buildModalDetailRow('Fuel Type', fuelType, isDark),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Section 2: Pricing & Rates
+                                    SizedBox(
+                                      width: colWidth,
+                                      child: _buildVehicleSpecSectionCard(
+                                        'PRICING & RENTAL RATES',
+                                        Icons.payments_rounded,
+                                        isDark,
+                                        [
+                                          _buildModalDetailRow('Price Per Day', 'PHP ${pricePerDay.toStringAsFixed(0)}', isDark, highlight: true),
+                                          _buildModalDetailRow('Price Per Hour', 'PHP ${pricePerHour.toStringAsFixed(0)}', isDark),
+                                          _buildModalDetailRow('Delivery Fee', '₱75 / km delivery rate', isDark),
+                                          _buildModalDetailRow('Posting Status', posted ? 'Available for Rent' : 'Unposted / Maintenance', isDark),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Section 3: Owner & Fleet Operator
+                                    SizedBox(
+                                      width: colWidth,
+                                      child: _buildVehicleSpecSectionCard(
+                                        'OWNERSHIP & OPERATOR',
+                                        Icons.person_pin_rounded,
+                                        isDark,
+                                        [
+                                          _buildModalDetailRow('Owner / Partner', ownerName, isDark),
+                                          if (ownerEmail.isNotEmpty)
+                                            _buildModalDetailRow('Contact Email', ownerEmail, isDark),
+                                          if (ownerPhone.isNotEmpty)
+                                            _buildModalDetailRow('Contact Phone', ownerPhone, isDark),
+                                          _buildModalDetailRow('Fleet Type', isPartner ? 'Mobilis Partner Fleet' : 'PSDC Company Fleet', isDark),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Section 4: Vehicle Features & Amenities
+                                    SizedBox(
+                                      width: colWidth,
+                                      child: _buildVehicleSpecSectionCard(
+                                        'FEATURES & AMENITIES',
+                                        Icons.auto_awesome_rounded,
+                                        isDark,
+                                        [
+                                          _buildModalDetailRow('Air Conditioning', 'Equipped', isDark),
+                                          _buildModalDetailRow('GPS & Map Tracking', 'Live GPS Active', isDark),
+                                          _buildModalDetailRow('Bluetooth Audio', 'Supported', isDark),
+                                          _buildModalDetailRow('Sanitization', 'Verified Clean', isDark),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Footer Action Bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : Colors.grey.shade100,
+                        borderRadius: const BorderRadius.vertical(
+                          bottom: Radius.circular(20),
+                        ),
+                        border: Border(
+                          top: BorderSide(
+                            color: isDark ? Colors.white10 : Colors.grey.shade200,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.check_circle_rounded, size: 16),
+                            label: const Text('Close Overview'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildVehicleSpecSectionCard(
+    String title,
+    IconData icon,
+    bool isDark,
+    List<Widget> children,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModalDetailRow(
+    String label,
+    String value,
+    bool isDark, {
+    bool highlight = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: highlight ? FontWeight.w900 : FontWeight.bold,
+                color: highlight
+                    ? Colors.green
+                    : (isDark ? Colors.white : Colors.black87),
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
