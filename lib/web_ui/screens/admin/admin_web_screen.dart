@@ -25,6 +25,7 @@ import '../../../services/chat_service.dart';
 import '../../../services/support_faq_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
+import '../../../mobile_ui/screens/profile/ratings_reviews_screen.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
@@ -101,6 +102,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   final int _usersPerPage = 10;
   String _userSearchQuery = '';
   String _userRoleFilter = 'all';
+  bool _isLoadingTerms = false;
+  bool _isSavingTerms = false;
+  bool _isLoadingReservationPayment = false;
+  bool _isSavingReservationPayment = false;
+  bool _isUploadingReservationQr = false;
+  bool _isDeletingReservationQr = false;
+  bool _isLoadingSupportFaqs = false;
+  bool _isSavingSupportFaqs = false;
+  String _supportFaqRole = 'renter';
+  Map<String, List<SupportFaq>> _supportFaqsByRole = {};
+  final TextEditingController _rentalTermsController = TextEditingController();
+  final TextEditingController _reservationAmountController =
+      TextEditingController();
+  final TextEditingController _reservationQrUrlController =
+      TextEditingController();
+  final TextEditingController _reservationAccountNameController =
+      TextEditingController();
+  final TextEditingController _reservationInstructionsController =
+      TextEditingController();
   final TextEditingController _announcementTitleController =
       TextEditingController();
   final TextEditingController _announcementMessageController =
@@ -115,6 +135,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void initState() {
     super.initState();
     _loadDashboardData();
+    _loadRentalTerms();
+    _loadReservationPaymentSettings();
+    _loadSupportFaqSettings();
     _setupSupportMessagesListener();
     _loadActionLogs(showLoading: false);
     _setupActionLogsRealtimeListener();
@@ -139,6 +162,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     for (final timer in _supportTypingExpiryTimers.values) {
       timer.cancel();
     }
+    _rentalTermsController.dispose();
+    _reservationAmountController.dispose();
+    _reservationQrUrlController.dispose();
+    _reservationAccountNameController.dispose();
+    _reservationInstructionsController.dispose();
     _announcementTitleController.dispose();
     _announcementMessageController.dispose();
     _supportReplyController.dispose();
@@ -680,6 +708,255 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } finally {
       if (mounted) {
         setState(() => _isSendingAnnouncement = false);
+      }
+    }
+  }
+
+  Future<void> _loadRentalTerms() async {
+    setState(() => _isLoadingTerms = true);
+
+    try {
+      final terms = await TermsService().getRentalTerms();
+      if (!mounted) return;
+      _rentalTermsController.text = terms;
+    } catch (e) {
+      debugPrint('Error loading rental terms: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingTerms = false);
+      }
+    }
+  }
+
+  Future<void> _saveRentalTerms() async {
+    setState(() => _isSavingTerms = true);
+
+    try {
+      await TermsService().updateRentalTerms(_rentalTermsController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental terms updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update rental terms: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingTerms = false);
+      }
+    }
+  }
+
+  Future<void> _loadReservationPaymentSettings() async {
+    setState(() => _isLoadingReservationPayment = true);
+
+    try {
+      final settings = await ReservationPaymentService().getSettings();
+      if (!mounted) return;
+      _reservationAmountController.text = settings.amount.toStringAsFixed(0);
+      _reservationQrUrlController.text = settings.qrUrl;
+      _reservationAccountNameController.text = settings.accountName;
+      _reservationInstructionsController.text = settings.instructions;
+    } catch (e) {
+      debugPrint('Error loading reservation payment settings: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingReservationPayment = false);
+      }
+    }
+  }
+
+  Future<void> _loadSupportFaqSettings() async {
+    if (mounted) setState(() => _isLoadingSupportFaqs = true);
+    try {
+      final faqs = await SupportFaqService().getAllFaqs();
+      if (!mounted) return;
+      setState(() => _supportFaqsByRole = faqs);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to load support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoadingSupportFaqs = false);
+    }
+  }
+
+  Future<void> _saveSupportFaqSettings() async {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+    if (faqs.isEmpty || _isSavingSupportFaqs) return;
+    setState(() => _isSavingSupportFaqs = true);
+    try {
+      await SupportFaqService().updateFaqs(_supportFaqRole, faqs);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer support auto-replies updated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to save support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingSupportFaqs = false);
+    }
+  }
+
+  Future<void> _saveReservationPaymentSettings() async {
+    final amount =
+        double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    setState(() => _isSavingReservationPayment = true);
+
+    try {
+      await ReservationPaymentService().updateSettings(
+        amount: amount,
+        qrUrl: _reservationQrUrlController.text,
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation payment settings updated'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update reservation payment settings: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingReservationPayment = false);
+      }
+    }
+  }
+
+  Future<void> _uploadReservationPaymentQr() async {
+    setState(() => _isUploadingReservationQr = true);
+
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+      if (picked == null) return;
+
+      final qrUrl = await ReservationPaymentService().uploadQrCode(
+        file: picked,
+      );
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.text = qrUrl);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reservation QR uploaded. Save settings to publish it.',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to upload reservation QR: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingReservationQr = false);
+      }
+    }
+  }
+
+  Future<void> _deleteReservationPaymentQr() async {
+    final currentQrUrl = _reservationQrUrlController.text.trim();
+    if (currentQrUrl.isEmpty || _isDeletingReservationQr) return;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Delete Payment QR?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'This will remove the current QR from payment settings. Renters cannot submit reservation payment until a new QR is uploaded.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true || !mounted) return;
+
+    setState(() => _isDeletingReservationQr = true);
+    try {
+      final service = ReservationPaymentService();
+      await service.deleteQrCode(currentQrUrl);
+      await service.updateSettings(
+        amount: double.tryParse(_reservationAmountController.text.trim()) ?? 0,
+        qrUrl: '',
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.clear());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation QR deleted'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to delete reservation QR: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDeletingReservationQr = false);
       }
     }
   }
@@ -6190,6 +6467,135 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildSupportFaqEditor(bool isDark) {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Edit the automatic answers shown before a user opens a live admin chat.',
+          style: TextStyle(
+            color: isDark ? Colors.grey : Colors.grey.shade600,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: const ['renter', 'partner', 'driver'].map((role) {
+            final selected = _supportFaqRole == role;
+            return ChoiceChip(
+              selected: selected,
+              onSelected: (_) => setState(() => _supportFaqRole = role),
+              label: Text('${role[0].toUpperCase()}${role.substring(1)}'),
+              selectedColor: AppColors.primary,
+              backgroundColor: isDark
+                  ? AppColors.darkBgSecondary
+                  : Colors.grey.shade100,
+              labelStyle: TextStyle(
+                color: selected
+                    ? Colors.black
+                    : (isDark ? Colors.white : Colors.black87),
+                fontWeight: FontWeight.w700,
+              ),
+              side: BorderSide(
+                color: selected ? AppColors.primary : AppColors.borderColor,
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 16),
+        if (_isLoadingSupportFaqs)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (faqs.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Text('No FAQ configuration is available.'),
+          )
+        else
+          ...faqs.asMap().entries.map((entry) {
+            final index = entry.key;
+            final faq = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    faq.question,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    key: ValueKey('${_supportFaqRole}_${faq.key}'),
+                    initialValue: faq.answer,
+                    minLines: 3,
+                    maxLines: 6,
+                    enabled: !_isSavingSupportFaqs,
+                    onChanged: (value) {
+                      _supportFaqsByRole[_supportFaqRole]![index] = faq
+                          .copyWith(answer: value);
+                    },
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      height: 1.4,
+                    ),
+                    decoration: _settingsInputDecoration(
+                      isDark,
+                      label: 'Automatic reply',
+                      hint: 'Enter the answer shown to users...',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                  ? null
+                  : _loadSupportFaqSettings,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reload'),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed:
+                  _isLoadingSupportFaqs || _isSavingSupportFaqs || faqs.isEmpty
+                  ? null
+                  : _saveSupportFaqSettings,
+              icon: _isSavingSupportFaqs
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                _isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
 
 
   Widget _buildCustomerServiceContent(bool isDark) {
@@ -6840,19 +7246,661 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildSettingsContent(bool isDark) {
-    return SettingsScreen(
-      isDarkMode: isDark,
-      showHeader: false,
-      showAppearance: true,
-      showSignOut: true,
-      adminMode: true,
-      onThemeToggle: widget.onThemeToggle,
-      onBack: () {},
-      onOpenSupport: () => setState(() => _selectedIndex = 6),
-      onSignOut: _handleLogout,
-      onProfileUpdated: () {
-        _loadDashboardData();
-      },
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        children: [
+          // 1. Appearance & Theme (Original Setting)
+          _buildCard(
+            'Appearance & Theme',
+            Row(
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Dark Mode',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Toggle dark or light color palette for the admin portal',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey : Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Switch(
+                  value: isDark,
+                  onChanged: widget.onThemeToggle,
+                  activeThumbColor: AppColors.primary,
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 2. Rental Terms & Agreement (Original Setting)
+          _buildCard(
+            'Rental Terms & Agreement',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This text is shown to renters before they finalize a booking. Renters must check the agreement box before continuing.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _rentalTermsController,
+                  minLines: 8,
+                  maxLines: 14,
+                  enabled: !_isLoadingTerms && !_isSavingTerms,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    height: 1.4,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Enter rental terms and policies...',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade500,
+                    ),
+                    filled: true,
+                    fillColor: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_isLoadingTerms)
+                      Text(
+                        'Loading current terms...',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: _isLoadingTerms || _isSavingTerms
+                          ? null
+                          : _loadRentalTerms,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: _isLoadingTerms || _isSavingTerms
+                          ? null
+                          : _saveRentalTerms,
+                      icon: _isSavingTerms
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 3. Reservation Payment (Original Setting)
+          _buildCard(
+            'Reservation Payment',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Configure the refundable reservation payment shown to renters before booking requests are created.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _reservationAmountController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Reservation Amount (₱)',
+                          hint: '1000',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _reservationAccountNameController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Account Name',
+                          hint: 'PSDC',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.borderColor),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 96,
+                        height: 96,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.darkBg
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child:
+                            _reservationQrUrlController.text.trim().isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: OptimizedNetworkImage(
+                                  imageUrl: _reservationQrUrlController.text
+                                      .trim(),
+                                  width: 96,
+                                  height: 96,
+                                  fit: BoxFit.contain,
+                                  errorWidget: const Icon(
+                                    Icons.broken_image_outlined,
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              )
+                            : const Icon(
+                                Icons.qr_code_2,
+                                color: AppColors.textTertiary,
+                                size: 42,
+                              ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Payment QR Code',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _reservationQrUrlController.text.trim().isEmpty
+                                  ? 'No QR uploaded yet.'
+                                  : 'QR uploaded. Renters will see this after settings are saved.',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.grey
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 8,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed:
+                                      _isLoadingReservationPayment ||
+                                          _isSavingReservationPayment ||
+                                          _isUploadingReservationQr ||
+                                          _isDeletingReservationQr
+                                      ? null
+                                      : _uploadReservationPaymentQr,
+                                  icon: _isUploadingReservationQr
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.upload_file),
+                                  label: Text(
+                                    _isUploadingReservationQr
+                                        ? 'Uploading...'
+                                        : _reservationQrUrlController.text
+                                              .trim()
+                                              .isEmpty
+                                        ? 'Upload QR Image'
+                                        : 'Replace QR Image',
+                                  ),
+                                ),
+                                if (_reservationQrUrlController.text
+                                    .trim()
+                                    .isNotEmpty)
+                                  OutlinedButton.icon(
+                                    onPressed:
+                                        _isLoadingReservationPayment ||
+                                            _isSavingReservationPayment ||
+                                            _isUploadingReservationQr ||
+                                            _isDeletingReservationQr
+                                        ? null
+                                        : _deleteReservationPaymentQr,
+                                    icon: _isDeletingReservationQr
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.delete_outline),
+                                    label: Text(
+                                      _isDeletingReservationQr
+                                          ? 'Deleting...'
+                                          : 'Delete QR',
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.error,
+                                      side: const BorderSide(
+                                        color: AppColors.error,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _reservationInstructionsController,
+                  minLines: 3,
+                  maxLines: 5,
+                  enabled:
+                      !_isLoadingReservationPayment &&
+                      !_isSavingReservationPayment,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    height: 1.4,
+                  ),
+                  decoration: _settingsInputDecoration(
+                    isDark,
+                    label: 'Payment Instructions',
+                    hint: 'Tell renters how to pay and upload proof...',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_isLoadingReservationPayment)
+                      Text(
+                        'Loading payment settings...',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed:
+                          _isLoadingReservationPayment ||
+                              _isSavingReservationPayment ||
+                              _isUploadingReservationQr ||
+                              _isDeletingReservationQr
+                          ? null
+                          : _loadReservationPaymentSettings,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed:
+                          _isLoadingReservationPayment ||
+                              _isSavingReservationPayment ||
+                              _isUploadingReservationQr ||
+                              _isDeletingReservationQr
+                          ? null
+                          : _saveReservationPaymentSettings,
+                      icon: _isSavingReservationPayment
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(
+                        _isSavingReservationPayment
+                            ? 'Saving...'
+                            : 'Save Payment Settings',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 4. Customer Support FAQ Auto-Replies (Original Setting)
+          _buildCard(
+            'Customer Support FAQ Auto-Replies',
+            _buildSupportFaqEditor(isDark),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 5. Admin Profile & Identity (Essential Setting)
+          _buildCard(
+            'Admin Profile & Identity',
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary,
+                  child: const Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.black,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _supabase.auth.currentUser?.email ?? 'Super Administrator',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'Super Admin',
+                              style: TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Full System Access',
+                            style: TextStyle(
+                              color: isDark ? Colors.grey : Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 6. Workflow & Operating Rules (Essential Setting)
+          _buildCard(
+            'Workflow & Operating Rules',
+            Column(
+              children: [
+                SwitchListTile(
+                  title: Text(
+                    'System Online / Active',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'When active, new booking requests and registrations can be processed normally.',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                  value: true,
+                  onChanged: (val) {},
+                  activeColor: AppColors.primary,
+                ),
+                const Divider(),
+                SwitchListTile(
+                  title: Text(
+                    'Auto-Accept Partner Verification Requests',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Requires manual review if turned off.',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                  value: false,
+                  onChanged: (val) {},
+                  activeColor: AppColors.primary,
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 7. Operational Alerts & Notifications (Essential Setting)
+          _buildCard(
+            'Operational Alerts & Notifications',
+            Column(
+              children: [
+                SwitchListTile(
+                  title: Text(
+                    'New Verification Requests Alert',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  value: true,
+                  onChanged: (val) {},
+                  activeColor: AppColors.primary,
+                ),
+                SwitchListTile(
+                  title: Text(
+                    'Booking Cancellation & Refund Alerts',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  value: true,
+                  onChanged: (val) {},
+                  activeColor: AppColors.primary,
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 8. Account & Security (Essential Setting)
+          _buildCard(
+            'Account & Security',
+            ListTile(
+              leading: const Icon(Icons.lock_reset, color: AppColors.primary),
+              title: Text(
+                'Change Password',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Update your administrator portal password',
+                style: TextStyle(
+                  color: isDark ? Colors.grey : Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Password change email link sent to your administrator address.'),
+                    backgroundColor: Colors.blue,
+                  ),
+                );
+              },
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 9. Ratings, Reviews & System Legal (Essential Setting)
+          _buildCard(
+            'Ratings, Reviews & System Legal',
+            ListTile(
+              leading: const Icon(Icons.star_rate_rounded, color: AppColors.warning),
+              title: Text(
+                'View All Ratings & Renter Reviews',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                'Inspect trip reviews, ratings, and customer feedback across all bookings.',
+                style: TextStyle(
+                  color: isDark ? Colors.grey : Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => RatingsReviewsScreen(
+                      userId: _supabase.auth.currentUser?.id ?? '',
+                      title: 'Ratings & Reviews',
+                    ),
+                  ),
+                );
+              },
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 10. Account Sign Out (Original Setting)
+          _buildCard(
+            'Account',
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text(
+                'Sign Out Admin',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onTap: _handleLogout,
+            ),
+            isDark,
+          ),
+        ],
+      ),
     );
   }
 
