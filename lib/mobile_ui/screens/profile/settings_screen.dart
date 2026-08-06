@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,6 +13,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/image_optimization_service.dart';
+import '../../../services/reservation_payment_service.dart';
+import '../../../services/support_faq_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
 import 'ratings_reviews_screen.dart';
@@ -25,6 +28,7 @@ class SettingsScreen extends StatefulWidget {
     this.showAppearance = false,
     this.showSignOut = false,
     this.operatorMode = false,
+    this.adminMode = false,
     this.onBack,
     this.onOpenSupport,
     this.onProfileUpdated,
@@ -37,6 +41,7 @@ class SettingsScreen extends StatefulWidget {
   final bool showAppearance;
   final bool showSignOut;
   final bool operatorMode;
+  final bool adminMode;
   final VoidCallback? onBack;
   final VoidCallback? onOpenSupport;
   final VoidCallback? onProfileUpdated;
@@ -66,6 +71,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _webPositionController = TextEditingController();
   bool _isSavingWebProfile = false;
 
+  // Admin System Controllers & State
+  final TextEditingController _rentalTermsController = TextEditingController();
+  bool _isLoadingTerms = false;
+  bool _isSavingTerms = false;
+
+  final TextEditingController _reservationAmountController = TextEditingController();
+  final TextEditingController _reservationAccountNameController = TextEditingController();
+  final TextEditingController _reservationQrUrlController = TextEditingController();
+  final TextEditingController _reservationInstructionsController = TextEditingController();
+  bool _isLoadingReservationPayment = false;
+  bool _isSavingReservationPayment = false;
+  bool _isUploadingReservationQr = false;
+  bool _isDeletingReservationQr = false;
+
+  String _supportFaqRole = 'renter';
+  Map<String, List<SupportFaq>> _supportFaqsByRole = {};
+  bool _isLoadingSupportFaqs = false;
+  bool _isSavingSupportFaqs = false;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +101,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _webNameController.dispose();
     _webPhoneController.dispose();
     _webPositionController.dispose();
+    _rentalTermsController.dispose();
+    _reservationAmountController.dispose();
+    _reservationAccountNameController.dispose();
+    _reservationQrUrlController.dispose();
+    _reservationInstructionsController.dispose();
     super.dispose();
   }
 
@@ -96,7 +125,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _webPhoneController.text = _operatorPhone;
         _webPositionController.text = _operatorPosition;
       });
-      if (widget.operatorMode) await _loadOperatorPreferences();
+      if (widget.operatorMode || widget.adminMode) await _loadOperatorPreferences();
+      if (widget.adminMode) {
+        await Future.wait([
+          _loadRentalTerms(),
+          _loadReservationPaymentSettings(),
+          _loadSupportFaqSettings(),
+        ]);
+      }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -146,6 +182,234 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await preferences.setBool('operator_manual_approval', false);
     } else if (key == 'operator_manual_approval' && value) {
       await preferences.setBool('operator_auto_accept', false);
+    }
+  }
+
+  // --- ADMIN SETTINGS API METHODS ---
+  Future<void> _loadRentalTerms() async {
+    setState(() => _isLoadingTerms = true);
+    try {
+      final terms = await TermsService().getRentalTerms();
+      if (!mounted) return;
+      _rentalTermsController.text = terms;
+    } catch (e) {
+      debugPrint('Error loading rental terms: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingTerms = false);
+    }
+  }
+
+  Future<void> _saveRentalTerms() async {
+    setState(() => _isSavingTerms = true);
+    try {
+      await TermsService().updateRentalTerms(_rentalTermsController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Rental terms updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update rental terms: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingTerms = false);
+    }
+  }
+
+  Future<void> _loadReservationPaymentSettings() async {
+    setState(() => _isLoadingReservationPayment = true);
+    try {
+      final settings = await ReservationPaymentService().getSettings();
+      if (!mounted) return;
+      _reservationAmountController.text = settings.amount.toStringAsFixed(0);
+      _reservationQrUrlController.text = settings.qrUrl;
+      _reservationAccountNameController.text = settings.accountName;
+      _reservationInstructionsController.text = settings.instructions;
+    } catch (e) {
+      debugPrint('Error loading reservation payment settings: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingReservationPayment = false);
+    }
+  }
+
+  Future<void> _saveReservationPaymentSettings() async {
+    final amount = double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    setState(() => _isSavingReservationPayment = true);
+    try {
+      await ReservationPaymentService().updateSettings(
+        amount: amount,
+        qrUrl: _reservationQrUrlController.text,
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation payment settings updated'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update reservation payment settings: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingReservationPayment = false);
+    }
+  }
+
+  Future<void> _uploadReservationPaymentQr() async {
+    setState(() => _isUploadingReservationQr = true);
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+      if (picked == null) return;
+
+      final qrUrl = await ReservationPaymentService().uploadQrCode(file: picked);
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.text = qrUrl);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reservation QR uploaded. Save settings to publish it.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to upload reservation QR: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploadingReservationQr = false);
+    }
+  }
+
+  Future<void> _deleteReservationPaymentQr() async {
+    final currentQrUrl = _reservationQrUrlController.text.trim();
+    if (currentQrUrl.isEmpty || _isDeletingReservationQr) return;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surfaceColor(context),
+        title: Text(
+          'Delete Payment QR?',
+          style: TextStyle(color: _primaryTextColor(context)),
+        ),
+        content: Text(
+          'This will remove the current QR from payment settings. Renters cannot submit reservation payment until a new QR is uploaded.',
+          style: TextStyle(color: _secondaryTextColor(context)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true || !mounted) return;
+
+    setState(() => _isDeletingReservationQr = true);
+    try {
+      final service = ReservationPaymentService();
+      await service.deleteQrCode(currentQrUrl);
+      await service.updateSettings(
+        amount: double.tryParse(_reservationAmountController.text.trim()) ?? 0,
+        qrUrl: '',
+        accountName: _reservationAccountNameController.text,
+        instructions: _reservationInstructionsController.text,
+      );
+      if (!mounted) return;
+      setState(() => _reservationQrUrlController.clear());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment QR code deleted'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to delete QR code: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isDeletingReservationQr = false);
+    }
+  }
+
+  Future<void> _loadSupportFaqSettings() async {
+    if (mounted) setState(() => _isLoadingSupportFaqs = true);
+    try {
+      final faqs = await SupportFaqService().getAllFaqs();
+      if (!mounted) return;
+      setState(() => _supportFaqsByRole = faqs);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to load support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoadingSupportFaqs = false);
+    }
+  }
+
+  Future<void> _saveSupportFaqSettings() async {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+    if (faqs.isEmpty || _isSavingSupportFaqs) return;
+    setState(() => _isSavingSupportFaqs = true);
+    try {
+      await SupportFaqService().updateFaqs(_supportFaqRole, faqs);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer support auto-replies updated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to save support FAQs: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingSupportFaqs = false);
     }
   }
 
@@ -1022,6 +1286,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildWebHeaderCard(bool isDark) {
     final isOnline = _operatorPreferences['operator_online_status'] ?? true;
+    final titleText = widget.adminMode ? 'Admin Settings' : 'Operator Settings';
+    final badgeText = widget.adminMode ? 'Super Admin' : 'Console Admin';
+    final subtitleText = widget.adminMode
+        ? 'Manage administrator profile, system policies, reservation payment rules, FAQ auto-replies, notifications, and portal settings.'
+        : 'Manage profile, workflow preferences, security, notifications, and support.';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -1048,8 +1318,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: AppColors.primary.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(
-              Icons.tune_rounded,
+            child: Icon(
+              widget.adminMode ? Icons.admin_panel_settings_rounded : Icons.tune_rounded,
               color: AppColors.primary,
               size: 26,
             ),
@@ -1062,7 +1332,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   children: [
                     Text(
-                      'Operator Settings',
+                      titleText,
                       style: TextStyle(
                         color: _primaryTextColor(context),
                         fontSize: 24,
@@ -1081,15 +1351,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.verified_user_rounded,
                             size: 13,
                             color: AppColors.primary,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Console Admin',
-                            style: TextStyle(
+                            badgeText,
+                            style: const TextStyle(
                               color: AppColors.primary,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w700,
@@ -1102,7 +1372,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Manage profile, workflow preferences, security, notifications, and support.',
+                  subtitleText,
                   style: TextStyle(
                     color: _secondaryTextColor(context),
                     fontSize: 13,
@@ -1165,14 +1435,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildWebSidebarNav(bool isDark) {
-    final tabs = [
-      _WebCategoryItem(0, 'Profile & Identity', Icons.badge_outlined, 'Avatar, details & role'),
-      _WebCategoryItem(1, 'Workflow & Availability', Icons.tune_rounded, 'Status, hours & vehicles'),
-      _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, 'Operational alerts'),
-      _WebCategoryItem(3, 'Account & Security', Icons.shield_outlined, 'Password & email'),
-      _WebCategoryItem(4, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & display'),
-      _WebCategoryItem(5, 'Support & System', Icons.help_outline_rounded, 'Help center & info'),
-    ];
+    final tabs = widget.adminMode
+        ? [
+            _WebCategoryItem(0, 'Profile & Credentials', Icons.badge_outlined, 'Admin details & position'),
+            _WebCategoryItem(1, 'Rental Terms & Policies', Icons.description_outlined, 'Renter agreement text'),
+            _WebCategoryItem(2, 'Reservation & Payments', Icons.payments_outlined, 'Deposit fee & QR uploader'),
+            _WebCategoryItem(3, 'FAQ Auto-Replies', Icons.question_answer_outlined, 'Customer support bot replies'),
+            _WebCategoryItem(4, 'Workflow & System Rules', Icons.tune_rounded, 'Auto-approval & operating mode'),
+            _WebCategoryItem(5, 'Notifications & Alerts', Icons.notifications_none_rounded, 'System & audit alerts'),
+            _WebCategoryItem(6, 'Account & Security', Icons.shield_outlined, 'Password & credentials'),
+            _WebCategoryItem(7, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & portal theme'),
+            _WebCategoryItem(8, 'Ratings & System Legal', Icons.help_outline_rounded, 'Reviews, terms & help'),
+          ]
+        : [
+            _WebCategoryItem(0, 'Profile & Identity', Icons.badge_outlined, 'Avatar, details & role'),
+            _WebCategoryItem(1, 'Workflow & Availability', Icons.tune_rounded, 'Status, hours & vehicles'),
+            _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, 'Operational alerts'),
+            _WebCategoryItem(3, 'Account & Security', Icons.shield_outlined, 'Password & email'),
+            _WebCategoryItem(4, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & display'),
+            _WebCategoryItem(5, 'Support & System', Icons.help_outline_rounded, 'Help center & info'),
+          ];
 
     return Container(
       decoration: BoxDecoration(
@@ -1292,8 +1574,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const Icon(Icons.logout_rounded, size: 18, color: AppColors.error),
                       const SizedBox(width: 12),
                       Text(
-                        'Sign Out Operator',
-                        style: TextStyle(
+                        widget.adminMode ? 'Sign Out Admin' : 'Sign Out Operator',
+                        style: const TextStyle(
                           color: AppColors.error,
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -1311,14 +1593,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildWebHorizontalTabs(bool isDark) {
-    final tabs = [
-      _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
-      _WebCategoryItem(1, 'Workflow', Icons.tune_rounded, ''),
-      _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, ''),
-      _WebCategoryItem(3, 'Security', Icons.shield_outlined, ''),
-      _WebCategoryItem(4, 'Appearance', Icons.palette_outlined, ''),
-      _WebCategoryItem(5, 'Support', Icons.help_outline_rounded, ''),
-    ];
+    final tabs = widget.adminMode
+        ? [
+            _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
+            _WebCategoryItem(1, 'Rental Terms', Icons.description_outlined, ''),
+            _WebCategoryItem(2, 'Payments', Icons.payments_outlined, ''),
+            _WebCategoryItem(3, 'FAQ Auto-Replies', Icons.question_answer_outlined, ''),
+            _WebCategoryItem(4, 'Workflow', Icons.tune_rounded, ''),
+            _WebCategoryItem(5, 'Notifications', Icons.notifications_none_rounded, ''),
+            _WebCategoryItem(6, 'Security', Icons.shield_outlined, ''),
+            _WebCategoryItem(7, 'Appearance', Icons.palette_outlined, ''),
+            _WebCategoryItem(8, 'Support & Legal', Icons.help_outline_rounded, ''),
+          ]
+        : [
+            _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
+            _WebCategoryItem(1, 'Workflow', Icons.tune_rounded, ''),
+            _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, ''),
+            _WebCategoryItem(3, 'Security', Icons.shield_outlined, ''),
+            _WebCategoryItem(4, 'Appearance', Icons.palette_outlined, ''),
+            _WebCategoryItem(5, 'Support', Icons.help_outline_rounded, ''),
+          ];
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -1357,6 +1651,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildWebTabContent(bool isDark) {
+    if (widget.adminMode) {
+      switch (_activeWebTab) {
+        case 0:
+          return _buildWebProfileTabContent(isDark);
+        case 1:
+          return _buildWebRentalTermsTabContent(isDark);
+        case 2:
+          return _buildWebReservationPaymentTabContent(isDark);
+        case 3:
+          return _buildWebFaqTabContent(isDark);
+        case 4:
+          return _buildWebWorkflowTabContent(isDark);
+        case 5:
+          return _buildWebNotificationsTabContent(isDark);
+        case 6:
+          return _buildWebSecurityTabContent(isDark);
+        case 7:
+          return _buildWebAppearanceTabContent(isDark);
+        case 8:
+          return _buildWebSupportTabContent(isDark);
+        default:
+          return _buildWebProfileTabContent(isDark);
+      }
+    }
+
     switch (_activeWebTab) {
       case 0:
         return _buildWebProfileTabContent(isDark);
@@ -1647,6 +1966,621 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 1 (ADMIN): RENTAL TERMS & POLICIES ---
+  Widget _buildWebRentalTermsTabContent(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.description_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Rental Terms & Agreement Policies',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'This text is displayed to renters before they finalize booking requests. Renters must check the agreement box before continuing.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _rentalTermsController,
+                minLines: 8,
+                maxLines: 14,
+                enabled: !_isLoadingTerms && !_isSavingTerms,
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  height: 1.4,
+                  fontSize: 13.5,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Enter rental terms and policies...',
+                  hintStyle: TextStyle(color: _secondaryTextColor(context)),
+                  filled: true,
+                  fillColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  if (_isLoadingTerms)
+                    Text(
+                      'Loading current terms...',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingTerms || _isSavingTerms ? null : _loadRentalTerms,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reload'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isLoadingTerms || _isSavingTerms ? null : _saveRentalTerms,
+                    icon: _isSavingTerms
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 2 (ADMIN): RESERVATION & PAYMENTS ---
+  Widget _buildWebReservationPaymentTabContent(bool isDark) {
+    final hasQr = _reservationQrUrlController.text.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.payments_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Refundable Reservation Payment Rules',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Configure the refundable reservation deposit and payment instructions shown to renters during booking request creation.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              LayoutBuilder(
+                builder: (context, box) {
+                  final isTwoCol = box.maxWidth > 550;
+                  return Column(
+                    children: [
+                      if (isTwoCol)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Reservation Fee Amount (₱)',
+                                _reservationAmountController,
+                                Icons.payments_outlined,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Account / Payee Name',
+                                _reservationAccountNameController,
+                                Icons.account_balance_outlined,
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        _buildWebTextField(
+                          'Reservation Fee Amount (₱)',
+                          _reservationAmountController,
+                          Icons.payments_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Account / Payee Name',
+                          _reservationAccountNameController,
+                          Icons.account_balance_outlined,
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+
+              // Payment QR Code Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _borderColor(context)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 90,
+                      height: 90,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _borderColor(context)),
+                      ),
+                      child: hasQr
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.network(
+                                _reservationQrUrlController.text.trim(),
+                                width: 90,
+                                height: 90,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, _, _) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: AppColors.error,
+                                ),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.qr_code_2_rounded,
+                              color: AppColors.textTertiary,
+                              size: 42,
+                            ),
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Payment QR Code Image',
+                            style: TextStyle(
+                              color: _primaryTextColor(context),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hasQr
+                                ? 'QR Code uploaded. Renters can scan this to pay the reservation fee.'
+                                : 'No Payment QR uploaded yet. Upload a QR code image to enable instant scan-to-pay.',
+                            style: TextStyle(
+                              color: _secondaryTextColor(context),
+                              fontSize: 12.5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: _isLoadingReservationPayment ||
+                                        _isSavingReservationPayment ||
+                                        _isUploadingReservationQr ||
+                                        _isDeletingReservationQr
+                                    ? null
+                                    : _uploadReservationPaymentQr,
+                                icon: _isUploadingReservationQr
+                                    ? const SizedBox(
+                                        width: 15,
+                                        height: 15,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.upload_file_rounded, size: 16),
+                                label: Text(
+                                  _isUploadingReservationQr
+                                      ? 'Uploading...'
+                                      : hasQr
+                                          ? 'Replace QR Image'
+                                          : 'Upload QR Image',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _primaryTextColor(context),
+                                  side: BorderSide(color: _borderColor(context)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                              if (hasQr)
+                                OutlinedButton.icon(
+                                  onPressed: _isLoadingReservationPayment ||
+                                          _isSavingReservationPayment ||
+                                          _isUploadingReservationQr ||
+                                          _isDeletingReservationQr
+                                      ? null
+                                      : _deleteReservationPaymentQr,
+                                  icon: _isDeletingReservationQr
+                                      ? const SizedBox(
+                                          width: 15,
+                                          height: 15,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.delete_outline_rounded, size: 16),
+                                  label: Text(_isDeletingReservationQr ? 'Deleting...' : 'Delete QR'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.error,
+                                    side: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Payment Instructions Textarea
+              Text(
+                'Payment Instructions Shown to Renters',
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _reservationInstructionsController,
+                minLines: 3,
+                maxLines: 5,
+                enabled: !_isLoadingReservationPayment && !_isSavingReservationPayment,
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  height: 1.4,
+                  fontSize: 13.5,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Enter payment steps and screenshot instructions...',
+                  hintStyle: TextStyle(color: _secondaryTextColor(context)),
+                  filled: true,
+                  fillColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  if (_isLoadingReservationPayment)
+                    Text(
+                      'Loading payment settings...',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingReservationPayment || _isSavingReservationPayment
+                        ? null
+                        : _loadReservationPaymentSettings,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reload'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isLoadingReservationPayment || _isSavingReservationPayment
+                        ? null
+                        : _saveReservationPaymentSettings,
+                    icon: _isSavingReservationPayment
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSavingReservationPayment ? 'Saving...' : 'Save Payment Settings'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- TAB 3 (ADMIN): CUSTOMER SUPPORT FAQ AUTO-REPLIES ---
+  Widget _buildWebFaqTabContent(bool isDark) {
+    final faqs = _supportFaqsByRole[_supportFaqRole] ?? const <SupportFaq>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.question_answer_outlined, color: AppColors.primary, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Customer Support FAQ Auto-Replies',
+                    style: TextStyle(
+                      color: _primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Configure automated responses and guidance questions shown to Renters, Partners, and Drivers in Customer Support.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+
+              // Role Tabs Selection Chips
+              Wrap(
+                spacing: 10,
+                children: [
+                  for (final roleOption in const [
+                    {'key': 'renter', 'label': 'Renter Support'},
+                    {'key': 'partner', 'label': 'Partner Support'},
+                    {'key': 'driver', 'label': 'Driver Support'},
+                  ])
+                    ChoiceChip(
+                      selected: _supportFaqRole == roleOption['key'],
+                      label: Text(roleOption['label']!),
+                      selectedColor: AppColors.primary.withValues(alpha: 0.16),
+                      backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                      labelStyle: TextStyle(
+                        color: _supportFaqRole == roleOption['key']
+                            ? AppColors.primary
+                            : _primaryTextColor(context),
+                        fontWeight: _supportFaqRole == roleOption['key']
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                      onSelected: (_) {
+                        setState(() => _supportFaqRole = roleOption['key']!);
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // FAQ Items List
+              if (_isLoadingSupportFaqs)
+                const Padding(
+                  padding: EdgeInsets.all(30),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (faqs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'No FAQ items found for this role.',
+                    style: TextStyle(color: _secondaryTextColor(context)),
+                  ),
+                )
+              else
+                ...faqs.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final faq = entry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _borderColor(context)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'Q${index + 1}',
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                faq.question,
+                                style: TextStyle(
+                                  color: _primaryTextColor(context),
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          initialValue: faq.answer,
+                          minLines: 2,
+                          maxLines: 4,
+                          onChanged: (value) {
+                            _supportFaqsByRole[_supportFaqRole]![index] =
+                                faq.copyWith(answer: value);
+                          },
+                          style: TextStyle(
+                            color: _primaryTextColor(context),
+                            fontSize: 13.5,
+                            height: 1.4,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Automated Answer Text',
+                            hintText: 'Enter response shown to users...',
+                            filled: true,
+                            fillColor: _surfaceColor(context),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: _borderColor(context)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: _borderColor(context)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: AppColors.primary),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs
+                        ? null
+                        : _loadSupportFaqSettings,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reload Defaults'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs || faqs.isEmpty
+                        ? null
+                        : _saveSupportFaqSettings,
+                    icon: _isSavingSupportFaqs
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
