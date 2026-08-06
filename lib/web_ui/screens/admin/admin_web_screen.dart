@@ -1102,25 +1102,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       List<dynamic> response = [];
 
-      // 1. Fetch approved verification user IDs for verification status accuracy
+      // 1. Fetch approved verification user IDs from user_verifications, renter_profiles, and drivers
       final approvedUserIds = <String>{};
+      
+      // user_verifications
       try {
         final verifications = await _supabase
             .from('user_verifications')
-            .select('user_id, status, verification_status');
+            .select('user_id, verification_status');
         for (final v in List<Map<String, dynamic>>.from(verifications)) {
           final uid = v['user_id']?.toString() ?? '';
-          final statusStr = (v['verification_status'] ?? v['status'])
-                  ?.toString()
-                  .toLowerCase() ??
-              '';
+          final statusStr = v['verification_status']?.toString().trim().toLowerCase() ?? '';
           if (uid.isNotEmpty &&
-              (statusStr == 'approved' || statusStr == 'verified')) {
+              (statusStr == 'approved' || statusStr == 'verified' || statusStr == 'certified')) {
             approvedUserIds.add(uid);
           }
         }
       } catch (verErr) {
-        debugPrint('Could not load user_verifications status map: $verErr');
+        debugPrint('user_verifications lookup note: $verErr');
+      }
+
+      // renter_profiles
+      try {
+        final renters = await _supabase
+            .from('renter_profiles')
+            .select('user_id, verification_status, is_verified');
+        for (final r in List<Map<String, dynamic>>.from(renters)) {
+          final uid = r['user_id']?.toString() ?? '';
+          final statusStr = r['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final isVer = r['is_verified'] == true;
+          if (uid.isNotEmpty && (isVer || statusStr == 'approved' || statusStr == 'verified')) {
+            approvedUserIds.add(uid);
+          }
+        }
+      } catch (renterErr) {
+        debugPrint('renter_profiles lookup note: $renterErr');
       }
 
       // 2. Try detailed select with fallback
@@ -1144,14 +1160,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         }
       }
 
-      // 3. Fetch driver data for PSDC driver merge
+      // 3. Fetch driver data for PSDC driver merge & driver verification check
       List<Map<String, dynamic>> driversResponse = [];
       try {
         driversResponse = List<Map<String, dynamic>>.from(
           await _supabase
               .from('drivers')
-              .select('id, user_id, is_psdc_driver, driver_tier'),
+              .select('id, user_id, is_psdc_driver, driver_tier, verification_status, is_verified'),
         );
+        for (final d in driversResponse) {
+          final uid = d['user_id']?.toString() ?? '';
+          final statusStr = d['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final isVer = d['is_verified'] == true;
+          if (uid.isNotEmpty && (isVer || statusStr == 'approved' || statusStr == 'verified')) {
+            approvedUserIds.add(uid);
+          }
+        }
       } catch (driverErr) {
         debugPrint('Could not load drivers for PSDC merge: $driverErr');
       }
@@ -1175,10 +1199,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             driverData?['driver_tier'] == 'psdc';
 
         final verStatus =
-            user['verification_status']?.toString().toLowerCase() ?? '';
-        final isVerified = user['id_verified'] == true ||
+            user['verification_status']?.toString().trim().toLowerCase() ?? '';
+        final idVerified = user['id_verified'] == true || user['is_verified'] == true;
+        final isVerified = idVerified ||
             verStatus == 'approved' ||
             verStatus == 'verified' ||
+            verStatus == 'certified' ||
             approvedUserIds.contains(userId);
 
         userList.add({
