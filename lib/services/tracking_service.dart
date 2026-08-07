@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -191,6 +192,34 @@ class TrackingService {
     }
   }
 
+  Future<String> _resolveAddress(double? lat, double? lng) async {
+    if (lat == null || lng == null) return 'Location coordinates unavailable';
+    try {
+      final placemarks = await placemarkFromCoordinates(lat, lng);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = [
+          place.street,
+          place.subLocality,
+          place.locality,
+          place.subAdministrativeArea,
+          place.administrativeArea,
+          place.country,
+        ]
+            .whereType<String>()
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList();
+        final joined = parts.join(', ');
+        if (joined.trim().isNotEmpty) return joined;
+      }
+    } catch (e) {
+      debugPrint('Geocoding lookup error: $e');
+    }
+    return 'Lat: ${lat.toStringAsFixed(5)}, Lng: ${lng.toStringAsFixed(5)}';
+  }
+
   Future<void> reportEmergency({
     required String bookingId,
     double? latitude,
@@ -206,14 +235,51 @@ class TrackingService {
     }
     final context = await _loadSafetyBookingContext(bookingId);
     if (context == null) throw Exception('Active booking not found');
+
+    final renter = context['renter'] as Map<String, dynamic>?;
+    final vehicle = context['vehicles'] as Map<String, dynamic>?;
+
+    final renterName = renter?['full_name']?.toString().trim() ?? 'Renter';
+    final renterPhone = renter?['phone']?.toString().trim() ?? 'N/A';
+    final renterEmail = renter?['email']?.toString().trim() ?? '';
+
+    final vehicleBrand = vehicle?['brand']?.toString().trim() ?? '';
+    final vehicleModel = vehicle?['model']?.toString().trim() ?? '';
+    final rawVehicleName = vehicle?['vehicle_name']?.toString().trim() ?? '';
+    final vehicleName = rawVehicleName.isNotEmpty
+        ? rawVehicleName
+        : '$vehicleBrand $vehicleModel'.trim();
+    final plateNumber = vehicle?['plate_number']?.toString().trim() ?? 'N/A';
+
+    final address = await _resolveAddress(latitude, longitude);
+    final mapsUrl = (latitude != null && longitude != null)
+        ? 'https://maps.google.com/?q=$latitude,$longitude'
+        : '';
+
+    final notificationMessage =
+        'Renter: $renterName (Mobile: $renterPhone) | Vehicle: $vehicleName [$plateNumber] | Location: $address${mapsUrl.isNotEmpty ? ' | Maps: $mapsUrl' : ''}';
+
     await _recordSafetyEvent(
       context: context,
       eventType: 'emergency_${DateTime.now().millisecondsSinceEpoch}',
       severity: 'critical',
-      title: 'Emergency assistance requested',
-      message: 'A renter requested immediate assistance during the trip.',
+      title: '🚨 EMERGENCY ALERT: Renter Needs Immediate Help!',
+      message: notificationMessage,
       latitude: latitude,
       longitude: longitude,
+      details: {
+        'generated_by': 'mobilis_tracking_service',
+        'renter_id': context['renter_id'],
+        'renter_name': renterName,
+        'renter_phone': renterPhone,
+        'renter_email': renterEmail,
+        'vehicle_id': context['vehicle_id'],
+        'vehicle_name': vehicleName,
+        'plate_number': plateNumber,
+        'location_address': address,
+        'google_maps_url': mapsUrl,
+        'booking_id': bookingId,
+      },
       notifyParticipants: true,
     );
   }
@@ -342,10 +408,18 @@ class TrackingService {
           pickup_longitude,
           dropoff_latitude,
           dropoff_longitude,
+          renter:renter_id (
+            id,
+            full_name,
+            email,
+            phone
+          ),
           vehicles:vehicle_id (
             id,
             brand,
             model,
+            vehicle_name,
+            plate_number,
             owner_id,
             owner_role,
             partner_vehicle_id
@@ -401,6 +475,7 @@ class TrackingService {
     double? latitude,
     double? longitude,
     double? speedKph,
+    Map<String, dynamic>? details,
     bool notifyParticipants = false,
   }) async {
     final bookingId = context['id']?.toString() ?? '';
@@ -415,7 +490,7 @@ class TrackingService {
       'latitude': latitude,
       'longitude': longitude,
       'speed_kph': speedKph,
-      'details': {'generated_by': 'mobilis_tracking_service'},
+      'details': details ?? {'generated_by': 'mobilis_tracking_service'},
     });
 
     final recipients = await _safetyNotificationRecipients(
@@ -433,6 +508,7 @@ class TrackingService {
             'booking_id': bookingId,
             'event': eventType,
             'severity': severity,
+            if (details != null) ...details,
           },
         );
       } catch (error) {
