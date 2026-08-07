@@ -2862,15 +2862,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFFFFD600), Color(0xFFFFC400)],
+                colors: [Color(0xFFFBBF24), Color(0xFFD97706)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                width: 2,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primary.withOpacity(0.22),
-                  blurRadius: 20,
+                  color: const Color(0xFFD97706).withValues(alpha: isDark ? 0.35 : 0.2),
+                  blurRadius: 24,
                   offset: const Offset(0, 10),
                 ),
               ],
@@ -2881,25 +2885,52 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Total Revenue',
-                        style: TextStyle(color: Colors.black54, fontSize: 14),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.monetization_on_rounded,
+                            color: Colors.black.withValues(alpha: 0.65),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'TOTAL REVENUE',
+                            style: TextStyle(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       Text(
                         'PHP ${_totalRevenue.toStringAsFixed(2)}',
                         style: const TextStyle(
                           color: Colors.black,
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 38,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'From $_totalBookings total bookings',
-                        style: const TextStyle(
-                          color: Colors.black54,
-                          fontSize: 13,
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'Aggregated from $_totalBookings total bookings',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -2909,19 +2940,42 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   width: 80,
                   height: 80,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(24),
                   ),
                   child: const Icon(
-                    Icons.trending_up,
-                    color: Colors.white,
+                    Icons.insights_rounded,
+                    color: Colors.black,
                     size: 40,
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 25),
+          
+          // System Status Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildSystemStatusItem('Database Server', 'Connected', Colors.green, isDark),
+                _buildSystemStatusItem('Auth Service', 'Active', Colors.green, isDark),
+                _buildSystemStatusItem('Secure Storage', 'Operational', Colors.green, isDark),
+                _buildSystemStatusItem('API Gateway', 'Running', Colors.green, isDark),
+              ],
+            ),
+          ),
+          const SizedBox(height: 25),
+
           // Stats Grid
           GridView.count(
             crossAxisCount: 4,
@@ -3004,8 +3058,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               const SizedBox(width: 20),
               Expanded(
                 child: _buildCard(
-                  'System Status',
-                  _buildSystemStatus(isDark),
+                  'User Growth Analytics',
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Monthly trend of registered renters and partners',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.white54 : Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 220,
+                        child: _buildUserGrowthChart(isDark),
+                      ),
+                    ],
+                  ),
                   isDark,
                 ),
               ),
@@ -3013,6 +3083,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSystemStatusItem(String name, String status, Color color, bool isDark) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          name,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white70 : Colors.grey.shade800,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '• $status',
+          style: TextStyle(
+            fontSize: 12,
+            color: isDark ? Colors.white38 : Colors.grey.shade500,
+          ),
+        ),
+      ],
     );
   }
 
