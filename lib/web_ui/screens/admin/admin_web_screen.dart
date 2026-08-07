@@ -1276,7 +1276,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             *,
             vehicles:vehicle_id (id, brand, model, year, plate_number, owner_id, operator_id),
             renter:renter_id (id, full_name, email),
-            users:user_id (id, full_name, email),
             drivers:drivers!bookings_driver_id_fkey (
               id,
               user_id,
