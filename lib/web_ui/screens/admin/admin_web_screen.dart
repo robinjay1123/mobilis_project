@@ -2929,35 +2929,63 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 20,
             crossAxisSpacing: 20,
-            childAspectRatio: 2,
+            childAspectRatio: 1.55,
             children: [
               _buildStatCard(
-                'Total Renters',
-                _totalUsers.toString(),
-                Icons.person,
-                Colors.blue,
-                isDark,
+                title: 'Total Renters',
+                value: _totalUsers.toString(),
+                icon: Icons.person_rounded,
+                color: const Color(0xFF3B82F6),
+                isDark: isDark,
+                subtitle: 'Registered customer accounts',
+                onTap: () {
+                  setState(() {
+                    _userRoleFilter = 'renter';
+                    _selectedIndex = 1;
+                  });
+                },
               ),
               _buildStatCard(
-                'Partners',
-                _totalPartners.toString(),
-                Icons.business,
-                Colors.green,
-                isDark,
+                title: 'Partners',
+                value: _totalPartners.toString(),
+                icon: Icons.business_rounded,
+                color: const Color(0xFF10B981),
+                isDark: isDark,
+                subtitle: 'Registered vehicle partners',
+                onTap: () {
+                  setState(() {
+                    _userRoleFilter = 'partner';
+                    _selectedIndex = 1;
+                  });
+                },
               ),
               _buildStatCard(
-                'Operators',
-                _totalOperators.toString(),
-                Icons.admin_panel_settings,
-                Colors.purple,
-                isDark,
+                title: 'Operators',
+                value: _totalOperators.toString(),
+                icon: Icons.shield_rounded,
+                color: const Color(0xFF8B5CF6),
+                isDark: isDark,
+                subtitle: 'PSDC fleet administrators',
+                onTap: () {
+                  setState(() {
+                    _userRoleFilter = 'operator';
+                    _selectedIndex = 1;
+                  });
+                },
               ),
               _buildStatCard(
-                'Ongoing Bookings',
-                _activeBookings.toString(),
-                Icons.event_available,
-                Colors.teal,
-                isDark,
+                title: 'Ongoing Bookings',
+                value: _activeBookings.toString(),
+                icon: Icons.event_available_rounded,
+                color: const Color(0xFFF59E0B),
+                isDark: isDark,
+                subtitle: 'Active trips currently on road',
+                onTap: () {
+                  setState(() {
+                    _bookingStatusFilter = 'active';
+                    _selectedIndex = 3;
+                  });
+                },
               ),
             ],
           ),
@@ -2988,58 +3016,120 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    bool isDark,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : Colors.white,
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required bool isDark,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+        hoverColor: color.withValues(alpha: 0.08),
+        splashColor: color.withValues(alpha: 0.12),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark
+                  ? color.withValues(alpha: 0.3)
+                  : color.withValues(alpha: 0.25),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: isDark ? 0.1 : 0.06),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: color, size: 24),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'View',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: color,
+                          size: 12,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : Colors.grey.shade900,
+                  height: 1.0,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 28),
-          ),
-          const SizedBox(width: 20),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                ),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark ? Colors.grey : Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
