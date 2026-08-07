@@ -23,6 +23,8 @@ import '../../../services/booking_evidence_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/emergency_contact_service.dart';
 import '../../../services/favorite_vehicle_service.dart';
+import '../../../services/loyalty_service.dart';
+import '../../../services/loyalty_reward_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
 import '../../../services/verification_service.dart';
@@ -162,6 +164,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       await _loadMyBookings();
       await _loadFavoriteState();
       await _loadEmergencyContact();
+      await _loadLoyaltyVouchers();
       if (_selectedStartDate != null) {
         await _loadStartTimeSlots();
       }
@@ -1278,7 +1281,41 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   bool get _requiresPickupMap => _withDriver || _vehicleDelivery;
 
-  double get _totalPrice => _rentalSubtotal + _deliveryFee;
+  LoyaltyRewardState? _loyaltyRewardState;
+  LoyaltyVoucher? _selectedVoucher;
+
+  Future<void> _loadLoyaltyVouchers() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+    try {
+      final rewardState = await LoyaltyRewardService().load(user.id);
+      if (!mounted) return;
+      setState(() {
+        _loyaltyRewardState = rewardState;
+      });
+    } catch (e) {
+      debugPrint('Error loading loyalty vouchers: $e');
+    }
+  }
+
+  double get _discountAmount {
+    if (_selectedVoucher == null) return 0.0;
+    final subtotal = _rentalSubtotal;
+    if (subtotal <= 0) return 0.0;
+    final v = _selectedVoucher!;
+    double discount = 0.0;
+    if (v.isPercent) {
+      discount = subtotal * (v.discountPercent / 100.0);
+    } else {
+      discount = v.discountAmount;
+    }
+    return discount > subtotal ? subtotal : discount;
+  }
+
+  double get _totalPrice {
+    final rawTotal = _rentalSubtotal + _deliveryFee - _discountAmount;
+    return rawTotal < 0 ? 0.0 : rawTotal;
+  }
 
   int get _billableDays {
     final minutes = _rentalDuration.inMinutes;
@@ -1926,6 +1963,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         endAt: endAtLocal.toUtc(),
         totalPrice: _totalPrice,
         rentalSubtotal: _rentalSubtotal,
+        discountAmount: _discountAmount,
+        appliedVoucher: _selectedVoucher?.code ?? _selectedVoucher?.title,
         deliveryDistanceKm: _deliveryDistanceKm,
         deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
         deliveryFee: _deliveryFee,
@@ -3765,8 +3804,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   _buildBookingEvidenceCard(),
                   const SizedBox(height: 24),
 
-                  // Cost breakdown (if dates selected)
-                  if (_selectedStartDate != null && _selectedEndDate != null)
+                  // Cost breakdown & Voucher Selection (if dates selected)
+                  if (_selectedStartDate != null && _selectedEndDate != null) ...[
+                    _buildVoucherSelectionCard(),
+                    const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -3792,29 +3833,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             'Duration',
                             _getFormattedDurationString(),
                           ),
-
+                          const SizedBox(height: 8),
+                          _buildSummaryRow(
+                            'Rental subtotal',
+                            'PHP ${formatAmount(_rentalSubtotal)}',
+                          ),
                           if (_requiresPickupMap) ...[
-                            const SizedBox(height: 8),
-                            _buildSummaryRow(
-                              'Rental subtotal',
-                              'PHP ${formatAmount(_rentalSubtotal)}',
-                            ),
-                            const SizedBox(height: 8),
-                            _buildSummaryRow(
-                              'Delivery distance',
-                              _deliveryDistanceKm == null
-                                  ? 'Not estimated'
-                                  : '${_deliveryDistanceKm!.toStringAsFixed(2)} km',
-                            ),
-                            const SizedBox(height: 8),
-                            _buildSummaryRow(
-                              'Delivery rate',
-                              'PHP ${formatAmount(PricingPolicy.deliveryRatePerKm)} / km',
-                            ),
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               'Delivery fee',
                               'PHP ${formatAmount(_deliveryFee)}',
+                            ),
+                          ],
+                          if (_discountAmount > 0) ...[
+                            const SizedBox(height: 8),
+                            _buildSummaryRow(
+                              'Voucher / Loyalty Discount',
+                              '- PHP ${formatAmount(_discountAmount)}',
+                              isDiscount: true,
                             ),
                           ],
                           const Divider(
@@ -3841,6 +3877,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ],
                       ),
                     ),
+                  ],
                   const SizedBox(height: 100), // Space for bottom button
                 ],
               ),
@@ -3879,6 +3916,391 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildSummaryRow(
+    String label,
+    String value, {
+    bool isTotal = false,
+    bool isDiscount = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 13,
+            fontWeight: isTotal ? FontWeight.w800 : FontWeight.w500,
+            color: isDiscount
+                ? AppColors.success
+                : isTotal
+                ? AppColors.textPrimary
+                : AppColors.textSecondary,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isTotal ? 18 : 13,
+            fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+            color: isDiscount
+                ? AppColors.success
+                : isTotal
+                ? AppColors.primary
+                : AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVoucherSelectionCard() {
+    final hasVoucher = _selectedVoucher != null;
+    final discount = _discountAmount;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasVoucher ? AppColors.success : AppColors.borderColor,
+          width: hasVoucher ? 1.5 : 1.0,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: (hasVoucher ? AppColors.success : AppColors.primary)
+                  .withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.confirmation_number_outlined,
+              color: hasVoucher ? AppColors.success : AppColors.primary,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasVoucher
+                      ? '${_selectedVoucher!.title} Applied'
+                      : 'Vouchers & Loyalty Rewards',
+                  style: TextStyle(
+                    color: hasVoucher ? AppColors.success : AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hasVoucher
+                      ? 'Saved ₱${formatAmount(discount)} on this trip!'
+                      : 'Tap to apply promo code or loyalty reward',
+                  style: TextStyle(
+                    color: hasVoucher
+                        ? AppColors.success.withOpacity(0.85)
+                        : AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasVoucher)
+            IconButton(
+              icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+              onPressed: () => setState(() => _selectedVoucher = null),
+            )
+          else
+            TextButton(
+              onPressed: _showVoucherPickerModalSheet,
+              child: const Text(
+                'Apply',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showVoucherPickerModalSheet() {
+    final customCodeController = TextEditingController();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBgSecondary,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final availableVouchers = _getAvailableVouchersList();
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Apply Voucher & Rewards',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: customCodeController,
+                          style: const TextStyle(color: AppColors.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: 'Enter Promo Code',
+                            hintStyle: const TextStyle(color: AppColors.textTertiary),
+                            filled: true,
+                            fillColor: AppColors.darkBg,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.borderColor),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        onPressed: () {
+                          final code = customCodeController.text.trim().toUpperCase();
+                          if (code.isEmpty) return;
+                          final match = availableVouchers.firstWhere(
+                            (v) => v.code.toUpperCase() == code,
+                            orElse: () => LoyaltyVoucher(
+                              code: code,
+                              title: '$code Voucher',
+                              description: 'Custom Promo Code',
+                              discountPercent: 0.0,
+                              discountAmount: 100.0,
+                              isPercent: false,
+                              minTripsRequired: 0,
+                            ),
+                          );
+                          setState(() => _selectedVoucher = match);
+                          Navigator.pop(context);
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text('Apply'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Available Discounts & Rewards',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (availableVouchers.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(
+                        child: Text(
+                          'No active vouchers available.',
+                          style: TextStyle(color: AppColors.textTertiary),
+                        ),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: availableVouchers.map((v) {
+                            final isSelected = _selectedVoucher?.code == v.code;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: AppColors.darkBg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : AppColors.borderColor,
+                                  width: isSelected ? 1.5 : 1.0,
+                                ),
+                              ),
+                              child: ListTile(
+                                leading: Icon(
+                                  Icons.local_offer_outlined,
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary,
+                                ),
+                                title: Text(
+                                  v.title,
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight:
+                                        isSelected ? FontWeight.w800 : FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  v.description,
+                                  style: const TextStyle(
+                                    color: AppColors.textTertiary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                trailing: isSelected
+                                    ? const Icon(
+                                        Icons.check_circle,
+                                        color: AppColors.primary,
+                                      )
+                                    : OutlinedButton(
+                                        onPressed: () {
+                                          setState(() => _selectedVoucher = v);
+                                          Navigator.pop(context);
+                                        },
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppColors.primary,
+                                          side: const BorderSide(color: AppColors.primary),
+                                        ),
+                                        child: const Text('Select'),
+                                      ),
+                                onTap: () {
+                                  setState(() => _selectedVoucher = v);
+                                  Navigator.pop(context);
+                                },
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<LoyaltyVoucher> _getAvailableVouchersList() {
+    final list = <LoyaltyVoucher>[];
+    if (_loyaltyRewardState != null) {
+      final unlocked = _loyaltyRewardState!.unlockedMilestones;
+      for (final milestone in unlocked) {
+        if (milestone.stamp == 3) {
+          list.add(
+            const LoyaltyVoucher(
+              code: 'LOYALTY50',
+              title: '₱50 OFF Loyalty Reward',
+              description: 'Earned from completing 3 trips',
+              discountPercent: 0.0,
+              discountAmount: 50.0,
+              isPercent: false,
+              minTripsRequired: 3,
+            ),
+          );
+        } else if (milestone.stamp == 6) {
+          list.add(
+            const LoyaltyVoucher(
+              code: 'LOYALTY200',
+              title: '₱200 OFF Loyalty Reward',
+              description: 'Earned from completing 6 trips',
+              discountPercent: 0.0,
+              discountAmount: 200.0,
+              isPercent: false,
+              minTripsRequired: 6,
+            ),
+          );
+        } else if (milestone.stamp == 12) {
+          list.add(
+            const LoyaltyVoucher(
+              code: 'LOYALTY300',
+              title: '₱300 OFF Loyalty Reward',
+              description: 'Earned from completing 12 trips',
+              discountPercent: 0.0,
+              discountAmount: 300.0,
+              isPercent: false,
+              minTripsRequired: 12,
+            ),
+          );
+        } else if (milestone.stamp == 15) {
+          final hourlyRate =
+              pricePerHour > 0 ? pricePerHour : (pricePerDay / 24.0);
+          list.add(
+            LoyaltyVoucher(
+              code: 'LOYALTY_FREE3H',
+              title: 'Free 3 Hours Rental Reward',
+              description: 'Earned from completing 15 trips',
+              discountPercent: 0.0,
+              discountAmount: hourlyRate * 3,
+              isPercent: false,
+              minTripsRequired: 15,
+            ),
+          );
+        } else if (milestone.stamp == 18) {
+          list.add(
+            LoyaltyVoucher(
+              code: 'LOYALTY_FREE24H',
+              title: 'Free 24 Hours Rental Reward',
+              description: 'Earned from completing 18 trips',
+              discountPercent: 0.0,
+              discountAmount: pricePerDay,
+              isPercent: false,
+              minTripsRequired: 18,
+            ),
+          );
+        }
+      }
+    }
+    list.addAll(LoyaltyService.systemVouchers);
+    return list;
   }
 
   String _format12Hour(int hour, [int minute = 0]) {

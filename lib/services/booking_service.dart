@@ -302,6 +302,8 @@ class BookingService {
     required DateTime endAt,
     required double totalPrice,
     double? rentalSubtotal,
+    double? discountAmount,
+    String? appliedVoucher,
     double? deliveryDistanceKm,
     double? deliveryRatePerKm,
     double? deliveryFee,
@@ -448,6 +450,10 @@ class BookingService {
         ).toIso8601String(),
         'total_price': totalPrice,
         'rental_subtotal': rentalSubtotal ?? totalPrice,
+        if (discountAmount != null && discountAmount > 0)
+          'discount_amount': discountAmount,
+        if (appliedVoucher != null && appliedVoucher.isNotEmpty)
+          'applied_voucher': appliedVoucher,
         if (deliveryDistanceKm != null)
           'delivery_distance_km': deliveryDistanceKm,
         if (deliveryRatePerKm != null)
