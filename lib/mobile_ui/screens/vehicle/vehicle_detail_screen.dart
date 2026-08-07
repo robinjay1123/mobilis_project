@@ -3079,28 +3079,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isTotal = false}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: isTotal ? AppColors.textPrimary : AppColors.textSecondary,
-            fontWeight: isTotal ? FontWeight.w600 : FontWeight.normal,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: isTotal ? AppColors.primary : AppColors.textPrimary,
-            fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
-            fontSize: isTotal ? 16 : 14,
-          ),
-        ),
-      ],
-    );
-  }
+
 
   void _showErrorDialog(String title, String message) {
     if (!mounted) return;
@@ -4271,6 +4250,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ),
           );
         } else if (milestone.stamp == 15) {
+          final pricePerDay =
+              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+          final pricePerHour =
+              (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
           final hourlyRate =
               pricePerHour > 0 ? pricePerHour : (pricePerDay / 24.0);
           list.add(
@@ -4285,6 +4268,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             ),
           );
         } else if (milestone.stamp == 18) {
+          final pricePerDay =
+              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
           list.add(
             LoyaltyVoucher(
               code: 'LOYALTY_FREE24H',
