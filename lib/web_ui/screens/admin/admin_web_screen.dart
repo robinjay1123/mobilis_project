@@ -6622,6 +6622,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       title: 'OR Document',
                                       url: orUrl,
                                       isDark: isDark,
+                                      context: context,
                                     ),
                                   ),
                                 if (crUrl.isNotEmpty)
@@ -6631,6 +6632,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       title: 'CR Document',
                                       url: crUrl,
                                       isDark: isDark,
+                                      context: context,
                                     ),
                                   ),
                                 if (vehiclePhotoUrl.isNotEmpty)
@@ -6640,6 +6642,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       title: 'Vehicle Photo',
                                       url: vehiclePhotoUrl,
                                       isDark: isDark,
+                                      context: context,
                                     ),
                                   ),
                               ],
@@ -7035,19 +7038,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   itemCount: photoUrls.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(width: 12),
-                                  itemBuilder: (context, index) => ClipRRect(
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Container(
-                                      width: 220,
-                                      color: isDark
-                                          ? AppColors.darkBg
-                                          : Colors.grey.shade100,
-                                      child: OptimizedNetworkImage(
-                                        imageUrl: photoUrls[index],
-                                        fit: BoxFit.cover,
-                                        errorWidget: const Center(
-                                          child: Icon(
-                                            Icons.image_not_supported_outlined,
+                                  itemBuilder: (context, index) => InkWell(
+                                    onTap: () => _showImageLightbox(
+                                      context,
+                                      'Vehicle Photo ${index + 1}',
+                                      photoUrls[index],
+                                      isDark,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Container(
+                                        width: 220,
+                                        color: isDark
+                                            ? AppColors.darkBg
+                                            : Colors.grey.shade100,
+                                        child: OptimizedNetworkImage(
+                                          imageUrl: photoUrls[index],
+                                          fit: BoxFit.cover,
+                                          errorWidget: const Center(
+                                            child: Icon(
+                                              Icons.image_not_supported_outlined,
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -7089,6 +7100,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                   ?.toString() ??
                                               '',
                                           isDark: isDark,
+                                          context: context,
                                         ),
                                       ),
                                     if ((record['cr_document_url'] ?? '')
@@ -7103,6 +7115,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                   ?.toString() ??
                                               '',
                                           isDark: isDark,
+                                          context: context,
                                         ),
                                       ),
                                   ],
