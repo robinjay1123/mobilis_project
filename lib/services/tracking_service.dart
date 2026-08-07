@@ -348,7 +348,6 @@ class TrackingService {
             model,
             owner_id,
             owner_role,
-            is_partner_vehicle,
             partner_vehicle_id
           )
         ''')
@@ -536,7 +535,6 @@ class TrackingService {
                 plate_number,
                 owner_id,
                 operator_id,
-                is_partner_vehicle,
                 partner_vehicle_id,
                 owner:owner_id (id, role)
               ),
@@ -588,7 +586,6 @@ class TrackingService {
                 plate_number,
                 owner_id,
                 operator_id,
-                is_partner_vehicle,
                 partner_vehicle_id,
                 owner:owner_id (id, role)
               ),
