@@ -1276,6 +1276,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             *,
             vehicles:vehicle_id (id, brand, model, year, plate_number, owner_id, operator_id),
             renter:renter_id (id, full_name, email),
+            users:user_id (id, full_name, email),
             drivers:drivers!bookings_driver_id_fkey (
               id,
               user_id,
@@ -3197,18 +3198,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ),
       ],
       rows: _allBookings.take(6).map((booking) {
-        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-        final user = booking['users'] as Map<String, dynamic>?;
+        final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ??
+            (booking['vehicle'] as Map<String, dynamic>?);
+        final renterMap = (booking['renter'] as Map<String, dynamic>?) ??
+            (booking['users'] as Map<String, dynamic>?) ??
+            (booking['user'] as Map<String, dynamic>?);
+        final renterName = (renterMap?['full_name'] as String?)?.isNotEmpty == true
+            ? renterMap!['full_name'] as String
+            : ((renterMap?['name'] as String?)?.isNotEmpty == true
+                ? renterMap!['name'] as String
+                : ((booking['renter_name'] as String?)?.isNotEmpty == true
+                    ? booking['renter_name'] as String
+                    : ((booking['user_name'] as String?)?.isNotEmpty == true
+                        ? booking['user_name'] as String
+                        : 'Unknown Renter')));
+        final vehicleTitle = vehicle != null
+            ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+            : (booking['vehicle_name'] ?? 'Unknown Vehicle').toString();
         final status = booking['status'] as String? ?? 'pending';
-        final total = (booking['total_cost'] as num?)?.toDouble() ?? 0;
+        final total = (booking['total_cost'] as num?)?.toDouble() ??
+            (booking['amount'] as num?)?.toDouble() ??
+            0;
 
         return DataRow(
           cells: [
             DataCell(
               Text(
-                vehicle != null
-                    ? '${vehicle['brand']} ${vehicle['model']}'
-                    : 'Unknown',
+                vehicleTitle.isNotEmpty ? vehicleTitle : 'Unknown Vehicle',
                 style: TextStyle(
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
@@ -3216,7 +3232,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
             DataCell(
               Text(
-                user?['full_name'] ?? 'Unknown',
+                renterName,
                 style: TextStyle(
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
