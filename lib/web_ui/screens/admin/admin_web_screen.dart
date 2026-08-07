@@ -2953,28 +2953,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           ),
           const SizedBox(height: 25),
-          
-          // System Status Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkCard : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildSystemStatusItem('Database Server', 'Connected', Colors.green, isDark),
-                _buildSystemStatusItem('Auth Service', 'Active', Colors.green, isDark),
-                _buildSystemStatusItem('Secure Storage', 'Operational', Colors.green, isDark),
-                _buildSystemStatusItem('API Gateway', 'Running', Colors.green, isDark),
-              ],
-            ),
-          ),
-          const SizedBox(height: 25),
 
           // Stats Grid
           GridView.count(
@@ -3058,12 +3036,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               const SizedBox(width: 20),
               Expanded(
                 child: _buildCard(
-                  'User Growth Analytics',
+                  'Booking Status Distribution',
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Monthly trend of registered renters and partners',
+                        'Real-time breakdown of bookings by status',
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark ? Colors.white54 : Colors.grey.shade600,
@@ -3072,7 +3050,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       const SizedBox(height: 24),
                       SizedBox(
                         height: 220,
-                        child: _buildUserGrowthChart(isDark),
+                        child: _buildRevenueChart(isDark),
                       ),
                     ],
                   ),
