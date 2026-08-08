@@ -11653,126 +11653,160 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ],
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.fact_check_rounded,
-                    color: AppColors.primary,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.fact_check_rounded,
+                        color: AppColors.primary,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Action & Audit Logs',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.green.withValues(alpha: 0.5),
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.circle,
-                                  color: Colors.green,
-                                  size: 8,
+                          Row(
+                            children: [
+                              const Text(
+                                'Action & Audit Logs',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                SizedBox(width: 6),
-                                Text(
-                                  'REALTIME',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                              ),
+                              const SizedBox(width: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.green.withValues(alpha: 0.5),
                                   ),
                                 ),
-                              ],
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.circle,
+                                      color: Colors.green,
+                                      size: 8,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'REALTIME',
+                                      style: TextStyle(
+                                        color: Colors.green,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Audit trail of all booking approvals, driver assignments, renter requests, partner actions, inspections, and payment confirmations.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Audit trail of all booking approvals, driver assignments, renter requests, partner actions, inspections, and payment confirmations.',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Filters row
-          Row(
-            children: [
-              // Search Input
-              Expanded(
-                child: TextField(
+                const SizedBox(height: 16),
+                Divider(
+                  height: 1,
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+                const SizedBox(height: 16),
+                TextField(
                   onChanged: (val) =>
                       setState(() => _actionLogSearchQuery = val),
-                  style: const TextStyle(fontSize: 13),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 13,
+                  ),
                   decoration: InputDecoration(
                     hintText: 'Search by Booking ID, Actor, Renter, Driver...',
-                    prefixIcon: const Icon(Icons.search, size: 18),
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.white38 : Colors.grey.shade500,
+                      fontSize: 13,
+                    ),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 18),
                     filled: true,
-                    fillColor: isDark
-                        ? AppColors.darkBgSecondary
-                        : Colors.grey.shade100,
+                    fillColor: isDark ? Colors.black26 : Colors.grey.shade100,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 12,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                      borderSide: BorderSide(
+                        color: isDark ? Colors.white10 : Colors.grey.shade300,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark ? Colors.white10 : Colors.grey.shade300,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-
-              // Category chips
-              Wrap(
-                spacing: 8,
-                children: [
-                  _buildActionLogCategoryChip('all', 'All Activity', isDark),
-                  _buildActionLogCategoryChip('approvals', 'Approvals', isDark),
-                  _buildActionLogCategoryChip('drivers', 'Driver Assign', isDark),
-                  _buildActionLogCategoryChip('renters', 'Renter Requests', isDark),
-                  _buildActionLogCategoryChip('payments', 'Returns & Payment', isDark),
-                ],
-              ),
-            ],
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildActionLogCategoryChip('all', 'All Activity', isDark),
+                    _buildActionLogCategoryChip(
+                      'approvals',
+                      'Approvals',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'drivers',
+                      'Driver Assignments',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'renters',
+                      'Renter Requests',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'payments',
+                      'Returns & Payments',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'verifications',
+                      'Verifications',
+                      isDark,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -11830,20 +11864,34 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     bool isDark,
   ) {
     final isSelected = _actionLogCategoryFilter == key;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => _actionLogCategoryFilter = key);
-        }
-      },
-      selectedColor: AppColors.primary,
-      backgroundColor: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.black : (isDark ? Colors.white : Colors.black87),
-        fontSize: 12,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+    return InkWell(
+      onTap: () => setState(() => _actionLogCategoryFilter = key),
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.2)
+              : (isDark ? Colors.black26 : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? Colors.white10 : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected
+                ? AppColors.primary
+                : (isDark ? Colors.white70 : Colors.black87),
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
       ),
     );
   }
