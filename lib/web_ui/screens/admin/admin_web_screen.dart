@@ -3056,7 +3056,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         const SizedBox(height: 20),
                         _buildBookingStatusChartWithLegend(
                           isDark,
-                          chartHeight: 220,
+                          chartHeight: 180,
                         ),
                       ],
                     ),
@@ -3265,8 +3265,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return Column(
       children: [
-        DataTable(
-          columns: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: DataTable(
+                  horizontalMargin: 16,
+                  columnSpacing: 32,
+                  columns: [
             DataColumn(
               label: Text(
                 'Vehicle',
@@ -3291,8 +3299,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
               ),
             ),
-          ],
-          rows: pageBookings.map((booking) {
+                  ],
+                  rows: pageBookings.map((booking) {
             final vehicle =
                 (booking['vehicles'] as Map<String, dynamic>?) ??
                 (booking['vehicle'] as Map<String, dynamic>?);
@@ -3350,7 +3358,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ],
             );
-          }).toList(),
+                  }).toList(),
+                ),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 12),
         Divider(
@@ -9105,7 +9117,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               Expanded(
                 child: _buildCard(
                   'Booking Status Distribution',
-                  _buildBookingStatusChartWithLegend(isDark, chartHeight: 190),
+                  _buildBookingStatusChartWithLegend(isDark, chartHeight: 180),
                   isDark,
                 ),
               ),
@@ -9262,7 +9274,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
     }
 
-    return PieChart(PieChartData(centerSpaceRadius: 60, sections: statusData));
+    return PieChart(PieChartData(centerSpaceRadius: 38, sections: statusData));
   }
 
   Widget _buildBookingStatusChartWithLegend(
@@ -9338,7 +9350,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         color: bookingStatusColor(group),
         value: percentage,
         title: '${percentage.toStringAsFixed(0)}%',
-        radius: 80,
+        radius: 52,
         titleStyle: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
