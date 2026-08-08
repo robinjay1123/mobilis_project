@@ -404,7 +404,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     try {
       // Analyze message for off-platform transaction attempts
-      final analysis = MessageFilterService.analyzeMessage(messageContent);
+      final analysis = await MessageFilterService.analyzeMessageWithFilters(
+        messageContent,
+      );
 
       // Show warning if suspicious
       if (analysis['is_suspicious']) {

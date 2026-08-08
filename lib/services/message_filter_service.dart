@@ -63,6 +63,22 @@ class MessageFilterService {
     required String messageContent,
   }) async {
     try {
+      final existing = await supabase
+          .from('message_flags')
+          .select()
+          .eq('message_id', messageId)
+          .maybeSingle();
+      if (existing != null) {
+        return {
+          'success': true,
+          'flagged': true,
+          'reason': existing['flag_reason']?.toString() ?? flagReason,
+          'data': existing,
+        };
+      }
+
+      final analysis = await analyzeMessageWithFilters(messageContent);
+
       // Create flag record
       final response = await supabase
           .from('message_flags')
@@ -72,6 +88,8 @@ class MessageFilterService {
             'sender_id': senderId,
             'flag_reason': flagReason,
             'message_content': messageContent,
+            'risk_score': analysis['risk_score'],
+            'risk_level': analysis['risk_level'],
             'status': 'pending_review',
             'created_at': DateTime.now().toIso8601String(),
           })
@@ -140,12 +158,67 @@ class MessageFilterService {
         : 'low';
 
     return {
-      'is_suspicious': riskScore >= 0.5,
+      'is_suspicious': foundKeywords.isNotEmpty,
       'risk_score': riskScore,
       'risk_level': riskLevel,
       'found_keywords': foundKeywords,
-      'should_flag': riskScore >= 0.5,
+      'should_flag': foundKeywords.isNotEmpty,
     };
+  }
+
+  /// Analyze built-in safety patterns together with words managed by admins.
+  static Future<Map<String, dynamic>> analyzeMessageWithFilters(
+    String messageContent,
+  ) async {
+    final analysis = Map<String, dynamic>.from(analyzeMessage(messageContent));
+    final filterCheck = await checkMessageAgainstFilterWords(messageContent);
+    final customWords = List<String>.from(
+      filterCheck['found_words'] as List? ?? const <String>[],
+    );
+    final keywords = List<String>.from(
+      analysis['found_keywords'] as List? ?? const <String>[],
+    );
+
+    for (final word in customWords) {
+      if (!keywords.contains(word)) keywords.add(word);
+    }
+
+    var riskScore = (analysis['risk_score'] as num?)?.toDouble() ?? 0;
+    if (customWords.isNotEmpty) riskScore += 0.5;
+    if (riskScore > 1) riskScore = 1;
+
+    final riskLevel = riskScore >= 0.5
+        ? 'high'
+        : riskScore >= 0.25
+        ? 'medium'
+        : 'low';
+
+    return {
+      'is_suspicious': keywords.isNotEmpty,
+      'risk_score': riskScore,
+      'risk_level': riskLevel,
+      'found_keywords': keywords,
+      'should_flag': keywords.isNotEmpty,
+    };
+  }
+
+  /// Load message flags for the moderation queue, including sender details.
+  static Future<List<Map<String, dynamic>>> getFlags({String? status}) async {
+    var query = supabase
+        .from('message_flags')
+        .select(
+          'id, message_id, conversation_id, sender_id, flag_reason, '
+          'message_content, risk_score, risk_level, status, admin_notes, '
+          'created_at, reviewed_at, '
+          'sender:users!message_flags_sender_id_fkey('
+          'id, name, full_name, email, role, off_platform_flag_count, is_blocked)',
+        );
+    if (status != null && status.isNotEmpty) {
+      query = query.eq('status', status);
+    }
+
+    final response = await query.order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(response);
   }
 
   /// Get user's flag history
@@ -298,6 +371,10 @@ class MessageFilterService {
     required String adminNotes,
   }) async {
     try {
+      if (!{'approve', 'dismiss', 'block_user'}.contains(action)) {
+        return {'success': false, 'error': 'Unsupported review action'};
+      }
+
       final response = await supabase
           .from('message_flags')
           .update({
