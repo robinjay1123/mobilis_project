@@ -102,6 +102,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   // Vehicles tab & search state
   String _vehicleTabFilter = 'all'; // 'all', 'psdc', 'partner'
   String _vehicleSearchQuery = '';
+  String _vehicleViewMode = 'cards'; // 'cards' vs 'table'
 
   Future<void> _loadLastSeenCounts() async {
     try {
@@ -4490,6 +4491,50 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 14),
+
+                    // View Mode Toggle
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.black26 : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white10
+                              : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: 'Grid View',
+                            icon: const Icon(Icons.grid_view_rounded, size: 18),
+                            color: _vehicleViewMode == 'cards'
+                                ? AppColors.primary
+                                : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                            onPressed: () =>
+                                setState(() => _vehicleViewMode = 'cards'),
+                          ),
+                          IconButton(
+                            tooltip: 'Table View',
+                            icon: const Icon(
+                              Icons.table_rows_rounded,
+                              size: 18,
+                            ),
+                            color: _vehicleViewMode == 'table'
+                                ? AppColors.primary
+                                : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
+                            onPressed: () =>
+                                setState(() => _vehicleViewMode = 'table'),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
 
@@ -4565,36 +4610,247 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   : _vehicleTabFilter == 'partner'
                       ? 'Partner Fleet Vehicles (${filteredVehicles.length})'
                       : 'All Vehicles Fleet (${filteredVehicles.length})',
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const spacing = 16.0;
-                  final crossAxisCount = constraints.maxWidth >= 1200
-                      ? 3
-                      : constraints.maxWidth >= 760
-                          ? 2
-                          : 1;
-                  final cardWidth = (constraints.maxWidth -
-                          (spacing * (crossAxisCount - 1))) /
-                      crossAxisCount;
-
-                  return Wrap(
-                    spacing: spacing,
-                    runSpacing: spacing,
-                    children: filteredVehicles
-                        .map(
-                          (vehicle) => SizedBox(
-                            width: cardWidth,
-                            child: _buildAdminVehicleCard(vehicle, isDark),
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
-              ),
+              _vehicleViewMode == 'cards'
+                  ? _buildAdminVehiclesGrid(filteredVehicles, isDark)
+                  : _buildAdminVehiclesTable(filteredVehicles, isDark),
               isDark,
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAdminVehiclesGrid(
+    List<Map<String, dynamic>> vehicles,
+    bool isDark,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 16.0;
+        final columns = constraints.maxWidth >= 1200
+            ? 3
+            : constraints.maxWidth >= 760
+            ? 2
+            : 1;
+        final rows = <Widget>[];
+
+        for (var start = 0; start < vehicles.length; start += columns) {
+          final end = (start + columns).clamp(0, vehicles.length);
+          rows.add(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var index = start; index < end; index++) ...[
+                  if (index > start) const SizedBox(width: spacing),
+                  Expanded(
+                    child: _buildAdminVehicleCard(vehicles[index], isDark),
+                  ),
+                ],
+              ],
+            ),
+          );
+          if (end < vehicles.length) {
+            rows.add(const SizedBox(height: spacing));
+          }
+        }
+
+        return Column(children: rows);
+      },
+    );
+  }
+
+  Widget _buildAdminVehiclesTable(
+    List<Map<String, dynamic>> vehicles,
+    bool isDark,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: DataTable(
+              horizontalMargin: 16,
+              columnSpacing: 28,
+              columns: [
+                DataColumn(
+                  label: Text(
+                    'Vehicle',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Fleet',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Owner / Operator',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Specifications',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Daily Rate',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Availability',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+                DataColumn(
+                  label: Text(
+                    'Actions',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                ),
+              ],
+              rows: vehicles.map((vehicle) {
+                final owner = vehicle['owner'] as Map<String, dynamic>?;
+                final source =
+                    vehicle['source']?.toString().toLowerCase() ?? 'company';
+                final isPartner =
+                    source == 'partner' || vehicle['is_partner_vehicle'] == true;
+                final ownerName =
+                    owner?['full_name']?.toString().trim().isNotEmpty == true
+                    ? owner!['full_name'].toString().trim()
+                    : (vehicle['partner_name']?.toString().trim().isNotEmpty ==
+                              true
+                          ? vehicle['partner_name'].toString().trim()
+                          : (isPartner
+                                ? 'Mobilis Partner'
+                                : 'Unknown Operator'));
+                final brand =
+                    vehicle['brand']?.toString().trim().isNotEmpty == true
+                    ? vehicle['brand'].toString().trim()
+                    : 'Unknown';
+                final model =
+                    vehicle['model']?.toString().trim().isNotEmpty == true
+                    ? vehicle['model'].toString().trim()
+                    : 'Model';
+                final plate =
+                    vehicle['plate_number']?.toString().trim().isNotEmpty ==
+                        true
+                    ? vehicle['plate_number'].toString().trim()
+                    : 'No plate';
+                final year = vehicle['year']?.toString() ?? 'N/A';
+                final transmission =
+                    vehicle['transmission']?.toString() ?? 'Manual';
+                final seats = vehicle['seats']?.toString() ?? '5';
+                final pricePerDay =
+                    (vehicle['price_per_day'] as num?)?.toDouble() ?? 0;
+                final posted = isPartner
+                    ? vehicle['is_available'] == true
+                    : vehicle['is_posted'] == true;
+
+                return DataRow(
+                  onSelectChanged: (_) =>
+                      _showAdminVehicleDetailsDialog(vehicle, isDark),
+                  cells: [
+                    DataCell(
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$brand $model',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            plate,
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    DataCell(
+                      _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
+                    ),
+                    DataCell(
+                      Text(
+                        ownerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      Text(
+                        '$year  •  $transmission  •  $seats seats',
+                        style: TextStyle(
+                          color: isDark ? Colors.white70 : Colors.black87,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      Text(
+                        'PHP ${pricePerDay.toStringAsFixed(0)}',
+                        style: const TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    DataCell(_buildPostedBadge(posted, isDark)),
+                    DataCell(
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _showAdminVehicleDetailsDialog(vehicle, isDark),
+                        icon: const Icon(Icons.visibility_rounded, size: 16),
+                        label: const Text('View'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: BorderSide(
+                            color: AppColors.primary.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -6173,10 +6429,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   ) {
     return _buildCard(
       'Bookings Master Table (${sortedBookings.length})',
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: [
+      LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: DataTable(
+                horizontalMargin: 16,
+                columnSpacing: 32,
+                columns: [
             DataColumn(
               label: Text(
                 'Booking ID',
@@ -6213,8 +6475,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
               ),
             ),
-          ],
-          rows: sortedBookings.map((booking) {
+                ],
+                rows: sortedBookings.map((booking) {
             final bookingId = booking['id']?.toString() ?? 'N/A';
             final refCode = bookingId.length > 8
                 ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
@@ -6287,8 +6549,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
               ],
             );
-          }).toList(),
-        ),
+                }).toList(),
+              ),
+            ),
+          );
+        },
       ),
       isDark,
     );
