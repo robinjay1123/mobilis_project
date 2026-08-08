@@ -163,19 +163,171 @@ class AdminService {
   }
 
   Future<List<Map<String, dynamic>>> getRecentAnnouncements({
-    int limit = 20,
+    int limit = 250,
   }) async {
     try {
+      try {
+        final processed = await supabase.rpc(
+          'process_scheduled_announcements',
+        );
+        if (processed is num && processed > 0) {
+          try {
+            await supabase.functions.invoke('send-push-queue');
+          } catch (e) {
+            debugPrint('Scheduled announcement push dispatch skipped: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('Scheduled announcement processing fallback skipped: $e');
+      }
+
       final response = await supabase
           .from('announcements')
-          .select('id, admin_id, title, message, target_role, created_at')
-          .order('created_at', ascending: false)
+          .select(
+            'id, admin_id, title, message, target_role, announcement_type, status, scheduled_at, published_at, expires_at, cancelled_at, completed_at, created_at, updated_at',
+          )
+          .order('scheduled_at', ascending: false, nullsFirst: false)
           .limit(limit);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error loading announcements: $e');
-      return [];
+      try {
+        final legacyResponse = await supabase
+            .from('announcements')
+            .select('id, admin_id, title, message, target_role, created_at')
+            .order('created_at', ascending: false)
+            .limit(limit);
+        return List<Map<String, dynamic>>.from(legacyResponse)
+            .map(
+              (announcement) => {
+                ...announcement,
+                'announcement_type': 'general',
+                'status': 'active',
+                'published_at': announcement['created_at'],
+              },
+            )
+            .toList();
+      } catch (legacyError) {
+        debugPrint('Legacy announcement load failed: $legacyError');
+        return [];
+      }
     }
+  }
+
+  Future<Map<String, dynamic>> createAnnouncement({
+    required String title,
+    required String message,
+    required String announcementType,
+    required DateTime scheduledAt,
+    String targetRole = 'all',
+  }) async {
+    final adminId = supabase.auth.currentUser?.id;
+    final now = DateTime.now().toUtc();
+    final scheduledUtc = scheduledAt.toUtc();
+    final publishImmediately = !scheduledUtc.isAfter(
+      now.add(const Duration(seconds: 30)),
+    );
+    final normalizedRole = targetRole.trim().toLowerCase();
+    final normalizedType = announcementType.trim().toLowerCase();
+
+    final announcement = await supabase
+        .from('announcements')
+        .insert({
+          'admin_id': adminId,
+          'title': title,
+          'message': message,
+          'target_role': normalizedRole,
+          'announcement_type': normalizedType,
+          'status': publishImmediately ? 'active' : 'scheduled',
+          'scheduled_at': scheduledUtc.toIso8601String(),
+          'published_at': publishImmediately ? now.toIso8601String() : null,
+          'updated_at': now.toIso8601String(),
+        })
+        .select()
+        .single();
+
+    var delivered = 0;
+    if (publishImmediately) {
+      delivered = await NotificationService().broadcastAnnouncement(
+        title: title,
+        message: message,
+        targetRole: normalizedRole,
+        announcementId: announcement['id']?.toString(),
+      );
+      await supabase
+          .from('announcements')
+          .update({'notification_delivered_at': now.toIso8601String()})
+          .eq('id', announcement['id']);
+    }
+
+    return {
+      'announcement': Map<String, dynamic>.from(announcement),
+      'delivered': delivered,
+      'scheduled': !publishImmediately,
+    };
+  }
+
+  Future<void> updateScheduledAnnouncement({
+    required String announcementId,
+    required String title,
+    required String message,
+    required String announcementType,
+    required DateTime scheduledAt,
+    String targetRole = 'all',
+  }) async {
+    await supabase
+        .from('announcements')
+        .update({
+          'title': title,
+          'message': message,
+          'announcement_type': announcementType.trim().toLowerCase(),
+          'target_role': targetRole.trim().toLowerCase(),
+          'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+          'status': 'scheduled',
+          'published_at': null,
+          'cancelled_at': null,
+          'completed_at': null,
+          'notification_delivered_at': null,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', announcementId)
+        .eq('status', 'scheduled');
+
+    try {
+      await supabase.rpc('process_scheduled_announcements');
+    } catch (e) {
+      debugPrint('Announcement due-date processing skipped after update: $e');
+    }
+  }
+
+  Future<void> cancelScheduledAnnouncement(String announcementId) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase
+        .from('announcements')
+        .update({
+          'status': 'cancelled',
+          'cancelled_at': now,
+          'updated_at': now,
+        })
+        .eq('id', announcementId)
+        .eq('status', 'scheduled');
+  }
+
+  Future<void> completeAnnouncement(String announcementId) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    await supabase
+        .from('announcements')
+        .update({
+          'status': 'completed',
+          'completed_at': now,
+          'updated_at': now,
+        })
+        .eq('id', announcementId)
+        .eq('status', 'active');
+  }
+
+  Future<void> deleteAnnouncement(String announcementId) async {
+    await supabase.from('announcements').delete().eq('id', announcementId);
   }
 
   Future<int> publishAnnouncement({
@@ -191,6 +343,10 @@ class AdminService {
           'title': title,
           'message': message,
           'target_role': targetRole.trim().toLowerCase(),
+          'announcement_type': 'general',
+          'status': 'active',
+          'scheduled_at': DateTime.now().toUtc().toIso8601String(),
+          'published_at': DateTime.now().toUtc().toIso8601String(),
         })
         .select('id')
         .single();

@@ -11,6 +11,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:intl/intl.dart';
+import 'package:table_calendar/table_calendar.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
@@ -75,6 +77,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String? _focusedTrackingBookingId;
   Timer? _trackingRefreshTimer;
   List<Map<String, dynamic>> _announcements = [];
+  Timer? _announcementRefreshTimer;
   List<Map<String, dynamic>> _supportConversations = [];
   final Map<String, List<Map<String, dynamic>>> _supportMessages = {};
   String? _selectedSupportConversationId;
@@ -180,6 +183,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       TextEditingController();
   final TextEditingController _supportReplyController = TextEditingController();
   String _announcementTargetRole = 'all';
+  String _announcementType = 'maintenance';
+  DateTime _announcementScheduledAt = DateTime.now().add(
+    const Duration(hours: 1),
+  );
+  DateTime _announcementFocusedDay = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+  DateTime _announcementSelectedDay = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+  bool _isAnnouncementEditorOpen = false;
+  Map<String, dynamic>? _editingAnnouncement;
   bool _isSendingAnnouncement = false;
 
   final _supabase = Supabase.instance.client;
@@ -205,12 +224,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       const Duration(seconds: 10),
       (_) => _loadActionLogs(showLoading: false),
     );
+    _announcementRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshAnnouncementsIfVisible(),
+    );
   }
 
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
     _actionLogsRefreshTimer?.cancel();
+    _announcementRefreshTimer?.cancel();
     _actionLogsSubscription?.unsubscribe();
     _supportMessagesSubscription?.unsubscribe();
     _supportTypingChannel?.unsubscribe();
@@ -463,6 +487,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Future<void> _loadAnnouncements() async {
     _announcements = await AdminService().getRecentAnnouncements();
+  }
+
+  Future<void> _refreshAnnouncementsIfVisible() async {
+    if (!mounted || _selectedIndex != 9) return;
+    await _loadAnnouncements();
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadSupportInbox() async {
@@ -746,7 +776,76 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
-  Future<void> _sendAnnouncement() async {
+  void _openAnnouncementEditor([Map<String, dynamic>? announcement]) {
+    final scheduled = announcement == null
+        ? DateTime.now().add(const Duration(hours: 1))
+        : _announcementDate(announcement).toLocal();
+    _announcementTitleController.text =
+        announcement?['title']?.toString() ?? '';
+    _announcementMessageController.text =
+        announcement?['message']?.toString() ?? '';
+    setState(() {
+      _editingAnnouncement = announcement;
+      _announcementType =
+          announcement?['announcement_type']?.toString() ?? 'maintenance';
+      _announcementTargetRole =
+          announcement?['target_role']?.toString() ?? 'all';
+      _announcementScheduledAt = scheduled;
+      _isAnnouncementEditorOpen = true;
+    });
+  }
+
+  void _closeAnnouncementEditor() {
+    _announcementTitleController.clear();
+    _announcementMessageController.clear();
+    setState(() {
+      _editingAnnouncement = null;
+      _isAnnouncementEditorOpen = false;
+      _announcementType = 'maintenance';
+      _announcementTargetRole = 'all';
+      _announcementScheduledAt = DateTime.now().add(
+        const Duration(hours: 1),
+      );
+    });
+  }
+
+  Future<void> _pickAnnouncementDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _announcementScheduledAt,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 3)),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _announcementScheduledAt = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        _announcementScheduledAt.hour,
+        _announcementScheduledAt.minute,
+      );
+    });
+  }
+
+  Future<void> _pickAnnouncementTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_announcementScheduledAt),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _announcementScheduledAt = DateTime(
+        _announcementScheduledAt.year,
+        _announcementScheduledAt.month,
+        _announcementScheduledAt.day,
+        picked.hour,
+        picked.minute,
+      );
+    });
+  }
+
+  Future<void> _saveAnnouncement() async {
     final title = _announcementTitleController.text.trim();
     final message = _announcementMessageController.text.trim();
     if (title.isEmpty || message.isEmpty) {
@@ -758,23 +857,58 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
       return;
     }
+    if (!_announcementScheduledAt.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Scheduled date and time must be in the future'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isSendingAnnouncement = true);
     try {
-      final delivered = await AdminService().publishAnnouncement(
-        title: title,
-        message: message,
-        targetRole: _announcementTargetRole,
-      );
+      final editingId = _editingAnnouncement?['id']?.toString();
+      if (editingId == null) {
+        await AdminService().createAnnouncement(
+          title: title,
+          message: message,
+          announcementType: _announcementType,
+          scheduledAt: _announcementScheduledAt,
+          targetRole: _announcementTargetRole,
+        );
+      } else {
+        await AdminService().updateScheduledAnnouncement(
+          announcementId: editingId,
+          title: title,
+          message: message,
+          announcementType: _announcementType,
+          scheduledAt: _announcementScheduledAt,
+          targetRole: _announcementTargetRole,
+        );
+      }
       await _loadAnnouncements();
       if (!mounted) return;
+      final selectedDate = DateTime(
+        _announcementScheduledAt.year,
+        _announcementScheduledAt.month,
+        _announcementScheduledAt.day,
+      );
       _announcementTitleController.clear();
       _announcementMessageController.clear();
-      setState(() {});
+      setState(() {
+        _announcementSelectedDay = selectedDate;
+        _announcementFocusedDay = selectedDate;
+        _editingAnnouncement = null;
+        _isAnnouncementEditorOpen = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Announcement sent to $delivered ${_announcementTargetRole == 'all' ? 'users' : '$_announcementTargetRole users'}',
+            editingId == null
+                ? 'Announcement scheduled for ${_formatAnnouncementDateTime(_announcementScheduledAt)}'
+                : 'Announcement schedule updated',
           ),
           backgroundColor: AppColors.success,
         ),
@@ -792,6 +926,105 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         setState(() => _isSendingAnnouncement = false);
       }
     }
+  }
+
+  Future<void> _cancelAnnouncement(Map<String, dynamic> announcement) async {
+    final confirmed = await _confirmAnnouncementAction(
+      title: 'Cancel scheduled announcement?',
+      message:
+          'This prevents "${announcement['title']}" from being published.',
+      confirmLabel: 'Cancel announcement',
+      destructive: true,
+    );
+    if (!confirmed) return;
+    await _runAnnouncementAction(
+      () => AdminService().cancelScheduledAnnouncement(
+        announcement['id'].toString(),
+      ),
+      'Announcement cancelled',
+    );
+  }
+
+  Future<void> _completeAnnouncement(Map<String, dynamic> announcement) async {
+    final confirmed = await _confirmAnnouncementAction(
+      title: 'Mark announcement completed?',
+      message:
+          '"${announcement['title']}" will move out of the active announcements list.',
+      confirmLabel: 'Mark completed',
+    );
+    if (!confirmed) return;
+    await _runAnnouncementAction(
+      () => AdminService().completeAnnouncement(announcement['id'].toString()),
+      'Announcement marked completed',
+    );
+  }
+
+  Future<void> _deleteAnnouncement(Map<String, dynamic> announcement) async {
+    final confirmed = await _confirmAnnouncementAction(
+      title: 'Delete announcement?',
+      message:
+          'This permanently deletes "${announcement['title']}". This action cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (!confirmed) return;
+    await _runAnnouncementAction(
+      () => AdminService().deleteAnnouncement(announcement['id'].toString()),
+      'Announcement deleted',
+    );
+  }
+
+  Future<void> _runAnnouncementAction(
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    try {
+      await action();
+      await _loadAnnouncements();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage), backgroundColor: AppColors.success),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update announcement: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<bool> _confirmAnnouncementAction({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool destructive = false,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: destructive ? AppColors.error : AppColors.primary,
+              foregroundColor: destructive ? Colors.white : Colors.black,
+            ),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   Future<void> _loadRentalTerms() async {
@@ -10124,38 +10357,253 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildAnnouncementsContent(bool isDark) {
-    const roles = ['all', 'renter', 'driver', 'partner', 'operator'];
+    if (_isAnnouncementEditorOpen) {
+      return _buildAnnouncementEditor(isDark);
+    }
+    return _buildAnnouncementsOverview(isDark);
+  }
+
+  Widget _buildAnnouncementsOverview(bool isDark) {
+    final selectedAnnouncements = _announcements
+        .where(
+          (announcement) => isSameDay(
+            _announcementDate(announcement),
+            _announcementSelectedDay,
+          ),
+        )
+        .toList()
+      ..sort(
+        (a, b) => _announcementDate(a).compareTo(_announcementDate(b)),
+      );
+    final statusCounts = <String, int>{
+      'scheduled': 0,
+      'active': 0,
+      'completed': 0,
+      'cancelled': 0,
+    };
+    for (final announcement in _announcements) {
+      final status = _announcementStatus(announcement);
+      statusCounts[status] = (statusCounts[status] ?? 0) + 1;
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF021F35) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.35),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.campaign_rounded,
+                        color: AppColors.primary,
+                        size: 25,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Announcement Management',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          const Text(
+                            'Plan maintenance notices, system updates, and important announcements from one calendar.',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _openAnnouncementEditor,
+                      icon: const Icon(Icons.add_rounded, size: 20),
+                      label: const Text('Add Announcement'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(
+                  height: 1,
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
+                    _buildAnnouncementSummaryBadge(
+                      'Scheduled',
+                      statusCounts['scheduled'] ?? 0,
+                      const Color(0xFFF59E0B),
+                      Icons.schedule_rounded,
+                      isDark,
+                    ),
+                    _buildAnnouncementSummaryBadge(
+                      'Active',
+                      statusCounts['active'] ?? 0,
+                      AppColors.success,
+                      Icons.campaign_rounded,
+                      isDark,
+                    ),
+                    _buildAnnouncementSummaryBadge(
+                      'Completed',
+                      statusCounts['completed'] ?? 0,
+                      const Color(0xFF4EA5FF),
+                      Icons.task_alt_rounded,
+                      isDark,
+                    ),
+                    _buildAnnouncementSummaryBadge(
+                      'Cancelled',
+                      statusCounts['cancelled'] ?? 0,
+                      AppColors.error,
+                      Icons.cancel_outlined,
+                      isDark,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final calendar = _buildAnnouncementCalendar(isDark);
+              final dayList = _buildSelectedDayAnnouncements(
+                selectedAnnouncements,
+                isDark,
+              );
+              if (constraints.maxWidth < 1050) {
+                return Column(
+                  children: [
+                    calendar,
+                    const SizedBox(height: 20),
+                    dayList,
+                  ],
+                );
+              }
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 5, child: calendar),
+                    const SizedBox(width: 20),
+                    Expanded(flex: 7, child: dayList),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementEditor(bool isDark) {
+    const roles = ['all', 'renter', 'driver', 'partner', 'operator'];
+    const types = ['maintenance', 'general', 'system_update', 'emergency'];
+    final isEditing = _editingAnnouncement != null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: _isSendingAnnouncement
+                    ? null
+                    : _closeAnnouncementEditor,
+                tooltip: 'Back to announcements',
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isEditing
+                          ? 'Edit Scheduled Announcement'
+                          : 'Add Announcement',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      isEditing
+                          ? 'Update the content or reschedule its publication time.'
+                          : 'Create an announcement without cluttering the calendar view.',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
           _buildCard(
-            'Send Announcement',
+            'Announcement Details',
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 TextField(
                   controller: _announcementTitleController,
                   style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                  decoration: InputDecoration(
-                    labelText: 'Title',
-                    labelStyle: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: isDark
-                            ? AppColors.borderColor
-                            : Colors.grey.shade300,
-                      ),
-                    ),
-                    focusedBorder: const OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(12)),
-                      borderSide: BorderSide(color: AppColors.primary),
-                    ),
+                  decoration: _announcementInputDecoration(
+                    isDark,
+                    label: 'Announcement Title',
+                    hint: 'e.g. Scheduled Maintenance Notice',
+                    icon: Icons.title_rounded,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -10164,172 +10612,750 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   minLines: 4,
                   maxLines: 6,
                   style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                  decoration: InputDecoration(
-                    labelText: 'Message',
+                  decoration: _announcementInputDecoration(
+                    isDark,
+                    label: 'Announcement Description / Message',
+                    hint: 'Explain what users need to know...',
+                    icon: Icons.notes_rounded,
                     alignLabelWithHint: true,
-                    labelStyle: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: isDark
-                            ? AppColors.borderColor
-                            : Colors.grey.shade300,
-                      ),
-                    ),
-                    focusedBorder: const OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(12)),
-                      borderSide: BorderSide(color: AppColors.primary),
-                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                Row(
                   children: [
-                    DropdownButton<String>(
-                      value: _announcementTargetRole,
-                      dropdownColor: isDark ? AppColors.darkCard : Colors.white,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                      items: roles
-                          .map(
-                            (role) => DropdownMenuItem(
-                              value: role,
-                              child: Text(
-                                role == 'all'
-                                    ? 'All users'
-                                    : '${role[0].toUpperCase()}${role.substring(1)}s',
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _announcementType,
+                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                        decoration: _announcementInputDecoration(
+                          isDark,
+                          label: 'Announcement Type',
+                          icon: Icons.category_rounded,
+                        ),
+                        items: types
+                            .map(
+                              (type) => DropdownMenuItem(
+                                value: type,
+                                child: Text(_announcementTypeLabel(type)),
                               ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _announcementTargetRole = value);
-                      },
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: _isSendingAnnouncement
-                          ? null
-                          : _sendAnnouncement,
-                      icon: _isSendingAnnouncement
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.send),
-                      label: Text(
-                        _isSendingAnnouncement
-                            ? 'Sending...'
-                            : 'Send Announcement',
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _announcementType = value);
+                          }
+                        },
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _announcementTargetRole,
+                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                        decoration: _announcementInputDecoration(
+                          isDark,
+                          label: 'Audience',
+                          icon: Icons.groups_rounded,
+                        ),
+                        items: roles
+                            .map(
+                              (role) => DropdownMenuItem(
+                                value: role,
+                                child: Text(
+                                  role == 'all'
+                                      ? 'All users'
+                                      : '${role[0].toUpperCase()}${role.substring(1)}s',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _announcementTargetRole = value);
+                          }
+                        },
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  'Publication Schedule',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'The announcement becomes active automatically at this exact date and time.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildAnnouncementSchedulePicker(
+                        label: 'Scheduled Announcement Date',
+                        value: DateFormat(
+                          'MMMM d, yyyy',
+                        ).format(_announcementScheduledAt),
+                        icon: Icons.calendar_month_rounded,
+                        onTap: _pickAnnouncementDate,
+                        isDark: isDark,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildAnnouncementSchedulePicker(
+                        label: 'Scheduled Announcement Time',
+                        value: DateFormat(
+                          'h:mm a',
+                        ).format(_announcementScheduledAt),
+                        icon: Icons.schedule_rounded,
+                        onTap: _pickAnnouncementTime,
+                        isDark: isDark,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.09),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.auto_awesome_rounded,
+                        color: AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Automatic publication: ${_formatAnnouncementDateTime(_announcementScheduledAt)}',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black87,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
             isDark,
           ),
           const SizedBox(height: 20),
-          _buildCard(
-            'Announcement History',
-            _announcements.isEmpty
-                ? Text(
-                    'No announcements sent yet.',
-                    style: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton(
+                onPressed: _isSendingAnnouncement
+                    ? null
+                    : _closeAnnouncementEditor,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: _isSendingAnnouncement ? null : _saveAnnouncement,
+                icon: _isSendingAnnouncement
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        isEditing ? Icons.save_rounded : Icons.schedule_send,
+                      ),
+                label: Text(
+                  _isSendingAnnouncement
+                      ? 'Saving...'
+                      : (isEditing
+                            ? 'Save & Reschedule'
+                            : 'Schedule Announcement'),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementCalendar(bool isDark) {
+    return _buildCard(
+      'Announcement Calendar',
+      TableCalendar<Map<String, dynamic>>(
+        firstDay: DateTime.now().subtract(const Duration(days: 365 * 3)),
+        lastDay: DateTime.now().add(const Duration(days: 365 * 3)),
+        focusedDay: _announcementFocusedDay,
+        selectedDayPredicate: (day) => isSameDay(day, _announcementSelectedDay),
+        eventLoader: (day) => _announcements
+            .where((announcement) => isSameDay(_announcementDate(announcement), day))
+            .toList(),
+        onDaySelected: (selectedDay, focusedDay) {
+          setState(() {
+            _announcementSelectedDay = selectedDay;
+            _announcementFocusedDay = focusedDay;
+          });
+        },
+        onPageChanged: (focusedDay) {
+          _announcementFocusedDay = focusedDay;
+        },
+        calendarFormat: CalendarFormat.month,
+        availableCalendarFormats: const {CalendarFormat.month: 'Month'},
+        rowHeight: 42,
+        daysOfWeekHeight: 24,
+        headerStyle: HeaderStyle(
+          formatButtonVisible: false,
+          titleCentered: true,
+          leftChevronIcon: Icon(
+            Icons.chevron_left_rounded,
+            color: isDark ? Colors.white70 : Colors.black54,
+          ),
+          rightChevronIcon: Icon(
+            Icons.chevron_right_rounded,
+            color: isDark ? Colors.white70 : Colors.black54,
+          ),
+          titleTextStyle: TextStyle(
+            color: isDark ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
+          ),
+        ),
+        daysOfWeekStyle: DaysOfWeekStyle(
+          weekdayStyle: TextStyle(
+            color: isDark ? Colors.white54 : Colors.grey.shade600,
+            fontSize: 11,
+          ),
+          weekendStyle: TextStyle(
+            color: isDark ? Colors.white38 : Colors.grey.shade500,
+            fontSize: 11,
+          ),
+        ),
+        calendarStyle: CalendarStyle(
+          outsideDaysVisible: false,
+          defaultTextStyle: TextStyle(
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+          weekendTextStyle: TextStyle(
+            color: isDark ? Colors.white54 : Colors.grey.shade700,
+          ),
+          todayDecoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+          ),
+          todayTextStyle: const TextStyle(
+            color: AppColors.primary,
+            fontWeight: FontWeight.bold,
+          ),
+          selectedDecoration: const BoxDecoration(
+            color: AppColors.primary,
+            shape: BoxShape.circle,
+          ),
+          selectedTextStyle: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+          markersMaxCount: 3,
+          markerDecoration: const BoxDecoration(
+            color: AppColors.primary,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
+      isDark,
+    );
+  }
+
+  Widget _buildSelectedDayAnnouncements(
+    List<Map<String, dynamic>> announcements,
+    bool isDark,
+  ) {
+    final dateLabel = DateFormat(
+      'EEEE, MMMM d, yyyy',
+    ).format(_announcementSelectedDay);
+    return _buildCard(
+      dateLabel,
+      announcements.isEmpty
+          ? SizedBox(
+              height: 260,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.event_available_outlined,
+                      size: 46,
+                      color: isDark ? Colors.white24 : Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No announcements on this date',
+                      style: TextStyle(
+                        color: isDark ? Colors.white54 : Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: _openAnnouncementEditor,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Schedule one'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Column(
+              children: announcements
+                  .map(
+                    (announcement) => _buildAnnouncementListCard(
+                      announcement,
+                      isDark,
                     ),
                   )
-                : Column(
-                    children: _announcements.map((announcement) {
-                      final target =
-                          announcement['target_role']?.toString() ?? 'all';
-                      return Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.black26 : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.borderColor
-                                : Colors.grey.shade300,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    announcement['title']?.toString() ??
-                                        'Announcement',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black,
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withOpacity(0.16),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    target == 'all' ? 'All users' : target,
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              announcement['message']?.toString() ?? '',
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.grey[300]
-                                    : Colors.grey.shade800,
-                                height: 1.4,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              announcement['created_at']?.toString() ?? '',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey[500]
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
+                  .toList(),
+            ),
+      isDark,
+    );
+  }
+
+  Widget _buildAnnouncementListCard(
+    Map<String, dynamic> announcement,
+    bool isDark,
+  ) {
+    final status = _announcementStatus(announcement);
+    final type = announcement['announcement_type']?.toString() ?? 'general';
+    final statusColor = _announcementStatusColor(status);
+    final typeColor = _announcementTypeColor(type);
+    final canEdit = status == 'scheduled';
+    final canComplete = status == 'active';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: typeColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  _announcementTypeIcon(type),
+                  color: typeColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      announcement['title']?.toString() ?? 'Announcement',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${_announcementTypeLabel(type)} • ${_formatAnnouncementDateTime(_announcementDate(announcement))}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white54 : Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _buildAnnouncementStatusBadge(status, statusColor),
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                tooltip: 'Announcement actions',
+                onSelected: (action) {
+                  switch (action) {
+                    case 'view':
+                      _showAnnouncementDetails(announcement, isDark);
+                      break;
+                    case 'edit':
+                      _openAnnouncementEditor(announcement);
+                      break;
+                    case 'cancel':
+                      _cancelAnnouncement(announcement);
+                      break;
+                    case 'complete':
+                      _completeAnnouncement(announcement);
+                      break;
+                    case 'delete':
+                      _deleteAnnouncement(announcement);
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(value: 'view', child: Text('View details')),
+                  if (canEdit)
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('Edit / Reschedule'),
+                    ),
+                  if (canEdit)
+                    const PopupMenuItem(
+                      value: 'cancel',
+                      child: Text('Cancel schedule'),
+                    ),
+                  if (canComplete)
+                    const PopupMenuItem(
+                      value: 'complete',
+                      child: Text('Mark completed'),
+                    ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Text('Delete', style: TextStyle(color: Colors.red)),
                   ),
-            isDark,
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            announcement['message']?.toString() ?? '',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.grey.shade800,
+              height: 1.4,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.groups_2_outlined,
+                size: 15,
+                color: isDark ? Colors.white38 : Colors.grey.shade500,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _announcementAudienceLabel(
+                  announcement['target_role']?.toString() ?? 'all',
+                ),
+                style: TextStyle(
+                  color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementSummaryBadge(
+    String label,
+    int count,
+    Color color,
+    IconData icon,
+    bool isDark,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 7),
+          Text(
+            '$label  $count',
+            style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.black87,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementStatusBadge(String status, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _announcementStatusLabel(status).toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnnouncementSchedulePicker({
+    required String label,
+    required String value,
+    required IconData icon,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.black26 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 21),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isDark ? Colors.white54 : Colors.grey.shade600,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.expand_more_rounded, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _announcementInputDecoration(
+    bool isDark, {
+    required String label,
+    String? hint,
+    required IconData icon,
+    bool alignLabelWithHint = false,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      alignLabelWithHint: alignLabelWithHint,
+      prefixIcon: Icon(icon, size: 19),
+      filled: true,
+      fillColor: isDark ? Colors.black26 : Colors.grey.shade50,
+      labelStyle: TextStyle(
+        color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+      ),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: AppColors.primary, width: 1.5),
+      ),
+    );
+  }
+
+  DateTime _announcementDate(Map<String, dynamic> announcement) {
+    for (final key in ['scheduled_at', 'published_at', 'created_at']) {
+      final parsed = DateTime.tryParse(announcement[key]?.toString() ?? '');
+      if (parsed != null) return parsed.toLocal();
+    }
+    return DateTime.now();
+  }
+
+  String _announcementStatus(Map<String, dynamic> announcement) {
+    final status = announcement['status']?.toString().toLowerCase() ?? 'active';
+    if (status == 'scheduled' && !_announcementDate(announcement).isAfter(DateTime.now())) {
+      return 'active';
+    }
+    return {'scheduled', 'active', 'completed', 'cancelled'}.contains(status)
+        ? status
+        : 'active';
+  }
+
+  String _announcementStatusLabel(String status) => switch (status) {
+    'scheduled' => 'Scheduled',
+    'active' => 'Active',
+    'completed' => 'Completed / Expired',
+    'cancelled' => 'Cancelled',
+    _ => 'Active',
+  };
+
+  Color _announcementStatusColor(String status) => switch (status) {
+    'scheduled' => const Color(0xFFF59E0B),
+    'active' => AppColors.success,
+    'completed' => const Color(0xFF4EA5FF),
+    'cancelled' => AppColors.error,
+    _ => AppColors.success,
+  };
+
+  String _announcementTypeLabel(String type) => switch (type) {
+    'maintenance' => 'Maintenance',
+    'system_update' => 'System Update',
+    'emergency' => 'Emergency / Important Notice',
+    _ => 'General Announcement',
+  };
+
+  Color _announcementTypeColor(String type) => switch (type) {
+    'maintenance' => const Color(0xFFF59E0B),
+    'system_update' => const Color(0xFF4EA5FF),
+    'emergency' => AppColors.error,
+    _ => AppColors.primary,
+  };
+
+  IconData _announcementTypeIcon(String type) => switch (type) {
+    'maintenance' => Icons.build_circle_outlined,
+    'system_update' => Icons.system_update_alt_rounded,
+    'emergency' => Icons.warning_amber_rounded,
+    _ => Icons.campaign_outlined,
+  };
+
+  String _announcementAudienceLabel(String role) {
+    if (role == 'all') return 'All users';
+    return '${role[0].toUpperCase()}${role.substring(1)}s';
+  }
+
+  String _formatAnnouncementDateTime(DateTime date) {
+    return DateFormat('MMMM d, yyyy • h:mm a').format(date.toLocal());
+  }
+
+  void _showAnnouncementDetails(
+    Map<String, dynamic> announcement,
+    bool isDark,
+  ) {
+    final status = _announcementStatus(announcement);
+    final type = announcement['announcement_type']?.toString() ?? 'general';
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: Row(
+          children: [
+            Icon(_announcementTypeIcon(type), color: _announcementTypeColor(type)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                announcement['title']?.toString() ?? 'Announcement',
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 540,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildAnnouncementStatusBadge(
+                    status,
+                    _announcementStatusColor(status),
+                  ),
+                  Chip(label: Text(_announcementTypeLabel(type))),
+                  Chip(
+                    label: Text(
+                      _announcementAudienceLabel(
+                        announcement['target_role']?.toString() ?? 'all',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                announcement['message']?.toString() ?? '',
+                style: const TextStyle(height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '${status == 'scheduled' ? 'Scheduled' : 'Announcement date'}: ${_formatAnnouncementDateTime(_announcementDate(announcement))}',
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
           ),
         ],
       ),
