@@ -4781,8 +4781,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     : vehicle['is_posted'] == true;
 
                 return DataRow(
-                  onSelectChanged: (_) =>
-                      _showAdminVehicleDetailsDialog(vehicle, isDark),
                   cells: [
                     DataCell(
                       Column(
