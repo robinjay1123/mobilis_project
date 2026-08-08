@@ -96,6 +96,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _bookingSearchQuery = '';
   String _bookingStatusFilter = 'all';
   String _bookingViewMode = 'cards'; // 'cards' vs 'table'
+  int _recentBookingsPage = 1;
+  static const int _recentBookingsPerPage = 5;
 
   // Vehicles tab & search state
   String _vehicleTabFilter = 'all'; // 'all', 'psdc', 'partner'
@@ -3022,42 +3024,46 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 30),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: _buildCard(
-                  'Recent Bookings',
-                  _buildRecentBookingsTable(isDark),
-                  isDark,
-                ),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: _buildCard(
-                  'Booking Status Distribution',
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Real-time breakdown of bookings by status',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white54 : Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        height: 220,
-                        child: _buildRevenueChart(isDark),
-                      ),
-                    ],
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: _buildCard(
+                    'Recent Bookings',
+                    _buildRecentBookingsTable(isDark),
+                    isDark,
                   ),
-                  isDark,
                 ),
-              ),
-            ],
+                const SizedBox(width: 20),
+                Expanded(
+                  child: _buildCard(
+                    'Booking Status Distribution',
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Real-time breakdown of bookings by status',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark
+                                ? Colors.white54
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        _buildBookingStatusChartWithLegend(
+                          isDark,
+                          chartHeight: 220,
+                        ),
+                      ],
+                    ),
+                    isDark,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -3247,87 +3253,153 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
     }
 
-    return DataTable(
-      columns: [
-        DataColumn(
-          label: Text(
-            'Vehicle',
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'Renter',
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'Status',
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'Amount',
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
-          ),
-        ),
-      ],
-      rows: _allBookings.take(6).map((booking) {
-        final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ??
-            (booking['vehicle'] as Map<String, dynamic>?);
-        final renterMap = (booking['renter'] as Map<String, dynamic>?) ??
-            (booking['users'] as Map<String, dynamic>?) ??
-            (booking['user'] as Map<String, dynamic>?);
-        final renterName = (renterMap?['full_name'] as String?)?.isNotEmpty == true
-            ? renterMap!['full_name'] as String
-            : ((renterMap?['name'] as String?)?.isNotEmpty == true
-                ? renterMap!['name'] as String
-                : ((booking['renter_name'] as String?)?.isNotEmpty == true
-                    ? booking['renter_name'] as String
-                    : ((booking['user_name'] as String?)?.isNotEmpty == true
-                        ? booking['user_name'] as String
-                        : 'Unknown Renter')));
-        final vehicleTitle = vehicle != null
-            ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-            : (booking['vehicle_name'] ?? 'Unknown Vehicle').toString();
-        final status = booking['status'] as String? ?? 'pending';
-        final total = (booking['total_cost'] as num?)?.toDouble() ??
-            (booking['amount'] as num?)?.toDouble() ??
-            0;
+    final totalPages = (_allBookings.length / _recentBookingsPerPage).ceil();
+    final currentPage = _recentBookingsPage.clamp(1, totalPages).toInt();
+    final startIndex = (currentPage - 1) * _recentBookingsPerPage;
+    final endIndex = (startIndex + _recentBookingsPerPage).clamp(
+      0,
+      _allBookings.length,
+    );
+    final pageBookings = _allBookings.sublist(startIndex, endIndex);
 
-        return DataRow(
-          cells: [
-            DataCell(
-              Text(
-                vehicleTitle.isNotEmpty ? vehicleTitle : 'Unknown Vehicle',
-                style: TextStyle(
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
+    return Column(
+      children: [
+        DataTable(
+          columns: [
+            DataColumn(
+              label: Text(
+                'Vehicle',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
               ),
             ),
-            DataCell(
-              Text(
-                renterName,
-                style: TextStyle(
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
+            DataColumn(
+              label: Text(
+                'Renter',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
               ),
             ),
-            DataCell(_buildStatusBadge(status)),
-            DataCell(
-              Text(
-                'PHP ${total.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.green,
-                ),
+            DataColumn(
+              label: Text(
+                'Status',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            DataColumn(
+              label: Text(
+                'Amount',
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
               ),
             ),
           ],
-        );
-      }).toList(),
+          rows: pageBookings.map((booking) {
+            final vehicle =
+                (booking['vehicles'] as Map<String, dynamic>?) ??
+                (booking['vehicle'] as Map<String, dynamic>?);
+            final renterMap =
+                (booking['renter'] as Map<String, dynamic>?) ??
+                (booking['users'] as Map<String, dynamic>?) ??
+                (booking['user'] as Map<String, dynamic>?);
+            final renterName =
+                (renterMap?['full_name'] as String?)?.isNotEmpty == true
+                ? renterMap!['full_name'] as String
+                : ((renterMap?['name'] as String?)?.isNotEmpty == true
+                      ? renterMap!['name'] as String
+                      : ((booking['renter_name'] as String?)?.isNotEmpty == true
+                            ? booking['renter_name'] as String
+                            : ((booking['user_name'] as String?)?.isNotEmpty ==
+                                      true
+                                  ? booking['user_name'] as String
+                                  : 'Unknown Renter')));
+            final vehicleTitle = vehicle != null
+                ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+                : (booking['vehicle_name'] ?? 'Unknown Vehicle').toString();
+            final status = booking['status'] as String? ?? 'pending';
+            final total =
+                (booking['total_cost'] as num?)?.toDouble() ??
+                (booking['amount'] as num?)?.toDouble() ??
+                0;
+
+            return DataRow(
+              cells: [
+                DataCell(
+                  Text(
+                    vehicleTitle.isNotEmpty ? vehicleTitle : 'Unknown Vehicle',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Text(
+                    renterName,
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
+                DataCell(_buildStatusBadge(status)),
+                DataCell(
+                  Text(
+                    'PHP ${total.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 12),
+        Divider(
+          height: 1,
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Showing ${startIndex + 1}-$endIndex of ${_allBookings.length}',
+                style: TextStyle(
+                  color: isDark ? Colors.white54 : Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Previous page',
+              onPressed: currentPage > 1
+                  ? () => setState(() => _recentBookingsPage = currentPage - 1)
+                  : null,
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white10 : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$currentPage / $totalPages',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Next page',
+              onPressed: currentPage < totalPages
+                  ? () => setState(() => _recentBookingsPage = currentPage + 1)
+                  : null,
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -8767,8 +8839,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               const SizedBox(width: 20),
               Expanded(
                 child: _buildCard(
-                  'Revenue Distribution',
-                  SizedBox(height: 250, child: _buildRevenueChart(isDark)),
+                  'Booking Status Distribution',
+                  _buildBookingStatusChartWithLegend(isDark, chartHeight: 190),
                   isDark,
                 ),
               ),
@@ -8912,82 +8984,103 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildRevenueChart(bool isDark) {
-    final revenueData = _calculateRevenueDistribution();
-    return PieChart(PieChartData(centerSpaceRadius: 60, sections: revenueData));
-  }
-
-  List<PieChartSectionData> _calculateRevenueDistribution() {
-    int completedCount = 0;
-    int activeCount = 0;
-    int cancelledCount = 0;
-    int pendingCount = 0;
-
-    for (var booking in _allBookings) {
-      final status = booking['status'] as String?;
-      if (status == 'completed') {
-        completedCount++;
-      } else if (status == 'active') {
-        activeCount++;
-      } else if (status == 'cancelled') {
-        cancelledCount++;
-      } else {
-        pendingCount++;
-      }
-    }
-
-    final total = _totalBookings > 0 ? _totalBookings : 1;
-    final completedPct = (completedCount / total * 100).toStringAsFixed(0);
-    final activePct = (activeCount / total * 100).toStringAsFixed(0);
-    final cancelledPct = (cancelledCount / total * 100).toStringAsFixed(0);
-    final pendingPct = (pendingCount / total * 100).toStringAsFixed(0);
-
-    return [
-      PieChartSectionData(
-        color: Colors.green,
-        value: (completedCount / total * 100),
-        title: '$completedPct%',
-        radius: 80,
-        titleStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-      PieChartSectionData(
-        color: Colors.blue,
-        value: (activeCount / total * 100),
-        title: '$activePct%',
-        radius: 80,
-        titleStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-      PieChartSectionData(
-        color: Colors.orange,
-        value: (pendingCount / total * 100),
-        title: '$pendingPct%',
-        radius: 80,
-        titleStyle: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-      ),
-      if (cancelledCount > 0)
-        PieChartSectionData(
-          color: Colors.red,
-          value: (cancelledCount / total * 100),
-          title: '$cancelledPct%',
-          radius: 80,
-          titleStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+    final statusData = _calculateBookingStatusDistribution();
+    if (statusData.isEmpty) {
+      return Center(
+        child: Text(
+          'No booking data yet',
+          style: TextStyle(
+            color: isDark ? Colors.white54 : Colors.grey.shade600,
             fontSize: 12,
           ),
         ),
-    ];
+      );
+    }
+
+    return PieChart(PieChartData(centerSpaceRadius: 60, sections: statusData));
+  }
+
+  Widget _buildBookingStatusChartWithLegend(
+    bool isDark, {
+    required double chartHeight,
+  }) {
+    final counts = _bookingStatusCounts();
+    final visibleGroups = bookingStatusOrder
+        .where((group) => (counts[group] ?? 0) > 0)
+        .toList();
+
+    return Column(
+      children: [
+        SizedBox(height: chartHeight, child: _buildRevenueChart(isDark)),
+        if (visibleGroups.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 16,
+            runSpacing: 10,
+            children: visibleGroups.map((group) {
+              final color = bookingStatusColor(group);
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${bookingStatusLabel(group)} (${counts[group]})',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Map<BookingStatusGroup, int> _bookingStatusCounts() {
+    final counts = <BookingStatusGroup, int>{
+      for (final group in bookingStatusOrder) group: 0,
+    };
+    for (final booking in _allBookings) {
+      final group = bookingStatusGroup(booking['status']);
+      counts[group] = (counts[group] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  List<PieChartSectionData> _calculateBookingStatusDistribution() {
+    final counts = _bookingStatusCounts();
+    final total = counts.values.fold<int>(0, (sum, count) => sum + count);
+    if (total == 0) return [];
+
+    return bookingStatusOrder.where((group) => (counts[group] ?? 0) > 0).map((
+      group,
+    ) {
+      final percentage = (counts[group]! / total) * 100;
+      return PieChartSectionData(
+        color: bookingStatusColor(group),
+        value: percentage,
+        title: '${percentage.toStringAsFixed(0)}%',
+        radius: 80,
+        titleStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      );
+    }).toList();
   }
 
   Widget _buildUserGrowthChart(bool isDark) {
