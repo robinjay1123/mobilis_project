@@ -10345,9 +10345,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 _isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies',
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.black,
-              ),
+                backgroundColor: AppColors.prima              ),
             ),
           ],
         ),
@@ -10355,7 +10353,50 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-
+  void _showFullImageDialog(String url) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black87,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: OptimizedNetworkImage(
+                imageUrl: url,
+                fit: BoxFit.contain,
+                errorWidget: const Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: Colors.white70,
+                    size: 54,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IconButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+                tooltip: 'Close',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildCustomerServiceContent(bool isDark) {
     final selectedConversation = _supportConversations
@@ -10473,7 +10514,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? AppColors.primary.withOpacity(0.14)
+                                ? AppColors.primary.withValues(alpha: 0.14)
                                 : Colors.transparent,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
@@ -10515,8 +10556,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                latestMessage['content']?.toString() ??
-                                    'Open support thread',
+                                (() {
+                                  final c =
+                                      latestMessage['content']?.toString() ??
+                                      '';
+                                  final url =
+                                      (latestMessage['attachment_url'] ??
+                                              latestMessage['image_url'] ??
+                                              latestMessage['file_url'])
+                                          ?.toString() ??
+                                      '';
+                                  if (url.isNotEmpty ||
+                                      c.startsWith('Sent an attachment:')) {
+                                    return '📷 Sent an attachment';
+                                  }
+                                  return c.isNotEmpty ? c : 'Open support thread';
+                                })(),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -10610,14 +10665,59 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               final isAdminMessage =
                                   message['sender_id']?.toString() ==
                                   _supabase.auth.currentUser?.id;
+                              final rawContent =
+                                  (message['content'] ?? message['message'])
+                                          ?.toString() ??
+                                      '';
                               final isDeleted =
                                   message['is_deleted'] == true ||
-                                  (message['content'] ?? message['message'])
-                                          ?.toString() ==
-                                      'Message deleted';
+                                  rawContent == 'Message deleted';
                               final isSending = message['_is_sending'] == true;
                               final sendFailed =
                                   message['_send_failed'] == true;
+
+                              String attachmentUrl = '';
+                              if (!isDeleted) {
+                                attachmentUrl =
+                                    (message['attachment_url'] ??
+                                            message['image_url'] ??
+                                            message['file_url'] ??
+                                            message['media_url'] ??
+                                            message['url'] ??
+                                            message['attachment'])
+                                        ?.toString()
+                                        .trim() ??
+                                    '';
+
+                                if (attachmentUrl.isEmpty &&
+                                    rawContent.trim().isNotEmpty) {
+                                  final urlMatch = RegExp(
+                                    r'https?://[^\s]+',
+                                    caseSensitive: false,
+                                  ).firstMatch(rawContent);
+                                  if (urlMatch != null) {
+                                    final matchedUrl = urlMatch.group(0) ?? '';
+                                    final lower = matchedUrl.toLowerCase();
+                                    if (RegExp(
+                                          r'\.(png|jpe?g|webp|gif|heic|bmp|tiff)(\?|$)',
+                                          caseSensitive: false,
+                                        ).hasMatch(matchedUrl) ||
+                                        lower.contains('/chat-attachments/') ||
+                                        lower.contains('/chat/') ||
+                                        lower.contains('/storage/v1/object/')) {
+                                      attachmentUrl = matchedUrl;
+                                    }
+                                  }
+                                }
+                              }
+
+                              final showContentText = isDeleted ||
+                                  (rawContent.trim().isNotEmpty &&
+                                      rawContent.trim() != attachmentUrl &&
+                                      !rawContent
+                                          .trim()
+                                          .startsWith('Sent an attachment:'));
+
                               return Align(
                                 alignment: isAdminMessage
                                     ? Alignment.centerRight
@@ -10641,25 +10741,151 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(
-                                        isDeleted
-                                            ? 'Message deleted'
-                                            : message['content']?.toString() ??
-                                                  '',
-                                        style: TextStyle(
-                                          fontStyle: isDeleted
-                                              ? FontStyle.italic
-                                              : FontStyle.normal,
-                                          color: isAdminMessage
-                                              ? const Color(0xFF101820)
-                                              : (isDark
-                                                    ? Colors.white
-                                                    : Colors.black87),
-                                          fontWeight: isAdminMessage
-                                              ? FontWeight.w500
-                                              : FontWeight.normal,
+                                      if (attachmentUrl.isNotEmpty) ...[
+                                        MouseRegion(
+                                          cursor: SystemMouseCursors.click,
+                                          child: GestureDetector(
+                                            onTap: () => _showFullImageDialog(
+                                              attachmentUrl,
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              child: Container(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      maxWidth: 340,
+                                                      maxHeight: 280,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: isDark
+                                                      ? Colors.black38
+                                                      : Colors.grey.shade200,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        10,
+                                                      ),
+                                                ),
+                                                child: Stack(
+                                                  alignment: Alignment.center,
+                                                  children: [
+                                                    OptimizedNetworkImage(
+                                                      imageUrl: attachmentUrl,
+                                                      width: double.infinity,
+                                                      height: double.infinity,
+                                                      fit: BoxFit.cover,
+                                                      errorWidget: Container(
+                                                        padding:
+                                                            const EdgeInsets.all(
+                                                              12,
+                                                            ),
+                                                        color: Colors.black26,
+                                                        child: Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            const Icon(
+                                                              Icons
+                                                                  .broken_image_outlined,
+                                                              color: Colors
+                                                                  .amber,
+                                                              size: 20,
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 8,
+                                                            ),
+                                                            Expanded(
+                                                              child: Text(
+                                                                'Unable to load attachment image',
+                                                                style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  color:
+                                                                      isAdminMessage
+                                                                          ? Colors
+                                                                              .black87
+                                                                          : Colors
+                                                                              .white,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Positioned(
+                                                      right: 8,
+                                                      bottom: 8,
+                                                      child: Container(
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 8,
+                                                              vertical: 4,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.black
+                                                              .withValues(
+                                                                alpha: 0.65,
+                                                              ),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                6,
+                                                              ),
+                                                        ),
+                                                        child: const Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            Icon(
+                                                              Icons.zoom_in,
+                                                              color:
+                                                                  Colors.white,
+                                                              size: 14,
+                                                            ),
+                                                            SizedBox(width: 4),
+                                                            Text(
+                                                              'Click to view',
+                                                              style: TextStyle(
+                                                                color: Colors
+                                                                    .white,
+                                                                fontSize: 10,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                        if (showContentText)
+                                          const SizedBox(height: 8),
+                                      ],
+                                      if (showContentText ||
+                                          attachmentUrl.isEmpty)
+                                        Text(
+                                          isDeleted
+                                              ? 'Message deleted'
+                                              : rawContent,
+                                          style: TextStyle(
+                                            fontStyle: isDeleted
+                                                ? FontStyle.italic
+                                                : FontStyle.normal,
+                                            color: isAdminMessage
+                                                ? const Color(0xFF101820)
+                                                : (isDark
+                                          ? Colors.white
+                                                      : Colors.black87),
+                                            fontWeight: isAdminMessage
+                                                ? FontWeight.w500
+                                                : FontWeight.normal,
+                                          ),
+                                        ),
                                       const SizedBox(height: 5),
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
