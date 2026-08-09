@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
@@ -24,6 +25,7 @@ import '../../../utils/locations.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
+import '../../../services/message_filter_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
@@ -65,11 +67,72 @@ class OperatorWebScreen extends StatefulWidget {
 }
 
 class _OperatorWebScreenState extends State<OperatorWebScreen> {
-  static const Color _operatorNavy = Color(0xFF032A46);
-  static const Color _operatorNavyDeep = Color(0xFF021F35);
-  static const Color _operatorGold = Color(0xFFFFD740);
-  static const Color _operatorPage = Color(0xFFF5F7F9);
-  static const Color _operatorInk = Color(0xFF08233D);
+  String _selectedThemeKey = 'gold_navy';
+
+  static final Map<String, Map<String, dynamic>> _themePalettes = {
+    'gold_navy': {
+      'name': 'Golden Navy',
+      'accent': const Color(0xFFFFD740),
+      'navy': const Color(0xFF032A46),
+      'navyDeep': const Color(0xFF021F35),
+      'ink': const Color(0xFF08233D),
+      'icon': Icons.stars_rounded,
+    },
+    'emerald': {
+      'name': 'Emerald Cyber',
+      'accent': const Color(0xFF10B981),
+      'navy': const Color(0xFF0F766E),
+      'navyDeep': const Color(0xFF042F2E),
+      'ink': const Color(0xFF134E4A),
+      'icon': Icons.eco_rounded,
+    },
+    'violet': {
+      'name': 'Royal Violet',
+      'accent': const Color(0xFFF59E0B),
+      'navy': const Color(0xFF312E81),
+      'navyDeep': const Color(0xFF1E1B4B),
+      'ink': const Color(0xFF3730A3),
+      'icon': Icons.auto_awesome_rounded,
+    },
+    'sapphire': {
+      'name': 'Electric Cyan',
+      'accent': const Color(0xFF00E5FF),
+      'navy': const Color(0xFF0284C7),
+      'navyDeep': const Color(0xFF0F172A),
+      'ink': const Color(0xFF1E293B),
+      'icon': Icons.bolt_rounded,
+    },
+    'crimson': {
+      'name': 'Sunset Crimson',
+      'accent': const Color(0xFFFF5252),
+      'navy': const Color(0xFF881337),
+      'navyDeep': const Color(0xFF4C0519),
+      'ink': const Color(0xFFBE123C),
+      'icon': Icons.local_fire_department_rounded,
+    },
+    'onyx': {
+      'name': 'Monochrome Onyx',
+      'accent': const Color(0xFFE0E0E0),
+      'navy': const Color(0xFF212121),
+      'navyDeep': const Color(0xFF121212),
+      'ink': const Color(0xFF424242),
+      'icon': Icons.contrast_rounded,
+    },
+  };
+
+  Color get _operatorGold =>
+      (_themePalettes[_selectedThemeKey]?['accent'] as Color?) ??
+      const Color(0xFFFFD740);
+  Color get _operatorNavy =>
+      (_themePalettes[_selectedThemeKey]?['navy'] as Color?) ??
+      const Color(0xFF032A46);
+  Color get _operatorNavyDeep =>
+      (_themePalettes[_selectedThemeKey]?['navyDeep'] as Color?) ??
+      const Color(0xFF021F35);
+  Color get _operatorInk =>
+      (_themePalettes[_selectedThemeKey]?['ink'] as Color?) ??
+      const Color(0xFF08233D);
+  Color get _operatorPage => const Color(0xFFF5F7F9);
 
   int _selectedIndex = 0;
   bool _isLoading = true;
@@ -89,6 +152,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   static const int _dashboardQueuePageSize = 10;
   int _bookingPage = 0;
   static const int _bookingPageSize = 10;
+
+  // New Booking unread notification badge state
+  int _unreadBookingsCount = 0;
+  int _lastSeenBookingCount = 0;
+
+  Future<void> _loadLastSeenBookingCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _lastSeenBookingCount =
+              prefs.getInt('operator_last_seen_booking_count') ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading last seen booking count: $e');
+    }
+  }
+
+  Future<void> _saveLastSeenBookingCount(int count) async {
+    _lastSeenBookingCount = count;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('operator_last_seen_booking_count', count);
+    } catch (e) {
+      debugPrint('Error saving last seen booking count: $e');
+    }
+  }
 
   // Stats
   int _totalUsers = 0;
@@ -178,9 +269,208 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     });
   }
 
+  Future<void> _loadColorTheme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTheme = prefs.getString('operator_color_theme');
+      if (savedTheme != null && _themePalettes.containsKey(savedTheme)) {
+        if (mounted) {
+          setState(() => _selectedThemeKey = savedTheme);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading color theme: $e');
+    }
+  }
+
+  Future<void> _saveColorTheme(String key) async {
+    setState(() => _selectedThemeKey = key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('operator_color_theme', key);
+    } catch (e) {
+      debugPrint('Error saving color theme: $e');
+    }
+  }
+
+  Future<void> _showColorThemeDialog(bool isDark) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          width: 520,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: _operatorGold.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.palette_rounded, color: _operatorGold, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Operator Color Theme',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? Colors.white : _operatorInk,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Select your preferred workspace color theme',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 2.3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: _themePalettes.length,
+                itemBuilder: (context, index) {
+                  final key = _themePalettes.keys.elementAt(index);
+                  final palette = _themePalettes[key]!;
+                  final name = palette['name'] as String;
+                  final accent = palette['accent'] as Color;
+                  final navyDeep = palette['navyDeep'] as Color;
+                  final icon = palette['icon'] as IconData;
+                  final isSelected = _selectedThemeKey == key;
+
+                  return InkWell(
+                    onTap: () {
+                      _saveColorTheme(key);
+                      Navigator.pop(dialogContext);
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: navyDeep,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? accent : Colors.white24,
+                          width: isSelected ? 3 : 1,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: accent.withValues(alpha: 0.35),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: accent, width: 1.5),
+                            ),
+                            child: Icon(icon, color: accent, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: accent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: navyDeep,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white54),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: accent,
+                              size: 20,
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadColorTheme();
+    _loadLastSeenBookingCount();
     _loadDashboardData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadConversations();
@@ -586,8 +876,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         operatorFallbackUserId: actorId,
       );
 
-      // IF OPERATOR STILL HAS PENDING RATINGS TO SUBMIT:
-      if (pendingTargets.isNotEmpty) {
+      final operatorHasNotConfirmed =
+          latestBooking['operator_trip_confirmed_at'] == null;
+
+      // IF OPERATOR STILL HAS PENDING RATINGS TO SUBMIT OR HAS NOT CONFIRMED:
+      if (pendingTargets.isNotEmpty || operatorHasNotConfirmed) {
         final now = DateTime.now().toUtc().toIso8601String();
         final ratingStageUpdate = <String, dynamic>{
           'completion_stage': 'operator_rating',
@@ -601,6 +894,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             .update(ratingStageUpdate)
             .eq('id', bookingId);
 
+        if (!mounted) return;
         final submitted = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
@@ -1212,6 +1506,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
         return normalizedBooking;
       }).toList();
+
+      final currentCount = _recentBookings.length;
+      if (_selectedIndex == 1) {
+        _unreadBookingsCount = 0;
+        _saveLastSeenBookingCount(currentCount);
+      } else if (_lastSeenBookingCount > 0 && currentCount > _lastSeenBookingCount) {
+        _unreadBookingsCount = currentCount - _lastSeenBookingCount;
+      } else {
+        if (_lastSeenBookingCount == 0 && currentCount > 0) {
+          _saveLastSeenBookingCount(currentCount);
+        }
+        _unreadBookingsCount = 0;
+      }
     } catch (e, st) {
       debugPrint(
         '[Bookings] Error loading recent bookings (driver embed via drivers -> users): $e',
@@ -2310,7 +2617,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       partnerVehicle
                                           ? 'PSDC PARTNER VEHICLE'
                                           : 'PSDC VEHICLE',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: _operatorNavyDeep,
                                         fontSize: 9,
                                         fontWeight: FontWeight.w900,
@@ -2322,7 +2629,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     withDriver
                                         ? 'Assign Professional Driver'
                                         : 'Finalize Booking',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 25,
                                       fontWeight: FontWeight.w800,
@@ -2361,7 +2668,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState ==
                                       ConnectionState.waiting) {
-                                    return const Center(
+                                    return Center(
                                       child: CircularProgressIndicator(
                                         color: _operatorGold,
                                       ),
@@ -2552,7 +2859,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   );
                                 },
                               )
-                            : const Center(
+                            : Center(
                                 child: Icon(
                                   Icons.verified_outlined,
                                   color: _operatorGold,
@@ -2717,7 +3024,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       color: _operatorGold.withOpacity(0.16),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.location_searching_rounded,
                       color: _operatorGold,
                     ),
@@ -2749,7 +3056,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   Text(
                     '${drivers.length} eligible  |  '
                     '${partnerVehicle && mapTargets.isNotEmpty ? 'Nearest first' : 'Availability verified'}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: _operatorGold,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
@@ -2927,7 +3234,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                     width: 9,
                                                     height: 9,
                                                     decoration:
-                                                        const BoxDecoration(
+                                                        BoxDecoration(
                                                           color: _operatorGold,
                                                           shape:
                                                               BoxShape.circle,
@@ -2982,7 +3289,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(16),
-                                  borderSide: const BorderSide(
+                                  borderSide: BorderSide(
                                     color: _operatorGold,
                                     width: 1.5,
                                   ),
@@ -3219,7 +3526,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             color: Colors.white,
                           ),
                         ),
-                        const Text(
+                        Text(
                           'VEHICLE MANAGEMENT',
                           style: TextStyle(
                             fontSize: 9,
@@ -3245,6 +3552,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   Icons.calendar_month_outlined,
                   'Bookings',
                   isDark,
+                  badge: _unreadBookingsCount > 0 ? _unreadBookingsCount : null,
                 ),
                 _buildNavItem(
                   2,
@@ -3358,10 +3666,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: isSelected ? _operatorNavyDeep : const Color(0xFF9CB0C2),
-                size: 21,
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icon,
+                    color: isSelected
+                        ? _operatorNavyDeep
+                        : const Color(0xFF9CB0C2),
+                    size: 21,
+                  ),
+                  if (badge != null && !expanded)
+                    Positioned(
+                      right: -3,
+                      top: -3,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               if (expanded) ...[
                 const SizedBox(width: 12),
@@ -3409,6 +3737,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void _selectNavigationIndex(int index) {
     if (_selectedIndex != index) {
       setState(() => _selectedIndex = index);
+    }
+    if (index == 1) {
+      setState(() {
+        _unreadBookingsCount = 0;
+        _saveLastSeenBookingCount(_recentBookings.length);
+      });
     }
     if (index == 2) {
       _loadConversations();
@@ -3478,6 +3812,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ),
           const Spacer(),
+          IconButton(
+            tooltip: 'Customize Workspace Color Theme',
+            onPressed: () => _showColorThemeDialog(isDark),
+            icon: Icon(
+              Icons.palette_rounded,
+              color: _operatorGold,
+            ),
+          ),
+          const SizedBox(width: 4),
           IconButton(
             tooltip: isDark ? 'Use light theme' : 'Use dark theme',
             onPressed: () => widget.onThemeToggle?.call(!isDark),
@@ -3673,7 +4016,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   color: const Color(0xFFFFF7D6),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.circle, size: 8, color: _operatorGold),
@@ -4757,7 +5100,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Text(
         name.isEmpty ? 'R' : name.substring(0, 1).toUpperCase(),
-        style: const TextStyle(
+        style: TextStyle(
           color: _operatorGold,
           fontWeight: FontWeight.w900,
         ),
@@ -4921,7 +5264,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           Text(
             value.toString(),
-            style: const TextStyle(
+            style: TextStyle(
               color: _operatorGold,
               fontSize: 15,
               fontWeight: FontWeight.w900,
@@ -6254,7 +6597,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 color: _operatorGold.withOpacity(0.18),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.event_busy_outlined,
                 color: _operatorNavy,
                 size: 28,
@@ -6632,7 +6975,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Text(
         initial,
-        style: const TextStyle(
+        style: TextStyle(
           color: _operatorNavy,
           fontWeight: FontWeight.w800,
           fontSize: 12,
@@ -7426,12 +7769,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     renter['profile_picture_url'])
                                 .toString(),
                         fit: BoxFit.cover,
-                        errorWidget: const Icon(
+                        errorWidget: Icon(
                           Icons.person_outline_rounded,
                           color: _operatorGold,
                         ),
                       )
-                    : const Icon(
+                    : Icon(
                         Icons.person_outline_rounded,
                         color: _operatorGold,
                       ),
@@ -7537,7 +7880,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   const SizedBox(height: 7),
                   Text(
                     'PHP ${total.toStringAsFixed(2)}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: _operatorGold,
                       fontSize: 18,
                       fontWeight: FontWeight.w900,
@@ -7603,7 +7946,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                Row(
                   children: [
                     Icon(Icons.shield_outlined, color: _operatorGold, size: 19),
                     SizedBox(width: 8),
@@ -7909,7 +8252,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     children: [
                       if (hasFinalReceipt) ...[
                         const SizedBox(height: 14),
-                        const Row(
+                        Row(
                           children: [
                             Icon(
                               Icons.receipt_long_outlined,
@@ -7982,7 +8325,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           style: TextStyle(fontSize: 11)),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: _operatorGold,
-                                        side: const BorderSide(
+                                        side: BorderSide(
                                             color: _operatorGold),
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 10, vertical: 4),
@@ -8106,7 +8449,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           color: _operatorGold.withOpacity(0.16),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.route_rounded,
                           color: _operatorGold,
                         ),
@@ -8172,7 +8515,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ? const Color(0xFF0D1928)
                                   : Colors.grey.shade100,
                               alignment: Alignment.center,
-                              child: const CircularProgressIndicator(
+                              child: CircularProgressIndicator(
                                 color: _operatorGold,
                               ),
                             );
@@ -8645,7 +8988,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         color: _operatorGold.withOpacity(0.16),
                         borderRadius: BorderRadius.circular(11),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.verified_user_outlined,
                         color: _operatorGold,
                         size: 20,
@@ -11129,26 +11472,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       await _loadConversationParticipants(conversationId);
       _watchConversationMessages(conversationId);
 
-      final response = await _supabase
-          .from('messages')
-          .select('''
-              id,
-              conversation_id,
-              sender_id,
-              message,
-              content,
-              attachment_url,
-              attachment_type,
-              attachment_name,
-              attachment_size,
-              is_auto_generated,
-              is_deleted,
-              deleted_at,
-              created_at,
-              sender:users!messages_new_sender_id_fkey (id, full_name)
-            ''')
-          .eq('conversation_id', conversationId)
-          .order('created_at', ascending: true);
+      dynamic response;
+      try {
+        response = await _supabase
+            .from('messages')
+            .select('''
+                id,
+                conversation_id,
+                sender_id,
+                message,
+                content,
+                attachment_url,
+                attachment_type,
+                attachment_name,
+                attachment_size,
+                is_auto_generated,
+                is_deleted,
+                deleted_at,
+                created_at,
+                sender:users!messages_new_sender_id_fkey (id, full_name)
+              ''')
+            .eq('conversation_id', conversationId)
+            .order('created_at', ascending: true);
+      } catch (queryErr) {
+        debugPrint(
+          '[Messages] Primary FK query failed, falling back to select(): $queryErr',
+        );
+        response = await _supabase
+            .from('messages')
+            .select()
+            .eq('conversation_id', conversationId)
+            .order('created_at', ascending: true);
+      }
 
       final loadedMessages = List<Map<String, dynamic>>.from(response);
       loadedMessages.sort((first, second) {
@@ -11266,9 +11621,208 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
+  Map<String, dynamic> _checkConversationViolation(
+    Map<String, dynamic>? conversation,
+    List<Map<String, dynamic>> messages,
+  ) {
+    if (conversation == null) {
+      return {'has_violation': false, 'violated_reasons': <String>[]};
+    }
+
+    final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final renterId =
+        renter['id']?.toString() ?? booking['renter_id']?.toString() ?? '';
+    final flagCount = (renter['off_platform_flag_count'] as num?)?.toInt() ?? 0;
+    final isBlocked = renter['is_blocked'] == true;
+
+    final violatedReasons = <String>[];
+    final currentUserId = _supabase.auth.currentUser?.id;
+
+    for (final msg in messages) {
+      final senderId = msg['sender_id']?.toString();
+      if (senderId == null || senderId == currentUserId) continue;
+
+      final content = (msg['content'] ?? msg['message'])?.toString() ?? '';
+      if (content.trim().isEmpty) continue;
+
+      final analysis = MessageFilterService.analyzeMessage(content);
+      if (analysis['is_suspicious'] == true) {
+        final keywords = List<String>.from(
+          analysis['found_keywords'] as List? ?? [],
+        );
+        final label = keywords.join(', ');
+        final detail = 'Off-platform contact attempt ("$content" - $label)';
+        if (!violatedReasons.contains(detail)) {
+          violatedReasons.add(detail);
+        }
+      }
+    }
+
+    if (flagCount > 0) {
+      violatedReasons.add(
+        'Renter has $flagCount registered policy violation flag${flagCount == 1 ? '' : 's'}',
+      );
+    }
+    if (isBlocked) {
+      violatedReasons.add('Renter account is currently blocked/suspended');
+    }
+
+    final hasViolation = violatedReasons.isNotEmpty;
+
+    return {
+      'has_violation': hasViolation,
+      'renter_name': renterName,
+      'renter_id': renterId,
+      'flag_count': flagCount,
+      'is_blocked': isBlocked,
+      'violated_reasons': violatedReasons,
+    };
+  }
+
+  Widget _buildOperatorViolationBanner(
+    Map<String, dynamic> violation,
+    bool isDark,
+  ) {
+    final renterName = violation['renter_name']?.toString() ?? 'Renter';
+    final reasons = List<String>.from(
+      violation['violated_reasons'] as List? ?? [],
+    );
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.red.shade900.withValues(alpha: isDark ? 0.28 : 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade600),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: Colors.red.shade700,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.gavel_rounded,
+                  size: 16,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CONVERSATION CLOSED — MESSAGE RULE VIOLATION',
+                      style: TextStyle(
+                        color: Colors.red.shade400,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$renterName violated PSDC messaging guidelines (Off-platform contact or payment attempt detected).',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : _operatorInk,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (reasons.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.black38 : Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Violation Detail(s):',
+                    style: TextStyle(
+                      color: Colors.red.shade400,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  for (final r in reasons)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '• ',
+                            style: TextStyle(
+                              color: Colors.red.shade400,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              r,
+                              style: TextStyle(
+                                color:
+                                    isDark ? Colors.grey[300] : Colors.black87,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Future<void> _sendMessage(String conversationId, String content) async {
     if (content.trim().isEmpty) return;
     if (_isSendingMessage) return; // prevent double-send
+
+    final selectedConv = _conversations.firstWhere(
+      (c) => c['id']?.toString() == conversationId,
+      orElse: () => <String, dynamic>{},
+    );
+    final currentMsgs = _messages[conversationId] ?? const [];
+    final check = _checkConversationViolation(selectedConv, currentMsgs);
+    if (check['has_violation'] == true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '⚠️ This conversation is closed due to message policy violations.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() => _isSendingMessage = true);
     _messageController.clear(); // clear immediately to prevent re-submit
@@ -11488,7 +12042,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   color: _operatorGold.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.chat_bubble_outline_rounded,
                   color: _operatorNavy,
                   size: 30,
@@ -11558,6 +12112,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final isClosed =
         conversationStatus == 'closed' || selectedStatus == 'completed';
     final messages = _messages[_selectedConversationId] ?? [];
+    final violation = _checkConversationViolation(
+      selectedConversation,
+      messages,
+    );
+    final hasViolation = violation['has_violation'] == true;
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -11668,7 +12227,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 selectedStatus,
                                 compact,
                                 isDark,
+                                hasViolation: hasViolation,
                               ),
+                              if (hasViolation)
+                                _buildOperatorViolationBanner(
+                                  violation,
+                                  isDark,
+                                ),
                               AnimatedSize(
                                 duration: const Duration(milliseconds: 180),
                                 curve: Curves.easeOut,
@@ -11724,7 +12289,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         ),
                                       ),
                               ),
-                              _buildOperatorMessageComposer(isClosed, isDark),
+                              _buildOperatorMessageComposer(
+                                isClosed || hasViolation,
+                                isDark,
+                                hasViolation: hasViolation,
+                              ),
                             ],
                           ),
                   ),
@@ -11757,6 +12326,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? shortId.substring(0, 8).toUpperCase()
         : shortId.toUpperCase();
 
+    final messages = _messages[conversationId] ?? const [];
+    final violation = _checkConversationViolation(conversation, messages);
+    final hasViolation = violation['has_violation'] == true;
+
     return InkWell(
       onTap: () {
         setState(() {
@@ -11781,6 +12354,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           border: Border.all(
             color: selected
                 ? _operatorGold
+                : hasViolation
+                ? Colors.red.shade500
                 : (isDark ? Colors.white10 : Colors.transparent),
           ),
         ),
@@ -11820,6 +12395,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const Spacer(),
+                if (hasViolation) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade900,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      '⚠️ RULE VIOLATED',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 _buildStatusBadge(status),
               ],
             ),
@@ -11906,8 +12502,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Map<String, dynamic> vehicle,
     String status,
     bool compact,
-    bool isDark,
-  ) {
+    bool isDark, {
+    bool hasViolation = false,
+  }) {
     final bookingId = conversation?['booking_id']?.toString() ?? '';
     final shortId = bookingId.length > 8
         ? bookingId.substring(0, 8).toUpperCase()
@@ -11936,12 +12533,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             height: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _operatorNavy,
+              color: hasViolation ? Colors.red.shade900 : _operatorNavy,
               borderRadius: BorderRadius.circular(11),
             ),
-            child: const Icon(
-              Icons.chat_bubble_outline,
-              color: _operatorGold,
+            child: Icon(
+              hasViolation ? Icons.gavel_rounded : Icons.chat_bubble_outline,
+              color: hasViolation ? Colors.white : _operatorGold,
               size: 19,
             ),
           ),
@@ -11973,6 +12570,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
+          if (hasViolation) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.red.shade700,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.white, size: 14),
+                  SizedBox(width: 4),
+                  Text(
+                    'Rule Violated',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           _buildStatusBadge(status),
           const SizedBox(width: 8),
           IconButton(
@@ -12011,7 +12633,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         color: _operatorGold.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(11),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.groups_2_outlined,
                         color: _operatorGold,
                       ),
@@ -12099,7 +12721,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         if (mounted) showPolicyDetailsSheet(context);
                       });
                     },
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.policy_outlined,
                       color: _operatorGold,
                     ),
@@ -12217,12 +12839,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final content =
         message['content']?.toString() ?? message['message']?.toString() ?? '';
     final isDeleted = message['is_deleted'] == true;
-    final attachmentUrl = isDeleted
-        ? ''
-        : message['attachment_url']?.toString().trim() ?? '';
-    final attachmentType = message['attachment_type']?.toString().trim() ?? '';
+
+    String attachmentUrl = '';
+    if (!isDeleted) {
+      attachmentUrl = (message['attachment_url'] ??
+              message['image_url'] ??
+              message['file_url'] ??
+              message['media_url'] ??
+              message['url'] ??
+              message['attachment'])
+              ?.toString()
+              .trim() ??
+          '';
+
+      if (attachmentUrl.isEmpty &&
+          content.trim().startsWith(RegExp(r'https?://', caseSensitive: false))) {
+        final trimmed = content.trim();
+        final lower = trimmed.toLowerCase();
+        if (RegExp(
+              r'\.(png|jpe?g|webp|gif|heic|bmp|tiff)(\?|$)',
+              caseSensitive: false,
+            ).hasMatch(trimmed) ||
+            lower.contains('/chat-attachments/') ||
+            lower.contains('/chat/') ||
+            lower.contains('/storage/v1/object/')) {
+          attachmentUrl = trimmed;
+        }
+      }
+    }
+
+    final attachmentType =
+        (message['attachment_type'] ?? message['type'])?.toString().trim() ?? '';
     final attachmentName =
-        message['attachment_name']?.toString().trim() ?? 'Attachment';
+        (message['attachment_name'] ?? message['name'])?.toString().trim() ??
+        'Attachment';
+
+    final showContentText =
+        isDeleted ||
+        (content.trim().isNotEmpty && content.trim() != attachmentUrl);
+
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -12281,9 +12936,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         isOwn: isOwn,
                         isDark: isDark,
                       ),
-                    if (attachmentUrl.isNotEmpty && content.trim().isNotEmpty)
+                    if (attachmentUrl.isNotEmpty && showContentText)
                       const SizedBox(height: 9),
-                    if (isDeleted || content.trim().isNotEmpty)
+                    if (showContentText)
                       Text(
                         isDeleted ? 'Message deleted' : content,
                         style: TextStyle(
@@ -12322,13 +12977,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     required bool isOwn,
     required bool isDark,
   }) {
-    final normalized = '$type $name $url'.toLowerCase();
+    final normalizedType = type.toLowerCase();
+    final normalizedUrl = url.toLowerCase();
+    final normalizedName = name.toLowerCase();
+
     final isImage =
-        normalized.contains('image') ||
-        RegExp(r'\.(png|jpe?g|webp|gif)(\?|$)').hasMatch(normalized);
+        normalizedType.contains('image') ||
+        normalizedType.contains('photo') ||
+        normalizedType.contains('picture') ||
+        normalizedType.contains('img') ||
+        normalizedName.contains('image') ||
+        normalizedName.contains('photo') ||
+        RegExp(
+          r'\.(png|jpe?g|webp|gif|heic|bmp|tiff|svg)(\?|$)',
+          caseSensitive: false,
+        ).hasMatch(url) ||
+        normalizedUrl.contains('/chat-attachments/') ||
+        normalizedUrl.contains('/chat_attachments/') ||
+        normalizedUrl.contains('/images/') ||
+        normalizedUrl.contains('/photos/') ||
+        normalizedUrl.contains('/uploads/');
+
     final isVideo =
-        normalized.contains('video') ||
-        RegExp(r'\.(mp4|mov|m4v|webm)(\?|$)').hasMatch(normalized);
+        normalizedType.contains('video') ||
+        RegExp(
+          r'\.(mp4|mov|m4v|webm)(\?|$)',
+          caseSensitive: false,
+        ).hasMatch(url);
 
     if (isImage) {
       return InkWell(
@@ -12485,20 +13160,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildOperatorMessageComposer(bool isClosed, bool isDark) {
+  Widget _buildOperatorMessageComposer(
+    bool isClosed,
+    bool isDark, {
+    bool hasViolation = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: isDark
+        color: hasViolation
+            ? (isDark
+                  ? const Color(0xFF2C0A0A).withOpacity(0.35)
+                  : Colors.red.shade50)
+            : isDark
             ? Colors.black.withOpacity(0.12)
             : const Color(0xFFFAFBFC),
         border: Border(
           top: BorderSide(
-            color: isDark ? Colors.white10 : Colors.grey.shade200,
+            color: hasViolation
+                ? Colors.red.shade600
+                : (isDark ? Colors.white10 : Colors.grey.shade200),
           ),
         ),
       ),
-      child: isClosed
+      child: hasViolation
+          ? Row(
+              children: [
+                Icon(
+                  Icons.lock_rounded,
+                  color: Colors.red.shade400,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '🔒 Conversation Closed: Locked due to renter message policy violation (off-platform contact attempt).',
+                    style: TextStyle(
+                      color: Colors.red.shade400,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : isClosed
           ? Text(
               'This completed booking conversation is read-only.',
               style: TextStyle(
@@ -14016,7 +14722,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 isPartner
                                     ? 'PSDC CERTIFIED PARTNER'
                                     : 'PSDC DIRECT VEHICLE',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: _operatorGold,
                                   fontSize: 9,
                                   letterSpacing: 0.7,
@@ -14907,7 +15613,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: _operatorGold, width: 1.5),
+        borderSide: BorderSide(color: _operatorGold, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -15392,7 +16098,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                             ),
                             icon: _isSubmittingVehicle
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 18,
                                     height: 18,
                                     child: CircularProgressIndicator(
@@ -15444,7 +16150,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'VEHICLE IMAGES',
           style: TextStyle(
             color: _operatorGold,
@@ -15511,7 +16217,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           color: _operatorNavy.withValues(alpha: 0.75),
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.cloud_upload_outlined,
                           color: _operatorGold,
                           size: 30,
@@ -15535,7 +16241,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       ),
                       const SizedBox(height: 13),
-                      const Text(
+                      Text(
                         'Browse files',
                         style: TextStyle(
                           color: _operatorGold,
@@ -15808,7 +16514,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       });
                     },
                   ),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.my_location_rounded,
                     color: _operatorGold,
                     size: 20,
@@ -15828,8 +16534,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               fullWidth: true,
             ),
             field(
-              const Padding(
-                padding: EdgeInsets.only(top: 8, bottom: 4),
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 4),
                 child: Text(
                   'GPS TRACKER SETUP (OPTIONAL - AIKA168)',
                   style: TextStyle(
@@ -16815,7 +17521,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Widget imagePanel() => Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'VEHICLE IMAGES',
                     style: TextStyle(
                       color: _operatorGold,
@@ -16899,7 +17605,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     color: _operatorNavy.withValues(alpha: 0.75),
                                     borderRadius: BorderRadius.circular(16),
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.cloud_upload_outlined,
                                     color: _operatorGold,
                                     size: 30,
@@ -16925,7 +17631,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 13),
-                                const Text(
+                                Text(
                                   'Browse files',
                                   style: TextStyle(
                                     color: _operatorGold,
@@ -17405,7 +18111,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                             ),
                             icon: isUpdating
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 18,
                                     height: 18,
                                     child: CircularProgressIndicator(

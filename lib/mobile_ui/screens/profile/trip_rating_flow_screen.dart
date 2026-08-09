@@ -103,12 +103,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       final status =
           bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
       final expectedStage = '${cleanReviewerRole}_rating';
-      final isAlreadyCompleted = status == 'completed' || stage == 'completed';
-
-      // Check if the reviewer's confirmed_at is null — they haven't rated yet
       final confirmedAtKey = '${cleanReviewerRole}_trip_confirmed_at';
       final reviewerHasNotConfirmed =
           bookingContext?[confirmedAtKey] == null;
+      final isAlreadyCompleted =
+          status == 'completed' ||
+          stage == 'completed' ||
+          !reviewerHasNotConfirmed;
 
       // Post-return stages where we can still allow rating
       const rateableStages = {
@@ -120,6 +121,10 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         'partner_rating',
         'driver_rating',
         'completed',
+        'returned',
+        'ongoing',
+        'not_started',
+        '',
       };
 
       // If reviewer hasn't confirmed and booking is in a rateable state,
@@ -149,11 +154,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           );
 
           if (!mounted) return;
-          setState(() {
-            _targets = retriedTargets;
-            _isLoading = false;
-          });
-          return;
+          if (retriedTargets.isNotEmpty) {
+            setState(() {
+              _targets = retriedTargets;
+              _isLoading = false;
+            });
+            return;
+          }
         } catch (e) {
           debugPrint('[RatingFlow] Could not advance stage: $e');
         }

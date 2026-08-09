@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1215,20 +1216,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          if (widget.isCustomerService)
-            _buildCustomerServicePanel()
-          else
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              child: _showBookingActivity
-                  ? _buildBookingActivityBanner(isDark)
-                  : const SizedBox.shrink(),
-            ),
-          if (_restrictionState.isMessagingRestricted)
-            _buildRestrictionBanner(),
+          Column(
+            children: [
+              if (widget.isCustomerService)
+                _buildCustomerServicePanel()
+              else
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  child: _showBookingActivity
+                      ? _buildBookingActivityBanner(isDark)
+                      : const SizedBox.shrink(),
+                ),
 
           // Messages list
           Expanded(
@@ -1825,6 +1826,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ],
               ),
             ),
+          ],
+        ),
+
+          if (_restrictionState.isMessagingRestricted)
+            Positioned.fill(
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    alignment: Alignment.center,
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 24,
+                      ),
+                      child: _buildRestrictionBanner(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1833,6 +1856,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Widget _buildRestrictionBanner() {
     final isAccountLevel =
         _restrictionState.isAccountRestricted || _restrictionState.isBlocked;
+    final violationCount = _restrictionState.violationCount > 0
+        ? _restrictionState.violationCount
+        : 1;
     final description = _restrictionState.isBlocked
         ? 'You cannot send messages because this account has been permanently blocked after repeated policy violations.'
         : _restrictionState.level == 'second_attempt'
@@ -1841,37 +1867,82 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A1B24),
+        color: const Color(0xFF2A1B24).withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFB53845)),
+        border: Border.all(color: const Color(0xFFB53845), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.6),
+            blurRadius: 24,
+            spreadRadius: 4,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            isAccountLevel
-                ? 'System Alert: Account Restricted'
-                : 'System Alert: Restricted Access',
-            style: const TextStyle(
-              color: Color(0xFFFF5B5B),
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  isAccountLevel
+                      ? 'System Alert: Account Restricted'
+                      : 'System Alert: Restricted Access',
+                  style: const TextStyle(
+                    color: Color(0xFFFF5B5B),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF5B5B).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFFF5B5B).withValues(alpha: 0.7),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFFF5B5B),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Violations: $violationCount',
+                      style: const TextStyle(
+                        color: Color(0xFFFF5B5B),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Text(
             description,
             style: const TextStyle(color: AppColors.textPrimary, height: 1.5),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           const Text(
             'Our safety team monitors all conversations to protect our community.',
             style: TextStyle(color: AppColors.textSecondary, height: 1.5),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           GestureDetector(
             onTap: () => showPolicyDetailsSheet(context),
             child: const Text(

@@ -562,11 +562,45 @@ class BookingService {
       bookingPayload['co_traveler_valid_id_url'] = coTravelerValidIdUrl.trim();
       bookingPayload['co_traveler_selfie_url'] = coTravelerSelfieUrl.trim();
 
-      final response = await supabase
-          .from('bookings')
-          .insert(bookingPayload)
-          .select()
-          .single();
+      Map<String, dynamic> response;
+      try {
+        response = await supabase
+            .from('bookings')
+            .insert(bookingPayload)
+            .select()
+            .single();
+      } on PostgrestException catch (e) {
+        if (e.code == 'PGRST204' ||
+            e.message.toLowerCase().contains('column') ||
+            e.message.toLowerCase().contains('applied_voucher') ||
+            e.message.toLowerCase().contains('discount_amount')) {
+          debugPrint(
+            'Schema column mismatch when inserting booking ($e). Retrying after stripping unsupported fields...',
+          );
+          final retryPayload = Map<String, dynamic>.from(bookingPayload);
+          retryPayload.remove('applied_voucher');
+          retryPayload.remove('discount_amount');
+
+          if (appliedVoucher != null && appliedVoucher.isNotEmpty) {
+            final voucherNote =
+                '[Voucher: $appliedVoucher, Discount: ₱${discountAmount ?? 0}]';
+            final existingNotes = retryPayload['notes']?.toString() ?? '';
+            retryPayload['notes'] = existingNotes.isNotEmpty
+                ? '$existingNotes | $voucherNote'
+                : voucherNote;
+          }
+
+          response = await supabase
+              .from('bookings')
+              .insert(retryPayload)
+              .select()
+              .single();
+        } else if (e.message.toLowerCase().contains('unavailable')) {
+          throw Exception('Selected dates are unavailable for bookings');
+        } else {
+          rethrow;
+        }
+      }
 
       final bookingId = response['id']?.toString();
       if (bookingId != null && bookingId.isNotEmpty) {
@@ -882,10 +916,26 @@ class BookingService {
           completionStage == 'renter_rating' && !renterConfirmed,
       'canConfirmPayment': completionStage == 'awaiting_payment',
       'canRate': <String, bool>{
-        'operator': completionStage == 'operator_rating',
-        'partner': completionStage == 'partner_rating',
-        'driver': completionStage == 'driver_rating',
-        'renter': completionStage == 'renter_rating',
+        'operator':
+            completionStage == 'operator_rating' ||
+            (operatorConfirmed == false &&
+                (rawStatus == 'completed' ||
+                    rawStatus == 'returned' ||
+                    rawStatus == 'ongoing')),
+        'partner':
+            completionStage == 'partner_rating' ||
+            (partnerConfirmed == false &&
+                (rawStatus == 'completed' || rawStatus == 'returned')),
+        'driver':
+            completionStage == 'driver_rating' ||
+            (driverConfirmed == false &&
+                (rawStatus == 'completed' || rawStatus == 'returned')),
+        'renter':
+            completionStage == 'renter_rating' ||
+            (renterConfirmed == false &&
+                (rawStatus == 'completed' ||
+                    rawStatus == 'returned' ||
+                    rawStatus == 'ongoing')),
       },
     };
   }
@@ -943,9 +993,6 @@ class BookingService {
     }
 
     final now = DateTime.now().toUtc().toIso8601String();
-    final nextStage = (stage == 'completed' || stage == 'renter_rating')
-        ? stage
-        : '${expectedRole}_rating';
 
     final updateData = <String, dynamic>{
       'final_payment_status': 'paid',
@@ -957,13 +1004,21 @@ class BookingService {
     if (hasAfterInspection || booking['returned_at'] != null || status == 'completed') {
       updateData['status'] = 'completed';
       updateData['completed_at'] = now;
-      updateData['completion_stage'] = 'completed';
     }
 
     await supabase
         .from('bookings')
         .update(updateData)
         .eq('id', bookingId);
+
+    try {
+      await TripRatingService().syncRatingFlowForBooking(
+        bookingId,
+        operatorFallbackUserId: actorId,
+      );
+    } catch (e) {
+      debugPrint('Could not sync rating flow after final payment: $e');
+    }
 
     final vehicle = booking['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(booking['vehicles'])
@@ -2196,7 +2251,6 @@ class BookingService {
             'status': 'completed',
             'returned_at': now,
             'completed_at': now,
-            'completion_stage': 'completed',
             'final_payment_status': 'paid',
             'final_payment_confirmed_at': now,
             'final_payment_confirmed_by': inspectorId,
@@ -2226,7 +2280,10 @@ class BookingService {
     }
 
     try {
-      await TripRatingService().syncRatingFlowForBooking(bookingId);
+      await TripRatingService().syncRatingFlowForBooking(
+        bookingId,
+        operatorFallbackUserId: inspectorId,
+      );
     } catch (e) {
       debugPrint('Could not sync rating flow: $e');
     }

@@ -27,6 +27,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   int _currentIndex = 0;
   bool _isLoading = true;
+  String _userFilter = 'All'; // 'All', 'Verified', 'Renters', 'Partners', 'Operators', 'Drivers'
 
   // Stats
   int _totalUsers = 0;
@@ -927,6 +928,52 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Widget _buildUsersTab(bool isDark) {
+    final filteredUsers = _allUsers.where((user) {
+      if (_userFilter == 'All') return true;
+
+      final role = (user['role'] as String? ?? 'renter').toLowerCase();
+      final status = (user['display_verification_status'] ??
+              user['verification_status'] ??
+              '')
+          .toString()
+          .toLowerCase();
+      final isVerified = user['id_verified'] == true ||
+          user['is_verified'] == true ||
+          status == 'verified' ||
+          status == 'approved';
+
+      if (_userFilter == 'Verified') return isVerified;
+      if (_userFilter == 'Renters') return role == 'renter';
+      if (_userFilter == 'Partners') return role == 'partner';
+      if (_userFilter == 'Operators') return role == 'operator';
+      if (_userFilter == 'Drivers') {
+        return role == 'driver' || user['is_psdc_driver'] == true;
+      }
+
+      return true;
+    }).toList();
+
+    final verifiedCount = _allUsers.where((u) {
+      final status = (u['display_verification_status'] ??
+              u['verification_status'] ??
+              '')
+          .toString()
+          .toLowerCase();
+      return u['id_verified'] == true ||
+          u['is_verified'] == true ||
+          status == 'verified' ||
+          status == 'approved';
+    }).length;
+
+    final filterOptions = [
+      'All (${_allUsers.length})',
+      'Verified ($verifiedCount)',
+      'Renters',
+      'Partners',
+      'Operators',
+      'Drivers',
+    ];
+
     return Column(
       children: [
         Container(
@@ -950,13 +997,42 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${_allUsers.length} total users',
+                  '${_allUsers.length} total users • $verifiedCount verified',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.white.withOpacity(0.8),
+                    color: Colors.white.withValues(alpha: 0.8),
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: isDark ? const Color(0xFF1E293B) : Colors.grey.shade100,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: filterOptions.map((opt) {
+                final rawName = opt.split(' ').first;
+                final isSelected = _userFilter == rawName;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(opt),
+                    selected: isSelected,
+                    onSelected: (_) {
+                      setState(() => _userFilter = rawName);
+                    },
+                    selectedColor: Colors.red.shade700,
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : (isDark ? Colors.grey.shade300 : Colors.black87),
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ),
@@ -968,13 +1044,22 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               : RefreshIndicator(
                   onRefresh: _loadAllUsers,
                   color: Colors.red,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(20),
-                    itemCount: _allUsers.length,
-                    itemBuilder: (context, index) {
-                      return _buildUserCard(_allUsers[index], isDark);
-                    },
-                  ),
+                  child: filteredUsers.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No $_userFilter users found',
+                            style: TextStyle(
+                              color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(20),
+                          itemCount: filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            return _buildUserCard(filteredUsers[index], isDark);
+                          },
+                        ),
                 ),
         ),
       ],

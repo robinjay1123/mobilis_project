@@ -5,7 +5,11 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +21,7 @@ import '../../../services/reservation_payment_service.dart';
 import '../../../services/support_faq_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/leaflet_map.dart';
 import 'ratings_reviews_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -1416,14 +1421,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  height: 22,
-                  width: 36,
+                const SizedBox(width: 6),
+                Transform.scale(
+                  scale: 0.8,
                   child: Switch(
                     value: isOnline,
                     onChanged: (val) => _setOperatorPreference('operator_online_status', val),
                     activeThumbColor: AppColors.success,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
               ],
@@ -1578,7 +1583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             );
           }),
-          const Spacer(),
+          const SizedBox(height: 20),
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.all(12),
@@ -4803,6 +4808,13 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
         ? _addresses.isEmpty
         : index == _defaultIndex;
 
+    double? latitude = existing?['latitude'] is num
+        ? (existing!['latitude'] as num).toDouble()
+        : double.tryParse(existing?['latitude']?.toString() ?? '');
+    double? longitude = existing?['longitude'] is num
+        ? (existing!['longitude'] as num).toDouble()
+        : double.tryParse(existing?['longitude']?.toString() ?? '');
+
     InputDecoration decoration(String labelText, IconData icon) {
       return InputDecoration(
         labelText: labelText,
@@ -4916,6 +4928,118 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    // Map Location Pin Picker Button & Status Card
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _backgroundColor(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: latitude != null && longitude != null
+                              ? AppColors.primary
+                              : _borderColor(context),
+                          width: latitude != null && longitude != null ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                            child: const Icon(
+                              Icons.pin_drop_rounded,
+                              color: AppColors.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  latitude != null && longitude != null
+                                      ? 'Location Pinned'
+                                      : 'Pin Location on Map',
+                                  style: TextStyle(
+                                    color: _primaryTextColor(context),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  latitude != null && longitude != null
+                                      ? 'GPS: ${latitude!.toStringAsFixed(4)}, ${longitude!.toStringAsFixed(4)}'
+                                      : 'Tap to pick location on map & auto-fill address',
+                                  style: TextStyle(
+                                    color: _secondaryTextColor(context),
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final mapResult =
+                                  await showModalBottomSheet<Map<String, dynamic>>(
+                                context: context,
+                                isScrollControlled: true,
+                                useSafeArea: true,
+                                backgroundColor: _surfaceColor(context),
+                                builder: (ctx) => _AddressMapPickerSheet(
+                                  initialLatitude: latitude,
+                                  initialLongitude: longitude,
+                                  isDark: Theme.of(context).brightness ==
+                                      Brightness.dark,
+                                ),
+                              );
+                              if (mapResult != null) {
+                                setSheetState(() {
+                                  latitude = mapResult['latitude'] as double?;
+                                  longitude = mapResult['longitude'] as double?;
+                                  final newAddress =
+                                      mapResult['address']?.toString() ?? '';
+                                  if (newAddress.isNotEmpty) {
+                                    addressController.text = newAddress;
+                                  }
+                                });
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              side: const BorderSide(color: AppColors.primary),
+                              foregroundColor: AppColors.primary,
+                            ),
+                            icon: Icon(
+                              latitude != null && longitude != null
+                                  ? Icons.edit_location_alt_rounded
+                                  : Icons.map_rounded,
+                              size: 16,
+                            ),
+                            label: Text(
+                              latitude != null && longitude != null
+                                  ? 'Re-pin'
+                                  : 'Pick Pin',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: addressController,
                       minLines: 3,
@@ -4960,6 +5084,8 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
                           'recipient_name': recipientController.text.trim(),
                           'phone': phoneController.text.trim(),
                           'address': addressController.text.trim(),
+                          'latitude': latitude,
+                          'longitude': longitude,
                           'is_default': setAsDefault,
                         });
                       },
@@ -6070,5 +6196,361 @@ class _WebCategoryItem {
   final String title;
   final IconData icon;
   final String subtitle;
+}
+
+class _AddressMapPickerSheet extends StatefulWidget {
+  const _AddressMapPickerSheet({
+    this.initialLatitude,
+    this.initialLongitude,
+    required this.isDark,
+  });
+
+  final double? initialLatitude;
+  final double? initialLongitude;
+  final bool isDark;
+
+  @override
+  State<_AddressMapPickerSheet> createState() => _AddressMapPickerSheetState();
+}
+
+class _AddressMapPickerSheetState extends State<_AddressMapPickerSheet> {
+  late LatLng _pinnedPosition;
+  late final MapController _mapController;
+  final TextEditingController _searchController = TextEditingController();
+  String _geocodedAddress = '';
+  bool _isGeocoding = false;
+  bool _isLocating = false;
+
+  static const double _defaultLat = 15.9758;
+  static const double _defaultLng = 120.5719;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+    _pinnedPosition = LatLng(
+      widget.initialLatitude ?? _defaultLat,
+      widget.initialLongitude ?? _defaultLng,
+    );
+    _reverseGeocode(_pinnedPosition);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reverseGeocode(LatLng pos) async {
+    if (!mounted) return;
+    setState(() => _isGeocoding = true);
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        pos.latitude,
+        pos.longitude,
+      );
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = [
+          place.street,
+          place.subLocality,
+          place.locality,
+          place.subAdministrativeArea,
+          place.administrativeArea,
+        ].where((p) => p != null && p.trim().isNotEmpty && p.trim() != 'Unnamed Road').join(', ');
+
+        if (mounted) {
+          setState(() {
+            _geocodedAddress = parts.isNotEmpty
+                ? parts
+                : '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+            _isGeocoding = false;
+          });
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('[MapPicker] Reverse geocode error: $e');
+    }
+    if (mounted) {
+      setState(() {
+        _geocodedAddress =
+            '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+        _isGeocoding = false;
+      });
+    }
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _isLocating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enable GPS location services.')),
+          );
+        }
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Location permission denied.')),
+            );
+          }
+          return;
+        }
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final newPos = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _pinnedPosition = newPos;
+      });
+      _mapController.move(newPos, 16.5);
+      await _reverseGeocode(newPos);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not fetch current location: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
+  Future<void> _searchAddress() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) return;
+    FocusScope.of(context).unfocus();
+    try {
+      final locations = await locationFromAddress(query);
+      if (locations.isNotEmpty) {
+        final loc = locations.first;
+        final newPos = LatLng(loc.latitude, loc.longitude);
+        setState(() {
+          _pinnedPosition = newPos;
+        });
+        _mapController.move(newPos, 16.0);
+        await _reverseGeocode(newPos);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location not found. Try a different search.'),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Search failed: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = widget.isDark ? AppColors.darkBgSecondary : Colors.white;
+    final textColor = widget.isDark ? Colors.white : Colors.black87;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.88,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 12, 10),
+            child: Row(
+              children: [
+                const Icon(Icons.pin_drop_rounded, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Pin Address Location',
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: TextField(
+              controller: _searchController,
+              onSubmitted: (_) => _searchAddress(),
+              style: TextStyle(color: textColor),
+              decoration: InputDecoration(
+                hintText: 'Search city, barangay, or street...',
+                hintStyle: TextStyle(color: textColor.withValues(alpha: 0.5)),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppColors.primary,
+                ),
+                suffixIcon: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: AppColors.primary,
+                  ),
+                  onPressed: _searchAddress,
+                ),
+                filled: true,
+                fillColor: widget.isDark ? Colors.white10 : Colors.grey[100],
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Stack(
+              children: [
+                MobilisLeafletMap(
+                  mapController: _mapController,
+                  fallbackLatitude: _pinnedPosition.latitude,
+                  fallbackLongitude: _pinnedPosition.longitude,
+                  initialZoom: 16.0,
+                  interactive: true,
+                  markers: [
+                    MobilisMapMarker(
+                      latitude: _pinnedPosition.latitude,
+                      longitude: _pinnedPosition.longitude,
+                      icon: Icons.location_on_rounded,
+                      color: AppColors.primary,
+                      size: 48,
+                    ),
+                  ],
+                  onTap: (lat, lng) {
+                    final newPos = LatLng(lat, lng);
+                    setState(() {
+                      _pinnedPosition = newPos;
+                    });
+                    _reverseGeocode(newPos);
+                  },
+                ),
+                Positioned(
+                  right: 14,
+                  bottom: 14,
+                  child: FloatingActionButton.small(
+                    heroTag: 'map_gps_btn',
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    onPressed: _isLocating ? null : _useCurrentLocation,
+                    child: _isLocating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Icon(Icons.my_location_rounded),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
+            decoration: BoxDecoration(
+              color: bgColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, -3),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.location_on_outlined,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _isGeocoding
+                          ? const Text(
+                              'Locating address...',
+                              style: TextStyle(fontStyle: FontStyle.italic),
+                            )
+                          : Text(
+                              _geocodedAddress,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(context, {
+                      'latitude': _pinnedPosition.latitude,
+                      'longitude': _pinnedPosition.longitude,
+                      'address': _geocodedAddress,
+                    });
+                  },
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Confirm Pinned Location',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 

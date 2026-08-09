@@ -20,15 +20,19 @@ class TripRatingService {
   final SupabaseClient supabase = Supabase.instance.client;
 
   /// Synchronizes and advances the rating flow stage for a given booking.
-  Future<void> syncRatingFlowForBooking(String bookingId) async {
+  Future<void> syncRatingFlowForBooking(
+    String bookingId, {
+    String? operatorFallbackUserId,
+  }) async {
     final context = await getBookingContext(bookingId);
     if (context == null) return;
     final nextReviewer = await _nextPendingRatingReviewer(
       bookingId: bookingId,
       context: context,
+      operatorFallbackUserId: operatorFallbackUserId,
     );
     final currentStage = context['completion_stage']?.toString() ?? '';
-    if (nextReviewer != null && currentStage != 'completed') {
+    if (nextReviewer != null && currentStage != '${nextReviewer.role}_rating') {
       await supabase
           .from('bookings')
           .update({
@@ -229,6 +233,14 @@ class TripRatingService {
     var operatorUser = context['operator_user'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['operator_user'])
         : <String, dynamic>{};
+    if (operatorUser.isEmpty) {
+      final fallbackOp = await _findFallbackOperator(
+        preferredUserId: operatorFallbackUserId,
+      );
+      if (fallbackOp != null) {
+        operatorUser = fallbackOp;
+      }
+    }
     final vehicle = context['vehicles'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['vehicles'])
         : <String, dynamic>{};
@@ -446,14 +458,7 @@ class TripRatingService {
     // targets again so submitting safely upserts the review and advances the
     // completion workflow instead of showing a false "already completed"
     // state.
-    final activeStage = context['completion_stage']
-        ?.toString()
-        .trim()
-        .toLowerCase();
-    final expectedStage = '${cleanRole}_rating';
-    if (includePreviouslySubmittedForRecovery &&
-        uniqueTargets.isNotEmpty &&
-        (activeStage == expectedStage || activeStage == 'awaiting_completion' || activeStage == 'operator_rating' || activeStage == 'renter_rating')) {
+    if (includePreviouslySubmittedForRecovery && uniqueTargets.isNotEmpty) {
       return uniqueTargets;
     }
 
@@ -1274,16 +1279,137 @@ class TripRatingService {
     }
   }
 
-  Future<Map<String, dynamic>?> _findFallbackOperator() async {
+  /// Fetches rating summary (average & count) for a specific vehicle.
+  Future<Map<String, dynamic>> getVehicleRatingSummary(String vehicleId) async {
     try {
-      final operator = await supabase
+      final response = await supabase
+          .from('trip_ratings')
+          .select('rating')
+          .eq('target_user_id', vehicleId);
+
+      var rows = List<Map<String, dynamic>>.from(response);
+
+      if (rows.isEmpty) {
+        final bookingRows = await supabase
+            .from('bookings')
+            .select('id')
+            .eq('vehicle_id', vehicleId);
+        final bookingIds = (bookingRows as List)
+            .map((b) => b['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList();
+        if (bookingIds.isNotEmpty) {
+          final ratingsResponse = await supabase
+              .from('trip_ratings')
+              .select('rating')
+              .inFilter('booking_id', bookingIds)
+              .eq('target_role', 'vehicle');
+          rows = List<Map<String, dynamic>>.from(ratingsResponse);
+        }
+      }
+
+      if (rows.isEmpty) {
+        return {'average': 0.0, 'count': 0};
+      }
+
+      double total = 0;
+      for (final row in rows) {
+        total += (row['rating'] as num?)?.toDouble() ?? 0;
+      }
+      return {'average': total / rows.length, 'count': rows.length};
+    } catch (e) {
+      debugPrint('Error fetching vehicle rating summary: $e');
+      return {'average': 0.0, 'count': 0};
+    }
+  }
+
+  /// Fetches received reviews/ratings for a specific vehicle.
+  Future<List<Map<String, dynamic>>> getVehicleReceivedRatings(
+    String vehicleId, {
+    int limit = 30,
+  }) async {
+    try {
+      final response = await supabase
+          .from('trip_ratings')
+          .select('''
+            *,
+            reviewer:reviewer_user_id (
+              id,
+              full_name,
+              email,
+              role,
+              avatar_url,
+              profile_picture_url
+            )
+          ''')
+          .eq('target_user_id', vehicleId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      var ratings = List<Map<String, dynamic>>.from(response);
+
+      if (ratings.isEmpty) {
+        final bookingRows = await supabase
+            .from('bookings')
+            .select('id')
+            .eq('vehicle_id', vehicleId);
+        final bookingIds = (bookingRows as List)
+            .map((b) => b['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList();
+        if (bookingIds.isNotEmpty) {
+          final bookingRatingsResponse = await supabase
+              .from('trip_ratings')
+              .select('''
+                *,
+                reviewer:reviewer_user_id (
+                  id,
+                  full_name,
+                  email,
+                  role,
+                  avatar_url,
+                  profile_picture_url
+                )
+              ''')
+              .inFilter('booking_id', bookingIds)
+              .order('created_at', ascending: false)
+              .limit(limit);
+          ratings = List<Map<String, dynamic>>.from(bookingRatingsResponse);
+        }
+      }
+
+      return ratings;
+    } catch (e) {
+      debugPrint('Error fetching vehicle received ratings: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> _findFallbackOperator({
+    String? preferredUserId,
+  }) async {
+    try {
+      const columns =
+          'id, full_name, email, role, avatar_url, profile_picture_url';
+      if (preferredUserId != null && preferredUserId.isNotEmpty) {
+        final directUser = await supabase
+            .from('users')
+            .select(columns)
+            .eq('id', preferredUserId)
+            .maybeSingle();
+        if (directUser != null) {
+          return Map<String, dynamic>.from(directUser);
+        }
+      }
+      final operators = await supabase
           .from('users')
-          .select('id, full_name, email, role, avatar_url, profile_picture_url')
-          .eq('role', 'operator')
-          .limit(1)
-          .maybeSingle();
-      if (operator == null) return null;
-      return Map<String, dynamic>.from(operator);
+          .select(columns)
+          .or('role.eq.operator,role.eq.admin,role.eq.super_admin')
+          .limit(1);
+      if ((operators as List).isNotEmpty) {
+        return Map<String, dynamic>.from(operators.first);
+      }
+      return null;
     } catch (_) {
       return null;
     }

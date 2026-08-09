@@ -52,6 +52,15 @@ class MessageFilterService {
     '@yahoo',
     'my email',
     'send email',
+
+    // Social media / off-platform contact
+    'facebook',
+    'fb',
+    'messenger',
+    'instagram',
+    'ig',
+    'viber',
+    'tiktok',
   ];
 
   /// Flag a message as potentially suspicious
@@ -128,10 +137,13 @@ class MessageFilterService {
       }
     }
 
-    // Check for phone number patterns
-    if (RegExp(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b').hasMatch(messageContent)) {
+    // Check for phone number patterns (including Philippine numbers e.g. 09306288261)
+    if (RegExp(r'\b(?:\+?63|0)9\d{9}\b').hasMatch(messageContent) ||
+        RegExp(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b').hasMatch(messageContent) ||
+        RegExp(r'\b09\d{9}\b').hasMatch(messageContent) ||
+        RegExp(r'\b\d{10,11}\b').hasMatch(messageContent)) {
       foundKeywords.add('phone_number');
-      riskScore += 0.25;
+      riskScore += 0.35;
     }
 
     // Check for email patterns
@@ -396,6 +408,124 @@ class MessageFilterService {
       return {'success': true, 'data': response};
     } catch (e) {
       return {'success': false, 'error': 'Failed to review flag: $e'};
+    }
+  }
+
+  /// Load users who have message flags, elevated flag count, or have been blocked/suspended for message violations.
+  static Future<List<Map<String, dynamic>>> getViolatingUsers() async {
+    try {
+      final flagsResponse = await supabase
+          .from('message_flags')
+          .select(
+            'id, sender_id, flag_reason, message_content, risk_level, status, created_at',
+          )
+          .order('created_at', ascending: false);
+
+      final flagsList = List<Map<String, dynamic>>.from(flagsResponse);
+      final flaggedUserIds = flagsList
+          .map((f) => f['sender_id']?.toString())
+          .where((id) => id != null && id.isNotEmpty)
+          .cast<String>()
+          .toSet();
+
+      final usersQuery = await supabase
+          .from('users')
+          .select(
+            'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at',
+          )
+          .or('off_platform_flag_count.gt.0,is_blocked.eq.true,is_active.eq.false');
+
+      final usersList = List<Map<String, dynamic>>.from(usersQuery);
+      final userMap = <String, Map<String, dynamic>>{};
+
+      for (final user in usersList) {
+        final id = user['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          userMap[id] = user;
+        }
+      }
+
+      final missingUserIds = flaggedUserIds
+          .where((id) => !userMap.containsKey(id))
+          .toList();
+      if (missingUserIds.isNotEmpty) {
+        final missingUsers = await supabase
+            .from('users')
+            .select(
+              'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at',
+            )
+            .inFilter('id', missingUserIds);
+        for (final user in List<Map<String, dynamic>>.from(missingUsers)) {
+          final id = user['id']?.toString();
+          if (id != null && id.isNotEmpty) {
+            userMap[id] = user;
+          }
+        }
+      }
+
+      final result = <Map<String, dynamic>>[];
+      for (final entry in userMap.entries) {
+        final userId = entry.key;
+        final user = Map<String, dynamic>.from(entry.value);
+        final userFlags = flagsList
+            .where((f) => f['sender_id']?.toString() == userId)
+            .toList();
+
+        user['user_flags'] = userFlags;
+        user['flag_count'] =
+            userFlags.length > ((user['off_platform_flag_count'] as num?)?.toInt() ?? 0)
+                ? userFlags.length
+                : ((user['off_platform_flag_count'] as num?)?.toInt() ?? 0);
+
+        if (userFlags.isNotEmpty) {
+          final first = userFlags.first;
+          final reason = first['flag_reason']?.toString().trim();
+          final content = first['message_content']?.toString().trim();
+          user['latest_reason'] = (reason != null && reason.isNotEmpty)
+              ? reason
+              : (content ?? 'Flagged message violation');
+          user['latest_flag_date'] = first['created_at'];
+        }
+
+        result.add(user);
+      }
+
+      result.sort((a, b) {
+        final aRestricted =
+            (a['is_blocked'] == true || a['is_active'] == false) ? 1 : 0;
+        final bRestricted =
+            (b['is_blocked'] == true || b['is_active'] == false) ? 1 : 0;
+        if (aRestricted != bRestricted) return bRestricted.compareTo(aRestricted);
+        final aCount = (a['flag_count'] as int? ?? 0);
+        final bCount = (b['flag_count'] as int? ?? 0);
+        return bCount.compareTo(aCount);
+      });
+
+      return result;
+    } catch (e) {
+      debugPrint('Error loading violating users: $e');
+      return [];
+    }
+  }
+
+  /// Unban/unblock user and reset their message violation flag count
+  static Future<Map<String, dynamic>> unbanUser(String userId) async {
+    try {
+      await supabase
+          .from('users')
+          .update({
+            'is_active': true,
+            'is_blocked': false,
+            'off_platform_flag_count': 0,
+            'suspension_reason': null,
+            'suspended_at': null,
+          })
+          .eq('id', userId);
+
+      return {'success': true};
+    } catch (e) {
+      debugPrint('Error unbanning user: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 }

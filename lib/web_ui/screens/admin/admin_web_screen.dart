@@ -51,6 +51,269 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   static String _placeholderLicenseNumber(String userId) =>
       'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
 
+  String _selectedThemeKey = 'gold_navy';
+
+  static final Map<String, Map<String, dynamic>> _themePalettes = {
+    'gold_navy': {
+      'name': 'Golden Navy',
+      'accent': const Color(0xFFFFD740),
+      'navy': const Color(0xFF032A46),
+      'navyDeep': const Color(0xFF021F35),
+      'ink': const Color(0xFF08233D),
+      'icon': Icons.stars_rounded,
+    },
+    'emerald': {
+      'name': 'Emerald Cyber',
+      'accent': const Color(0xFF10B981),
+      'navy': const Color(0xFF0F766E),
+      'navyDeep': const Color(0xFF042F2E),
+      'ink': const Color(0xFF134E4A),
+      'icon': Icons.eco_rounded,
+    },
+    'violet': {
+      'name': 'Royal Violet',
+      'accent': const Color(0xFFF59E0B),
+      'navy': const Color(0xFF312E81),
+      'navyDeep': const Color(0xFF1E1B4B),
+      'ink': const Color(0xFF3730A3),
+      'icon': Icons.auto_awesome_rounded,
+    },
+    'sapphire': {
+      'name': 'Electric Cyan',
+      'accent': const Color(0xFF00E5FF),
+      'navy': const Color(0xFF0284C7),
+      'navyDeep': const Color(0xFF0F172A),
+      'ink': const Color(0xFF1E293B),
+      'icon': Icons.bolt_rounded,
+    },
+    'crimson': {
+      'name': 'Sunset Crimson',
+      'accent': const Color(0xFFFF5252),
+      'navy': const Color(0xFF881337),
+      'navyDeep': const Color(0xFF4C0519),
+      'ink': const Color(0xFFBE123C),
+      'icon': Icons.local_fire_department_rounded,
+    },
+    'onyx': {
+      'name': 'Monochrome Onyx',
+      'accent': const Color(0xFFE0E0E0),
+      'navy': const Color(0xFF212121),
+      'navyDeep': const Color(0xFF121212),
+      'ink': const Color(0xFF424242),
+      'icon': Icons.contrast_rounded,
+    },
+  };
+
+  Color get _adminGold =>
+      (_themePalettes[_selectedThemeKey]?['accent'] as Color?) ??
+      const Color(0xFFFFD740);
+  Color get _adminNavy =>
+      (_themePalettes[_selectedThemeKey]?['navy'] as Color?) ??
+      const Color(0xFF032A46);
+  Color get _adminNavyDeep =>
+      (_themePalettes[_selectedThemeKey]?['navyDeep'] as Color?) ??
+      const Color(0xFF021F35);
+  Color get _adminInk =>
+      (_themePalettes[_selectedThemeKey]?['ink'] as Color?) ??
+      const Color(0xFF08233D);
+
+  Future<void> _loadColorTheme() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTheme = prefs.getString('admin_color_theme');
+      if (savedTheme != null && _themePalettes.containsKey(savedTheme)) {
+        if (mounted) {
+          setState(() => _selectedThemeKey = savedTheme);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading admin color theme: $e');
+    }
+  }
+
+  Future<void> _saveColorTheme(String key) async {
+    setState(() => _selectedThemeKey = key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('admin_color_theme', key);
+    } catch (e) {
+      debugPrint('Error saving admin color theme: $e');
+    }
+  }
+
+  Future<void> _showColorThemeDialog(bool isDark) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          width: 520,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: _adminGold.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(Icons.palette_rounded, color: _adminGold, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Admin Portal Color Theme',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? Colors.white : _adminInk,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Select your preferred workspace color theme',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 2.3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: _themePalettes.length,
+                itemBuilder: (context, index) {
+                  final key = _themePalettes.keys.elementAt(index);
+                  final palette = _themePalettes[key]!;
+                  final name = palette['name'] as String;
+                  final accent = palette['accent'] as Color;
+                  final navyDeep = palette['navyDeep'] as Color;
+                  final icon = palette['icon'] as IconData;
+                  final isSelected = _selectedThemeKey == key;
+
+                  return InkWell(
+                    onTap: () {
+                      _saveColorTheme(key);
+                      Navigator.pop(dialogContext);
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: navyDeep,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? accent : Colors.white24,
+                          width: isSelected ? 3 : 1,
+                        ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: accent.withValues(alpha: 0.35),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: accent, width: 1.5),
+                            ),
+                            child: Icon(icon, color: accent, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: accent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: navyDeep,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white54),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: accent,
+                              size: 20,
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   int _selectedIndex = 0;
   bool _isLoading = true;
   bool _sidebarExpanded = true;
@@ -158,6 +421,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   final int _usersPerPage = 10;
   String _userSearchQuery = '';
   String _userRoleFilter = 'all';
+  String _userVerificationFilter = 'all'; // 'all', 'verified', 'unverified'
   bool _isLoadingTerms = false;
   bool _isSavingTerms = false;
   bool _isLoadingReservationPayment = false;
@@ -206,6 +470,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   @override
   void initState() {
     super.initState();
+    _loadColorTheme();
     _loadLastSeenCounts().then((_) {
       _loadDashboardData();
       _loadActionLogs(showLoading: false);
@@ -2608,15 +2873,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildSidebar(bool isDark) {
-    const adminNavy = Color(0xFF032A46);
-    const adminNavyDeep = Color(0xFF021F35);
-    const adminGold = Color(0xFFFFD740);
+    final adminNavy = _adminNavy;
+    final adminNavyDeep = _adminNavyDeep;
+    final adminGold = _adminGold;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: _sidebarExpanded ? 260 : 70,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [adminNavy, adminNavyDeep],
@@ -2669,7 +2934,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             fontSize: 17,
                           ),
                         ),
-                        const Text(
+                        Text(
                           'ADMIN PORTAL',
                           style: TextStyle(
                             color: adminGold,
@@ -2809,7 +3074,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     int? badge,
   }) {
     final isSelected = _selectedIndex == index;
-    const adminGold = Color(0xFFFFD740);
+    final adminGold = _adminGold;
+    final adminNavyDeep = _adminNavyDeep;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -2853,7 +3119,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 children: [
                   Icon(
                     icon,
-                    color: isSelected ? const Color(0xFF021F35) : Colors.white54,
+                    color: isSelected ? adminNavyDeep : Colors.white54,
                     size: 22,
                   ),
                   if (!_sidebarExpanded && badge != null && badge > 0)
@@ -2867,7 +3133,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           color: Colors.red.shade600,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFF032A46),
+                            color: _adminNavy,
                             width: 1.5,
                           ),
                         ),
@@ -2882,7 +3148,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     label,
                     style: TextStyle(
                       color: isSelected
-                          ? const Color(0xFF021F35)
+                          ? adminNavyDeep
                           : Colors.white70,
                       fontWeight: isSelected
                           ? FontWeight.w700
@@ -2899,7 +3165,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF021F35).withOpacity(0.18)
+                          ? adminNavyDeep.withOpacity(0.18)
                           : Colors.red.shade600,
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -2907,7 +3173,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       badge.toString(),
                       style: TextStyle(
                         color: isSelected
-                            ? const Color(0xFF021F35)
+                            ? adminNavyDeep
                             : Colors.white,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -2923,8 +3189,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildTopBar(bool isDark) {
-    const adminNavyDeep = Color(0xFF021F35);
-    const adminGold = Color(0xFFFFD740);
+    final adminNavyDeep = _adminNavyDeep;
+    final adminGold = _adminGold;
 
     return Container(
       height: 70,
@@ -2953,7 +3219,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : const Color(0xFF021F35),
+              color: isDark ? Colors.white : _adminInk,
               letterSpacing: 0.3,
             ),
           ),
@@ -2963,12 +3229,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           }),
           const SizedBox(width: 16),
           Tooltip(
+            message: 'Customize Workspace Color Theme',
+            child: IconButton(
+              onPressed: () => _showColorThemeDialog(isDark),
+              icon: Icon(
+                Icons.palette_rounded,
+                color: adminGold,
+              ),
+            ),
+          ),
+          Tooltip(
             message: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
             child: IconButton(
               onPressed: () => widget.onThemeToggle?.call(!isDark),
               icon: Icon(
                 isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-                color: isDark ? Colors.white70 : const Color(0xFF032A46),
+                color: isDark ? Colors.white70 : _adminInk,
               ),
             ),
           ),
@@ -2978,7 +3254,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               onPressed: _loadDashboardData,
               icon: Icon(
                 Icons.refresh_rounded,
-                color: isDark ? Colors.white70 : const Color(0xFF032A46),
+                color: isDark ? Colors.white70 : _adminInk,
               ),
             ),
           ),
@@ -3454,6 +3730,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildCard(String title, Widget content, bool isDark) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
@@ -3464,6 +3741,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             title,
@@ -3713,13 +3991,32 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final email = (user['email'] ?? '').toLowerCase();
       final role = (user['role'] as String? ?? 'renter').toLowerCase();
       final isPsdc = user['is_psdc_driver'] == true;
+      final verificationStatus =
+          (user['display_verification_status'] ??
+                  user['verification_status'] ??
+                  '')
+              .toString()
+              .toLowerCase();
+      final isVerified = user['id_verified'] == true ||
+          user['is_verified'] == true ||
+          verificationStatus == 'verified' ||
+          verificationStatus == 'approved';
+
       final matchesSearch =
           name.contains(_userSearchQuery.toLowerCase()) ||
           email.contains(_userSearchQuery.toLowerCase());
+
       final matchesRole = _userRoleFilter == 'all' ||
           role == _userRoleFilter ||
-          (_userRoleFilter == 'psdc' && isPsdc);
-      return matchesSearch && matchesRole;
+          (_userRoleFilter == 'psdc' && isPsdc) ||
+          (_userRoleFilter == 'verified' && isVerified) ||
+          (_userRoleFilter == 'unverified' && !isVerified);
+
+      final matchesVerification = _userVerificationFilter == 'all' ||
+          (_userVerificationFilter == 'verified' && isVerified) ||
+          (_userVerificationFilter == 'unverified' && !isVerified);
+
+      return matchesSearch && matchesRole && matchesVerification;
     }).toList();
 
     final totalPages = (filteredUsers.length / _usersPerPage).ceil();
@@ -3737,9 +4034,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final psdcDriversCount = _allUsers
         .where((u) => u['is_psdc_driver'] == true)
         .length;
-    final verifiedCount = _allUsers
-        .where((u) => u['id_verified'] == true)
-        .length;
+    final verifiedCount = _allUsers.where((u) {
+      final status = (u['display_verification_status'] ??
+              u['verification_status'] ??
+              '')
+          .toString()
+          .toLowerCase();
+      return u['id_verified'] == true ||
+          u['is_verified'] == true ||
+          status == 'verified' ||
+          status == 'approved';
+    }).length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
@@ -3755,6 +4060,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   Icons.people,
                   Colors.blue,
                   isDark,
+                  onTap: () {
+                    setState(() {
+                      _userRoleFilter = 'all';
+                      _userVerificationFilter = 'all';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  isSelected:
+                      _userRoleFilter == 'all' && _userVerificationFilter == 'all',
                 ),
               ),
               const SizedBox(width: 12),
@@ -3765,6 +4079,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   Icons.verified_user,
                   Colors.green,
                   isDark,
+                  onTap: () {
+                    setState(() {
+                      _userVerificationFilter =
+                          _userVerificationFilter == 'verified' ? 'all' : 'verified';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  isSelected: _userVerificationFilter == 'verified',
                 ),
               ),
               const SizedBox(width: 12),
@@ -3775,6 +4097,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   Icons.business,
                   Colors.purple,
                   isDark,
+                  onTap: () {
+                    setState(() {
+                      _userRoleFilter =
+                          _userRoleFilter == 'partner' ? 'all' : 'partner';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  isSelected: _userRoleFilter == 'partner',
                 ),
               ),
               const SizedBox(width: 12),
@@ -3785,6 +4115,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   Icons.admin_panel_settings,
                   Colors.orange,
                   isDark,
+                  onTap: () {
+                    setState(() {
+                      _userRoleFilter =
+                          _userRoleFilter == 'operator' ? 'all' : 'operator';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  isSelected: _userRoleFilter == 'operator',
                 ),
               ),
               const SizedBox(width: 12),
@@ -3795,14 +4133,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   Icons.verified_outlined,
                   const Color(0xFFF59E0B),
                   isDark,
+                  onTap: () {
+                    setState(() {
+                      _userRoleFilter =
+                          _userRoleFilter == 'psdc' ? 'all' : 'psdc';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  isSelected: _userRoleFilter == 'psdc',
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 260, maxWidth: 380),
                 child: TextField(
                   onChanged: (value) {
                     setState(() {
@@ -3859,7 +4209,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   cursorColor: AppColors.primary,
                 ),
               ),
-              const SizedBox(width: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
@@ -3930,6 +4279,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                       ),
                     ),
+                    DropdownMenuItem(
+                      value: 'verified',
+                      child: Text(
+                        '✅ Verified Users',
+                        style: TextStyle(
+                          color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'unverified',
+                      child: Text(
+                        '❌ Unverified Users',
+                        style: TextStyle(
+                          color: isDark ? Colors.orange.shade300 : Colors.orange.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ],
                   onChanged: (value) {
                     setState(() {
@@ -3940,7 +4309,60 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   dropdownColor: isDark ? AppColors.darkCard : Colors.white,
                 ),
               ),
-              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.borderColor
+                        : Colors.grey.shade200,
+                  ),
+                ),
+                child: DropdownButton<String>(
+                  value: _userVerificationFilter,
+                  underline: const SizedBox.shrink(),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'all',
+                      child: Text(
+                        'All Verification',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'verified',
+                      child: Text(
+                        '✅ Verified Only',
+                        style: TextStyle(
+                          color: isDark ? Colors.green.shade300 : Colors.green.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'unverified',
+                      child: Text(
+                        '❌ Unverified Only',
+                        style: TextStyle(
+                          color: isDark ? Colors.orange.shade300 : Colors.orange.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _userVerificationFilter = value ?? 'all';
+                      _currentUserPage = 1;
+                    });
+                  },
+                  dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                ),
+              ),
               ElevatedButton.icon(
                 onPressed: () => _showAddOperatorDialog(isDark),
                 icon: const Icon(Icons.person_add_alt_1_outlined, size: 19),
@@ -4328,51 +4750,64 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     String value,
     IconData icon,
     Color color,
-    bool isDark,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+    bool isDark, {
+    VoidCallback? onTap,
+    bool isSelected = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? color.withValues(alpha: isDark ? 0.25 : 0.12)
+              : (isDark ? AppColors.darkCard : Colors.white),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? color
+                : (isDark ? AppColors.borderColor : Colors.grey.shade200),
+            width: isSelected ? 2 : 1,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: color, size: 20),
                 ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const Spacer(),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black,
+                const Spacer(),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: TextStyle(
-              color: isDark ? Colors.white70 : Colors.grey,
-              fontSize: 12,
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: isDark ? Colors.white70 : Colors.grey,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -10826,8 +11261,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         },
         calendarFormat: CalendarFormat.month,
         availableCalendarFormats: const {CalendarFormat.month: 'Month'},
-        rowHeight: 42,
-        daysOfWeekHeight: 24,
+        rowHeight: 38,
+        daysOfWeekHeight: 22,
         headerStyle: HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,

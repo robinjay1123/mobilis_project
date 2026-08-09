@@ -32,6 +32,7 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
 
   final List<String> _filters = [
     'All Users',
+    'Verified Users',
     'Unverified Applicants',
     'Blocked Users',
     'Renters',
@@ -50,7 +51,19 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
     var filtered = widget.users;
 
     // Apply role filter
-    if (_selectedFilter == 'Unverified Applicants') {
+    if (_selectedFilter == 'Verified Users') {
+      filtered = filtered.where((user) {
+        final status =
+            (user['display_verification_status'] ??
+                    user['verification_status'] ??
+                    '')
+                .toString()
+                .toLowerCase();
+        final isIdVerified =
+            user['id_verified'] == true || user['is_verified'] == true;
+        return status == 'verified' || status == 'approved' || isIdVerified;
+      }).toList();
+    } else if (_selectedFilter == 'Unverified Applicants') {
       filtered = filtered.where((user) {
         final role = (user['role'] ?? '').toString().toLowerCase();
         final status =
@@ -247,7 +260,9 @@ class _UserDirectoryTabState extends State<UserDirectoryTab> {
                   child: Row(
                     children: _filters.map((filter) {
                       final isSelected = _selectedFilter == filter;
-                      final chipLabel = filter == 'Unverified Applicants'
+                      final chipLabel = filter == 'Verified Users'
+                          ? 'Verified Users ($_verifiedCount)'
+                          : filter == 'Unverified Applicants'
                           ? 'Unverified Applicants ($_unverifiedApplicantsCount)'
                           : filter == 'Blocked Users'
                           ? 'Blocked Users ($_blockedUsersCount)'

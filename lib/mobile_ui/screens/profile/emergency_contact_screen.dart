@@ -24,8 +24,21 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
   final _service = EmergencyContactService();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _relationshipController = TextEditingController();
+  final _customRelationshipController = TextEditingController();
 
+  static const List<String> _relationshipOptions = [
+    'Parent',
+    'Spouse',
+    'Sibling',
+    'Child',
+    'Relative',
+    'Partner',
+    'Friend',
+    'Co-worker',
+    'Other',
+  ];
+
+  String _selectedRelationship = 'Parent';
   bool _isLoading = true;
   bool _isSaving = false;
   String? _contactId;
@@ -40,7 +53,7 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _relationshipController.dispose();
+    _customRelationshipController.dispose();
     super.dispose();
   }
 
@@ -55,8 +68,26 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
         _contactId = contact['id']?.toString();
         _nameController.text = contact['full_name']?.toString() ?? '';
         _phoneController.text = contact['phone_number']?.toString() ?? '';
-        _relationshipController.text =
-            contact['relationship']?.toString() ?? '';
+
+        final rawRel = contact['relationship']?.toString().trim() ?? '';
+        if (rawRel.isNotEmpty) {
+          final matched = _relationshipOptions.firstWhere(
+            (opt) =>
+                opt.toLowerCase() == rawRel.toLowerCase() ||
+                (opt.toLowerCase() == 'sibling' &&
+                    rawRel.toLowerCase() == 'siblings') ||
+                (opt.toLowerCase() == 'parent' &&
+                    (rawRel.toLowerCase() == 'father' ||
+                        rawRel.toLowerCase() == 'mother')),
+            orElse: () => '',
+          );
+          if (matched.isNotEmpty) {
+            _selectedRelationship = matched;
+          } else {
+            _selectedRelationship = 'Other';
+            _customRelationshipController.text = rawRel;
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -80,7 +111,9 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    final relationship = _relationshipController.text.trim();
+    final relationship = _selectedRelationship == 'Other'
+        ? _customRelationshipController.text.trim()
+        : _selectedRelationship;
 
     if (name.isEmpty || phone.isEmpty || relationship.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -208,26 +241,30 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
                       validator: validatePhilippineMobile,
                     ),
                     const SizedBox(height: 16),
-                    _buildField(
-                      label: 'Relationship',
-                      controller: _relationshipController,
-                      icon: Icons.family_restroom_outlined,
-                      hint: 'Parent, sibling, spouse, friend',
-                      textCapitalization: TextCapitalization.words,
-                      validator: (value) => validateRequiredText(
-                        value,
-                        fieldName: 'Relationship',
-                        minLength: 2,
+                    _buildRelationshipDropdown(),
+                    if (_selectedRelationship == 'Other') ...[
+                      const SizedBox(height: 16),
+                      _buildField(
+                        label: 'Specify Relationship',
+                        controller: _customRelationshipController,
+                        icon: Icons.edit_note_outlined,
+                        hint: 'e.g. Guardian, Neighbor, Cousin',
+                        textCapitalization: TextCapitalization.words,
+                        validator: (value) => validateRequiredText(
+                          value,
+                          fieldName: 'Relationship',
+                          minLength: 2,
+                        ),
                       ),
-                    ),
+                    ],
                     const SizedBox(height: 24),
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
+                        color: AppColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: AppColors.primary.withOpacity(0.3),
+                          color: AppColors.primary.withValues(alpha: 0.3),
                         ),
                       ),
                       child: const Row(
@@ -285,6 +322,68 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRelationshipDropdown() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Relationship',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _relationshipOptions.contains(_selectedRelationship)
+              ? _selectedRelationship
+              : 'Other',
+          dropdownColor: AppColors.darkBgSecondary,
+          style: const TextStyle(color: AppColors.textPrimary),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: AppColors.primary,
+          ),
+          decoration: InputDecoration(
+            prefixIcon: const Icon(
+              Icons.family_restroom_outlined,
+              color: AppColors.primary,
+            ),
+            filled: true,
+            fillColor: AppColors.darkBgSecondary,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppColors.borderColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppColors.primary),
+            ),
+          ),
+          items: _relationshipOptions.map((opt) {
+            return DropdownMenuItem<String>(
+              value: opt,
+              child: Text(
+                opt,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 15,
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) {
+              setState(() {
+                _selectedRelationship = val;
+              });
+            }
+          },
+        ),
+      ],
     );
   }
 

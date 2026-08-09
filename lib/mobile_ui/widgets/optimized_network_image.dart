@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
@@ -65,6 +66,26 @@ class OptimizedNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb) {
+      final webImage = Image.network(
+        imageUrl,
+        width: width,
+        height: height,
+        fit: fit,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return placeholder ?? const _ImageLoadingPlaceholder();
+        },
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('Web Image failed to load: $imageUrl ($error)');
+          return errorWidget ?? const _ImageErrorPlaceholder();
+        },
+      );
+      return borderRadius == null
+          ? webImage
+          : ClipRRect(borderRadius: borderRadius!, child: webImage);
+    }
+
     final pixelRatio = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
     final cacheWidth = width != null && width!.isFinite && width! > 0
         ? width

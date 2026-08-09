@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -759,6 +760,37 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
                     height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF5B5B).withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFFFF5B5B).withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFFF5B5B),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Policy Violations: ${_restrictionState.violationCount > 0 ? _restrictionState.violationCount : 1}',
+                        style: const TextStyle(
+                          color: Color(0xFFFF5B5B),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 14),

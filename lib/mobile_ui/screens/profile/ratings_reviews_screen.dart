@@ -6,12 +6,14 @@ import '../../widgets/optimized_network_image.dart';
 
 class RatingsReviewsScreen extends StatefulWidget {
   final String userId;
+  final String? vehicleId;
   final String title;
   final bool embedded;
 
   const RatingsReviewsScreen({
     super.key,
     required this.userId,
+    this.vehicleId,
     this.title = 'Ratings & Reviews',
     this.embedded = false,
   });
@@ -33,8 +35,35 @@ class _RatingsReviewsScreenState extends State<RatingsReviewsScreen> {
   }
 
   Future<void> _loadRatings() async {
-    final summary = await _tripRatingService.getRatingSummary(widget.userId);
-    final ratings = await _tripRatingService.getReceivedRatings(widget.userId);
+    Map<String, dynamic> summary = {'average': 0.0, 'count': 0};
+    List<Map<String, dynamic>> ratings = [];
+
+    if (widget.vehicleId != null && widget.vehicleId!.isNotEmpty) {
+      summary = await _tripRatingService.getVehicleRatingSummary(
+        widget.vehicleId!,
+      );
+      ratings = await _tripRatingService.getVehicleReceivedRatings(
+        widget.vehicleId!,
+      );
+
+      // If no vehicle ratings found directly, fall back to owner user ratings if userId is provided
+      if (ratings.isEmpty && widget.userId.isNotEmpty) {
+        final userSummary = await _tripRatingService.getRatingSummary(
+          widget.userId,
+        );
+        final userRatings = await _tripRatingService.getReceivedRatings(
+          widget.userId,
+        );
+        if (userRatings.isNotEmpty) {
+          summary = userSummary;
+          ratings = userRatings;
+        }
+      }
+    } else {
+      summary = await _tripRatingService.getRatingSummary(widget.userId);
+      ratings = await _tripRatingService.getReceivedRatings(widget.userId);
+    }
+
     if (!mounted) return;
     setState(() {
       _summary = summary;

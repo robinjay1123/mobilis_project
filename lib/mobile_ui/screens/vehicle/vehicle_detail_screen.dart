@@ -27,8 +27,10 @@ import '../../../services/loyalty_service.dart';
 import '../../../services/loyalty_reward_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/terms_service.dart';
+import '../../../services/trip_rating_service.dart';
 import '../../../services/verification_service.dart';
 import '../profile/emergency_contact_screen.dart';
+import '../profile/ratings_reviews_screen.dart';
 import 'signature_capture_screen.dart';
 import '../../../utils/locations.dart';
 import '../../../utils/pricing_policy.dart';
@@ -165,6 +167,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       await _loadFavoriteState();
       await _loadEmergencyContact();
       await _loadLoyaltyVouchers();
+      await _loadVehicleRating();
       if (_selectedStartDate != null) {
         await _loadStartTimeSlots();
       }
@@ -184,6 +187,44 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadVehicleRating() async {
+    try {
+      final ratingSummary =
+          await TripRatingService().getVehicleRatingSummary(widget.vehicleId);
+      if (_vehicle != null) {
+        _vehicle!['rating'] = ratingSummary['average'];
+        _vehicle!['rating_count'] = ratingSummary['count'];
+      }
+    } catch (e) {
+      debugPrint('Could not load vehicle rating: $e');
+    }
+  }
+
+  void _openVehicleRatings() {
+    final brand = _vehicle?['brand']?.toString().trim() ?? '';
+    final model = _vehicle?['model']?.toString().trim() ?? '';
+    final year = _vehicle?['year']?.toString().trim() ?? '';
+    final vehicleName = [brand, model, year]
+        .where((p) => p.isNotEmpty)
+        .join(' ');
+    final headerTitle = vehicleName.isNotEmpty
+        ? '$vehicleName - Reviews & Ratings'
+        : 'Vehicle Reviews & Ratings';
+    final ownerId = _vehicle?['owner_id']?.toString() ??
+        _vehicle?['operator_id']?.toString() ??
+        '';
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => RatingsReviewsScreen(
+          userId: ownerId,
+          vehicleId: widget.vehicleId,
+          title: headerTitle,
+        ),
+      ),
+    );
   }
 
   Future<void> _loadMyBookings() async {
@@ -2723,100 +2764,105 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (payFullAmount) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBg,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.borderColor),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Payment Breakdown',
-                                style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Computation & Total Breakdown',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w700,
                               ),
-                              const SizedBox(height: 10),
-                              _buildPaymentBreakdownRow(
-                                'Rental total',
-                                rentalTotal,
-                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _buildPaymentBreakdownRow(
+                              'Rental subtotal',
+                              _rentalSubtotal,
+                            ),
+                            if (_deliveryFee > 0) ...[
                               const SizedBox(height: 6),
                               _buildPaymentBreakdownRow(
-                                isPartnerVehicle
-                                    ? 'Partner commission (10%)'
-                                    : 'Company commission',
+                                'Delivery fee',
+                                _deliveryFee,
+                              ),
+                            ],
+                            if (_discountAmount > 0) ...[
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                'Voucher / Loyalty discount',
+                                _discountAmount,
+                                isDiscount: true,
+                              ),
+                            ],
+                            if (isPartnerVehicle && partnerCommission > 0) ...[
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                'Partner commission (10%)',
                                 partnerCommission,
                               ),
-                              const Divider(
-                                height: 18,
-                                color: AppColors.borderColor,
-                              ),
-                              _buildPaymentBreakdownRow(
-                                'Total to pay',
-                                payableAmount,
-                                isTotal: true,
-                              ),
-                              if (!isPartnerVehicle) ...[
-                                const SizedBox(height: 6),
-                                const Text(
-                                  'Company-owned vehicle: no commission is added.',
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
                             ],
-                          ),
-                        ),
-                      ],
-                      if (!payFullAmount &&
-                          _requiresLongBookingReservation) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkBg,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.borderColor),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                            const Divider(
+                              height: 18,
+                              color: AppColors.borderColor,
+                            ),
+                            _buildPaymentBreakdownRow(
+                              'Total booking cost',
+                              payFullAmount && isPartnerVehicle
+                                  ? (rentalTotal + partnerCommission)
+                                  : rentalTotal,
+                              isTotal: true,
+                            ),
+                            const SizedBox(height: 6),
+                            _buildPaymentBreakdownRow(
+                              payFullAmount
+                                  ? 'Payable now (Full payment)'
+                                  : _requiresLongBookingReservation
+                                  ? 'Payable now (20% Reservation)'
+                                  : 'Payable now (Refundable Reservation)',
+                              payableAmount,
+                              isTotal: true,
+                            ),
+                            if (!payFullAmount &&
+                                (rentalTotal + (isPartnerVehicle ? partnerCommission : 0.0) - payableAmount) > 0) ...[
+                              const SizedBox(height: 6),
+                              _buildPaymentBreakdownRow(
+                                'Remaining balance (Due upon pickup)',
+                                ((rentalTotal + (isPartnerVehicle ? partnerCommission : 0.0)) - payableAmount)
+                                    .clamp(0.0, double.infinity),
+                              ),
+                            ],
+                            if (isPartnerVehicle) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                payFullAmount
+                                    ? 'Partner vehicle: 10% commission is included in full payment.'
+                                    : 'Partner vehicle: 10% commission will be included in the final rental settlement.',
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 6),
                               const Text(
-                                'Long Booking Reservation',
+                                'Company-owned vehicle: no extra commission added.',
                                 style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11,
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              _buildPaymentBreakdownRow(
-                                'Total booking amount',
-                                rentalTotal,
-                              ),
-                              const SizedBox(height: 6),
-                              _buildPaymentBreakdownRow(
-                                'Reservation fee (20%)',
-                                reservationOnlyAmount,
-                              ),
-                              const SizedBox(height: 6),
-                              _buildPaymentBreakdownRow(
-                                'Remaining balance',
-                                _remainingBalance,
-                                isTotal: true,
-                              ),
                             ],
-                          ),
+                          ],
                         ),
-                      ],
+                      ),
                       const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -3054,6 +3100,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     String label,
     double amount, {
     bool isTotal = false,
+    bool isDiscount = false,
   }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3062,16 +3109,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           child: Text(
             label,
             style: TextStyle(
-              color: isTotal ? AppColors.textPrimary : AppColors.textSecondary,
+              color: isDiscount
+                  ? AppColors.success
+                  : isTotal
+                  ? AppColors.textPrimary
+                  : AppColors.textSecondary,
               fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
         ),
         const SizedBox(width: 12),
         Text(
-          'PHP ${formatAmount(amount, decimalDigits: 0)}',
+          '${isDiscount ? '-' : ''}PHP ${formatAmount(amount, decimalDigits: 0)}',
           style: TextStyle(
-            color: isTotal ? AppColors.primary : AppColors.textPrimary,
+            color: isDiscount
+                ? AppColors.success
+                : isTotal
+                ? AppColors.primary
+                : AppColors.textPrimary,
             fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
@@ -3170,6 +3225,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         _vehicle!['owner_role']?.toString().toLowerCase() == 'partner' ||
         _vehicle!['partner_vehicle_id'] != null ||
         _vehicle!['partner_name'] != null;
+    final vehicleRating = (_vehicle!['rating'] as num?)?.toDouble() ?? 0.0;
+    final vehicleRatingCount =
+        (_vehicle!['rating_count'] as num?)?.toInt() ?? 0;
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -3233,16 +3291,65 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      _VehicleSourceBadge(
-                        label: isPartnerVehicle ? 'PSDC PARTNER' : 'PSDC',
-                        emphasized: true,
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _VehicleSourceBadge(
+                            label: isPartnerVehicle ? 'PSDC PARTNER' : 'PSDC',
+                            emphasized: true,
+                          ),
+                          _VehicleSourceBadge(
+                            label: category.toString().toUpperCase(),
+                          ),
+                        ],
                       ),
-                      _VehicleSourceBadge(
-                        label: category.toString().toUpperCase(),
+                      GestureDetector(
+                        onTap: _openVehicleRatings,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.5),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                color: AppColors.primary,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                vehicleRating > 0
+                                    ? '${vehicleRating.toStringAsFixed(1)} ($vehicleRatingCount)'
+                                    : 'See ratings',
+                                style: const TextStyle(
+                                  color: AppColors.primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: AppColors.primary,
+                                size: 16,
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -3265,6 +3372,51 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         color: AppColors.textSecondary,
                       ),
                     ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    onTap: _openVehicleRatings,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: List.generate(
+                              5,
+                              (index) => Icon(
+                                index < vehicleRating.round()
+                                    ? Icons.star_rounded
+                                    : Icons.star_outline_rounded,
+                                color: AppColors.primary,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            vehicleRating > 0
+                                ? '${vehicleRating.toStringAsFixed(1)} ($vehicleRatingCount review${vehicleRatingCount == 1 ? '' : 's'})'
+                                : 'No ratings yet',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            '• See Ratings & Reviews >',
+                            style: TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 24),
 
                   // Price
@@ -4211,45 +4363,49 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   List<LoyaltyVoucher> _getAvailableVouchersList() {
     final list = <LoyaltyVoucher>[];
     if (_loyaltyRewardState != null) {
-      final unlocked = _loyaltyRewardState!.unlockedMilestones;
-      for (final milestone in unlocked) {
-        if (milestone.stamp == 3) {
+      // Prioritize redeemed milestones from loyalty card, falling back to unlocked milestones
+      final stamps = _loyaltyRewardState!.redeemedMilestones.isNotEmpty
+          ? _loyaltyRewardState!.redeemedMilestones
+          : _loyaltyRewardState!.unlockedMilestones.map((m) => m.stamp).toSet();
+
+      for (final stamp in stamps) {
+        if (stamp == 3) {
           list.add(
             const LoyaltyVoucher(
               code: 'LOYALTY50',
               title: '₱50 OFF Loyalty Reward',
-              description: 'Earned from completing 3 trips',
+              description: 'Redeemed from PSDC Loyalty Reward Card (3 trips)',
               discountPercent: 0.0,
               discountAmount: 50.0,
               isPercent: false,
               minTripsRequired: 3,
             ),
           );
-        } else if (milestone.stamp == 6) {
+        } else if (stamp == 6) {
           list.add(
             const LoyaltyVoucher(
               code: 'LOYALTY200',
               title: '₱200 OFF Loyalty Reward',
-              description: 'Earned from completing 6 trips',
+              description: 'Redeemed from PSDC Loyalty Reward Card (6 trips)',
               discountPercent: 0.0,
               discountAmount: 200.0,
               isPercent: false,
               minTripsRequired: 6,
             ),
           );
-        } else if (milestone.stamp == 12) {
+        } else if (stamp == 12) {
           list.add(
             const LoyaltyVoucher(
               code: 'LOYALTY300',
               title: '₱300 OFF Loyalty Reward',
-              description: 'Earned from completing 12 trips',
+              description: 'Redeemed from PSDC Loyalty Reward Card (12 trips)',
               discountPercent: 0.0,
               discountAmount: 300.0,
               isPercent: false,
               minTripsRequired: 12,
             ),
           );
-        } else if (milestone.stamp == 15) {
+        } else if (stamp == 15) {
           final pricePerDay =
               (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
           final pricePerHour =
@@ -4260,21 +4416,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             LoyaltyVoucher(
               code: 'LOYALTY_FREE3H',
               title: 'Free 3 Hours Rental Reward',
-              description: 'Earned from completing 15 trips',
+              description: 'Redeemed from PSDC Loyalty Reward Card (15 trips)',
               discountPercent: 0.0,
               discountAmount: hourlyRate * 3,
               isPercent: false,
               minTripsRequired: 15,
             ),
           );
-        } else if (milestone.stamp == 18) {
+        } else if (stamp == 18) {
           final pricePerDay =
               (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
           list.add(
             LoyaltyVoucher(
               code: 'LOYALTY_FREE24H',
               title: 'Free 24 Hours Rental Reward',
-              description: 'Earned from completing 18 trips',
+              description: 'Redeemed from PSDC Loyalty Reward Card (18 trips)',
               discountPercent: 0.0,
               discountAmount: pricePerDay,
               isPercent: false,
@@ -4284,7 +4440,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         }
       }
     }
-    list.addAll(LoyaltyService.systemVouchers);
+
+    final completedTrips = _loyaltyRewardState?.successfulTrips ?? 0;
+    for (final sysVoucher in LoyaltyService.systemVouchers) {
+      if (completedTrips >= sysVoucher.minTripsRequired) {
+        if (!list.any((v) => v.code == sysVoucher.code)) {
+          list.add(sysVoucher);
+        }
+      }
+    }
+
     return list;
   }
 

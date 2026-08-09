@@ -17,21 +17,25 @@ class AdminMessageReviewScreen extends StatefulWidget {
 
 class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
   int _selectedTab =
-      0; // 0: Pending, 1: Confirmed, 2: Dismissed, 3: Filter Words
+      0; // 0: Pending, 1: Confirmed, 2: Dismissed, 3: Filter Words, 4: Violated Users
   List<Map<String, dynamic>> _flags = [];
   List<String> _filterWords = [];
+  List<Map<String, dynamic>> _violatingUsers = [];
   final TextEditingController _filterWordController = TextEditingController();
   final _supabase = Supabase.instance.client;
   bool _filterWordsLoaded = false;
   bool _flagsLoaded = false;
+  bool _violatingUsersLoaded = false;
   String? _flagsError;
   final Set<String> _busyFlagIds = {};
+  final Set<String> _busyUnbanUserIds = {};
 
   @override
   void initState() {
     super.initState();
     _loadFlags();
     _loadFilterWords();
+    _loadViolatingUsers();
   }
 
   @override
@@ -64,6 +68,23 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
     }
   }
 
+  Future<void> _loadViolatingUsers() async {
+    try {
+      final users = await MessageFilterService.getViolatingUsers();
+      if (mounted) {
+        setState(() {
+          _violatingUsers = users;
+          _violatingUsersLoaded = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading violating users: $e');
+      if (mounted) {
+        setState(() => _violatingUsersLoaded = true);
+      }
+    }
+  }
+
   List<Map<String, dynamic>> _flagsWithStatus(String status) =>
       _flags.where((flag) => flag['status']?.toString() == status).toList();
 
@@ -71,7 +92,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
     if (index == 0) return _flagsWithStatus('pending_review').length;
     if (index == 1) return _flagsWithStatus('confirmed').length;
     if (index == 2) return _flagsWithStatus('dismissed').length;
-    return _filterWords.length;
+    if (index == 3) return _filterWords.length;
+    return _violatingUsers.length;
   }
 
   Future<void> _loadFilterWords() async {
@@ -198,6 +220,7 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                 _buildTab('Confirmed', 1, isDark, textColor),
                 _buildTab('Dismissed', 2, isDark, textColor),
                 _buildTab('Filter Words', 3, isDark, textColor),
+                _buildTab('Violators', 4, isDark, textColor),
               ],
             ),
           ),
@@ -206,7 +229,11 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async {
-                await Future.wait([_loadFlags(), _loadFilterWords()]);
+                await Future.wait([
+                  _loadFlags(),
+                  _loadFilterWords(),
+                  _loadViolatingUsers(),
+                ]);
               },
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -220,6 +247,8 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
                     _buildDismissedFlags(isDark, cardColor, textColor),
                   if (_selectedTab == 3)
                     _buildFilterWordsTab(isDark, cardColor, textColor),
+                  if (_selectedTab == 4)
+                    _buildViolatedUsersTab(isDark, cardColor, textColor),
                 ],
               ),
             ),
@@ -1136,5 +1165,354 @@ class _AdminMessageReviewScreenState extends State<AdminMessageReviewScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildViolatedUsersTab(
+    bool isDark,
+    Color cardColor,
+    Color textColor,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.error.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.error),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.shield_outlined, color: AppColors.error, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Users flagged or restricted for message policy violations. Use Unban to restore access.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        if (!_violatingUsersLoaded)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_violatingUsers.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 48,
+                    color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No policy-violating users found',
+                    style: TextStyle(
+                      color: isDark ? AppColors.textTertiary : AppColors.lightTextTertiary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ..._violatingUsers.map(
+            (user) => _buildViolatingUserCard(user, isDark, cardColor, textColor),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildViolatingUserCard(
+    Map<String, dynamic> user,
+    bool isDark,
+    Color cardColor,
+    Color textColor,
+  ) {
+    final userId = user['id']?.toString() ?? '';
+    final name = (user['full_name'] ?? user['name'])?.toString().trim();
+    final displayName = (name != null && name.isNotEmpty) ? name : 'User #$userId';
+    final email = user['email']?.toString().trim() ?? '';
+    final role = user['role']?.toString().toUpperCase() ?? 'USER';
+    final isBlocked = user['is_blocked'] == true || user['is_active'] == false;
+    final flagCount = (user['flag_count'] as num?)?.toInt() ?? 0;
+    final latestReason = user['latest_reason']?.toString() ?? 'Message policy violation';
+    final suspensionReason = user['suspension_reason']?.toString();
+    final isBusy = _busyUnbanUserIds.contains(userId);
+    final avatarUrl = (user['avatar_url'] ?? user['profile_picture_url'])?.toString().trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isBlocked
+              ? AppColors.error.withValues(alpha: 0.5)
+              : (isDark ? AppColors.borderColor : AppColors.lightBorderColor),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
+                    ? NetworkImage(avatarUrl)
+                    : null,
+                child: (avatarUrl == null || avatarUrl.isEmpty)
+                    ? Text(
+                        displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayName,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: textColor,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            role,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (email.isNotEmpty)
+                      Text(
+                        email,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? AppColors.textTertiary
+                              : AppColors.lightTextTertiary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: (isBlocked ? AppColors.error : AppColors.warning)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isBlocked ? AppColors.error : AppColors.warning,
+                  ),
+                ),
+                child: Text(
+                  isBlocked ? 'BANNED' : 'FLAGGED',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: isBlocked ? AppColors.error : AppColors.warning,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(
+            color: isDark
+                ? AppColors.borderColor
+                : AppColors.lightBorderColor,
+            height: 1,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                Icons.flag_rounded,
+                size: 16,
+                color: flagCount > 0 ? AppColors.error : AppColors.warning,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$flagCount Violation Flag${flagCount == 1 ? '' : 's'} Recorded',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: flagCount > 0 ? AppColors.error : AppColors.warning,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Reason: ${(suspensionReason?.isNotEmpty == true) ? suspensionReason : latestReason}',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? AppColors.textSecondary : Colors.black87,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: isBusy ? null : () => _confirmUnbanUser(user, displayName),
+              icon: isBusy
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.lock_open_rounded, size: 18),
+              label: Text(
+                isBlocked ? 'Unban & Reactivate User' : 'Reset Violation Flags & Clear Status',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmUnbanUser(
+    Map<String, dynamic> user,
+    String displayName,
+  ) async {
+    final userId = user['id']?.toString() ?? '';
+    if (userId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: widget.isDarkMode ? AppColors.darkCard : Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.lock_open_rounded, color: AppColors.success),
+            const SizedBox(width: 10),
+            Text(
+              'Unban $displayName?',
+              style: TextStyle(
+                color: widget.isDarkMode ? AppColors.textPrimary : Colors.black,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'This will reactivate $displayName\'s account, remove restriction blocks, and clear message violation counts.',
+          style: TextStyle(
+            color: widget.isDarkMode ? AppColors.textSecondary : Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.success,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm Unban'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _busyUnbanUserIds.add(userId));
+    try {
+      final res = await MessageFilterService.unbanUser(userId);
+      if (res['success'] != true) {
+        throw Exception(res['error'] ?? 'Could not unban user.');
+      }
+
+      await Future.wait([_loadViolatingUsers(), _loadFlags()]);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$displayName has been unbanned and reactivated.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to unban user: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busyUnbanUserIds.remove(userId));
+      }
+    }
   }
 }
