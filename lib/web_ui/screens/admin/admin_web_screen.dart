@@ -10345,7 +10345,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 _isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies',
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.prima              ),
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+              ),
             ),
           ],
         ),
