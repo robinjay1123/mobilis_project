@@ -3534,46 +3534,44 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ],
           ),
           const SizedBox(height: 30),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: _buildCard(
-                    'Recent Bookings',
-                    _buildRecentBookingsTable(isDark),
-                    isDark,
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 2,
+                child: _buildCard(
+                  'Recent Bookings',
+                  _buildRecentBookingsTable(isDark),
+                  isDark,
                 ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: _buildCard(
-                    'Booking Status Distribution',
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'Real-time breakdown of bookings by status',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark
-                                ? Colors.white54
-                                : Colors.grey.shade600,
-                          ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: _buildCard(
+                  'Booking Status Distribution',
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Real-time breakdown of bookings by status',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? Colors.white54
+                              : Colors.grey.shade600,
                         ),
-                        const SizedBox(height: 20),
-                        _buildBookingStatusChartWithLegend(
-                          isDark,
-                          chartHeight: 180,
-                        ),
-                      ],
-                    ),
-                    isDark,
+                      ),
+                      const SizedBox(height: 20),
+                      _buildBookingStatusChartWithLegend(
+                        isDark,
+                        chartHeight: 180,
+                      ),
+                    ],
                   ),
+                  isDark,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -3778,11 +3776,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       children: [
         LayoutBuilder(
           builder: (context, constraints) {
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: DataTable(
+            return Scrollbar(
+              thumbVisibility: true,
+              trackVisibility: true,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
                   horizontalMargin: 16,
                   columnSpacing: 32,
                   columns: [
@@ -3872,8 +3873,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   }).toList(),
                 ),
               ),
-            );
-          },
+            ),
+          );
+        },
         ),
         const SizedBox(height: 12),
         Divider(
