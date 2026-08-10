@@ -420,9 +420,7 @@ class TrackingService {
             model,
             vehicle_name,
             plate_number,
-            owner_id,
-            owner_role,
-            partner_vehicle_id
+            owner_id
           )
         ''')
         .eq('id', bookingId)
@@ -610,8 +608,6 @@ class TrackingService {
                 model,
                 plate_number,
                 owner_id,
-                operator_id,
-                partner_vehicle_id,
                 owner:owner_id (id, role)
               ),
               renter:renter_id (id, full_name, email),
@@ -661,8 +657,6 @@ class TrackingService {
                 model,
                 plate_number,
                 owner_id,
-                operator_id,
-                partner_vehicle_id,
                 owner:owner_id (id, role)
               ),
               renter:renter_id (id, full_name, email, phone),

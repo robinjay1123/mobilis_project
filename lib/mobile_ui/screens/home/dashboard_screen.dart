@@ -2,9 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/auth_service.dart';
@@ -23,6 +20,7 @@ import '../../../services/notification_permission_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../services/renter_marketing_notification_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../services/booking_receipt_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
 import '../../widgets/conversation_tile.dart';
@@ -70,6 +68,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? userAvatarUrl;
   bool emailConfirmed = true;
   bool userVerified = false;
+  String userVerificationStatus = 'unverified';
   int _userCreatedYear = DateTime.now().year;
   int _totalTrips = 0;
 
@@ -403,6 +402,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     setState(() {
       userVerified = isVerified;
+      userVerificationStatus = status ?? 'unverified';
       if (isVerified || hasPendingApplication) {
         _hasShownVerificationPrompt = true;
       }
@@ -6552,170 +6552,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _downloadTripReceipt(Map<String, dynamic> booking) async {
-    final days = ((booking['days'] as num?)?.toInt() ?? 1).clamp(1, 9999);
-    final recordedTotal = (booking['totalCost'] as num?)?.toDouble() ?? 0.0;
-    final deliveryFee = (booking['deliveryFee'] as num?)?.toDouble() ?? 0.0;
-    final driverFee = (booking['driverFee'] as num?)?.toDouble() ?? 0.0;
-    final lateReturnFee = (booking['lateReturnFee'] as num?)?.toDouble() ?? 0.0;
-    final rentalSubtotal =
-        (booking['rentalSubtotal'] as num?)?.toDouble() ??
-        (recordedTotal - deliveryFee).clamp(0.0, double.infinity).toDouble();
-    final dailyRate = rentalSubtotal / days;
-    final total = rentalSubtotal + deliveryFee + driverFee + lateReturnFee;
-    final reservationFee =
-        (booking['reservationFeeAmount'] as num?)?.toDouble() ?? 1000.0;
-    final balance = (total - reservationFee)
-        .clamp(0.0, double.infinity)
-        .toDouble();
-    final securityDeposit =
-        (booking['securityDeposit'] as num?)?.toDouble() ?? 0.0;
-    final bookingId = booking['id']?.toString() ?? 'booking';
-    final document = pw.Document();
-
-    pw.Widget amountRow(String label, String amount, {bool bold = false}) {
-      final style = pw.TextStyle(
-        fontSize: 10,
-        fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-      );
-      return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 4),
-        child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Expanded(child: pw.Text(label, style: style)),
-            pw.SizedBox(width: 16),
-            pw.Text(amount, style: style),
-          ],
-        ),
-      );
-    }
-
-    document.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        build: (_) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.all(18),
-              color: PdfColor.fromHex('#08233D'),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'MOBILIS BY PSDC',
-                    style: pw.TextStyle(
-                      color: PdfColor.fromHex('#FFD600'),
-                      fontSize: 18,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 4),
-                  pw.Text(
-                    'Official Trip Receipt',
-                    style: const pw.TextStyle(
-                      color: PdfColors.white,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-            pw.Text(
-              toProfessionalTitleCase(
-                booking['carName']?.toString() ?? 'Vehicle',
-              ),
-              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text('Booking ID: $bookingId'),
-            pw.Text(
-              'Schedule: ${booking['startDate'] ?? 'N/A'} ${booking['startTime'] ?? ''} - ${booking['endDate'] ?? 'N/A'} ${booking['endTime'] ?? ''}',
-            ),
-            pw.Text('Pickup: ${booking['pickupLocation'] ?? 'Not specified'}'),
-            pw.Text(
-              'Destination: ${booking['dropoffLocation'] ?? 'Not specified'}',
-            ),
-            pw.Text('Driver: ${booking['driverName'] ?? 'Not requested'}'),
-            pw.Text('Payment status: ${booking['paymentStatus'] ?? 'Pending'}'),
-            if (booking['reservationPaymentReference']
-                    ?.toString()
-                    .trim()
-                    .isNotEmpty ==
-                true)
-              pw.Text(
-                'Payment reference: ${booking['reservationPaymentReference']}',
-              ),
-            pw.SizedBox(height: 22),
-            pw.Text(
-              'Payment Breakdown',
-              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.Divider(),
-            amountRow(
-              '$days day${days == 1 ? '' : 's'} x PHP ${formatAmount(dailyRate)}/day',
-              'PHP ${formatAmount(rentalSubtotal)}',
-            ),
-            if (deliveryFee > 0)
-              amountRow(
-                'Delivery / Pickup Charge',
-                'PHP ${formatAmount(deliveryFee)}',
-              ),
-            if (driverFee > 0)
-              amountRow('Driver Fee', 'PHP ${formatAmount(driverFee)}'),
-            if (lateReturnFee > 0)
-              amountRow(
-                'Late Return Fee',
-                'PHP ${formatAmount(lateReturnFee)}',
-              ),
-            pw.Divider(),
-            amountRow('TOTAL', 'PHP ${formatAmount(total)}', bold: true),
-            amountRow(
-              'LESS RESERVATION FEE',
-              '- PHP ${formatAmount(reservationFee)}',
-            ),
-            amountRow(
-              'TOTAL BALANCE DUE',
-              'PHP ${formatAmount(balance)}',
-              bold: true,
-            ),
-            if (booking['final_payment_method'] != null ||
-                booking['finalPaymentMethod'] != null ||
-                (booking['renter_return_payment_amount'] as num?)?.toDouble() != null) ...[
-              amountRow(
-                'FINAL RETURN SETTLEMENT PAID (${(booking['final_payment_method'] ?? booking['finalPaymentMethod'] ?? 'PSDC QR').toString().toUpperCase()})',
-                'PHP ${formatAmount((booking['renter_return_payment_amount'] as num?)?.toDouble() ?? balance)}',
-                bold: true,
-              ),
-              if ((booking['final_payment_reference'] ?? booking['finalPaymentReference'])?.toString().isNotEmpty == true)
-                pw.Text(
-                  'Final Payment Reference: ${booking['final_payment_reference'] ?? booking['finalPaymentReference']}',
-                  style: const pw.TextStyle(fontSize: 9),
-                ),
-            ],
-            amountRow(
-              'SECURITY DEPOSIT (REFUNDABLE)',
-              'PHP ${formatAmount(securityDeposit)}',
-            ),
-            pw.Spacer(),
-            pw.Divider(),
-            pw.Text(
-              'This receipt reflects the booking values recorded by Mobilis by PSDC.',
-              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-            ),
-          ],
-        ),
-      ),
-    );
-
     try {
-      await Printing.sharePdf(
-        bytes: await document.save(),
-        filename: 'mobilis_receipt_${bookingId.replaceAll('-', '')}.pdf',
-      );
+      await BookingReceiptService.shareReceipt(booking);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

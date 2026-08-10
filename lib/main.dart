@@ -18,6 +18,9 @@ import 'mobile_ui/screens/auth/forgot_password_screen.dart';
 import 'mobile_ui/screens/auth/reset_password_screen.dart';
 import 'mobile_ui/screens/auth/auth_processing_screen.dart';
 import 'mobile_ui/screens/home/dashboard_screen.dart';
+import 'mobile_ui/screens/profile/emergency_contact_screen.dart';
+import 'mobile_ui/screens/profile/legal_terms_privacy_screen.dart';
+import 'mobile_ui/screens/profile/payment_methods_screen.dart';
 import 'mobile_ui/screens/offline/no_internet_screen.dart';
 import 'mobile_ui/screens/partner/partner_home_screen.dart';
 import 'mobile_ui/screens/partner/apply_vehicle_screen.dart';
@@ -169,6 +172,15 @@ class _MyAppState extends State<MyApp> {
         '/id-verification': (context) => const IdentityVerificationFormScreen(),
         '/identity-verification-form': (context) =>
             const IdentityVerificationFormScreen(),
+        '/terms-and-privacy': (context) {
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+          return LegalTermsPrivacyScreen(
+            initialTab: args?['tab']?.toString() ?? 'terms',
+            isDarkMode: _isDarkMode,
+          );
+        },
         '/driver-identity-verification': (context) {
           final args =
               ModalRoute.of(context)?.settings.arguments

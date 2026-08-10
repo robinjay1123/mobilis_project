@@ -22,6 +22,7 @@ import '../../../services/support_faq_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/leaflet_map.dart';
+import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -81,6 +82,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingTerms = false;
   bool _isSavingTerms = false;
 
+  final TextEditingController _privacyPolicyController = TextEditingController();
+  bool _isLoadingPrivacy = false;
+  bool _isSavingPrivacy = false;
+
   final TextEditingController _reservationAmountController = TextEditingController();
   final TextEditingController _reservationAccountNameController = TextEditingController();
   final TextEditingController _reservationQrUrlController = TextEditingController();
@@ -107,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _webPhoneController.dispose();
     _webPositionController.dispose();
     _rentalTermsController.dispose();
+    _privacyPolicyController.dispose();
     _reservationAmountController.dispose();
     _reservationAccountNameController.dispose();
     _reservationQrUrlController.dispose();
@@ -134,6 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (widget.adminMode) {
         await Future.wait([
           _loadRentalTerms(),
+          _loadPrivacyPolicy(),
           _loadReservationPaymentSettings(),
           _loadSupportFaqSettings(),
         ]);
@@ -225,6 +232,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     } finally {
       if (mounted) setState(() => _isSavingTerms = false);
+    }
+  }
+
+  Future<void> _loadPrivacyPolicy() async {
+    setState(() => _isLoadingPrivacy = true);
+    try {
+      final privacy = await TermsService().getPrivacyPolicy();
+      if (!mounted) return;
+      _privacyPolicyController.text = privacy;
+    } catch (e) {
+      debugPrint('Error loading privacy policy: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingPrivacy = false);
+    }
+  }
+
+  Future<void> _savePrivacyPolicy() async {
+    setState(() => _isSavingPrivacy = true);
+    try {
+      await TermsService().updatePrivacyPolicy(_privacyPolicyController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Privacy policy updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update privacy policy: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingPrivacy = false);
     }
   }
 
@@ -674,15 +718,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _openTerms() async {
-    final content = await TermsService().getRentalTerms();
-    if (!mounted) return;
+  void _openTerms() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _LegalDocumentScreen(
-          title: 'Terms and Conditions',
-          icon: Icons.description_outlined,
-          content: content,
+        builder: (_) => LegalTermsPrivacyScreen(
+          initialTab: 'terms',
+          isDarkMode: widget.isDarkMode,
         ),
       ),
     );
@@ -691,13 +732,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _openPrivacyPolicy() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const _LegalDocumentScreen(
-          title: 'Privacy Policy',
-          icon: Icons.privacy_tip_outlined,
-          content:
-              'Mobilis by PSDC collects account, verification, booking, location, emergency-contact, and payment-related information only to operate rentals, protect users, and meet service requirements.\n\n'
-              'Identity documents and live trip locations are limited to authorized workflows. They should only be viewed by people responsible for verification, active bookings, safety, or customer support.\n\n'
-              'Profile and booking information must not be shared outside Mobilis without a valid service or safety reason. Contact Customer Service to report incorrect information, request assistance, or raise a privacy concern.',
+        builder: (_) => LegalTermsPrivacyScreen(
+          initialTab: 'privacy',
+          isDarkMode: widget.isDarkMode,
         ),
       ),
     );
@@ -2100,6 +2137,114 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
                         : const Icon(Icons.save_outlined, size: 18),
                     label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Privacy Policy Card
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.privacy_tip_outlined, color: AppColors.primary, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Text(
+                    'Privacy Policy',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _primaryTextColor(context),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'This text is displayed in the Privacy Policy section for users and renters detailing data usage, identity verification, location tracking, and security.',
+                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _privacyPolicyController,
+                minLines: 8,
+                maxLines: 14,
+                enabled: !_isLoadingPrivacy && !_isSavingPrivacy,
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  height: 1.4,
+                  fontSize: 13.5,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Enter privacy policy content...',
+                  hintStyle: TextStyle(color: _secondaryTextColor(context)),
+                  filled: true,
+                  fillColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  if (_isLoadingPrivacy)
+                    Text(
+                      'Loading privacy policy...',
+                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                    ),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _isLoadingPrivacy || _isSavingPrivacy ? null : _loadPrivacyPolicy,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reload'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isLoadingPrivacy || _isSavingPrivacy ? null : _savePrivacyPolicy,
+                    icon: _isSavingPrivacy
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy'),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,

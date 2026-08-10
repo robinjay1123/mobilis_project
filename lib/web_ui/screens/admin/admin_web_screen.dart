@@ -433,6 +433,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _supportFaqRole = 'renter';
   Map<String, List<SupportFaq>> _supportFaqsByRole = {};
   final TextEditingController _rentalTermsController = TextEditingController();
+  final TextEditingController _privacyPolicyController = TextEditingController();
+  bool _isLoadingPrivacy = false;
+  bool _isSavingPrivacy = false;
   final TextEditingController _reservationAmountController =
       TextEditingController();
   final TextEditingController _reservationQrUrlController =
@@ -476,6 +479,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _loadActionLogs(showLoading: false);
     });
     _loadRentalTerms();
+    _loadPrivacyPolicy();
     _loadReservationPaymentSettings();
     _loadSupportFaqSettings();
     _setupSupportMessagesListener();
@@ -508,6 +512,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       timer.cancel();
     }
     _rentalTermsController.dispose();
+    _privacyPolicyController.dispose();
     _reservationAmountController.dispose();
     _reservationQrUrlController.dispose();
     _reservationAccountNameController.dispose();
@@ -1331,6 +1336,49 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } finally {
       if (mounted) {
         setState(() => _isSavingTerms = false);
+      }
+    }
+  }
+
+  Future<void> _loadPrivacyPolicy() async {
+    setState(() => _isLoadingPrivacy = true);
+
+    try {
+      final privacy = await TermsService().getPrivacyPolicy();
+      if (!mounted) return;
+      _privacyPolicyController.text = privacy;
+    } catch (e) {
+      debugPrint('Error loading privacy policy: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingPrivacy = false);
+      }
+    }
+  }
+
+  Future<void> _savePrivacyPolicy() async {
+    setState(() => _isSavingPrivacy = true);
+
+    try {
+      await TermsService().updatePrivacyPolicy(_privacyPolicyController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Privacy policy updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update privacy policy: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingPrivacy = false);
       }
     }
   }
@@ -2776,6 +2824,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         arguments: {'mode': 'logout'},
       );
     }
+  }
+
+  Widget _buildSettingsContent(bool isDark) {
+    return SettingsScreen(
+      isDarkMode: isDark,
+      showHeader: false,
+      showAppearance: true,
+      showSignOut: true,
+      adminMode: true,
+      onThemeToggle: widget.onThemeToggle,
+      onBack: () {},
+      onOpenSupport: () => setState(() => _selectedIndex = 7),
+      onSignOut: _handleLogout,
+      onProfileUpdated: () {
+        _loadDashboardData();
+      },
+    );
   }
 
   @override
@@ -12154,6 +12219,104 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             )
                           : const Icon(Icons.save),
                       label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            isDark,
+          ),
+          const SizedBox(height: 20),
+
+          // 3. Privacy Policy
+          _buildCard(
+            'Privacy Policy',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This text is displayed in the Privacy Policy section for users and renters detailing data usage, identity verification policies, location tracking, and security.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _privacyPolicyController,
+                  minLines: 8,
+                  maxLines: 14,
+                  enabled: !_isLoadingPrivacy && !_isSavingPrivacy,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    height: 1.4,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Enter privacy policy content...',
+                    hintStyle: TextStyle(
+                      color: isDark ? Colors.grey : Colors.grey.shade500,
+                    ),
+                    filled: true,
+                    fillColor: isDark
+                        ? AppColors.darkBgSecondary
+                        : Colors.grey.shade50,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (_isLoadingPrivacy)
+                      Text(
+                        'Loading privacy policy...',
+                        style: TextStyle(
+                          color: isDark ? Colors.grey : Colors.grey.shade600,
+                        ),
+                      ),
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: _isLoadingPrivacy || _isSavingPrivacy
+                          ? null
+                          : _loadPrivacyPolicy,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reload'),
+                    ),
+                    const SizedBox(width: 12),
+                    ElevatedButton.icon(
+                      onPressed: _isLoadingPrivacy || _isSavingPrivacy
+                          ? null
+                          : _savePrivacyPolicy,
+                      icon: _isSavingPrivacy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save),
+                      label: Text(_isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,

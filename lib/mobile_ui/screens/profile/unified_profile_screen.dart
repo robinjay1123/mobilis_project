@@ -11,6 +11,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/role_ui.dart';
 import 'emergency_contact_screen.dart';
+import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
 import 'settings_screen.dart';
 
@@ -357,15 +358,12 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     );
   }
 
-  Future<void> _openTermsAndConditions() async {
-    final content = await TermsService().getRentalTerms();
-    if (!mounted) return;
+  void _openTermsAndConditions() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _ProfileLegalDocumentScreen(
-          title: 'Terms and Conditions',
-          icon: Icons.description_outlined,
-          content: content,
+        builder: (_) => LegalTermsPrivacyScreen(
+          initialTab: 'terms',
+          isDarkMode: widget.isDarkMode,
         ),
       ),
     );
@@ -374,13 +372,9 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   void _openPrivacyPolicy() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const _ProfileLegalDocumentScreen(
-          title: 'Privacy Policy',
-          icon: Icons.privacy_tip_outlined,
-          content:
-              'Mobilis by PSDC collects account, verification, booking, location, emergency-contact, and payment-related information only to operate rentals, protect users, and meet service requirements.\n\n'
-              'Identity documents and live trip locations are limited to authorized workflows and should only be viewed by users responsible for verification, active bookings, safety, or support.\n\n'
-              'Profile and booking information must not be shared outside the platform without a valid service or safety reason. Contact Customer Support to report incorrect information, request assistance, or raise a privacy concern.',
+        builder: (_) => LegalTermsPrivacyScreen(
+          initialTab: 'privacy',
+          isDarkMode: widget.isDarkMode,
         ),
       ),
     );
@@ -872,21 +866,49 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
 
   Widget _roleBadge() {
     final role = widget.role.toLowerCase();
-    final label = role == 'partner'
-        ? 'Mobilis by PSDC Certified Partner'
-        : role == 'driver'
-        ? 'Mobilis by PSDC Certified Driver'
-        : 'Verified Renter';
+    final isVerified = _verification?['is_verified'] == true ||
+        VerificationService.isVerifiedStatus(_verification?['verification_status']) ||
+        VerificationService.isVerifiedStatus(_profile?['verification_status']) ||
+        _profile?['id_verified'] == true;
+
+    String label;
+    Color badgeColor;
+    if (role == 'partner') {
+      if (isVerified) {
+        label = 'Mobilis by PSDC Certified Partner';
+        badgeColor = AppColors.success;
+      } else {
+        label = 'Basic Partner';
+        badgeColor = AppColors.textSecondary;
+      }
+    } else if (role == 'driver') {
+      if (isVerified) {
+        label = 'Mobilis by PSDC Certified Driver';
+        badgeColor = AppColors.success;
+      } else {
+        label = 'Basic Driver';
+        badgeColor = AppColors.textSecondary;
+      }
+    } else {
+      if (isVerified) {
+        label = 'Verified Renter';
+        badgeColor = AppColors.success;
+      } else {
+        label = 'Basic Renter';
+        badgeColor = AppColors.textSecondary;
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.15),
+        color: badgeColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          color: AppColors.success,
+        style: TextStyle(
+          color: badgeColor,
           fontSize: 10,
           fontWeight: FontWeight.w800,
         ),

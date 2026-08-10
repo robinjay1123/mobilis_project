@@ -15,6 +15,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../widgets/mpin_verification_dialog.dart';
+import '../../widgets/booking_status_dialog.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
@@ -1965,188 +1966,124 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         throw Exception('You need to log in before booking.');
       }
 
-      final evidenceService = BookingEvidenceService();
-      final signatureUrl = await evidenceService.uploadEvidenceBytes(
-        userId: currentUser.id,
-        bytes: _signatureBytes!,
-        evidenceType: 'signature',
-      );
-      final coTravelerSignatureUrl = await evidenceService.uploadEvidenceBytes(
-        userId: currentUser.id,
-        bytes: _coTravelerSignatureBytes!,
-        evidenceType: 'co_traveler_signature',
-      );
-      final validIdUrl = await evidenceService.uploadEvidenceFile(
-        userId: currentUser.id,
-        file: _validIdPhoto!,
-        evidenceType: 'valid_id',
-      );
-      final selfieUrl = await evidenceService.uploadEvidenceFile(
-        userId: currentUser.id,
-        file: _selfiePhoto!,
-        evidenceType: 'selfie',
-      );
-      final coTravelerValidIdUrl = await evidenceService.uploadEvidenceFile(
-        userId: currentUser.id,
-        file: _coTravelerValidIdPhoto!,
-        evidenceType: 'co_traveler_valid_id',
-      );
-      final coTravelerSelfieUrl = await evidenceService.uploadEvidenceFile(
-        userId: currentUser.id,
-        file: _coTravelerSelfiePhoto!,
-        evidenceType: 'co_traveler_selfie',
-      );
+      final error = await showDialog<dynamic>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return BookingStatusDialog(
+            billableHours: _billableHours,
+            totalPrice: _totalPrice,
+            withDriver: _withDriver,
+            onProcess: () async {
+              final evidenceService = BookingEvidenceService();
+              final signatureUrl = await evidenceService.uploadEvidenceBytes(
+                userId: currentUser.id,
+                bytes: _signatureBytes!,
+                evidenceType: 'signature',
+              );
+              final coTravelerSignatureUrl = await evidenceService.uploadEvidenceBytes(
+                userId: currentUser.id,
+                bytes: _coTravelerSignatureBytes!,
+                evidenceType: 'co_traveler_signature',
+              );
+              final validIdUrl = await evidenceService.uploadEvidenceFile(
+                userId: currentUser.id,
+                file: _validIdPhoto!,
+                evidenceType: 'valid_id',
+              );
+              final selfieUrl = await evidenceService.uploadEvidenceFile(
+                userId: currentUser.id,
+                file: _selfiePhoto!,
+                evidenceType: 'selfie',
+              );
+              final coTravelerValidIdUrl = await evidenceService.uploadEvidenceFile(
+                userId: currentUser.id,
+                file: _coTravelerValidIdPhoto!,
+                evidenceType: 'co_traveler_valid_id',
+              );
+              final coTravelerSelfieUrl = await evidenceService.uploadEvidenceFile(
+                userId: currentUser.id,
+                file: _coTravelerSelfiePhoto!,
+                evidenceType: 'co_traveler_selfie',
+              );
 
-      final createdBooking = await BookingService().createBooking(
-        renterId: currentUser.id,
-        vehicleId: widget.vehicleId,
-        startAt: startAtLocal.toUtc(),
-        endAt: endAtLocal.toUtc(),
-        totalPrice: _totalPrice,
-        rentalSubtotal: _rentalSubtotal,
-        discountAmount: _discountAmount,
-        appliedVoucher: _selectedVoucher?.code ?? _selectedVoucher?.title,
-        deliveryDistanceKm: _deliveryDistanceKm,
-        deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
-        deliveryFee: _deliveryFee,
-        withDriver: _withDriver,
-        pickupLocation: _getPickupLocation(),
-        dropoffLocation: _getDropoffLocation(),
-        pickupLatitude: _pickupMapPin?.latitude,
-        pickupLongitude: _pickupMapPin?.longitude,
-        dropoffLatitude: _dropoffMapPin?.latitude,
-        dropoffLongitude: _dropoffMapPin?.longitude,
-        rentalTermsAcceptedAt: requireTermsAgreement ? DateTime.now() : null,
-        rentalTermsSnapshot: requireTermsAgreement
-            ? _acceptedTermsSnapshot
-            : null,
-        reservationFeeAmount: reservationPaymentProof?.amount,
-        reservationPaymentReference: reservationPaymentProof?.referenceNumber,
-        reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
-        reservationPaymentMethod: reservationPaymentProof?.method,
-        reservationPaymentType: reservationPaymentProof?.paymentType,
-        emergencyContactName: _defaultEmergencyContact?['full_name']
-            ?.toString(),
-        emergencyContactPhone: _defaultEmergencyContact?['phone_number']
-            ?.toString(),
-        emergencyContactRelationship: _defaultEmergencyContact?['relationship']
-            ?.toString(),
-        renterSignatureText: 'Digital signature captured',
-        renterSignatureUrl: signatureUrl,
-        renterValidIdUrl: validIdUrl,
-        renterSelfieUrl: selfieUrl,
-        coTravelerName: coTravelerName,
-        coTravelerPhone: coTravelerPhone,
-        coTravelerLicense: coTravelerLicense,
-        coTravelerSignatureText: 'Co-traveler digital signature captured',
-        coTravelerSignatureUrl: coTravelerSignatureUrl,
-        coTravelerValidIdUrl: coTravelerValidIdUrl,
-        coTravelerSelfieUrl: coTravelerSelfieUrl,
-      );
+              final createdBooking = await BookingService().createBooking(
+                renterId: currentUser.id,
+                vehicleId: widget.vehicleId,
+                startAt: startAtLocal.toUtc(),
+                endAt: endAtLocal.toUtc(),
+                totalPrice: _totalPrice,
+                rentalSubtotal: _rentalSubtotal,
+                discountAmount: _discountAmount,
+                appliedVoucher: _selectedVoucher?.code ?? _selectedVoucher?.title,
+                deliveryDistanceKm: _deliveryDistanceKm,
+                deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
+                deliveryFee: _deliveryFee,
+                withDriver: _withDriver,
+                pickupLocation: _getPickupLocation(),
+                dropoffLocation: _getDropoffLocation(),
+                pickupLatitude: _pickupMapPin?.latitude,
+                pickupLongitude: _pickupMapPin?.longitude,
+                dropoffLatitude: _dropoffMapPin?.latitude,
+                dropoffLongitude: _dropoffMapPin?.longitude,
+                rentalTermsAcceptedAt: requireTermsAgreement ? DateTime.now() : null,
+                rentalTermsSnapshot: requireTermsAgreement
+                    ? _acceptedTermsSnapshot
+                    : null,
+                reservationFeeAmount: reservationPaymentProof?.amount,
+                reservationPaymentReference: reservationPaymentProof?.referenceNumber,
+                reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
+                reservationPaymentMethod: reservationPaymentProof?.method,
+                reservationPaymentType: reservationPaymentProof?.paymentType,
+                emergencyContactName: _defaultEmergencyContact?['full_name']
+                    ?.toString(),
+                emergencyContactPhone: _defaultEmergencyContact?['phone_number']
+                    ?.toString(),
+                emergencyContactRelationship: _defaultEmergencyContact?['relationship']
+                    ?.toString(),
+                renterSignatureText: 'Digital signature captured',
+                renterSignatureUrl: signatureUrl,
+                renterValidIdUrl: validIdUrl,
+                renterSelfieUrl: selfieUrl,
+                coTravelerName: coTravelerName,
+                coTravelerPhone: coTravelerPhone,
+                coTravelerLicense: coTravelerLicense,
+                coTravelerSignatureText: 'Co-traveler digital signature captured',
+                coTravelerSignatureUrl: coTravelerSignatureUrl,
+                coTravelerValidIdUrl: coTravelerValidIdUrl,
+                coTravelerSelfieUrl: coTravelerSelfieUrl,
+              );
 
-      if (reservationPaymentProof != null) {
-        final bookingId = createdBooking['id']?.toString();
-        if (bookingId != null && bookingId.isNotEmpty) {
-          unawaited(
-            ReservationPaymentService()
-                .createReceiptRecord(
-                  bookingId: bookingId,
-                  renterId: currentUser.id,
-                  proof: reservationPaymentProof,
-                )
-                .timeout(const Duration(seconds: 6))
-                .catchError((e) {
-                  debugPrint(
-                    'Booking created but receipt audit insert timed out/failed: $e',
+              if (reservationPaymentProof != null) {
+                final bookingId = createdBooking['id']?.toString();
+                if (bookingId != null && bookingId.isNotEmpty) {
+                  unawaited(
+                    ReservationPaymentService()
+                        .createReceiptRecord(
+                          bookingId: bookingId,
+                          renterId: currentUser.id,
+                          proof: reservationPaymentProof,
+                        )
+                        .timeout(const Duration(seconds: 6))
+                        .catchError((e) {
+                          debugPrint(
+                            'Booking created but receipt audit insert timed out/failed: $e',
+                          );
+                        }),
                   );
-                }),
+                }
+              }
+            },
+            onDone: () {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            },
           );
-        }
-      }
+        },
+      );
 
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: AppColors.darkBgSecondary,
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.check_circle,
-                    color: AppColors.success,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    'Booking Requested',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Your booking request and reservation payment proof have been submitted. You will be notified once the operator and owner respond.',
-                  style: TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.darkBgTertiary,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildSummaryRow(
-                        'Duration',
-                        '$_billableHours hour${_billableHours == 1 ? '' : 's'}',
-                      ),
-                      const SizedBox(height: 8),
-                      _buildSummaryRow(
-                        'Total',
-                        '₱${formatAmount(_totalPrice)}',
-                        isTotal: true,
-                      ),
-                      const SizedBox(height: 8),
-                      _buildSummaryRow(
-                        'Service',
-                        _withDriver ? 'With Driver' : 'Self-Drive',
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.black,
-                ),
-                child: const Text('Done'),
-              ),
-            ],
-          ),
-        );
+      if (error != null) {
+        throw error;
       }
     } catch (e) {
       if (mounted) {
@@ -3372,51 +3309,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         color: AppColors.textSecondary,
                       ),
                     ),
-                  const SizedBox(height: 10),
-                  InkWell(
-                    onTap: _openVehicleRatings,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: List.generate(
-                              5,
-                              (index) => Icon(
-                                index < vehicleRating.round()
-                                    ? Icons.star_rounded
-                                    : Icons.star_outline_rounded,
-                                color: AppColors.primary,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            vehicleRating > 0
-                                ? '${vehicleRating.toStringAsFixed(1)} ($vehicleRatingCount review${vehicleRatingCount == 1 ? '' : 's'})'
-                                : 'No ratings yet',
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          const Text(
-                            '• See Ratings & Reviews >',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 24),
 
                   // Price
