@@ -2826,22 +2826,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
-  Widget _buildSettingsContent(bool isDark) {
-    return SettingsScreen(
-      isDarkMode: isDark,
-      showHeader: false,
-      showAppearance: true,
-      showSignOut: true,
-      adminMode: true,
-      onThemeToggle: widget.onThemeToggle,
-      onBack: () {},
-      onOpenSupport: () => setState(() => _selectedIndex = 7),
-      onSignOut: _handleLogout,
-      onProfileUpdated: () {
-        _loadDashboardData();
-      },
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {

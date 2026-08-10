@@ -3432,10 +3432,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               IconButton(
                 icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded, color: Colors.white),
                 onPressed: () {
-                  final keys = _themePalettes.keys.toList();
-                  final curIdx = keys.indexOf(_selectedThemeKey);
-                  final nextKey = keys[(curIdx + 1) % keys.length];
-                  _selectColorTheme(nextKey);
+                  widget.onThemeToggle?.call(!isDark);
                 },
               ),
             ],
