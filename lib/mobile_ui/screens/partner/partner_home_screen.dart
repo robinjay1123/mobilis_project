@@ -4596,7 +4596,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         bookingDate: bookingDate,
       );
 
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
 
       showDialog(
         context: context,
