@@ -1541,9 +1541,9 @@ class BookingService {
       final currentStatus =
           booking['status']?.toString().trim().toLowerCase() ?? '';
 
-      if (!{'pending', 'approved'}.contains(currentStatus)) {
+      if (!{'pending', 'approved', 'confirmed', 'active'}.contains(currentStatus)) {
         throw Exception(
-          'A driver can only be selected before the booking is finalized',
+          'A driver can only be assigned to pending, approved, confirmed, or active bookings',
         );
       }
 
@@ -1854,21 +1854,18 @@ class BookingService {
           '${targetDate.year.toString().padLeft(4, '0')}-'
           '${targetDate.month.toString().padLeft(2, '0')}-'
           '${targetDate.day.toString().padLeft(2, '0')}';
-      final todayScheduleResponse = await supabase
+      final dateScheduleResponse = await supabase
           .from('driver_availability_schedule')
-          .select('driver_id')
-          .eq('date', scheduleDate)
-          .eq('is_available', true);
-      final anyScheduleResponse = await supabase
-          .from('driver_availability_schedule')
-          .select('driver_id')
-          .eq('is_available', true);
-      final availableTodayDriverIds = List<Map<String, dynamic>>.from(
-        todayScheduleResponse,
-      ).map((row) => row['driver_id']?.toString()).whereType<String>().toSet();
-      final scheduledDriverIds = List<Map<String, dynamic>>.from(
-        anyScheduleResponse,
-      ).map((row) => row['driver_id']?.toString()).whereType<String>().toSet();
+          .select('driver_id, is_available')
+          .eq('date', scheduleDate);
+
+      final Map<String, bool> dateScheduleMap = {};
+      for (final row in List<Map<String, dynamic>>.from(dateScheduleResponse)) {
+        final dId = row['driver_id']?.toString();
+        if (dId != null && dId.isNotEmpty) {
+          dateScheduleMap[dId] = row['is_available'] == true;
+        }
+      }
 
       final response = await supabase
           .from('drivers')
@@ -1882,22 +1879,44 @@ class BookingService {
             if (user == null) return false;
 
             final role = user['role']?.toString().trim().toLowerCase() ?? '';
-            if (role.isNotEmpty && role != 'driver') return false;
+            if (role.isNotEmpty &&
+                role != 'driver' &&
+                role != 'admin' &&
+                role != 'operator') {
+              return false;
+            }
 
-            final driverUserId = driver['user_id']?.toString();
-            final hasDateSchedule = scheduledDriverIds.contains(driverUserId);
-            final isAvailable = hasDateSchedule
-                ? availableTodayDriverIds.contains(driverUserId)
-                : user['is_available'] == true;
-            final isVerified =
-                _isVerifiedDriverStatus(driver['verification_status']) ||
-                _isVerifiedDriverStatus(user['verification_status']) ||
-                user['id_verified'] == true;
-            final isCertified =
-                user['application_status']?.toString().trim().toLowerCase() ==
-                'approved';
+            final driverUserId = driver['user_id']?.toString() ?? '';
+            final driverProfileId = driver['id']?.toString() ?? '';
 
-            return isAvailable && isVerified && isCertified;
+            final bool? dateOverride =
+                dateScheduleMap[driverUserId] ?? dateScheduleMap[driverProfileId];
+
+            final isAvailable =
+                dateOverride ?? (user['is_available'] != false);
+
+            final driverVer =
+                driver['verification_status']?.toString().trim().toLowerCase() ??
+                    '';
+            final userVer =
+                user['verification_status']?.toString().trim().toLowerCase() ??
+                    '';
+            final userAppStatus =
+                user['application_status']?.toString().trim().toLowerCase() ??
+                    '';
+
+            final isVerifiedOrApproved =
+                _isVerifiedDriverStatus(driverVer) ||
+                _isVerifiedDriverStatus(userVer) ||
+                user['id_verified'] == true ||
+                userAppStatus == 'approved' ||
+                userAppStatus == 'basic' ||
+                userAppStatus.isEmpty;
+
+            final isNotRejected =
+                userAppStatus != 'rejected' && driverVer != 'rejected';
+
+            return isAvailable && isVerifiedOrApproved && isNotRejected;
           })
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
@@ -2519,8 +2538,14 @@ class BookingService {
     if (driver == null) return null;
 
     final user = driver['users'] as Map<String, dynamic>?;
-    final role = user?['role']?.toString().toLowerCase();
-    if (role != 'driver') return null;
+    final role = user?['role']?.toString().trim().toLowerCase();
+    if (role != null &&
+        role.isNotEmpty &&
+        role != 'driver' &&
+        role != 'admin' &&
+        role != 'operator') {
+      return null;
+    }
 
     return {
       'driver_id': driver['id'],

@@ -4589,7 +4589,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final bookingService = BookingService();
 
     try {
-      final drivers = await bookingService.getAvailableVerifiedDrivers();
+      final bookingDate = DateTime.tryParse(
+        (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+      );
+      final drivers = await bookingService.getAvailableVerifiedDrivers(
+        bookingDate: bookingDate,
+      );
 
       if (!mounted) return;
 
