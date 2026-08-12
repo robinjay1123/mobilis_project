@@ -2009,11 +2009,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   children: [
                     _buildBookingTabButton('Pending', 0),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Active', 1),
+                    _buildBookingTabButton('Approved', 1),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Past', 2),
+                    _buildBookingTabButton('Ongoing', 2),
                     const SizedBox(width: 8),
-                    _buildBookingTabButton('Cancelled', 3),
+                    _buildBookingTabButton('Completed', 3),
+                    const SizedBox(width: 8),
+                    _buildBookingTabButton('Cancelled', 4),
                   ],
                 ),
               ),
@@ -2061,7 +2063,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   Widget _buildBookingTabButton(String label, int index) {
     final isSelected = selectedBookingTab == index;
     return SizedBox(
-      width: label == 'Cancelled' ? 92 : 78,
+      width: label.length > 7 ? 92 : 82,
       child: GestureDetector(
         onTap: () => setState(() => selectedBookingTab = index),
         child: AnimatedContainer(
@@ -2658,15 +2660,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   List<Map<String, dynamic>> _filteredBookingsForDashboard() {
     final statuses = switch (selectedBookingTab) {
       0 => {'pending'},
-      1 => {
-        'confirmed',
+      1 => {'approved', 'confirmed'},
+      2 => {
         'ongoing',
         'active',
         'in_progress',
         'in transit',
         'in_transit',
       },
-      2 => {'completed', 'successful', 'done', 'finished'},
+      3 => {'completed', 'successful', 'done', 'finished'},
       _ => {'cancelled', 'canceled', 'declined', 'rejected'},
     };
 
@@ -2693,9 +2695,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       case 0:
         return 'Pending';
       case 1:
-        return 'Active';
+        return 'Approved';
       case 2:
-        return 'Past';
+        return 'Ongoing';
+      case 3:
+        return 'Completed';
       default:
         return 'Cancelled';
     }

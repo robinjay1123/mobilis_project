@@ -4658,7 +4658,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'Completed',
       'Cancelled',
     ];
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -4669,40 +4668,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               .where((booking) => booking['statusGroup'] == status)
               .length;
           return Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(right: 12),
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
               onTap: () => setState(() => _selectedBookingStatus = status),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: status == 'Cancelled' ? 108 : 96,
-                padding: const EdgeInsets.symmetric(vertical: 11),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? AppColors.primary
-                      : (isDark ? AppColors.darkBg : Colors.white),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: selected
-                        ? AppColors.primary
-                        : (isDark
-                              ? AppColors.borderColor
-                              : AppColors.lightBorderColor),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: selected ? AppColors.primary : Colors.transparent,
+                      width: 2.5,
+                    ),
                   ),
                 ),
                 child: Text(
-                  '$status ($count)',
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  count > 0 ? '$status ($count)' : status,
                   style: TextStyle(
                     color: selected
-                        ? Colors.black
-                        : (isDark
-                              ? AppColors.textSecondary
-                              : AppColors.lightTextSecondary),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
+                        ? AppColors.primary
+                        : const Color(0xFF98A4B7),
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   ),
                 ),
               ),
