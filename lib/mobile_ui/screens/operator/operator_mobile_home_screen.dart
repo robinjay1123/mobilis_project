@@ -985,7 +985,6 @@ class _BookingCard extends StatelessWidget {
                 ],
               ),
             ],
-            ],
           ],
         ),
       ),
