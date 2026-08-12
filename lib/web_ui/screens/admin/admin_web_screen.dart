@@ -12077,7 +12077,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildSettingsContent(bool isDark) {
+  Widget _buildOldSettingsContent(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(30),
       child: Column(
@@ -12831,6 +12831,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSettingsContent(bool isDark) {
+    return SettingsScreen(
+      isDarkMode: isDark,
+      showHeader: false,
+      showAppearance: true,
+      showSignOut: true,
+      operatorMode: true,
+      adminMode: true,
+      onThemeToggle: widget.onThemeToggle,
+      onBack: () {},
+      onOpenSupport: () => setState(() => _selectedIndex = 7),
+      onSignOut: _handleLogout,
+      onProfileUpdated: () {
+        _loadDashboardData();
+      },
     );
   }
 
