@@ -2453,110 +2453,75 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     return const SizedBox.shrink();
                   }
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Vehicle Photos',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final useTwoColumns = constraints.maxWidth >= 430;
-                          final imageWidth = useTwoColumns
-                              ? (constraints.maxWidth - 10) / 2
-                              : constraints.maxWidth;
-
-                          return Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: photoUrls.map((url) {
-                              return SizedBox(
-                                width: imageWidth,
-                                height: 150,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Container(
-                                    color: AppColors.darkBg,
-                                    child: OptimizedNetworkImage(
-                                      imageUrl: url,
-                                      fit: BoxFit.cover,
-                                      errorWidget: Container(
-                                        color: AppColors.darkBg,
-                                        alignment: Alignment.center,
-                                        child: const Icon(
-                                          Icons.image_not_supported_outlined,
-                                          color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  );
+                  return _VehiclePhotoCarousel(photoUrls: photoUrls);
                 },
               ),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final useTwoColumns = constraints.maxWidth >= 640;
-                  final itemWidth = useTwoColumns
-                      ? (constraints.maxWidth - 10) / 2
-                      : constraints.maxWidth;
+                  final itemWidth = (constraints.maxWidth - 10) / 2;
 
                   return Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    children: detailRows
-                        .map(
-                          (detail) => SizedBox(
-                            width: itemWidth,
-                            child: Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: AppColors.darkBg,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: AppColors.borderColor,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    detail.key,
-                                    style: const TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    detail.value,
-                                    style: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                    children: detailRows.map((detail) {
+                      return SizedBox(
+                        width: itemWidth,
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppColors.borderColor,
                             ),
                           ),
-                        )
-                        .toList(),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  _getDetailIcon(detail.key),
+                                  size: 16,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      detail.key,
+                                      style: const TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      detail.value,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.25,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   );
                 },
               ),
@@ -2937,6 +2902,155 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+IconData _getDetailIcon(String key) {
+  switch (key.toLowerCase()) {
+    case 'brand':
+      return Icons.directions_car_outlined;
+    case 'model':
+      return Icons.car_rental_outlined;
+    case 'year':
+      return Icons.calendar_today_outlined;
+    case 'plate number':
+      return Icons.badge_outlined;
+    case 'seats':
+      return Icons.event_seat_outlined;
+    case 'fuel type':
+      return Icons.local_gas_station_outlined;
+    case 'transmission':
+      return Icons.speed_outlined;
+    case 'driver setup':
+      return Icons.person_outlined;
+    case 'availability':
+      return Icons.check_circle_outline;
+    case 'submitted':
+      return Icons.access_time_outlined;
+    default:
+      return Icons.info_outline;
+  }
+}
+
+class _VehiclePhotoCarousel extends StatefulWidget {
+  const _VehiclePhotoCarousel({required this.photoUrls});
+  final List<String> photoUrls;
+
+  @override
+  State<_VehiclePhotoCarousel> createState() => _VehiclePhotoCarouselState();
+}
+
+class _VehiclePhotoCarouselState extends State<_VehiclePhotoCarousel> {
+  int _currentPage = 0;
+  final PageController _pageController = PageController();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.photoUrls.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Vehicle Photos',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (widget.photoUrls.length > 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.borderColor),
+                ),
+                child: Text(
+                  '${_currentPage + 1} / ${widget.photoUrls.length}',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 190,
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: _pageController,
+                itemCount: widget.photoUrls.length,
+                onPageChanged: (index) {
+                  setState(() => _currentPage = index);
+                },
+                itemBuilder: (context, index) {
+                  final url = widget.photoUrls[index];
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      color: AppColors.darkBg,
+                      child: OptimizedNetworkImage(
+                        imageUrl: url,
+                        fit: BoxFit.cover,
+                        errorWidget: Container(
+                          color: AppColors.darkBg,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.image_not_supported_outlined,
+                            color: AppColors.textSecondary,
+                            size: 36,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (widget.photoUrls.length > 1)
+                Positioned(
+                  bottom: 10,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      widget.photoUrls.length,
+                      (i) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: _currentPage == i ? 18 : 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: _currentPage == i
+                              ? AppColors.primary
+                              : Colors.white.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }
