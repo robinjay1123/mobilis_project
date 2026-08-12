@@ -8968,7 +8968,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   child: _buildCompactTripAction(
                     icon: Icons.navigation_rounded,
                     label: 'Navigate',
-                    filled: true,
+                    filled: false,
                     onPressed: onNavigate!,
                   ),
                 ),
