@@ -1294,9 +1294,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return Container(
       padding: EdgeInsets.fromLTRB(
         20,
-        MediaQuery.of(context).padding.top + 16,
+        MediaQuery.of(context).padding.top + 8,
         20,
-        16,
+        12,
       ),
       child: Row(
         children: [

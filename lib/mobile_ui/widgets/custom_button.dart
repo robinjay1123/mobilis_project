@@ -36,6 +36,9 @@ class CustomButton extends StatelessWidget {
           foregroundColor: textColor ?? Colors.black,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(borderRadius),
+          foregroundColor: textColor ?? Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(borderRadius),
           ),
           elevation: 0,
           disabledBackgroundColor: (backgroundColor ?? AppColors.primary)
@@ -51,14 +54,16 @@ class CustomButton extends StatelessWidget {
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
                 ),
               )
-            : Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
       ),

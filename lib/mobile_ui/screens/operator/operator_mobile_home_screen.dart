@@ -822,7 +822,7 @@ class _BookingCard extends StatelessWidget {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.error,
                               side: const BorderSide(color: AppColors.error),
-                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                             ),
                             onPressed: () async {
                               final bId = booking['id']?.toString();
@@ -835,9 +835,12 @@ class _BookingCard extends StatelessWidget {
                                 onRefresh?.call();
                               }
                             },
-                            child: const Text(
-                              'Reject Ext.',
-                              style: TextStyle(fontSize: 11),
+                            child: const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Reject Ext.',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
                         ),
@@ -847,7 +850,8 @@ class _BookingCard extends StatelessWidget {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              elevation: 0,
                             ),
                             onPressed: () async {
                               final bId = booking['id']?.toString();
@@ -860,11 +864,14 @@ class _BookingCard extends StatelessWidget {
                                 onRefresh?.call();
                               }
                             },
-                            child: const Text(
-                              'Approve Ext.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                            child: const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Approve Ext.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ),
@@ -887,22 +894,26 @@ class _BookingCard extends StatelessWidget {
                     size: 16,
                     color: Colors.black,
                   ),
-                  label: Text(
-                    _status == 'return_pending_inspection'
-                        ? 'Confirm Return Inspection'
-                        : 'Confirm Return',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      color: Colors.black,
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _status == 'return_pending_inspection'
+                          ? 'Confirm Return Inspection'
+                          : 'Confirm Return',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        color: Colors.black,
+                      ),
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
+                    elevation: 0,
                   ),
                   onPressed: () async {
                     final bId = booking['id']?.toString();
@@ -916,8 +927,6 @@ class _BookingCard extends StatelessWidget {
                       onRefresh?.call();
                     }
                   },
-
-
                 ),
               ),
             ],
@@ -930,7 +939,10 @@ class _BookingCard extends StatelessWidget {
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.close, size: 16),
-                      label: const Text('Reject'),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Reject'),
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.error,
                         side: BorderSide(
@@ -939,7 +951,7 @@ class _BookingCard extends StatelessWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                       ),
                       onPressed: () => _showRejectDialog(
                         context,
@@ -951,14 +963,18 @@ class _BookingCard extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.check, size: 16),
-                      label: const Text('Approve'),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Approve'),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                        elevation: 0,
                       ),
                       onPressed: () => _showApproveDialog(
                         context,
@@ -968,6 +984,7 @@ class _BookingCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ],
             ],
           ],
         ),

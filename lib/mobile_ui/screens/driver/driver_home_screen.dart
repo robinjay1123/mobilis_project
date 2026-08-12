@@ -1206,80 +1206,84 @@ class __DashboardTabState extends State<_DashboardTab> {
     final badge = _getDriverBadge();
     final badgeColor = _getDriverBadgeColor();
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        GestureDetector(
-          onTap: widget.onOpenMenu,
-          child: Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: const Color(0xFFFFEDD6),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: FutureBuilder<String?>(
-              future: avatarUrlFuture,
-              builder: (context, snapshot) {
-                final avatarUrl = snapshot.data ?? '';
-                if (avatarUrl.isNotEmpty) {
-                  return OptimizedNetworkImage(
-                    imageUrl: avatarUrl,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    errorWidget: _DriverInitial(
-                      displayName: displayName,
-                      fontSize: 24,
-                    ),
-                  );
-                }
-                return _DriverInitial(displayName: displayName, fontSize: 24);
-              },
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                displayName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _driverPrimaryText(context),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          GestureDetector(
+            onTap: widget.onOpenMenu,
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: const Color(0xFFFFEDD6),
               ),
-              if (badge != null) ...[
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Text(
-                    badge,
-                    style: TextStyle(
-                      color: badgeColor,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                    ),
+              clipBehavior: Clip.antiAlias,
+              child: FutureBuilder<String?>(
+                future: avatarUrlFuture,
+                builder: (context, snapshot) {
+                  final avatarUrl = snapshot.data ?? '';
+                  if (avatarUrl.isNotEmpty) {
+                    return OptimizedNetworkImage(
+                      imageUrl: avatarUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      errorWidget: _DriverInitial(
+                        displayName: displayName,
+                        fontSize: 20,
+                      ),
+                    );
+                  }
+                  return _DriverInitial(displayName: displayName, fontSize: 20);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _driverPrimaryText(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
+                if (badge != null) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: badgeColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      badge,
+                      style: TextStyle(
+                        color: badgeColor,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -1438,13 +1442,16 @@ class __DashboardTabState extends State<_DashboardTab> {
                     child: ElevatedButton.icon(
                       onPressed: widget.onOpenBookings,
                       icon: const Icon(Icons.navigation, color: Colors.black),
-                      label: const Text('Navigate'),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Navigate'),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         textStyle: const TextStyle(
                           fontSize: 15,
@@ -1458,13 +1465,16 @@ class __DashboardTabState extends State<_DashboardTab> {
                     child: OutlinedButton.icon(
                       onPressed: widget.onOpenMessages,
                       icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                      label: const Text('Message'),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('Message'),
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textPrimary,
                         side: const BorderSide(color: Color(0xFF2F5D86)),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         textStyle: const TextStyle(
                           fontSize: 15,
@@ -1614,14 +1624,21 @@ class __DashboardTabState extends State<_DashboardTab> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              elevation: 0,
             ),
-            child: Text(
-              buttonLabel,
-              style: const TextStyle(fontWeight: FontWeight.w900),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                buttonLabel,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
             ),
           ),
         ],
@@ -1918,15 +1935,19 @@ class _DriverQuickActionCard extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _driverPrimaryText(context),
-                  fontSize: 11,
-                  height: 1.1,
-                  fontWeight: FontWeight.w900,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _driverPrimaryText(context),
+                    fontSize: 12,
+                    height: 1.15,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
