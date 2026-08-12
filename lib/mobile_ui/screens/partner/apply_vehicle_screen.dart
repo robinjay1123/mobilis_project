@@ -929,12 +929,12 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
         ? 'NEEDS ACTION'
         : 'UNDER REVIEW';
     final heading = isApproved
-        ? 'Application Approved!'
+        ? 'List Your Vehicle & Earn!'
         : isRejected
         ? 'Application Update'
         : 'Almost There!';
     final subheading = isApproved
-        ? 'Your partner vehicle application has been approved by our team.'
+        ? 'Turn your car into earnings! Apply your vehicle today on Mobilis and start earning extra income hassle-free.'
         : isRejected
         ? 'Your latest application needs correction before it can move forward.'
         : 'Your application is currently being processed by our team.';
@@ -1085,11 +1085,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                 ? 'Your application was reviewed and needs changes. After correcting the issue, you can submit a fresh vehicle application.'
                 : 'Our team is currently verifying your documents. This usually takes 24-48 hours. You will receive a notification once approved.',
           ),
-          const SizedBox(height: 28),
-          CustomButton(
-            label: 'Refresh Status',
-            onPressed: _loadEligibilityState,
-          ),
+
           if (isRejected) ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(
