@@ -35,6 +35,7 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
   int selectedApplicationStatusTab = 0;
   int selectedApprovedVehicleTab = 0;
+  String _carSearchQuery = '';
   List<Map<String, dynamic>> applications = [];
   Map<String, int> applicationCounts = {
     'pending': 0,
@@ -192,10 +193,37 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
 
   Widget _buildApplicationOverview() {
     final filteredApplications = _filteredApplicationsForSelectedStatus();
-    final displayedApplications =
+    var displayedApplications =
         selectedApplicationStatusTab == 1 && selectedApprovedVehicleTab == 1
-        ? filteredApplications.where(_isPostedVehicle).toList()
-        : filteredApplications;
+            ? filteredApplications.where(_isPostedVehicle).toList()
+            : filteredApplications;
+
+    displayedApplications =
+        List<Map<String, dynamic>>.from(displayedApplications);
+
+    if (_carSearchQuery.trim().isNotEmpty) {
+      final q = _carSearchQuery.toLowerCase().trim();
+      displayedApplications = displayedApplications.where((car) {
+        final brand = (car['brand'] ?? '').toString().toLowerCase();
+        final model = (car['model'] ?? '').toString().toLowerCase();
+        final plate = (car['plate_number'] ?? '').toString().toLowerCase();
+        final year = (car['year'] ?? '').toString().toLowerCase();
+        return brand.contains(q) ||
+            model.contains(q) ||
+            plate.contains(q) ||
+            year.contains(q);
+      }).toList();
+    }
+
+    displayedApplications.sort((a, b) {
+      final aAvail = _truthy(a['is_available']) ? 1 : 0;
+      final bAvail = _truthy(b['is_available']) ? 1 : 0;
+      if (aAvail != bAvail) {
+        return bAvail.compareTo(aAvail);
+      }
+      return 0;
+    });
+
     final selectedStatusTitle = switch (selectedApplicationStatusTab) {
       0 => 'Pending Applications',
       1 => selectedApprovedVehicleTab == 0 ? 'My Cars' : 'Car Posted',
@@ -287,13 +315,66 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 _buildApprovedVehicleTabs(filteredApplications),
                 const SizedBox(height: 12),
               ],
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: TextField(
+                  onChanged: (val) => setState(() => _carSearchQuery = val),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Search car by brand, model, or plate number...',
+                    hintStyle: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                    suffixIcon: _carSearchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(
+                              Icons.clear,
+                              color: AppColors.textSecondary,
+                              size: 18,
+                            ),
+                            onPressed: () =>
+                                setState(() => _carSearchQuery = ''),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: AppColors.darkBg,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.borderColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.borderColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
+                  ),
+                ),
+              ),
               if (displayedApplications.isEmpty)
                 Text(
-                  selectedApplicationStatusTab == 1 &&
-                          selectedApprovedVehicleTab == 1
-                      ? 'No posted cars yet.'
-                      : 'No ${selectedStatusTitle.toLowerCase()} yet.',
-                  style: TextStyle(color: AppColors.textSecondary),
+                  _carSearchQuery.isNotEmpty
+                      ? 'No cars match "${_carSearchQuery}".'
+                      : (selectedApplicationStatusTab == 1 &&
+                              selectedApprovedVehicleTab == 1
+                          ? 'No posted cars yet.'
+                          : 'No ${selectedStatusTitle.toLowerCase()} yet.'),
+                  style: const TextStyle(color: AppColors.textSecondary),
                 )
               else if (selectedApplicationStatusTab == 1 &&
                   selectedApprovedVehicleTab == 1)
