@@ -40,15 +40,21 @@ class CustomTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final hintColor = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final fieldFillColor = isDark ? AppColors.darkBgSecondary : Colors.white;
+    final borderThemeColor = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: AppColors.textPrimary,
+            color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
           ),
         ),
         const SizedBox(height: 8),
@@ -63,15 +69,27 @@ class CustomTextField extends StatelessWidget {
           onChanged: onChanged,
           textCapitalization: textCapitalization,
           maxLength: maxLength,
-          style: const TextStyle(color: Colors.black, fontSize: 14),
+          style: TextStyle(color: textColor, fontSize: 14),
           decoration: InputDecoration(
             hintText: hintText,
-            hintStyle: const TextStyle(color: Colors.grey),
+            hintStyle: TextStyle(color: hintColor),
             prefixIcon: prefixIcon,
             suffixIcon: suffixIcon,
             filled: true,
-            fillColor: Colors.white,
+            fillColor: fieldFillColor,
             errorText: errorText,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: borderThemeColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: borderThemeColor),
+            ),
           ),
         ),
       ],

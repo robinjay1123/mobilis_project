@@ -792,7 +792,17 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
           hintText: '2,500',
           controller: pricePerDayController,
           keyboardType: TextInputType.number,
-          prefixIcon: const Icon(Icons.currency_yen, color: AppColors.primary),
+          prefixIcon: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Text(
+              '₱',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 14),
         CustomTextField(
@@ -800,7 +810,17 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
           hintText: '400',
           controller: pricePerHourController,
           keyboardType: TextInputType.number,
-          prefixIcon: const Icon(Icons.schedule, color: AppColors.textTertiary),
+          prefixIcon: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Text(
+              '₱',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 16),
         _buildOwnerDriverToggle(),
