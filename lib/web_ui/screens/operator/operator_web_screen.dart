@@ -153,32 +153,103 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _bookingPage = 0;
   static const int _bookingPageSize = 10;
 
-  // New Booking unread notification badge state
+  // New pending booking notification badge state. Track booking IDs instead
+  // of the total row count so old/completed bookings do not create a false
+  // "new booking" notification.
   int _unreadBookingsCount = 0;
-  int _lastSeenBookingCount = 0;
+  Set<String> _lastSeenPendingBookingIds = {};
+  bool _hasLoadedLastSeenPendingBookingIds = false;
 
-  Future<void> _loadLastSeenBookingCount() async {
+  Future<void> _loadLastSeenPendingBookingIds() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (mounted) {
         setState(() {
-          _lastSeenBookingCount =
-              prefs.getInt('operator_last_seen_booking_count') ?? 0;
+          _lastSeenPendingBookingIds =
+              (prefs.getStringList('operator_last_seen_pending_booking_ids') ??
+                      <String>[])
+                  .toSet();
+          _hasLoadedLastSeenPendingBookingIds = true;
         });
+        _recalculateUnreadPendingBookings();
       }
     } catch (e) {
-      debugPrint('Error loading last seen booking count: $e');
+      debugPrint('Error loading last seen pending booking IDs: $e');
     }
   }
 
-  Future<void> _saveLastSeenBookingCount(int count) async {
-    _lastSeenBookingCount = count;
+  Future<void> _saveLastSeenPendingBookingIds(Iterable<String> ids) async {
+    final normalizedIds = ids
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    _lastSeenPendingBookingIds = normalizedIds;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('operator_last_seen_booking_count', count);
+      await prefs.setStringList(
+        'operator_last_seen_pending_booking_ids',
+        normalizedIds.toList(),
+      );
     } catch (e) {
-      debugPrint('Error saving last seen booking count: $e');
+      debugPrint('Error saving last seen pending booking IDs: $e');
     }
+  }
+
+  bool _isPendingBookingForCurrentOperator(Map<String, dynamic> booking) {
+    if (booking['status']?.toString().trim().toLowerCase() != 'pending') {
+      return false;
+    }
+
+    final operatorId = _supabase.auth.currentUser?.id;
+    if (operatorId == null || operatorId.isEmpty) return false;
+
+    final vehicleValue = booking['vehicles'];
+    final vehicle = vehicleValue is Map
+        ? Map<String, dynamic>.from(vehicleValue)
+        : <String, dynamic>{};
+    final bookingOperatorId = booking['operator_id']?.toString().trim();
+    final vehicleOperatorId = vehicle['operator_id']?.toString().trim();
+    return bookingOperatorId == operatorId || vehicleOperatorId == operatorId;
+  }
+
+  Set<String> _currentPendingBookingIds() {
+    return _recentBookings
+        .where(_isPendingBookingForCurrentOperator)
+        .map((booking) => booking['id']?.toString().trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  void _recalculateUnreadPendingBookings() {
+    if (!_hasLoadedLastSeenPendingBookingIds || !mounted) return;
+
+    final currentIds = _currentPendingBookingIds();
+    if (_selectedIndex == 1) {
+      if (_unreadBookingsCount != 0) {
+        setState(() => _unreadBookingsCount = 0);
+      }
+      if (_lastSeenPendingBookingIds.length != currentIds.length ||
+          !_lastSeenPendingBookingIds.containsAll(currentIds)) {
+        _saveLastSeenPendingBookingIds(currentIds);
+      }
+      return;
+    }
+
+    final unreadCount = currentIds
+        .difference(_lastSeenPendingBookingIds)
+        .length;
+    if (_unreadBookingsCount != unreadCount) {
+      setState(() => _unreadBookingsCount = unreadCount);
+    }
+  }
+
+  void _markPendingBookingsSeen() {
+    final currentIds = _currentPendingBookingIds();
+    _lastSeenPendingBookingIds = currentIds;
+    if (mounted) {
+      setState(() => _unreadBookingsCount = 0);
+    }
+    _saveLastSeenPendingBookingIds(currentIds);
   }
 
   // Stats
@@ -255,8 +326,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   String _operationLoadingMessage = 'Processing booking action...';
 
   // Inspection System State & Controllers
-  final TextEditingController _inspectionOdometerController = TextEditingController();
-  final TextEditingController _inspectionNotesController = TextEditingController();
+  final TextEditingController _inspectionOdometerController =
+      TextEditingController();
+  final TextEditingController _inspectionNotesController =
+      TextEditingController();
 
   void _showOperationLoading(String message) {
     if (!mounted) return;
@@ -319,7 +392,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       color: _operatorGold.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.palette_rounded, color: _operatorGold, size: 22),
+                    child: Icon(
+                      Icons.palette_rounded,
+                      color: _operatorGold,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -339,7 +416,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           'Select your preferred workspace color theme',
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                            color: isDark
+                                ? Colors.grey[400]
+                                : Colors.grey.shade600,
                           ),
                         ),
                       ],
@@ -443,7 +522,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       decoration: BoxDecoration(
                                         color: navyDeep,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white54),
+                                        border: Border.all(
+                                          color: Colors.white54,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -474,7 +555,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void initState() {
     super.initState();
     _loadColorTheme();
-    _loadLastSeenBookingCount();
+    _loadLastSeenPendingBookingIds();
     _loadDashboardData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadConversations();
@@ -484,12 +565,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
     );
-    _notificationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) {
-        if (mounted) _loadNotifications();
-      },
-    );
+    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 15), (
+      _,
+    ) {
+      if (mounted) _loadNotifications();
+    });
   }
 
   @override
@@ -990,12 +1070,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final actorId = _supabase.auth.currentUser?.id;
     if (bookingId.isEmpty || actorId == null) return;
 
-    final finalReceiptUrl = (booking['final_payment_proof_url'] ??
-            booking['payment_proof_url'] ??
-            booking['proof_url'] ??
-            booking['reservation_payment_proof_url'])
-        ?.toString()
-        .trim();
+    final finalReceiptUrl =
+        (booking['final_payment_proof_url'] ??
+                booking['payment_proof_url'] ??
+                booking['proof_url'] ??
+                booking['reservation_payment_proof_url'])
+            ?.toString()
+            .trim();
     final hasReceipt = finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
 
     final confirmed = await showDialog<bool>(
@@ -1015,9 +1096,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 const Text(
                   'Attached Renter Payment Receipt:',
                   style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Center(
@@ -1203,40 +1285,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (bookingId.isEmpty) return;
 
     try {
-    final record = await BookingInspectionService().getCompletedInspection(
-      bookingId: bookingId,
-      inspectionType: inspectionType,
-    );
-    final status =
-        booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (inspectionType == 'before' &&
-        allowCreate &&
-        (status == 'approved' || status == 'confirmed')) {
-      try {
-        final inspectorId =
-            Supabase.instance.client.auth.currentUser?.id;
-        if (inspectorId == null) {
-          throw Exception('Please sign in again');
+      final record = await BookingInspectionService().getCompletedInspection(
+        bookingId: bookingId,
+        inspectionType: inspectionType,
+      );
+      final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+      if (inspectionType == 'before' &&
+          allowCreate &&
+          (status == 'approved' || status == 'confirmed')) {
+        try {
+          final inspectorId = Supabase.instance.client.auth.currentUser?.id;
+          if (inspectorId == null) {
+            throw Exception('Please sign in again');
+          }
+          await BookingService().startBookingAfterInspection(
+            bookingId: bookingId,
+            inspectorId: inspectorId,
+          );
+          if (!mounted) return;
+          await _loadDashboardData(showLoading: false);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Trip started successfully')),
+          );
+        } catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unable to start trip: $error')),
+          );
         }
-        await BookingService().startBookingAfterInspection(
-          bookingId: bookingId,
-          inspectorId: inspectorId,
-        );
-        if (!mounted) return;
-        await _loadDashboardData(showLoading: false);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Trip started successfully')),
-        );
-      } catch (error) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to start trip: $error')),
-        );
+        return;
       }
-      return;
-    }
-    if (!mounted) return;
+      if (!mounted) return;
       await showVehicleInspectionRecordDialog(
         context,
         record: record,
@@ -1513,18 +1593,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return normalizedBooking;
       }).toList();
 
-      final currentCount = _recentBookings.length;
-      if (_selectedIndex == 1) {
-        _unreadBookingsCount = 0;
-        _saveLastSeenBookingCount(currentCount);
-      } else if (_lastSeenBookingCount > 0 && currentCount > _lastSeenBookingCount) {
-        _unreadBookingsCount = currentCount - _lastSeenBookingCount;
-      } else {
-        if (_lastSeenBookingCount == 0 && currentCount > 0) {
-          _saveLastSeenBookingCount(currentCount);
-        }
-        _unreadBookingsCount = 0;
-      }
+      _recalculateUnreadPendingBookings();
     } catch (e, st) {
       debugPrint(
         '[Bookings] Error loading recent bookings (driver embed via drivers -> users): $e',
@@ -2518,14 +2587,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
-    final ownerRole = vehicle['owner_role']?.toString().trim().toLowerCase() ?? '';
+    final ownerRole =
+        vehicle['owner_role']?.toString().trim().toLowerCase() ?? '';
     final source = vehicle['source']?.toString().trim().toLowerCase() ?? '';
-    final isPartner = vehicle['is_partner_vehicle'] == true ||
+    final isPartner =
+        vehicle['is_partner_vehicle'] == true ||
         vehicle['partner_vehicle_id'] != null ||
         vehicle['partner_name'] != null;
     final owner = vehicle['owner'] as Map<String, dynamic>?;
-    final ownerRoleNested = owner?['role']?.toString().trim().toLowerCase() ?? '';
-    return ownerRole == 'partner' || source == 'partner' || isPartner || ownerRoleNested == 'partner';
+    final ownerRoleNested =
+        owner?['role']?.toString().trim().toLowerCase() ?? '';
+    return ownerRole == 'partner' ||
+        source == 'partner' ||
+        isPartner ||
+        ownerRoleNested == 'partner';
   }
 
   List<Map<String, double>> _driverProximityTargets(
@@ -2713,9 +2788,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       final name =
                                           user['full_name']?.toString() ??
                                           'Unknown driver';
-                                      final isPsdcDriver = driver['is_psdc_driver'] == true ||
+                                      final isPsdcDriver =
+                                          driver['is_psdc_driver'] == true ||
                                           user['is_psdc_driver'] == true ||
-                                          driver['driver_tier']?.toString().toLowerCase() == 'psdc';
+                                          driver['driver_tier']
+                                                  ?.toString()
+                                                  .toLowerCase() ==
+                                              'psdc';
                                       final selected =
                                           selectedDriverId == driverId;
                                       final rating =
@@ -2766,8 +2845,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                   color: selected
                                                       ? _operatorNavy
                                                       : (isPsdcDriver
-                                                          ? const Color(0xFFD97706)
-                                                          : const Color(0xFF173D5B)),
+                                                            ? const Color(
+                                                                0xFFD97706,
+                                                              )
+                                                            : const Color(
+                                                                0xFF173D5B,
+                                                              )),
                                                   borderRadius:
                                                       BorderRadius.circular(14),
                                                 ),
@@ -2801,26 +2884,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                           ),
                                                         ),
                                                         if (isPsdcDriver) ...[
-                                                          const SizedBox(width: 8),
+                                                          const SizedBox(
+                                                            width: 8,
+                                                          ),
                                                           Container(
-                                                            padding: const EdgeInsets.symmetric(
-                                                              horizontal: 8,
-                                                              vertical: 3,
-                                                            ),
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  horizontal: 8,
+                                                                  vertical: 3,
+                                                                ),
                                                             decoration: BoxDecoration(
                                                               color: selected
                                                                   ? _operatorNavy
-                                                                  : const Color(0xFFF59E0B),
-                                                              borderRadius: BorderRadius.circular(12),
+                                                                  : const Color(
+                                                                      0xFFF59E0B,
+                                                                    ),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    12,
+                                                                  ),
                                                             ),
                                                             child: Text(
                                                               'PSDC DRIVER',
                                                               style: TextStyle(
                                                                 color: selected
-                                                                    ? Colors.white
-                                                                    : Colors.black,
+                                                                    ? Colors
+                                                                          .white
+                                                                    : Colors
+                                                                          .black,
                                                                 fontSize: 9,
-                                                                fontWeight: FontWeight.w900,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w900,
                                                               ),
                                                             ),
                                                           ),
@@ -3239,12 +3334,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                 ? Container(
                                                     width: 9,
                                                     height: 9,
-                                                    decoration:
-                                                        BoxDecoration(
-                                                          color: _operatorGold,
-                                                          shape:
-                                                              BoxShape.circle,
-                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: _operatorGold,
+                                                      shape: BoxShape.circle,
+                                                    ),
                                                   )
                                                 : null,
                                           ),
@@ -3400,7 +3493,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final isPhone = screenWidth < 768;
 
     if (isPhone) {
-      final navIndex = _selectedIndex > 4 && _selectedIndex != 8 ? 0 : (_selectedIndex == 8 ? 2 : (_selectedIndex == 4 ? 3 : (_selectedIndex == 2 ? 4 : _selectedIndex)));
+      final navIndex = _selectedIndex > 4 && _selectedIndex != 8
+          ? 0
+          : (_selectedIndex == 8
+                ? 2
+                : (_selectedIndex == 4
+                      ? 3
+                      : (_selectedIndex == 2 ? 4 : _selectedIndex)));
       return Theme(
         data: WebPortalTheme.resolve(context, isDark: isDark),
         child: Scaffold(
@@ -3414,23 +3513,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'assets/icon/logo-black.png',
                   width: 26,
                   height: 26,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.directions_car_filled_rounded, color: AppColors.primary),
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.directions_car_filled_rounded,
+                    color: AppColors.primary,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 const Text(
                   'PSDC Operator',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
                 ),
               ],
             ),
             actions: [
               IconButton(
-                icon: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
+                icon: const Icon(
+                  Icons.camera_alt_rounded,
+                  color: AppColors.primary,
+                ),
                 tooltip: 'Release Inspection',
                 onPressed: () => setState(() => _selectedIndex = 8),
               ),
               IconButton(
-                icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded, color: Colors.white),
+                icon: Icon(
+                  isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                  color: Colors.white,
+                ),
                 onPressed: () {
                   widget.onThemeToggle?.call(!isDark);
                 },
@@ -3447,18 +3559,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             onDestinationSelected: (idx) {
               if (idx == 0) _selectNavigationIndex(0); // Home
               if (idx == 1) _selectNavigationIndex(1); // Bookings
-              if (idx == 2) _selectNavigationIndex(8); // Inspections (Camera Release)
+              if (idx == 2)
+                _selectNavigationIndex(8); // Inspections (Camera Release)
               if (idx == 3) _selectNavigationIndex(4); // Vehicles
               if (idx == 4) _selectNavigationIndex(2); // Messages
             },
             backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
             indicatorColor: AppColors.primary.withValues(alpha: 0.25),
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.dashboard_rounded), label: 'Home'),
-              NavigationDestination(icon: Icon(Icons.calendar_month_rounded), label: 'Bookings'),
-              NavigationDestination(icon: Icon(Icons.camera_alt_rounded), label: 'Inspection'),
-              NavigationDestination(icon: Icon(Icons.directions_car_rounded), label: 'Vehicles'),
-              NavigationDestination(icon: Icon(Icons.chat_bubble_rounded), label: 'Messages'),
+              NavigationDestination(
+                icon: Icon(Icons.dashboard_rounded),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.calendar_month_rounded),
+                label: 'Bookings',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.camera_alt_rounded),
+                label: 'Inspection',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.directions_car_rounded),
+                label: 'Vehicles',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_rounded),
+                label: 'Messages',
+              ),
             ],
           ),
         ),
@@ -3812,10 +3940,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       setState(() => _selectedIndex = index);
     }
     if (index == 1) {
-      setState(() {
-        _unreadBookingsCount = 0;
-        _saveLastSeenBookingCount(_recentBookings.length);
-      });
+      _markPendingBookingsSeen();
     }
     if (index == 2) {
       _loadConversations();
@@ -3888,10 +4013,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           IconButton(
             tooltip: 'Customize Workspace Color Theme',
             onPressed: () => _showColorThemeDialog(isDark),
-            icon: Icon(
-              Icons.palette_rounded,
-              color: _operatorGold,
-            ),
+            icon: Icon(Icons.palette_rounded, color: _operatorGold),
           ),
           const SizedBox(width: 4),
           IconButton(
@@ -4282,7 +4404,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFD97706).withValues(alpha: isDark ? 0.35 : 0.2),
+                color: const Color(
+                  0xFFD97706,
+                ).withValues(alpha: isDark ? 0.35 : 0.2),
                 blurRadius: 24,
                 offset: const Offset(0, 10),
               ),
@@ -5308,10 +5432,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Text(
         name.isEmpty ? 'R' : name.substring(0, 1).toUpperCase(),
-        style: TextStyle(
-          color: _operatorGold,
-          fontWeight: FontWeight.w900,
-        ),
+        style: TextStyle(color: _operatorGold, fontWeight: FontWeight.w900),
       ),
     );
     if (avatarUrl == null || avatarUrl.isEmpty) return fallback;
@@ -7731,7 +7852,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           statusLower != 'completed' &&
                           group != BookingStatusGroup.completed)
                         ElevatedButton.icon(
-                          onPressed: (statusLower == 'return_pending_inspection' ||
+                          onPressed:
+                              (statusLower == 'return_pending_inspection' ||
                                   booking['returned_at'] != null ||
                                   booking['returnedAt'] != null)
                               ? () {
@@ -7745,16 +7867,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor:
                                 (statusLower == 'return_pending_inspection' ||
-                                        booking['returned_at'] != null ||
-                                        booking['returnedAt'] != null)
-                                    ? _operatorGold
-                                    : Colors.grey.shade800,
+                                    booking['returned_at'] != null ||
+                                    booking['returnedAt'] != null)
+                                ? _operatorGold
+                                : Colors.grey.shade800,
                             foregroundColor:
                                 (statusLower == 'return_pending_inspection' ||
-                                        booking['returned_at'] != null ||
-                                        booking['returnedAt'] != null)
-                                    ? _operatorNavyDeep
-                                    : Colors.grey.shade500,
+                                    booking['returned_at'] != null ||
+                                    booking['returnedAt'] != null)
+                                ? _operatorNavyDeep
+                                : Colors.grey.shade500,
                             disabledBackgroundColor: Colors.grey.shade800,
                             disabledForegroundColor: Colors.grey.shade500,
                             minimumSize: const Size(0, 44),
@@ -7982,10 +8104,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           color: _operatorGold,
                         ),
                       )
-                    : Icon(
-                        Icons.person_outline_rounded,
-                        color: _operatorGold,
-                      ),
+                    : Icon(Icons.person_outline_rounded, color: _operatorGold),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -8288,20 +8407,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     if (booking['final_payment_status'] == 'paid' ||
                         status.trim().toLowerCase() == 'completed')
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                          border: Border.all(
+                            color: Colors.greenAccent.withOpacity(0.5),
+                          ),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 12),
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: Colors.greenAccent,
+                              size: 12,
+                            ),
                             SizedBox(width: 4),
                             Text(
                               'Payment Verified',
-                              style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
@@ -8313,20 +8445,31 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   final vehicle = booking['vehicles'] is Map<String, dynamic>
                       ? Map<String, dynamic>.from(booking['vehicles'])
                       : <String, dynamic>{};
-                  final dailyRate = (vehicle['price_per_day'] as num?)?.toDouble() ??
+                  final dailyRate =
+                      (vehicle['price_per_day'] as num?)?.toDouble() ??
                       (vehicle['daily_rate'] as num?)?.toDouble() ??
                       (vehicle['rental_rate'] as num?)?.toDouble() ??
                       (booking['daily_rate'] as num?)?.toDouble() ??
                       (booking['price_per_day'] as num?)?.toDouble() ??
                       0.0;
 
-                  final startRaw = booking['start_at']?.toString() ?? booking['start_date']?.toString();
-                  final endRaw = booking['end_at']?.toString() ?? booking['end_date']?.toString();
-                  final startDate = startRaw != null ? DateTime.tryParse(startRaw)?.toLocal() : null;
-                  final endDate = endRaw != null ? DateTime.tryParse(endRaw)?.toLocal() : null;
+                  final startRaw =
+                      booking['start_at']?.toString() ??
+                      booking['start_date']?.toString();
+                  final endRaw =
+                      booking['end_at']?.toString() ??
+                      booking['end_date']?.toString();
+                  final startDate = startRaw != null
+                      ? DateTime.tryParse(startRaw)?.toLocal()
+                      : null;
+                  final endDate = endRaw != null
+                      ? DateTime.tryParse(endRaw)?.toLocal()
+                      : null;
 
                   int totalHours = 0;
-                  if (startDate != null && endDate != null && endDate.isAfter(startDate)) {
+                  if (startDate != null &&
+                      endDate != null &&
+                      endDate.isAfter(startDate)) {
                     totalHours = endDate.difference(startDate).inHours;
                   }
 
@@ -8341,17 +8484,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   } else if (excessHours > 0) {
                     durationLabel = '$excessHours Hour(s)';
                   } else {
-                    final fallbackDays = (booking['days'] as num?)?.toInt() ?? 1;
+                    final fallbackDays =
+                        (booking['days'] as num?)?.toInt() ?? 1;
                     durationLabel = '$fallbackDays Day(s)';
                   }
 
                   final hourlyRate = dailyRate > 0 ? dailyRate / 24.0 : 0.0;
                   double subtotal = 0.0;
                   if (totalHours > 0 && dailyRate > 0) {
-                    subtotal = (fullDays * dailyRate) + (excessHours * hourlyRate);
+                    subtotal =
+                        (fullDays * dailyRate) + (excessHours * hourlyRate);
                   } else {
-                    final fallbackDays = (booking['days'] as num?)?.toInt() ?? 1;
-                    subtotal = (booking['rental_subtotal'] as num?)?.toDouble() ??
+                    final fallbackDays =
+                        (booking['days'] as num?)?.toInt() ?? 1;
+                    subtotal =
+                        (booking['rental_subtotal'] as num?)?.toDouble() ??
                         (booking['subtotal'] as num?)?.toDouble() ??
                         (dailyRate > 0 ? dailyRate * fallbackDays : 0.0);
                   }
@@ -8387,21 +8534,33 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     'Driver Fee',
                     'PHP ${(booking['driver_fee'] as num).toDouble().toStringAsFixed(2)}',
                   ),
-                if (((booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0) > 0 ||
-                    ((booking['extension_fee'] as num?)?.toDouble() ?? 0.0) > 0) ...[
+                if (((booking['extension_additional_price'] as num?)
+                                ?.toDouble() ??
+                            0.0) >
+                        0 ||
+                    ((booking['extension_fee'] as num?)?.toDouble() ?? 0.0) >
+                        0) ...[
                   _buildOperatorSafetyLine(
                     'Trip Extension Fee',
                     'PHP ${((booking['extension_additional_price'] as num?)?.toDouble() ?? (booking['extension_fee'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                   ),
                 ],
                 () {
-                  final lateHours = (booking['late_return_hours'] as num?)?.toInt() ?? 0;
-                  final rawLateFee = (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+                  final lateHours =
+                      (booking['late_return_hours'] as num?)?.toInt() ?? 0;
+                  final rawLateFee =
+                      (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
                   final actualLateFee = lateHours > 0
-                      ? (rawLateFee > 0 && rawLateFee <= lateHours * 1000 ? rawLateFee : lateHours * 300.0)
-                      : (rawLateFee > 0 && rawLateFee <= 3000 ? rawLateFee : 0.0);
+                      ? (rawLateFee > 0 && rawLateFee <= lateHours * 1000
+                            ? rawLateFee
+                            : lateHours * 300.0)
+                      : (rawLateFee > 0 && rawLateFee <= 3000
+                            ? rawLateFee
+                            : 0.0);
                   if (actualLateFee > 0 || lateHours > 0) {
-                    final displayHours = lateHours > 0 ? lateHours : (actualLateFee / 300.0).ceil();
+                    final displayHours = lateHours > 0
+                        ? lateHours
+                        : (actualLateFee / 300.0).ceil();
                     return _buildOperatorSafetyLine(
                       'Late Return Penalty (${displayHours}h @ ₱300/hr)',
                       'PHP ${actualLateFee > 0 ? actualLateFee.toStringAsFixed(2) : (displayHours * 300.0).toStringAsFixed(2)}',
@@ -8425,35 +8584,35 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'PHP ${((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
                 ),
                 () {
-                  final finalReceiptUrl = (booking['final_payment_proof_url'] ??
-                          booking['payment_proof_url'] ??
-                          booking['proof_url'] ??
-                          booking['reservation_payment_proof_url'])
-                      ?.toString()
-                      .trim();
+                  final finalReceiptUrl =
+                      (booking['final_payment_proof_url'] ??
+                              booking['payment_proof_url'] ??
+                              booking['proof_url'] ??
+                              booking['reservation_payment_proof_url'])
+                          ?.toString()
+                          .trim();
                   final hasFinalReceipt =
                       finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
                   final isFullPaymentAtReservation =
                       booking['reservation_payment_type'] == 'full_payment' ||
-                          (((booking['reservation_fee_amount'] as num?)
-                                      ?.toDouble() ??
-                                  0) >=
-                              (((booking['total_price'] as num?)?.toDouble() ??
-                                      (booking['total_cost'] as num?)
-                                          ?.toDouble() ??
-                                      0) -
-                                  1));
+                      (((booking['reservation_fee_amount'] as num?)
+                                  ?.toDouble() ??
+                              0) >=
+                          (((booking['total_price'] as num?)?.toDouble() ??
+                                  (booking['total_cost'] as num?)?.toDouble() ??
+                                  0) -
+                              1));
                   final isPaymentSubmitted =
                       booking['renter_return_payment_submitted'] == true ||
-                          (booking['final_payment_reference']
-                                  ?.toString()
-                                  .trim()
-                                  .isNotEmpty ==
-                              true) ||
-                          booking['final_payment_status'] == 'paid' ||
-                          booking['final_payment_status'] == 'submitted' ||
-                          hasFinalReceipt ||
-                          isFullPaymentAtReservation;
+                      (booking['final_payment_reference']
+                              ?.toString()
+                              .trim()
+                              .isNotEmpty ==
+                          true) ||
+                      booking['final_payment_status'] == 'paid' ||
+                      booking['final_payment_status'] == 'submitted' ||
+                      hasFinalReceipt ||
+                      isFullPaymentAtReservation;
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -8525,18 +8684,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     const SizedBox(height: 8),
                                     OutlinedButton.icon(
                                       onPressed: () => _showReceiptProofDialog(
-                                          finalReceiptUrl, isDark),
+                                        finalReceiptUrl,
+                                        isDark,
+                                      ),
                                       icon: const Icon(
-                                          Icons.open_in_full_rounded,
-                                          size: 14),
-                                      label: const Text('View Full Receipt',
-                                          style: TextStyle(fontSize: 11)),
+                                        Icons.open_in_full_rounded,
+                                        size: 14,
+                                      ),
+                                      label: const Text(
+                                        'View Full Receipt',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: _operatorGold,
-                                        side: BorderSide(
-                                            color: _operatorGold),
+                                        side: BorderSide(color: _operatorGold),
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
                                         visualDensity: VisualDensity.compact,
                                       ),
                                     ),
@@ -8560,18 +8725,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _operatorGold,
                                 foregroundColor: _operatorNavyDeep,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 10),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
-                              icon: const Icon(Icons.verified_user_rounded,
-                                  size: 16),
+                              icon: const Icon(
+                                Icons.verified_user_rounded,
+                                size: 16,
+                              ),
                               label: const Text(
                                 'Confirm Final Payment & Verify Receipt',
                                 style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 12),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                           )
@@ -8579,17 +8749,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.amber.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                  color: Colors.amber.withOpacity(0.4)),
+                                color: Colors.amber.withOpacity(0.4),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.hourglass_bottom_rounded,
-                                    color: Colors.amber, size: 18),
+                                const Icon(
+                                  Icons.hourglass_bottom_rounded,
+                                  color: Colors.amber,
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
@@ -8657,10 +8833,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           color: _operatorGold.withOpacity(0.16),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(
-                          Icons.route_rounded,
-                          color: _operatorGold,
-                        ),
+                        child: Icon(Icons.route_rounded, color: _operatorGold),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -9999,44 +10172,60 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                   ),
                                 () {
-                                  final finalReceiptUrl = (booking['final_payment_proof_url'] ??
-                                          booking['payment_proof_url'] ??
-                                          booking['proof_url'] ??
-                                          booking['reservation_payment_proof_url'])
-                                      ?.toString()
-                                      .trim();
+                                  final finalReceiptUrl =
+                                      (booking['final_payment_proof_url'] ??
+                                              booking['payment_proof_url'] ??
+                                              booking['proof_url'] ??
+                                              booking['reservation_payment_proof_url'])
+                                          ?.toString()
+                                          .trim();
                                   final hasFinalReceipt =
-                                      finalReceiptUrl != null && finalReceiptUrl.isNotEmpty;
+                                      finalReceiptUrl != null &&
+                                      finalReceiptUrl.isNotEmpty;
                                   final isFullPaymentAtReservation =
-                                      booking['reservation_payment_type'] == 'full_payment' ||
-                                          (((booking['reservation_fee_amount'] as num?)?.toDouble() ?? 0) >=
-                                              (((booking['total_price'] as num?)?.toDouble() ??
-                                                      (booking['total_cost'] as num?)?.toDouble() ??
-                                                      0) -
-                                                  1));
+                                      booking['reservation_payment_type'] ==
+                                          'full_payment' ||
+                                      (((booking['reservation_fee_amount']
+                                                      as num?)
+                                                  ?.toDouble() ??
+                                              0) >=
+                                          (((booking['total_price'] as num?)
+                                                      ?.toDouble() ??
+                                                  (booking['total_cost']
+                                                          as num?)
+                                                      ?.toDouble() ??
+                                                  0) -
+                                              1));
                                   final isPaymentSubmitted =
-                                      booking['renter_return_payment_submitted'] == true ||
-                                          (booking['final_payment_reference']
-                                                  ?.toString()
-                                                  .trim()
-                                                  .isNotEmpty ==
-                                              true) ||
-                                          booking['final_payment_status'] == 'paid' ||
-                                          booking['final_payment_status'] == 'submitted' ||
-                                          hasFinalReceipt ||
-                                          isFullPaymentAtReservation;
+                                      booking['renter_return_payment_submitted'] ==
+                                          true ||
+                                      (booking['final_payment_reference']
+                                              ?.toString()
+                                              .trim()
+                                              .isNotEmpty ==
+                                          true) ||
+                                      booking['final_payment_status'] ==
+                                          'paid' ||
+                                      booking['final_payment_status'] ==
+                                          'submitted' ||
+                                      hasFinalReceipt ||
+                                      isFullPaymentAtReservation;
 
                                   if (completionStage == 'awaiting_payment' &&
                                       !_isPartnerOwnedBooking(booking)) {
                                     if (isPaymentSubmitted) {
                                       return ElevatedButton.icon(
                                         onPressed: () =>
-                                            _confirmOperatorFinalPayment(booking),
+                                            _confirmOperatorFinalPayment(
+                                              booking,
+                                            ),
                                         icon: const Icon(
                                           Icons.payments_outlined,
                                           size: 16,
                                         ),
-                                        label: const Text('Confirm Full Payment'),
+                                        label: const Text(
+                                          'Confirm Full Payment',
+                                        ),
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: AppColors.primary,
                                           foregroundColor: Colors.black,
@@ -10051,7 +10240,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         'Awaiting renter payment',
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: isDark ? Colors.amber[300] : Colors.amber[800],
+                                          color: isDark
+                                              ? Colors.amber[300]
+                                              : Colors.amber[800],
                                           fontWeight: FontWeight.w600,
                                         ),
                                       );
@@ -10068,10 +10259,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         'return_pending_inspection' &&
                                     booking['return_inspected_at'] != null &&
                                     (completionStage == 'operator_rating' ||
-                                        completionStage == 'awaiting_completion' ||
+                                        completionStage ==
+                                            'awaiting_completion' ||
                                         completionStage ==
                                             'awaiting_after_checklist' ||
-                                        completionStage == 'awaiting_payment') &&
+                                        completionStage ==
+                                            'awaiting_payment') &&
                                     booking['operator_trip_confirmed_at'] ==
                                         null)
                                   ElevatedButton.icon(
@@ -10820,7 +11013,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Release checklist submitted. The trip is now ongoing.'),
+            content: Text(
+              'Release checklist submitted. The trip is now ongoing.',
+            ),
             backgroundColor: AppColors.success,
           ),
         );
@@ -10843,7 +11038,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
               title: const Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange,
+                    size: 28,
+                  ),
                   SizedBox(width: 10),
                   Text(
                     'Final Payment Unchecked',
@@ -10863,10 +11062,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, 'cancel'),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textTertiary),
+                  ),
                 ),
                 OutlinedButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'proceed_unpaid'),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'proceed_unpaid'),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Colors.orange),
                     foregroundColor: Colors.orange,
@@ -10874,7 +11077,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   child: const Text('Proceed Return (Stay Ongoing)'),
                 ),
                 ElevatedButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'confirm_payment'),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'confirm_payment'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
@@ -11990,8 +12194,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             child: Text(
                               r,
                               style: TextStyle(
-                                color:
-                                    isDark ? Colors.grey[300] : Colors.black87,
+                                color: isDark
+                                    ? Colors.grey[300]
+                                    : Colors.black87,
                                 fontSize: 11,
                               ),
                             ),
@@ -12788,7 +12993,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.white, size: 14),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 14,
+                  ),
                   SizedBox(width: 4),
                   Text(
                     'Rule Violated',
@@ -12929,10 +13138,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         if (mounted) showPolicyDetailsSheet(context);
                       });
                     },
-                    icon: Icon(
-                      Icons.policy_outlined,
-                      color: _operatorGold,
-                    ),
+                    icon: Icon(Icons.policy_outlined, color: _operatorGold),
                     label: Text(
                       'View conversation policy',
                       style: TextStyle(
@@ -13050,18 +13256,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     String attachmentUrl = '';
     if (!isDeleted) {
-      attachmentUrl = (message['attachment_url'] ??
-              message['image_url'] ??
-              message['file_url'] ??
-              message['media_url'] ??
-              message['url'] ??
-              message['attachment'])
+      attachmentUrl =
+          (message['attachment_url'] ??
+                  message['image_url'] ??
+                  message['file_url'] ??
+                  message['media_url'] ??
+                  message['url'] ??
+                  message['attachment'])
               ?.toString()
               .trim() ??
           '';
 
       if (attachmentUrl.isEmpty &&
-          content.trim().startsWith(RegExp(r'https?://', caseSensitive: false))) {
+          content.trim().startsWith(
+            RegExp(r'https?://', caseSensitive: false),
+          )) {
         final trimmed = content.trim();
         final lower = trimmed.toLowerCase();
         if (RegExp(
@@ -13077,7 +13286,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
 
     final attachmentType =
-        (message['attachment_type'] ?? message['type'])?.toString().trim() ?? '';
+        (message['attachment_type'] ?? message['type'])?.toString().trim() ??
+        '';
     final attachmentName =
         (message['attachment_name'] ?? message['name'])?.toString().trim() ??
         'Attachment';
@@ -13394,11 +13604,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: hasViolation
           ? Row(
               children: [
-                Icon(
-                  Icons.lock_rounded,
-                  color: Colors.red.shade400,
-                  size: 20,
-                ),
+                Icon(Icons.lock_rounded, color: Colors.red.shade400, size: 20),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -13456,9 +13662,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   onPressed: _isSendingMessage
                       ? null
                       : () => _sendMessage(
-                            _selectedConversationId,
-                            _messageController.text,
-                          ),
+                          _selectedConversationId,
+                          _messageController.text,
+                        ),
                   style: IconButton.styleFrom(
                     backgroundColor: _isSendingMessage
                         ? Colors.grey
@@ -14392,9 +14598,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   _vehicleHeaderLabel('Owner', 3, isDark),
                   _vehicleHeaderLabel('Status', 2, isDark),
                   _vehicleHeaderLabel('Pricing', 3, isDark),
-                  if (!isPartnerTab)
-                    _vehicleHeaderLabel('Listing', 2, isDark),
-                  _vehicleHeaderLabel('Actions', 2, isDark, alignment: Alignment.center),
+                  if (!isPartnerTab) _vehicleHeaderLabel('Listing', 2, isDark),
+                  _vehicleHeaderLabel(
+                    'Actions',
+                    2,
+                    isDark,
+                    alignment: Alignment.center,
+                  ),
                 ],
               ),
             ),
@@ -14449,7 +14659,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     final foreground = isDark ? Colors.white : _operatorInk;
-    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    final isPartner =
+        vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     final owner = isPartner
         ? vehicle['partner_name']?.toString() ?? 'Mobilis Partner'
         : 'PSDC';
@@ -14467,7 +14678,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       ),
       child: Row(
         children: [
-          cell(_buildOperatorVehicleIdentity(vehicle, isDark), isPartner ? 5 : 4),
+          cell(
+            _buildOperatorVehicleIdentity(vehicle, isDark),
+            isPartner ? 5 : 4,
+          ),
           cell(
             Text(
               owner,
@@ -14497,7 +14711,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     scale: 0.72,
                     child: Switch(
                       value: posted,
-                      onChanged: (value) => _togglePostingStatus(vehicle, value),
+                      onChanged: (value) =>
+                          _togglePostingStatus(vehicle, value),
                       activeTrackColor: _operatorGold,
                       activeThumbColor: _operatorNavyDeep,
                     ),
@@ -14784,7 +14999,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   );
                 },
               ),
-              if (vehicle['description']?.toString().trim().isNotEmpty == true) ...[
+              if (vehicle['description']?.toString().trim().isNotEmpty ==
+                  true) ...[
                 const SizedBox(height: 20),
                 _operatorDetailSectionTitle(
                   'Vehicle Description & Remarks',
@@ -15390,7 +15606,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildOperatorVehicleMenu(Map<String, dynamic> vehicle, bool isDark) {
     final posted = vehicle['is_posted'] == true;
-    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    final isPartner =
+        vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     if (isPartner) {
       return Align(
         alignment: Alignment.center,
@@ -15509,7 +15726,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) {
     final available = _operatorVehicleIsAvailable(vehicle);
-    final isPartner = vehicle['_source'] == 'partner' || _vehicleView == 'partner';
+    final isPartner =
+        vehicle['_source'] == 'partner' || _vehicleView == 'partner';
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -15541,7 +15759,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 )
               else
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFD4AF37).withOpacity(0.16),
                     borderRadius: BorderRadius.circular(4),
@@ -16028,7 +16249,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             password: _gpsPasswordController.text.trim(),
           );
         } catch (trackerErr) {
-          debugPrint('GPS Tracker pairing note during operator vehicle creation: $trackerErr');
+          debugPrint(
+            'GPS Tracker pairing note during operator vehicle creation: $trackerErr',
+          );
         }
       }
 
@@ -16815,8 +17038,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       _isTestingGps
                           ? 'Testing AIKA168...'
                           : (_isGpsVerified == true
-                              ? 'Tracker Verified'
-                              : 'Test & Connect Tracker'),
+                                ? 'Tracker Verified'
+                                : 'Test & Connect Tracker'),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -17655,10 +17878,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _priceController.text = (vehicle['price_per_day'] ?? '').toString();
     _pricePerHourController.text = (vehicle['price_per_hour'] ?? '').toString();
     _locationController.text = vehicle['location']?.toString() ?? '';
-    _latitudeController.text =
-        vehicle['latitude'] != null ? vehicle['latitude'].toString() : '';
-    _longitudeController.text =
-        vehicle['longitude'] != null ? vehicle['longitude'].toString() : '';
+    _latitudeController.text = vehicle['latitude'] != null
+        ? vehicle['latitude'].toString()
+        : '';
+    _longitudeController.text = vehicle['longitude'] != null
+        ? vehicle['longitude'].toString()
+        : '';
     _descriptionController.text = vehicle['description']?.toString() ?? '';
 
     var category = (vehicle['category']?.toString().trim().isNotEmpty == true)
@@ -17666,16 +17891,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : 'Sedan';
     var vehicleType =
         (vehicle['vehicle_type']?.toString().trim().isNotEmpty == true)
-            ? vehicle['vehicle_type'].toString().trim()
-            : 'Sedan';
-    var fuelType =
-        (vehicle['fuel_type']?.toString().trim().isNotEmpty == true)
-            ? vehicle['fuel_type'].toString().trim()
-            : 'Unleaded';
+        ? vehicle['vehicle_type'].toString().trim()
+        : 'Sedan';
+    var fuelType = (vehicle['fuel_type']?.toString().trim().isNotEmpty == true)
+        ? vehicle['fuel_type'].toString().trim()
+        : 'Unleaded';
     var transmission =
         (vehicle['transmission']?.toString().trim().isNotEmpty == true)
-            ? vehicle['transmission'].toString().trim()
-            : 'Automatic';
+        ? vehicle['transmission'].toString().trim()
+        : 'Automatic';
     var status = (vehicle['status']?.toString().trim().isNotEmpty == true)
         ? vehicle['status'].toString().trim()
         : 'active';
@@ -17694,13 +17918,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         builder: (context, setDialogState) {
           final foreground = isDark ? Colors.white : _operatorInk;
           final panelColor = isDark ? _operatorNavyDeep : Colors.white;
-          final borderColor =
-              isDark ? Colors.white24 : Colors.blueGrey.shade200;
+          final borderColor = isDark
+              ? Colors.white24
+              : Colors.blueGrey.shade200;
 
           Future<void> pickNewImages() async {
             if (isPartnerVehicle) return;
             try {
-              final picked = await _imagePicker.pickMultiImage(imageQuality: 88);
+              final picked = await _imagePicker.pickMultiImage(
+                imageQuality: 88,
+              );
               if (picked.isNotEmpty) {
                 setDialogState(() {
                   final remaining =
@@ -17727,224 +17954,223 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           final totalImagesCount = existingImages.length + newImages.length;
 
           Widget imagePanel() => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'VEHICLE IMAGES',
-                    style: TextStyle(
-                      color: _operatorGold,
-                      fontSize: 10,
-                      letterSpacing: 0.8,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  InkWell(
-                    onTap: isPartnerVehicle ? null : pickNewImages,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'VEHICLE IMAGES',
+                style: TextStyle(
+                  color: _operatorGold,
+                  fontSize: 10,
+                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: isPartnerVehicle ? null : pickNewImages,
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  height: 220,
+                  width: double.infinity,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.025)
+                        : const Color(0xFFF7F9FA),
                     borderRadius: BorderRadius.circular(18),
-                    child: Container(
-                      height: 220,
-                      width: double.infinity,
-                      clipBehavior: Clip.antiAlias,
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.025)
-                            : const Color(0xFFF7F9FA),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: borderColor, width: 1.2),
-                      ),
-                      child: totalImagesCount > 0
-                          ? Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                if (newImages.isNotEmpty)
-                                  _buildImageWidget(
-                                    newImages.first,
-                                    fit: BoxFit.cover,
-                                    borderRadius: BorderRadius.circular(17),
-                                  )
-                                else
-                                  OptimizedNetworkImage(
-                                    imageUrl:
-                                        existingImages.first['image_url'] ?? '',
-                                    fit: BoxFit.cover,
-                                    errorWidget: Center(
-                                      child: Icon(
-                                        Icons.directions_car_outlined,
-                                        size: 58,
-                                        color:
-                                            isDark ? Colors.white38 : Colors.grey,
-                                      ),
-                                    ),
-                                  ),
-                                Positioned(
-                                  right: 12,
-                                  bottom: 12,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 11,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _operatorNavyDeep.withValues(
-                                        alpha: 0.88,
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Text(
-                                      '$totalImagesCount/5 images',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 58,
-                                  height: 58,
-                                  decoration: BoxDecoration(
-                                    color: _operatorNavy.withValues(alpha: 0.75),
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
+                    border: Border.all(color: borderColor, width: 1.2),
+                  ),
+                  child: totalImagesCount > 0
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (newImages.isNotEmpty)
+                              _buildImageWidget(
+                                newImages.first,
+                                fit: BoxFit.cover,
+                                borderRadius: BorderRadius.circular(17),
+                              )
+                            else
+                              OptimizedNetworkImage(
+                                imageUrl:
+                                    existingImages.first['image_url'] ?? '',
+                                fit: BoxFit.cover,
+                                errorWidget: Center(
                                   child: Icon(
-                                    Icons.cloud_upload_outlined,
-                                    color: _operatorGold,
-                                    size: 30,
+                                    Icons.directions_car_outlined,
+                                    size: 58,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey,
                                   ),
                                 ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Upload vehicle images',
-                                  style: TextStyle(
-                                    color: isDark ? Colors.white : _operatorInk,
-                                    fontSize: 14,
+                              ),
+                            Positioned(
+                              right: 12,
+                              bottom: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _operatorNavyDeep.withValues(
+                                    alpha: 0.88,
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '$totalImagesCount/5 images',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  'JPG or PNG - up to 5 images',
-                                  style: TextStyle(
-                                    color: isDark
-                                        ? Colors.white38
-                                        : Colors.blueGrey,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                                const SizedBox(height: 13),
-                                Text(
-                                  'Browse files',
-                                  style: TextStyle(
-                                    color: _operatorGold,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: _operatorNavy.withValues(alpha: 0.75),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Icon(
+                                Icons.cloud_upload_outlined,
+                                color: _operatorGold,
+                                size: 30,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Upload vehicle images',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : _operatorInk,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              'JPG or PNG - up to 5 images',
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.white38
+                                    : Colors.blueGrey,
+                                fontSize: 10,
+                              ),
+                            ),
+                            const SizedBox(height: 13),
+                            Text(
+                              'Browse files',
+                              style: TextStyle(
+                                color: _operatorGold,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+              if (totalImagesCount > 0) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 62,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: totalImagesCount,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final isExisting = index < existingImages.length;
+                      return Stack(
+                        children: [
+                          SizedBox(
+                            width: 70,
+                            child: isExisting
+                                ? OptimizedNetworkImage(
+                                    imageUrl:
+                                        existingImages[index]['image_url'] ??
+                                        '',
+                                    fit: BoxFit.cover,
+                                    borderRadius: BorderRadius.circular(11),
+                                  )
+                                : _buildImageWidget(
+                                    newImages[index - existingImages.length],
+                                    fit: BoxFit.cover,
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                          ),
+                          if (!isPartnerVehicle)
+                            Positioned(
+                              top: 3,
+                              right: 3,
+                              child: InkWell(
+                                onTap: () {
+                                  if (isExisting) {
+                                    removeExistingImage(index);
+                                  } else {
+                                    setDialogState(
+                                      () => newImages.removeAt(
+                                        index - existingImages.length,
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.72),
+                                    borderRadius: BorderRadius.circular(7),
+                                  ),
+                                  child: const Icon(
+                                    Icons.close,
+                                    color: Colors.white,
+                                    size: 13,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                if (!isPartnerVehicle) ...[
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: totalImagesCount >= 5 ? null : pickNewImages,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _operatorGold,
+                      side: BorderSide(color: borderColor),
+                      minimumSize: const Size(double.infinity, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 19,
+                    ),
+                    label: const Text(
+                      'Add More Images',
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
-                  if (totalImagesCount > 0) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 62,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: totalImagesCount,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final isExisting = index < existingImages.length;
-                          return Stack(
-                            children: [
-                              SizedBox(
-                                width: 70,
-                                child: isExisting
-                                    ? OptimizedNetworkImage(
-                                        imageUrl:
-                                            existingImages[index]['image_url'] ??
-                                                '',
-                                        fit: BoxFit.cover,
-                                        borderRadius: BorderRadius.circular(11),
-                                      )
-                                    : _buildImageWidget(
-                                        newImages[index - existingImages.length],
-                                        fit: BoxFit.cover,
-                                        borderRadius: BorderRadius.circular(11),
-                                      ),
-                              ),
-                              if (!isPartnerVehicle)
-                                Positioned(
-                                  top: 3,
-                                  right: 3,
-                                  child: InkWell(
-                                    onTap: () {
-                                      if (isExisting) {
-                                        removeExistingImage(index);
-                                      } else {
-                                        setDialogState(
-                                          () => newImages.removeAt(
-                                            index - existingImages.length,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(3),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.72,
-                                        ),
-                                        borderRadius: BorderRadius.circular(7),
-                                      ),
-                                      child: const Icon(
-                                        Icons.close,
-                                        color: Colors.white,
-                                        size: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                    if (!isPartnerVehicle) ...[
-                      const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: totalImagesCount >= 5 ? null : pickNewImages,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _operatorGold,
-                          side: BorderSide(color: borderColor),
-                          minimumSize: const Size(double.infinity, 48),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(13),
-                          ),
-                        ),
-                        icon: const Icon(
-                          Icons.add_photo_alternate_outlined,
-                          size: 19,
-                        ),
-                        label: const Text(
-                          'Add More Images',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ],
-                  ],
                 ],
-              );
+              ],
+            ],
+          );
 
           return Dialog(
             backgroundColor: Colors.transparent,
@@ -17953,10 +18179,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               vertical: 20,
             ),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 1120,
-                maxHeight: 820,
-              ),
+              constraints: const BoxConstraints(maxWidth: 1120, maxHeight: 820),
               child: Container(
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
@@ -18103,247 +18326,268 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             ),
                             child: Text(
                               isPartnerVehicle ? 'Close' : 'Cancel',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                           if (!isPartnerVehicle) ...[
                             const SizedBox(width: 12),
                             ElevatedButton.icon(
-                            onPressed: isUpdating
-                                ? null
-                                : () async {
-                                    if (!(formKey.currentState?.validate() ??
-                                        false)) {
-                                      return;
-                                    }
-                                    final normalizedPlate = _plateController.text
-                                        .trim()
-                                        .toUpperCase();
-                                    setDialogState(() => isUpdating = true);
-                                    try {
-                                      if (isPartnerVehicle) {
-                                        await _supabase
-                                            .from('partner_vehicles')
-                                            .update({
-                                              'price_per_day':
-                                                  double.tryParse(
-                                                    _priceController.text.trim(),
-                                                  ) ??
-                                                  0.0,
-                                              'price_per_hour':
-                                                  double.tryParse(
-                                                    _pricePerHourController.text
-                                                        .trim(),
-                                                  ) ??
-                                                  0.0,
-                                              'updated_at': DateTime.now()
-                                                  .toIso8601String(),
-                                            })
-                                            .eq('id', partnerVehicleId);
+                              onPressed: isUpdating
+                                  ? null
+                                  : () async {
+                                      if (!(formKey.currentState?.validate() ??
+                                          false)) {
+                                        return;
+                                      }
+                                      final normalizedPlate = _plateController
+                                          .text
+                                          .trim()
+                                          .toUpperCase();
+                                      setDialogState(() => isUpdating = true);
+                                      try {
+                                        if (isPartnerVehicle) {
+                                          await _supabase
+                                              .from('partner_vehicles')
+                                              .update({
+                                                'price_per_day':
+                                                    double.tryParse(
+                                                      _priceController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                                'price_per_hour':
+                                                    double.tryParse(
+                                                      _pricePerHourController
+                                                          .text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                                'updated_at': DateTime.now()
+                                                    .toIso8601String(),
+                                              })
+                                              .eq('id', partnerVehicleId);
 
-                                        await _supabase
-                                            .from('partner_vehicle_applications')
-                                            .update({
-                                              'price_per_day':
-                                                  double.tryParse(
-                                                    _priceController.text.trim(),
-                                                  ) ??
-                                                  0.0,
-                                              'price_per_hour':
-                                                  double.tryParse(
-                                                    _pricePerHourController.text
-                                                        .trim(),
-                                                  ) ??
-                                                  0.0,
-                                            })
-                                            .eq(
-                                              'partner_vehicle_id',
-                                              partnerVehicleId,
-                                            );
-                                      } else {
-                                        await _supabase
-                                            .from('vehicles')
-                                            .update({
-                                              'brand':
-                                                  _brandController.text.trim(),
-                                              'model':
-                                                  _modelController.text.trim(),
-                                              'plate_number': normalizedPlate,
-                                              'category': category,
-                                              'vehicle_type': vehicleType,
-                                              'vehicle_name':
-                                                  _vehicleNameController.text
-                                                      .trim(),
-                                              'description':
-                                                  _descriptionController.text
-                                                      .trim(),
-                                              'color':
-                                                  _colorController.text.trim(),
-                                              'fuel_type': fuelType,
-                                              'transmission': transmission,
-                                              'year':
-                                                  int.tryParse(
-                                                    _yearController.text.trim(),
-                                                  ) ??
-                                                  0,
-                                              'seats':
-                                                  int.tryParse(
-                                                    _seatsController.text.trim(),
-                                                  ) ??
-                                                  5,
-                                              'price_per_day':
-                                                  double.tryParse(
-                                                    _priceController.text.trim(),
-                                                  ) ??
-                                                  0.0,
-                                              'price_per_hour':
-                                                  double.tryParse(
-                                                    _pricePerHourController.text
-                                                        .trim(),
-                                                  ) ??
-                                                  0.0,
-                                              'location':
-                                                  _locationController.text
-                                                      .trim(),
-                                              'latitude': double.tryParse(
-                                                _latitudeController.text.trim(),
-                                              ),
-                                              'longitude': double.tryParse(
-                                                _longitudeController.text
+                                          await _supabase
+                                              .from(
+                                                'partner_vehicle_applications',
+                                              )
+                                              .update({
+                                                'price_per_day':
+                                                    double.tryParse(
+                                                      _priceController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                                'price_per_hour':
+                                                    double.tryParse(
+                                                      _pricePerHourController
+                                                          .text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                              })
+                                              .eq(
+                                                'partner_vehicle_id',
+                                                partnerVehicleId,
+                                              );
+                                        } else {
+                                          await _supabase
+                                              .from('vehicles')
+                                              .update({
+                                                'brand': _brandController.text
                                                     .trim(),
-                                              ),
-                                              'status': status,
-                                              'is_available': status == 'active',
-                                            })
-                                            .eq('id', vehicle['id']);
+                                                'model': _modelController.text
+                                                    .trim(),
+                                                'plate_number': normalizedPlate,
+                                                'category': category,
+                                                'vehicle_type': vehicleType,
+                                                'vehicle_name':
+                                                    _vehicleNameController.text
+                                                        .trim(),
+                                                'description':
+                                                    _descriptionController.text
+                                                        .trim(),
+                                                'color': _colorController.text
+                                                    .trim(),
+                                                'fuel_type': fuelType,
+                                                'transmission': transmission,
+                                                'year':
+                                                    int.tryParse(
+                                                      _yearController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    0,
+                                                'seats':
+                                                    int.tryParse(
+                                                      _seatsController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    5,
+                                                'price_per_day':
+                                                    double.tryParse(
+                                                      _priceController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                                'price_per_hour':
+                                                    double.tryParse(
+                                                      _pricePerHourController
+                                                          .text
+                                                          .trim(),
+                                                    ) ??
+                                                    0.0,
+                                                'location': _locationController
+                                                    .text
+                                                    .trim(),
+                                                'latitude': double.tryParse(
+                                                  _latitudeController.text
+                                                      .trim(),
+                                                ),
+                                                'longitude': double.tryParse(
+                                                  _longitudeController.text
+                                                      .trim(),
+                                                ),
+                                                'status': status,
+                                                'is_available':
+                                                    status == 'active',
+                                              })
+                                              .eq('id', vehicle['id']);
 
-                                        for (
-                                          int i = 0;
-                                          i < newImages.length;
-                                          i++
-                                        ) {
-                                          final fileName =
-                                              'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                                          final ownerId =
-                                              vehicle['owner_id'] ??
-                                              _supabase.auth.currentUser?.id;
-                                          final filePath =
-                                              'vehicles/${ownerId ?? 'unknown'}/$fileName';
-                                          try {
-                                            final originalImageBytes =
-                                                await newImages[i].readAsBytes();
-                                            final imageBytes =
-                                                await ImageOptimizationService.optimizeForUpload(
-                                                  originalImageBytes,
-                                                  fileName: fileName,
-                                                );
-                                            await _supabase.storage
-                                                .from(_vehicleImagesBucket)
-                                                .uploadBinary(
-                                                  filePath,
-                                                  imageBytes,
-                                                  fileOptions: const FileOptions(
-                                                    cacheControl: '31536000',
-                                                    upsert: false,
-                                                  ),
-                                                );
-                                            final imageUrl = _supabase.storage
-                                                .from(_vehicleImagesBucket)
-                                                .getPublicUrl(filePath);
-                                            await _supabase
-                                                .from('vehicle_images')
-                                                .insert({
-                                                  'vehicle_id': vehicle['id'],
-                                                  'image_url': imageUrl,
-                                                  'display_order':
-                                                      existingImages.length + i,
-                                                });
-                                          } catch (e) {
-                                            debugPrint(
-                                              'Error uploading image $i: $e',
-                                            );
+                                          for (
+                                            int i = 0;
+                                            i < newImages.length;
+                                            i++
+                                          ) {
+                                            final fileName =
+                                                'vehicle_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                            final ownerId =
+                                                vehicle['owner_id'] ??
+                                                _supabase.auth.currentUser?.id;
+                                            final filePath =
+                                                'vehicles/${ownerId ?? 'unknown'}/$fileName';
+                                            try {
+                                              final originalImageBytes =
+                                                  await newImages[i]
+                                                      .readAsBytes();
+                                              final imageBytes =
+                                                  await ImageOptimizationService.optimizeForUpload(
+                                                    originalImageBytes,
+                                                    fileName: fileName,
+                                                  );
+                                              await _supabase.storage
+                                                  .from(_vehicleImagesBucket)
+                                                  .uploadBinary(
+                                                    filePath,
+                                                    imageBytes,
+                                                    fileOptions:
+                                                        const FileOptions(
+                                                          cacheControl:
+                                                              '31536000',
+                                                          upsert: false,
+                                                        ),
+                                                  );
+                                              final imageUrl = _supabase.storage
+                                                  .from(_vehicleImagesBucket)
+                                                  .getPublicUrl(filePath);
+                                              await _supabase
+                                                  .from('vehicle_images')
+                                                  .insert({
+                                                    'vehicle_id': vehicle['id'],
+                                                    'image_url': imageUrl,
+                                                    'display_order':
+                                                        existingImages.length +
+                                                        i,
+                                                  });
+                                            } catch (e) {
+                                              debugPrint(
+                                                'Error uploading image $i: $e',
+                                              );
+                                            }
                                           }
                                         }
-                                      }
 
-                                      if (dialogContext.mounted) {
-                                        Navigator.pop(dialogContext);
-                                      }
-                                      await _loadVehicles();
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Vehicle updated successfully!',
+                                        if (dialogContext.mounted) {
+                                          Navigator.pop(dialogContext);
+                                        }
+                                        await _loadVehicles();
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Vehicle updated successfully!',
+                                              ),
+                                              backgroundColor: Color(
+                                                0xFF178A5B,
+                                              ),
                                             ),
-                                            backgroundColor: Color(0xFF178A5B),
-                                          ),
-                                        );
-                                      }
-                                    } catch (e) {
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Unable to update vehicle: $e',
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Unable to update vehicle: $e',
+                                              ),
+                                              backgroundColor: const Color(
+                                                0xFFC93C47,
+                                              ),
                                             ),
-                                            backgroundColor: const Color(
-                                              0xFFC93C47,
-                                            ),
-                                          ),
-                                        );
+                                          );
+                                        }
+                                      } finally {
+                                        if (mounted) {
+                                          setDialogState(
+                                            () => isUpdating = false,
+                                          );
+                                        }
                                       }
-                                    } finally {
-                                      if (mounted) {
-                                        setDialogState(
-                                          () => isUpdating = false,
-                                        );
-                                      }
-                                    }
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _operatorGold,
-                              foregroundColor: _operatorNavyDeep,
-                              elevation: 0,
-                              minimumSize: const Size(190, 54),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 30,
-                                vertical: 17,
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _operatorGold,
+                                foregroundColor: _operatorNavyDeep,
+                                elevation: 0,
+                                minimumSize: const Size(190, 54),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 30,
+                                  vertical: 17,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                              icon: isUpdating
+                                  ? SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: _operatorNavyDeep,
+                                      ),
+                                    )
+                                  : const Icon(Icons.edit_rounded, size: 20),
+                              label: Text(
+                                isUpdating
+                                    ? 'Updating Vehicle...'
+                                    : 'Update Vehicle',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ),
-                            icon: isUpdating
-                                ? SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: _operatorNavyDeep,
-                                    ),
-                                  )
-                                : const Icon(Icons.edit_rounded, size: 20),
-                            label: Text(
-                              isUpdating
-                                  ? 'Updating Vehicle...'
-                                  : 'Update Vehicle',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
               ),
             ),
           );
@@ -18480,12 +18724,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     final bookingsNeedingRelease = _recentBookings.where((b) {
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return status == 'confirmed' || status == 'approved' || status == 'pending_release';
+      return status == 'confirmed' ||
+          status == 'approved' ||
+          status == 'pending_release';
     }).toList();
 
     final bookingsNeedingReturn = _recentBookings.where((b) {
       final status = (b['status'] ?? '').toString().toLowerCase();
-      return status == 'active' || status == 'in_progress' || status == 'pending_return';
+      return status == 'active' ||
+          status == 'in_progress' ||
+          status == 'pending_return';
     }).toList();
 
     return SingleChildScrollView(
@@ -18513,7 +18761,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     color: _operatorGold.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(Icons.camera_alt_rounded, color: AppColors.primary, size: 28),
+                  child: const Icon(
+                    Icons.camera_alt_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -18531,10 +18783,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       const SizedBox(height: 4),
                       Text(
                         'Capture odometer readings and exterior photos during vehicle release & return handover.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[300],
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[300]),
                       ),
                     ],
                   ),
@@ -18567,11 +18816,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               decoration: BoxDecoration(
                 color: cardBg,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+                border: Border.all(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.check_circle_outline_rounded, size: 40, color: textSecondary),
+                  Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 40,
+                    color: textSecondary,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     'No bookings pending release inspection right now.',
@@ -18588,7 +18843,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               separatorBuilder: (context, index) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final b = bookingsNeedingRelease[index];
-                return _buildInspectionBookingCard(b, isRelease: true, isDark: isDark);
+                return _buildInspectionBookingCard(
+                  b,
+                  isRelease: true,
+                  isDark: isDark,
+                );
               },
             ),
 
@@ -18597,7 +18856,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           // Section 2: Active / Awaiting Return Inspection
           Row(
             children: [
-              Icon(Icons.assignment_turned_in_rounded, color: AppColors.success, size: 20),
+              Icon(
+                Icons.assignment_turned_in_rounded,
+                color: AppColors.success,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Active Trips Awaiting Return Inspection (${bookingsNeedingReturn.length})',
@@ -18617,11 +18880,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               decoration: BoxDecoration(
                 color: cardBg,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+                border: Border.all(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200,
+                ),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.thumb_up_alt_outlined, size: 40, color: textSecondary),
+                  Icon(
+                    Icons.thumb_up_alt_outlined,
+                    size: 40,
+                    color: textSecondary,
+                  ),
                   const SizedBox(height: 10),
                   Text(
                     'No active trips pending return inspection.',
@@ -18638,7 +18907,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               separatorBuilder: (context, index) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final b = bookingsNeedingReturn[index];
-                return _buildInspectionBookingCard(b, isRelease: false, isDark: isDark);
+                return _buildInspectionBookingCard(
+                  b,
+                  isRelease: false,
+                  isDark: isDark,
+                );
               },
             ),
         ],
@@ -18646,14 +18919,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildInspectionBookingCard(Map<String, dynamic> booking, {required bool isRelease, required bool isDark}) {
+  Widget _buildInspectionBookingCard(
+    Map<String, dynamic> booking, {
+    required bool isRelease,
+    required bool isDark,
+  }) {
     final cardBg = isDark ? const Color(0xFF1E293B) : Colors.white;
     final textPrimary = isDark ? Colors.white : Colors.black;
     final textSecondary = isDark ? Colors.grey[400]! : Colors.grey[600]!;
 
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
+        .trim();
     final plate = vehicle['plate_number']?.toString() ?? 'N/A';
     final renterName = renter['full_name']?.toString() ?? 'Renter';
 
@@ -18662,7 +18940,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -18677,9 +18957,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: (isRelease ? _operatorGold : AppColors.success).withValues(alpha: 0.15),
+                  color: (isRelease ? _operatorGold : AppColors.success)
+                      .withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -18694,14 +18978,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               const Spacer(),
               Text(
                 'BOOKING #${booking['id'].toString().substring(0, booking['id'].toString().length > 8 ? 8 : booking['id'].toString().length)}',
-                style: TextStyle(fontSize: 11, color: textSecondary, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: textSecondary,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             vehicleTitle.isNotEmpty ? vehicleTitle : 'Vehicle',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: textPrimary),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: textPrimary,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -18712,17 +19004,30 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => _openReleaseInspectionDialog(booking, inspectionType: isRelease ? 'release' : 'return'),
+              onPressed: () => _openReleaseInspectionDialog(
+                booking,
+                inspectionType: isRelease ? 'release' : 'return',
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: isRelease ? _operatorGold : AppColors.primary,
                 foregroundColor: isRelease ? _operatorNavyDeep : Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               icon: const Icon(Icons.camera_alt_rounded, size: 20),
               label: Text(
-                isRelease ? 'Start Release Inspection & Photo Capture' : 'Start Return Inspection & Photo Capture',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                isRelease
+                    ? 'Start Release Inspection & Photo Capture'
+                    : 'Start Return Inspection & Photo Capture',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -18750,7 +19055,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
-    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final vehicleTitle = '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
+        .trim();
     final plateNumber = vehicle['plate_number']?.toString() ?? 'N/A';
     final renterName = renter['full_name']?.toString() ?? 'Renter';
 
@@ -18785,13 +19091,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     const SizedBox(height: 16),
                     ListTile(
-                      leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                      title: Text('Take Photo with Camera', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                      leading: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: Text(
+                        'Take Photo with Camera',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
                       onTap: () => Navigator.pop(ctx, ImageSource.camera),
                     ),
                     ListTile(
-                      leading: const Icon(Icons.photo_library_rounded, color: AppColors.primary),
-                      title: Text('Choose from Gallery', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+                      leading: const Icon(
+                        Icons.photo_library_rounded,
+                        color: AppColors.primary,
+                      ),
+                      title: Text(
+                        'Choose from Gallery',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
                       onTap: () => Navigator.pop(ctx, ImageSource.gallery),
                     ),
                   ],
@@ -18801,7 +19123,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
             if (source != null) {
               if (isMulti && source == ImageSource.gallery) {
-                final files = await _imagePicker.pickMultiImage(imageQuality: 85);
+                final files = await _imagePicker.pickMultiImage(
+                  imageQuality: 85,
+                );
                 if (files.isNotEmpty) {
                   setSheetState(() => damagePhotos.addAll(files));
                 }
@@ -18826,7 +19150,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           }) {
             return Container(
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                color: isDark
+                    ? const Color(0xFF0F172A)
+                    : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: file != null
@@ -18859,7 +19185,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               }
                               return const SizedBox(
                                 height: 60,
-                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
                               );
                             },
                           ),
@@ -18868,7 +19198,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 14),
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              color: AppColors.primary,
+                              size: 14,
+                            ),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
@@ -18883,7 +19217,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 14, color: Colors.redAccent),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: Colors.redAccent,
+                              ),
                               onPressed: onDelete,
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
@@ -18891,7 +19229,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ],
                         ),
                       ] else ...[
-                        Icon(icon, size: 28, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                        Icon(
+                          icon,
+                          size: 28,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
                         const SizedBox(height: 6),
                         Text(
                           title,
@@ -18906,7 +19248,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: const [
-                            Icon(Icons.camera_alt, size: 12, color: AppColors.primary),
+                            Icon(
+                              Icons.camera_alt,
+                              size: 12,
+                              color: AppColors.primary,
+                            ),
                             SizedBox(width: 3),
                             Text(
                               'Tap to Capture',
@@ -18930,7 +19276,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             height: MediaQuery.of(context).size.height * 0.88,
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF1E293B) : Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
             ),
             child: Column(
               children: [
@@ -18946,7 +19294,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 // Header
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
                   child: Row(
                     children: [
                       Container(
@@ -18956,7 +19307,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
-                          inspectionType == 'release' ? Icons.no_crash_rounded : Icons.assignment_turned_in_rounded,
+                          inspectionType == 'release'
+                              ? Icons.no_crash_rounded
+                              : Icons.assignment_turned_in_rounded,
                           color: _operatorGold,
                           size: 22,
                         ),
@@ -18967,7 +19320,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              inspectionType == 'release' ? 'Vehicle Release Inspection' : 'Vehicle Return Inspection',
+                              inspectionType == 'release'
+                                  ? 'Vehicle Release Inspection'
+                                  : 'Vehicle Return Inspection',
                               style: TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
@@ -18978,7 +19333,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               '$vehicleTitle ($plateNumber) • Renter: $renterName',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                color: isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey[600],
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -18987,7 +19344,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: Icon(Icons.close_rounded, color: isDark ? Colors.white : Colors.black),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
                         onPressed: () => Navigator.pop(bottomSheetContext),
                       ),
                     ],
@@ -19013,16 +19373,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         TextField(
                           controller: _inspectionOdometerController,
                           keyboardType: TextInputType.number,
-                          style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
                           decoration: InputDecoration(
                             hintText: 'Enter current odometer (e.g. 45210)',
-                            hintStyle: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[400]),
+                            hintStyle: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[500]
+                                  : Colors.grey[400],
+                            ),
                             suffixText: 'km',
-                            prefixIcon: const Icon(Icons.speed_rounded, color: AppColors.primary),
+                            prefixIcon: const Icon(
+                              Icons.speed_rounded,
+                              color: AppColors.primary,
+                            ),
                             filled: true,
-                            fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            fillColor: isDark
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFFF8FAFC),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -19040,21 +19416,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
-                          children: ['100% Full', '3/4 Full', '1/2 Full', '1/4 Full', 'Low / Reserve'].map((fuel) {
-                            final selected = currentFuel == fuel;
-                            return ChoiceChip(
-                              label: Text(fuel),
-                              selected: selected,
-                              onSelected: (_) => setSheetState(() => currentFuel = fuel),
-                              selectedColor: AppColors.primary,
-                              labelStyle: TextStyle(
-                                color: selected ? Colors.white : (isDark ? Colors.grey[300] : Colors.black87),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            );
-                          }).toList(),
+                          children:
+                              [
+                                '100% Full',
+                                '3/4 Full',
+                                '1/2 Full',
+                                '1/4 Full',
+                                'Low / Reserve',
+                              ].map((fuel) {
+                                final selected = currentFuel == fuel;
+                                return ChoiceChip(
+                                  label: Text(fuel),
+                                  selected: selected,
+                                  onSelected: (_) =>
+                                      setSheetState(() => currentFuel = fuel),
+                                  selectedColor: AppColors.primary,
+                                  labelStyle: TextStyle(
+                                    color: selected
+                                        ? Colors.white
+                                        : (isDark
+                                              ? Colors.grey[300]
+                                              : Colors.black87),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                );
+                              }).toList(),
                         ),
                         const SizedBox(height: 22),
 
@@ -19072,7 +19463,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             const Spacer(),
                             const Text(
                               'Camera Supported',
-                              style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
@@ -19089,43 +19484,52 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               title: 'Odometer',
                               icon: Icons.speed_rounded,
                               file: odometerPhoto,
-                              onTap: () => pickPhotoSlot((f) => odometerPhoto = f),
-                              onDelete: () => setSheetState(() => odometerPhoto = null),
+                              onTap: () =>
+                                  pickPhotoSlot((f) => odometerPhoto = f),
+                              onDelete: () =>
+                                  setSheetState(() => odometerPhoto = null),
                             ),
                             photoTile(
                               title: 'Front Exterior',
                               icon: Icons.directions_car_rounded,
                               file: frontPhoto,
                               onTap: () => pickPhotoSlot((f) => frontPhoto = f),
-                              onDelete: () => setSheetState(() => frontPhoto = null),
+                              onDelete: () =>
+                                  setSheetState(() => frontPhoto = null),
                             ),
                             photoTile(
                               title: 'Rear Exterior',
                               icon: Icons.time_to_leave_rounded,
                               file: rearPhoto,
                               onTap: () => pickPhotoSlot((f) => rearPhoto = f),
-                              onDelete: () => setSheetState(() => rearPhoto = null),
+                              onDelete: () =>
+                                  setSheetState(() => rearPhoto = null),
                             ),
                             photoTile(
                               title: 'Left Exterior',
                               icon: Icons.unfold_more_rounded,
                               file: leftPhoto,
                               onTap: () => pickPhotoSlot((f) => leftPhoto = f),
-                              onDelete: () => setSheetState(() => leftPhoto = null),
+                              onDelete: () =>
+                                  setSheetState(() => leftPhoto = null),
                             ),
                             photoTile(
                               title: 'Right Exterior',
                               icon: Icons.unfold_more_rounded,
                               file: rightPhoto,
                               onTap: () => pickPhotoSlot((f) => rightPhoto = f),
-                              onDelete: () => setSheetState(() => rightPhoto = null),
+                              onDelete: () =>
+                                  setSheetState(() => rightPhoto = null),
                             ),
                             photoTile(
                               title: 'Damage / Scratch',
                               icon: Icons.warning_amber_rounded,
-                              file: damagePhotos.isNotEmpty ? damagePhotos.first : null,
+                              file: damagePhotos.isNotEmpty
+                                  ? damagePhotos.first
+                                  : null,
                               onTap: () => pickPhotoSlot((f) {}, isMulti: true),
-                              onDelete: () => setSheetState(() => damagePhotos.clear()),
+                              onDelete: () =>
+                                  setSheetState(() => damagePhotos.clear()),
                             ),
                           ],
                         ),
@@ -19144,14 +19548,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         TextField(
                           controller: _inspectionNotesController,
                           maxLines: 3,
-                          style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
                           decoration: InputDecoration(
-                            hintText: 'Notes on vehicle condition, scratches, or special tools provided...',
-                            hintStyle: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[400]),
+                            hintText:
+                                'Notes on vehicle condition, scratches, or special tools provided...',
+                            hintStyle: TextStyle(
+                              color: isDark
+                                  ? Colors.grey[500]
+                                  : Colors.grey[400],
+                            ),
                             filled: true,
-                            fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                            fillColor: isDark
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFFF8FAFC),
                             contentPadding: const EdgeInsets.all(14),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ],
@@ -19160,10 +19575,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
                 // Footer Submit Button with correct padding!
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-                    border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200)),
+                    color: isDark
+                        ? const Color(0xFF0F172A)
+                        : const Color(0xFFF8FAFC),
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark ? Colors.white12 : Colors.grey.shade200,
+                      ),
+                    ),
                   ),
                   child: SizedBox(
                     width: double.infinity,
@@ -19172,11 +19596,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       onPressed: isSubmitting
                           ? null
                           : () async {
-                              final odoText = _inspectionOdometerController.text.trim();
+                              final odoText = _inspectionOdometerController.text
+                                  .trim();
                               if (odoText.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Please enter current odometer reading'),
+                                    content: Text(
+                                      'Please enter current odometer reading',
+                                    ),
                                     backgroundColor: Colors.orange,
                                   ),
                                 );
@@ -19195,41 +19622,73 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ...damagePhotos,
                                 ].whereType<XFile>().toList();
 
-                                for (int i = 0; i < photosToUpload.length; i++) {
+                                for (
+                                  int i = 0;
+                                  i < photosToUpload.length;
+                                  i++
+                                ) {
                                   final file = photosToUpload[i];
-                                  final fileName = 'inspection_${booking['id']}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-                                  final path = 'inspections/${booking['id']}/$fileName';
+                                  final fileName =
+                                      'inspection_${booking['id']}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+                                  final path =
+                                      'inspections/${booking['id']}/$fileName';
                                   final bytes = await file.readAsBytes();
-                                  final optBytes = await ImageOptimizationService.optimizeForUpload(bytes, fileName: fileName);
-                                  await _supabase.storage.from(_vehicleImagesBucket).uploadBinary(
-                                    path,
-                                    optBytes,
-                                    fileOptions: const FileOptions(cacheControl: '31536000', upsert: false),
-                                  );
-                                  final publicUrl = _supabase.storage.from(_vehicleImagesBucket).getPublicUrl(path);
+                                  final optBytes =
+                                      await ImageOptimizationService.optimizeForUpload(
+                                        bytes,
+                                        fileName: fileName,
+                                      );
+                                  await _supabase.storage
+                                      .from(_vehicleImagesBucket)
+                                      .uploadBinary(
+                                        path,
+                                        optBytes,
+                                        fileOptions: const FileOptions(
+                                          cacheControl: '31536000',
+                                          upsert: false,
+                                        ),
+                                      );
+                                  final publicUrl = _supabase.storage
+                                      .from(_vehicleImagesBucket)
+                                      .getPublicUrl(path);
                                   uploadedUrls.add(publicUrl);
                                 }
 
                                 final isRelease = inspectionType == 'release';
-                                final newStatus = isRelease ? 'active' : 'completed';
+                                final newStatus = isRelease
+                                    ? 'active'
+                                    : 'completed';
 
                                 final inspectionPayload = {
                                   'type': inspectionType,
                                   'odometer': double.tryParse(odoText) ?? 0,
                                   'fuel_level': currentFuel,
-                                  'notes': _inspectionNotesController.text.trim(),
+                                  'notes': _inspectionNotesController.text
+                                      .trim(),
                                   'photos': uploadedUrls,
-                                  'inspected_at': DateTime.now().toIso8601String(),
+                                  'inspected_at': DateTime.now()
+                                      .toIso8601String(),
                                   'inspected_by': _operatorDisplayName(),
                                 };
 
-                                await _supabase.from('bookings').update({
-                                  'status': newStatus,
-                                  if (isRelease) 'operator_release_inspection': inspectionPayload,
-                                  if (!isRelease) 'operator_return_inspection': inspectionPayload,
-                                  if (isRelease) 'operator_released_at': DateTime.now().toIso8601String(),
-                                  if (!isRelease) 'operator_returned_at': DateTime.now().toIso8601String(),
-                                }).eq('id', booking['id']);
+                                await _supabase
+                                    .from('bookings')
+                                    .update({
+                                      'status': newStatus,
+                                      if (isRelease)
+                                        'operator_release_inspection':
+                                            inspectionPayload,
+                                      if (!isRelease)
+                                        'operator_return_inspection':
+                                            inspectionPayload,
+                                      if (isRelease)
+                                        'operator_released_at': DateTime.now()
+                                            .toIso8601String(),
+                                      if (!isRelease)
+                                        'operator_returned_at': DateTime.now()
+                                            .toIso8601String(),
+                                    })
+                                    .eq('id', booking['id']);
 
                                 if (bottomSheetContext.mounted) {
                                   Navigator.pop(bottomSheetContext);
@@ -19252,7 +19711,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text('Error saving inspection: $e'),
+                                      content: Text(
+                                        'Error saving inspection: $e',
+                                      ),
                                       backgroundColor: AppColors.error,
                                     ),
                                   );
@@ -19267,17 +19728,39 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                         backgroundColor: _operatorGold,
                         foregroundColor: _operatorNavyDeep,
                         elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                       icon: isSubmitting
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                          : Icon(inspectionType == 'release' ? Icons.check_circle_rounded : Icons.task_alt_rounded, size: 22),
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                          : Icon(
+                              inspectionType == 'release'
+                                  ? Icons.check_circle_rounded
+                                  : Icons.task_alt_rounded,
+                              size: 22,
+                            ),
                       label: Text(
                         isSubmitting
                             ? 'Saving Inspection...'
-                            : (inspectionType == 'release' ? 'Complete Release Inspection & Handover' : 'Complete Return Inspection'),
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
+                            : (inspectionType == 'release'
+                                  ? 'Complete Release Inspection & Handover'
+                                  : 'Complete Return Inspection'),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                   ),
@@ -19752,7 +20235,9 @@ class _VehicleCardState extends State<_VehicleCard> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFD4AF37).withValues(alpha: 0.16),
+                          color: const Color(
+                            0xFFD4AF37,
+                          ).withValues(alpha: 0.16),
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: const Text(

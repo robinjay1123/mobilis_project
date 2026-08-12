@@ -104,12 +104,8 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
       final expectedStage = '${cleanReviewerRole}_rating';
       final confirmedAtKey = '${cleanReviewerRole}_trip_confirmed_at';
-      final reviewerHasNotConfirmed =
-          bookingContext?[confirmedAtKey] == null;
-      final isAlreadyCompleted =
-          status == 'completed' ||
-          stage == 'completed' ||
-          !reviewerHasNotConfirmed;
+      final reviewerHasNotConfirmed = bookingContext?[confirmedAtKey] == null;
+      final isAlreadyCompleted = status == 'completed' || stage == 'completed';
 
       // Post-return stages where we can still allow rating
       const rateableStages = {
@@ -131,8 +127,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       // force-advance the completion_stage to this reviewer's stage so
       // buildTargetsForBooking can find pending targets.
       if (reviewerHasNotConfirmed &&
-          (rateableStages.contains(stage) ||
-              rateableStages.contains(status)) &&
+          (rateableStages.contains(stage) || rateableStages.contains(status)) &&
           bookingContext != null) {
         try {
           await Supabase.instance.client
@@ -144,14 +139,14 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
               .eq('id', widget.bookingId);
 
           // Reload targets with the updated stage
-          final retriedTargets =
-              await _tripRatingService.buildTargetsForBooking(
-            bookingId: widget.bookingId,
-            reviewerUserId: reviewerId,
-            reviewerRole: widget.reviewerRole,
-            operatorFallbackUserId: operatorFallbackUserId,
-            includePreviouslySubmittedForRecovery: true,
-          );
+          final retriedTargets = await _tripRatingService
+              .buildTargetsForBooking(
+                bookingId: widget.bookingId,
+                reviewerUserId: reviewerId,
+                reviewerRole: widget.reviewerRole,
+                operatorFallbackUserId: operatorFallbackUserId,
+                includePreviouslySubmittedForRecovery: true,
+              );
 
           if (!mounted) return;
           if (retriedTargets.isNotEmpty) {

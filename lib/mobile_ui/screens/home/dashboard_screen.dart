@@ -149,7 +149,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _setupVerificationListener(); // 🔄 Listen for real-time verification updates
     _loadNotifications(); // 🔔 Load notifications
     _setupNotificationsListener(); // 🔔 Listen for new notifications
-    RenterMarketingNotificationService().checkAndTriggerDailyRenterNotification();
+    RenterMarketingNotificationService()
+        .checkAndTriggerDailyRenterNotification();
     _notificationsAutoRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) {
@@ -666,7 +667,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Set<String> _ratedBookingIds = {};
+  // Ratings are submitted per booking target (vehicle, partner/operator, and
+  // driver). Keeping only booking IDs here caused one completed target to
+  // hide the remaining ratings for the same trip.
+  Set<String> _ratedTargetKeys = {};
+
+  String _ratingTargetKey(
+    String bookingId,
+    String targetUserId,
+    String targetRole,
+  ) => '$bookingId|${targetRole.trim().toLowerCase()}|$targetUserId';
+
+  Set<String> _renterRatingTargetKeys(Map<String, dynamic> booking) {
+    final bookingId = booking['id']?.toString().trim() ?? '';
+    if (bookingId.isEmpty) return {};
+
+    final keys = <String>{};
+    final vehicleValue = booking['vehicles'];
+    final vehicle = vehicleValue is Map
+        ? Map<String, dynamic>.from(vehicleValue)
+        : <String, dynamic>{};
+    final ownerValue = vehicle['owner'];
+    final owner = ownerValue is Map
+        ? Map<String, dynamic>.from(ownerValue)
+        : <String, dynamic>{};
+
+    void addTarget(dynamic userId, String role) {
+      final id = userId?.toString().trim() ?? '';
+      if (id.isNotEmpty) {
+        keys.add(_ratingTargetKey(bookingId, id, role));
+      }
+    }
+
+    addTarget(vehicle['id'] ?? booking['vehicle_id'], 'vehicle');
+
+    final ownerRole = (vehicle['owner_role'] ?? owner['role'])
+        ?.toString()
+        .trim()
+        .toLowerCase();
+    if (ownerRole == 'partner') {
+      addTarget(
+        owner['id'] ?? owner['user_id'] ?? vehicle['owner_id'],
+        'partner',
+      );
+    }
+
+    addTarget(booking['operator_id'] ?? vehicle['operator_id'], 'operator');
+
+    final driverValue = booking['driver'];
+    final driver = driverValue is Map
+        ? Map<String, dynamic>.from(driverValue)
+        : <String, dynamic>{};
+    final driverUserValue = driver['users'] ?? driver['user'];
+    final driverUser = driverUserValue is Map
+        ? Map<String, dynamic>.from(driverUserValue)
+        : <String, dynamic>{};
+    addTarget(
+      driverUser['id'] ??
+          driverUser['user_id'] ??
+          driver['user_id'] ??
+          booking['driver_user_id'] ??
+          booking['driver_id'],
+      'driver',
+    );
+
+    return keys;
+  }
+
+  bool _isRenterBookingFullyRated(Map<String, dynamic> booking) {
+    final targetKeys = _renterRatingTargetKeys(booking);
+    // If the booking payload is incomplete, keep the rate action available.
+    // This prevents a missing relationship from becoming a false
+    // "Rating Submitted" state.
+    return targetKeys.isNotEmpty && targetKeys.every(_ratedTargetKeys.contains);
+  }
 
   Future<void> _loadBookings() async {
     try {
@@ -680,11 +754,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       try {
         final ratings = await Supabase.instance.client
             .from('trip_ratings')
-            .select('booking_id')
+            .select('booking_id,target_user_id,target_role')
             .eq('reviewer_user_id', user.id);
-        if (ratings is List) {
-          ratedSet = ratings.map((r) => r['booking_id'].toString()).toSet();
-        }
+        ratedSet = ratings.map((r) {
+          final row = Map<String, dynamic>.from(r);
+          return _ratingTargetKey(
+            row['booking_id']?.toString() ?? '',
+            row['target_user_id']?.toString() ?? '',
+            row['target_role']?.toString() ?? '',
+          );
+        }).toSet();
       } catch (ratingErr) {
         debugPrint('Could not fetch user rated bookings: $ratingErr');
       }
@@ -707,7 +786,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           _bookings = hydratedBookings;
-          _ratedBookingIds = ratedSet;
+          _ratedTargetKeys = ratedSet;
         });
       }
     } catch (e) {
@@ -843,9 +922,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final transmission = (vehicle['transmission'] ?? '')
           .toString()
           .toLowerCase();
-      final fuelType = (vehicle['fuel_type'] ?? '')
-          .toString()
-          .toLowerCase();
+      final fuelType = (vehicle['fuel_type'] ?? '').toString().toLowerCase();
 
       return brand.contains(search) ||
           model.contains(search) ||
@@ -2253,11 +2330,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'reservationPaymentProofUrl': booking['reservation_payment_proof_url']
             ?.toString()
             .trim(),
-        'final_payment_method': booking['final_payment_method']?.toString().trim(),
-        'final_payment_reference': booking['final_payment_reference']?.toString().trim(),
-        'final_payment_proof_url': booking['final_payment_proof_url']?.toString().trim(),
-        'renter_return_payment_submitted': booking['renter_return_payment_submitted'] == true,
-        'renter_return_payment_amount': (booking['renter_return_payment_amount'] as num?)?.toDouble() ?? 0.0,
+        'final_payment_method': booking['final_payment_method']
+            ?.toString()
+            .trim(),
+        'final_payment_reference': booking['final_payment_reference']
+            ?.toString()
+            .trim(),
+        'final_payment_proof_url': booking['final_payment_proof_url']
+            ?.toString()
+            .trim(),
+        'renter_return_payment_submitted':
+            booking['renter_return_payment_submitted'] == true,
+        'renter_return_payment_amount':
+            (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
+            0.0,
         'returned_at': booking['returned_at'],
         'cancellationReason':
             booking['cancellation_reason']?.toString().trim().isNotEmpty == true
@@ -3338,8 +3424,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onChanged: (_) => _applyVehicleFilters(),
                       style: TextStyle(color: textColor),
                       decoration: InputDecoration(
-                        hintText:
-                            'Search city, location, brand, or model...',
+                        hintText: 'Search city, location, brand, or model...',
                         hintStyle: TextStyle(color: tertiaryTextColor),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
@@ -4754,7 +4839,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     rawStatus == 'completed' ||
                     booking['returned_at'] != null ||
                     booking['returnedAt'] != null;
-                final isRated = _ratedBookingIds.contains(bookingIdStr);
+                final isRated = _isRenterBookingFullyRated(booking);
 
                 return BookingCard(
                   carName: booking['carName'],
@@ -5601,13 +5686,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onCancel: _isCancellableStatusForUi(booking)
               ? () => _handleBookingCancellation(booking)
               : null,
-          onExtend: isApprovedTrip ? () => _showTripExtensionDialog(booking) : null,
-          onReturn: isApprovedTrip ? () => _handleRenterReturnVehicle(booking) : null,
-          onSuccessfulTrip: (completionStage == 'renter_rating' ||
-              // Also allow rating when booking is completed but renter hasn't confirmed
-              ((completionStage == 'completed' ||
-                      completionStage == 'awaiting_completion') &&
-                  booking['renter_trip_confirmed_at'] == null))
+          onExtend: isApprovedTrip
+              ? () => _showTripExtensionDialog(booking)
+              : null,
+          onReturn: isApprovedTrip
+              ? () => _handleRenterReturnVehicle(booking)
+              : null,
+          onSuccessfulTrip:
+              (completionStage == 'renter_rating' ||
+                  // Also allow rating when booking is completed but renter hasn't confirmed
+                  ((completionStage == 'completed' ||
+                          completionStage == 'awaiting_completion') &&
+                      booking['renter_trip_confirmed_at'] == null))
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
                   completionStage: completionStage,
@@ -5615,8 +5705,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 )
               : null,
           onReceipt: () => _showTripReceipt(booking),
-          isAlreadyRated: _ratedBookingIds.contains(
-              (booking['id'] ?? '').toString()),
+          isAlreadyRated: _isRenterBookingFullyRated(booking),
           onRateTrip: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(
@@ -6303,12 +6392,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (booking['securityDeposit'] as num?)?.toDouble() ?? 0.0;
     final reference = booking['reservationPaymentReference']?.toString().trim();
     final method = booking['reservationPaymentMethod']?.toString().trim();
-    final finalMethod = booking['final_payment_method']?.toString() ??
+    final finalMethod =
+        booking['final_payment_method']?.toString() ??
         booking['finalPaymentMethod']?.toString();
-    final finalRef = booking['final_payment_reference']?.toString() ??
+    final finalRef =
+        booking['final_payment_reference']?.toString() ??
         booking['finalPaymentReference']?.toString();
-    final finalAmount = (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
-        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ?? 0.0;
+    final finalAmount =
+        (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
+        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ??
+        0.0;
 
     showModalBottomSheet(
       context: context,
@@ -6435,12 +6528,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       value: toProfessionalTitleCase(method),
                     ),
                   ],
-                  if (finalMethod != null || finalRef != null || finalAmount > 0) ...[
+                  if (finalMethod != null ||
+                      finalRef != null ||
+                      finalAmount > 0) ...[
                     const Divider(color: AppColors.borderColor),
                     _buildBookingDetailRow(
                       icon: Icons.receipt_long_rounded,
                       label: 'Final Payment Settlement',
-                      value: '₱${formatAmount(finalAmount, decimalDigits: 0)} (${(finalMethod ?? 'PSDC QR').toUpperCase()})',
+                      value:
+                          '₱${formatAmount(finalAmount, decimalDigits: 0)} (${(finalMethod ?? 'PSDC QR').toUpperCase()})',
                     ),
                     if (finalRef != null && finalRef.isNotEmpty) ...[
                       const SizedBox(height: 4),
@@ -7282,8 +7378,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final endRaw =
         booking['end_at']?.toString() ?? booking['end_date']?.toString();
-    final scheduledEnd =
-        endRaw != null ? DateTime.tryParse(endRaw)?.toLocal() : null;
+    final scheduledEnd = endRaw != null
+        ? DateTime.tryParse(endRaw)?.toLocal()
+        : null;
     final now = DateTime.now();
 
     int lateHours = 0;
@@ -7312,11 +7409,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final amountPaid = coversTotal
         ? totalCost
         : reservationFee > 0
-            ? reservationFee
-            : (booking['amount_paid'] as num?)?.toDouble() ?? 0.0;
+        ? reservationFee
+        : (booking['amount_paid'] as num?)?.toDouble() ?? 0.0;
 
-    final remainingRentalBalance =
-        (totalCost - amountPaid).clamp(0.0, double.infinity);
+    final remainingRentalBalance = (totalCost - amountPaid).clamp(
+      0.0,
+      double.infinity,
+    );
     final totalPaymentDue = remainingRentalBalance + latePenaltyFee;
 
     // If fully paid upfront and 0 late penalty fee, skip payment window directly!
@@ -7399,10 +7498,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             backgroundColor: AppColors.darkCard,
             title: const Row(
               children: [
-                Icon(
-                  Icons.assignment_return_rounded,
-                  color: AppColors.primary,
-                ),
+                Icon(Icons.assignment_return_rounded, color: AppColors.primary),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -7433,7 +7529,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       child: Text(
                         errorText!,
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
@@ -7444,7 +7543,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       decoration: BoxDecoration(
                         color: Colors.red.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.4),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -7479,20 +7580,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     child: Column(
                       children: [
-                        _paymentRow('Rental Total Price', '₱${totalCost.toStringAsFixed(0)}'),
+                        _paymentRow(
+                          'Rental Total Price',
+                          '₱${totalCost.toStringAsFixed(0)}',
+                        ),
                         const SizedBox(height: 4),
                         _paymentRow(
-                          coversTotal ? 'Deposit / Full Paid' : 'Reservation Deposit Paid',
+                          coversTotal
+                              ? 'Deposit / Full Paid'
+                              : 'Reservation Deposit Paid',
                           '-₱${amountPaid.toStringAsFixed(0)}',
                           isGreen: true,
                         ),
                         if (remainingRentalBalance > 0) ...[
                           const SizedBox(height: 4),
-                          _paymentRow('Remaining Rental Balance', '₱${remainingRentalBalance.toStringAsFixed(0)}'),
+                          _paymentRow(
+                            'Remaining Rental Balance',
+                            '₱${remainingRentalBalance.toStringAsFixed(0)}',
+                          ),
                         ],
                         if (lateHours > 0) ...[
                           const SizedBox(height: 4),
-                          _paymentRow('Late Return Penalty (${lateHours}h)', '₱${latePenaltyFee.toStringAsFixed(0)}', isRed: true),
+                          _paymentRow(
+                            'Late Return Penalty (${lateHours}h)',
+                            '₱${latePenaltyFee.toStringAsFixed(0)}',
+                            isRed: true,
+                          ),
                         ],
                         const Divider(color: AppColors.borderColor, height: 16),
                         _paymentRow(
@@ -7553,7 +7666,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         decoration: BoxDecoration(
                           color: AppColors.darkBg,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                          border: Border.all(
+                            color: AppColors.primary.withValues(alpha: 0.3),
+                          ),
                         ),
                         child: Column(
                           children: [
@@ -7567,8 +7682,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              paymentSettings?.accountName ?? 'PSDC Mobilis Account',
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
+                              paymentSettings?.accountName ??
+                                  'PSDC Mobilis Account',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
                             ),
                             const SizedBox(height: 10),
                             ClipRRect(
@@ -7579,7 +7698,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       height: 160,
                                       width: 160,
                                       fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => _qrFallbackPlaceholder(),
+                                      errorBuilder: (_, __, ___) =>
+                                          _qrFallbackPlaceholder(),
                                     )
                                   : _qrFallbackPlaceholder(),
                             ),
@@ -7587,7 +7707,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const Text(
                               'Scan using GCash / Maya / Bank app to pay settlement',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: AppColors.textTertiary, fontSize: 10),
+                              style: TextStyle(
+                                color: AppColors.textTertiary,
+                                fontSize: 10,
+                              ),
                             ),
                           ],
                         ),
@@ -7612,7 +7735,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: AppColors.darkBg,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: receiptFile != null ? AppColors.success : AppColors.borderColor,
+                              color: receiptFile != null
+                                  ? AppColors.success
+                                  : AppColors.borderColor,
                               style: BorderStyle.solid,
                             ),
                           ),
@@ -7620,8 +7745,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                receiptFile != null ? Icons.check_circle_rounded : Icons.upload_file_rounded,
-                                color: receiptFile != null ? AppColors.success : AppColors.primary,
+                                receiptFile != null
+                                    ? Icons.check_circle_rounded
+                                    : Icons.upload_file_rounded,
+                                color: receiptFile != null
+                                    ? AppColors.success
+                                    : AppColors.primary,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
@@ -7632,7 +7761,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       : 'Tap to Upload Receipt / Proof Photo',
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: receiptFile != null ? AppColors.success : Colors.white,
+                                    color: receiptFile != null
+                                        ? AppColors.success
+                                        : Colors.white,
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -7651,10 +7782,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           FilteringTextInputFormatter.digitsOnly,
                           LengthLimitingTextInputFormatter(13),
                         ],
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Reference No. (6 to 13 digits)',
-                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          hintStyle: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
                           counterText: '',
                           filled: true,
                           fillColor: AppColors.darkBg,
@@ -7670,7 +7807,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       const SizedBox(height: 4),
                       const Text(
                         'Note: Reference number must be 6 to 13 digits.',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 10),
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 10,
+                        ),
                       ),
                     ],
                   ],
@@ -7681,7 +7821,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               if (!isUploading)
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -7690,23 +7833,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onPressed: isUploading
                     ? null
                     : () async {
-                        if (totalPaymentDue > 0 && selectedPaymentMethod == 'psdc_qr') {
+                        if (totalPaymentDue > 0 &&
+                            selectedPaymentMethod == 'psdc_qr') {
                           if (receiptFile == null) {
                             setDialogState(() {
-                              errorText = 'Please attach your payment receipt screenshot first.';
+                              errorText =
+                                  'Please attach your payment receipt screenshot first.';
                             });
                             return;
                           }
                           final ref = referenceController.text.trim();
                           if (ref.isEmpty) {
                             setDialogState(() {
-                              errorText = 'Please enter your payment reference number.';
+                              errorText =
+                                  'Please enter your payment reference number.';
                             });
                             return;
                           }
                           if (!RegExp(r'^\d{6,13}$').hasMatch(ref)) {
                             setDialogState(() {
-                              errorText = 'Reference number must be between 6 and 13 digits.';
+                              errorText =
+                                  'Reference number must be between 6 and 13 digits.';
                             });
                             return;
                           }
@@ -7717,11 +7864,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         String? proofPublicUrl;
                         if (receiptFile != null) {
                           try {
-                            final uploadResult = await ReservationPaymentService()
-                                .uploadReceiptProof(userId: renterId, file: receiptFile!);
+                            final uploadResult =
+                                await ReservationPaymentService()
+                                    .uploadReceiptProof(
+                                      userId: renterId,
+                                      file: receiptFile!,
+                                    );
                             proofPublicUrl = uploadResult.publicUrl;
                           } catch (uploadErr) {
-                            debugPrint('Error uploading payment receipt: $uploadErr');
+                            debugPrint(
+                              'Error uploading payment receipt: $uploadErr',
+                            );
                           }
                         }
 
@@ -7773,7 +7926,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               backgroundColor: AppColors.darkCard,
                               title: const Row(
                                 children: [
-                                  Icon(Icons.hourglass_top_rounded, color: Colors.amber),
+                                  Icon(
+                                    Icons.hourglass_top_rounded,
+                                    color: Colors.amber,
+                                  ),
                                   SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -7816,7 +7972,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           if (!mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Error initiating vehicle return: $e'),
+                              content: Text(
+                                'Error initiating vehicle return: $e',
+                              ),
                               backgroundColor: AppColors.error,
                             ),
                           );
@@ -7947,8 +8105,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         (booking['total_price'] as num?)?.toDouble() ??
         1000.0;
     final days = (booking['days'] as num?)?.toInt() ?? 1;
-    final dailyRate =
-        explicitDailyRate ?? (totalCost / (days > 0 ? days : 1));
+    final dailyRate = explicitDailyRate ?? (totalCost / (days > 0 ? days : 1));
 
     final initialFirstDate = DateTime(
       currentEndAt.year,
@@ -8092,7 +8249,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
   }
-
 
   Widget _buildBookingDetailRow({
     required IconData icon,
@@ -8643,20 +8799,25 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     this.onRateTrip,
   });
 
-
   @override
   Widget build(BuildContext context) {
     final status = booking['status']?.toString() ?? 'Pending';
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
-    final lateReturnFee = (booking['lateReturnFee'] as num?)?.toDouble() ??
-        (booking['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+    final lateReturnFee =
+        (booking['lateReturnFee'] as num?)?.toDouble() ??
+        (booking['late_return_fee'] as num?)?.toDouble() ??
+        0.0;
     final lateHours = (booking['late_return_hours'] as num?)?.toInt() ?? 0;
-    final finalReturnAmount = (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
-        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ?? 0.0;
-    final finalPaymentMethod = booking['final_payment_method']?.toString() ??
+    final finalReturnAmount =
+        (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
+        (booking['renterReturnPaymentAmount'] as num?)?.toDouble() ??
+        0.0;
+    final finalPaymentMethod =
+        booking['final_payment_method']?.toString() ??
         booking['finalPaymentMethod']?.toString();
-    final finalPaymentRef = booking['final_payment_reference']?.toString() ??
+    final finalPaymentRef =
+        booking['final_payment_reference']?.toString() ??
         booking['finalPaymentReference']?.toString();
     const completionActionLabel = 'Rate Your Trip';
     const completionActionIcon = Icons.star_rate_rounded;
@@ -8814,7 +8975,9 @@ class _RenterBookingDetailsPage extends StatelessWidget {
   }
 
   Widget _buildOngoingTripPanel() {
-    final rawStatus = (booking['status'] ?? booking['rawStatus'] ?? '').toString().toLowerCase();
+    final rawStatus = (booking['status'] ?? booking['rawStatus'] ?? '')
+        .toString()
+        .toLowerCase();
     final isReturnSubmitted =
         rawStatus == 'return_pending_inspection' ||
         rawStatus == 'awaiting_completion' ||
@@ -8895,7 +9058,11 @@ class _RenterBookingDetailsPage extends StatelessWidget {
               child: isAlreadyRated
                   ? OutlinedButton.icon(
                       onPressed: null,
-                      icon: const Icon(Icons.star_rounded, color: AppColors.ratingGold, size: 18),
+                      icon: const Icon(
+                        Icons.star_rounded,
+                        color: AppColors.ratingGold,
+                        size: 18,
+                      ),
                       label: const Text(
                         'Rating Submitted',
                         style: TextStyle(
@@ -8913,7 +9080,11 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     )
                   : ElevatedButton.icon(
                       onPressed: onRateTrip,
-                      icon: const Icon(Icons.star_rounded, color: Colors.black, size: 20),
+                      icon: const Icon(
+                        Icons.star_rounded,
+                        color: Colors.black,
+                        size: 20,
+                      ),
                       label: const Text(
                         'Rate Trip',
                         style: TextStyle(
@@ -8985,7 +9156,6 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 ),
             ],
           ),
-
         ],
       ),
     );

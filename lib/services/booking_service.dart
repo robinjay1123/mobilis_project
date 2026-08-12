@@ -12,7 +12,6 @@ import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
 import '../utils/pricing_policy.dart';
 
-
 class BookingService {
   static final BookingService _instance = BookingService._internal();
 
@@ -89,7 +88,11 @@ class BookingService {
     final endDate = DateTime.tryParse(row['end_date']?.toString().trim() ?? '');
     if (startDate == null || endDate == null) return null;
     final start = DateTime(startDate.year, startDate.month, startDate.day);
-    final inclusiveEnd = DateTime(endDate.year, endDate.month, endDate.day).add(const Duration(days: 1));
+    final inclusiveEnd = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+    ).add(const Duration(days: 1));
     return (
       start,
       inclusiveEnd.isAfter(start)
@@ -122,7 +125,6 @@ class BookingService {
     }
   }
 
-
   // Get bookings for a partner (via their vehicles)
   // Note: vehicles use owner_id which references users.id
   Future<List<Map<String, dynamic>>> getPartnerBookings(String userId) async {
@@ -146,7 +148,13 @@ class BookingService {
       // Then get bookings for those vehicles
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
+          .select(
+            '*, vehicles(*), users:users!bookings_renter_id_fkey(*), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
+          )
           .inFilter('vehicle_id', vehicleIds)
           .order('created_at', ascending: false);
 
@@ -185,7 +193,13 @@ class BookingService {
       // Then get bookings with status filter
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
+          .select(
+            '*, vehicles(*), users:users!bookings_renter_id_fkey(*), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
+          )
           .inFilter('vehicle_id', vehicleIds)
           .eq('status', status)
           .order('created_at', ascending: false);
@@ -1001,15 +1015,14 @@ class BookingService {
       'updated_at': now,
     };
 
-    if (hasAfterInspection || booking['returned_at'] != null || status == 'completed') {
+    if (hasAfterInspection ||
+        booking['returned_at'] != null ||
+        status == 'completed') {
       updateData['status'] = 'completed';
       updateData['completed_at'] = now;
     }
 
-    await supabase
-        .from('bookings')
-        .update(updateData)
-        .eq('id', bookingId);
+    await supabase.from('bookings').update(updateData).eq('id', bookingId);
 
     try {
       await TripRatingService().syncRatingFlowForBooking(
@@ -1147,7 +1160,13 @@ class BookingService {
 
       final response = await supabase
           .from('bookings')
-          .select('*, vehicles(*), users:users!bookings_renter_id_fkey(*)')
+          .select(
+            '*, vehicles(*), users:users!bookings_renter_id_fkey(*), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
+          )
           .inFilter('vehicle_id', vehicleIds)
           .order('created_at', ascending: false)
           .limit(limit);
@@ -1316,7 +1335,11 @@ class BookingService {
             '*, '
             'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
             '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url)',
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
           .eq('operator_id', operatorId)
           .order('created_at', ascending: false);
@@ -1341,7 +1364,11 @@ class BookingService {
             '*, '
             'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
             '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url)',
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
           .eq('operator_id', operatorId)
           .inFilter('status', [
@@ -1379,12 +1406,16 @@ class BookingService {
           .from('bookings')
           .select(
             'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, '
-            'status, total_price, with_driver, created_at, '
+            'status, total_price, with_driver, driver_id, driver_assigned_at, created_at, '
             'partner_booking_confirmed_at, reservation_payment_status, '
             'reservation_payment_covers_total, reservation_fee_amount, '
             'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, '
             '  owner:owner_id(id, full_name, role)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone)',
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone), '
+            'driver:drivers!bookings_driver_id_fkey(id, user_id, '
+            '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
+            'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
+            '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
           .or('operator_id.eq.$operatorId,vehicles.operator_id.eq.$operatorId')
           .eq('status', 'pending')
@@ -1541,7 +1572,12 @@ class BookingService {
       final currentStatus =
           booking['status']?.toString().trim().toLowerCase() ?? '';
 
-      if (!{'pending', 'approved', 'confirmed', 'active'}.contains(currentStatus)) {
+      if (!{
+        'pending',
+        'approved',
+        'confirmed',
+        'active',
+      }.contains(currentStatus)) {
         throw Exception(
           'A driver can only be assigned to pending, approved, confirmed, or active bookings',
         );
@@ -1890,20 +1926,23 @@ class BookingService {
             final driverProfileId = driver['id']?.toString() ?? '';
 
             final bool? dateOverride =
-                dateScheduleMap[driverUserId] ?? dateScheduleMap[driverProfileId];
+                dateScheduleMap[driverUserId] ??
+                dateScheduleMap[driverProfileId];
 
-            final isAvailable =
-                dateOverride ?? (user['is_available'] != false);
+            final isAvailable = dateOverride ?? (user['is_available'] != false);
 
             final driverVer =
-                driver['verification_status']?.toString().trim().toLowerCase() ??
-                    '';
+                driver['verification_status']
+                    ?.toString()
+                    .trim()
+                    .toLowerCase() ??
+                '';
             final userVer =
                 user['verification_status']?.toString().trim().toLowerCase() ??
-                    '';
+                '';
             final userAppStatus =
                 user['application_status']?.toString().trim().toLowerCase() ??
-                    '';
+                '';
 
             final isVerifiedOrApproved =
                 _isVerifiedDriverStatus(driverVer) ||
@@ -1921,7 +1960,8 @@ class BookingService {
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
             final user = driver['users'] as Map<String, dynamic>? ?? {};
-            final isPsdc = driver['is_psdc_driver'] == true ||
+            final isPsdc =
+                driver['is_psdc_driver'] == true ||
                 user['is_psdc_driver'] == true ||
                 driver['driver_tier']?.toString().toLowerCase() == 'psdc';
             normalized['is_psdc_driver'] = isPsdc;
@@ -2245,7 +2285,9 @@ class BookingService {
     final booking = await getBookingById(bookingId);
     if (booking == null) throw Exception('Booking not found');
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (status == 'completed' || status == 'cancelled' || status == 'rejected') {
+    if (status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'rejected') {
       return;
     }
     await _postInspectionAuditToBookingChat(
@@ -2332,7 +2374,8 @@ class BookingService {
       await NotificationService().createNotification(
         userId: renterId!,
         title: 'Vehicle Return Inspected & Trip Completed',
-        message: 'The return inspection is complete and your trip is marked as completed! Don\'t forget to rate your experience.',
+        message:
+            'The return inspection is complete and your trip is marked as completed! Don\'t forget to rate your experience.',
         type: 'trip_completed',
         data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
       );
@@ -2352,7 +2395,9 @@ class BookingService {
       try {
         await _ensureBookingGroupChatAndSummary(
           booking: booking,
-          vehicleTitle: _vehicleTitle(booking['vehicles'] as Map<String, dynamic>?),
+          vehicleTitle: _vehicleTitle(
+            booking['vehicles'] as Map<String, dynamic>?,
+          ),
           summaryTitle: 'Booking Confirmed',
         );
       } catch (_) {}
@@ -2362,7 +2407,9 @@ class BookingService {
       );
       final conversationId = conversation?['id']?.toString() ?? '';
       if (conversationId.isEmpty) {
-        debugPrint('The booking conversation could not be prepared for audit message');
+        debugPrint(
+          'The booking conversation could not be prepared for audit message',
+        );
         return;
       }
 
@@ -2386,7 +2433,8 @@ class BookingService {
           : const <String, dynamic>{};
       final checkedSectionLines = <String>[];
       var checkedCount = 0;
-      for (final section in BookingInspectionService.checklistSections.entries) {
+      for (final section
+          in BookingInspectionService.checklistSections.entries) {
         final confirmedLabels = section.value.entries
             .where((entry) => checklist[entry.key] == true)
             .map((entry) => entry.value)
@@ -3052,7 +3100,9 @@ class BookingService {
           ? DateTime.tryParse(currentEndRaw)?.toLocal()
           : null;
       if (currentEndAt != null && newEndAt.isBefore(currentEndAt)) {
-        throw Exception('Extended end date must be after the current end date.');
+        throw Exception(
+          'Extended end date must be after the current end date.',
+        );
       }
 
       final vehicleId = booking['vehicle_id']?.toString() ?? '';
@@ -3080,15 +3130,18 @@ class BookingService {
           (booking['total_price'] as num?)?.toDouble() ??
           0.0;
 
-      await supabase.from('bookings').update({
-        'extension_requested_end_at': newEndAt.toIso8601String(),
-        'extension_additional_price': additionalPrice,
-        'extension_days': extensionDays,
-        'extension_status': 'pending_operator',
-        'extension_requested_at': DateTime.now().toIso8601String(),
-        'principal_total_price': principalPrice,
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_requested_end_at': newEndAt.toIso8601String(),
+            'extension_additional_price': additionalPrice,
+            'extension_days': extensionDays,
+            'extension_status': 'pending_operator',
+            'extension_requested_at': DateTime.now().toIso8601String(),
+            'principal_total_price': principalPrice,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -3129,26 +3182,28 @@ class BookingService {
       final newEndAt = DateTime.parse(newEndRaw).toLocal();
       final additionalPrice =
           (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
-      final currentTotal =
-          (booking['total_price'] as num?)?.toDouble() ?? 0.0;
+      final currentTotal = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
       final newTotal = currentTotal + additionalPrice;
       final currentSubtotal =
           (booking['rental_subtotal'] as num?)?.toDouble() ?? currentTotal;
       final newSubtotal = currentSubtotal + additionalPrice;
 
-      await supabase.from('bookings').update({
-        'end_at': newEndAt.toIso8601String(),
-        'end_date': DateTime(
-          newEndAt.year,
-          newEndAt.month,
-          newEndAt.day,
-        ).toIso8601String(),
-        'total_price': newTotal,
-        'rental_subtotal': newSubtotal,
-        'extension_status': 'approved',
-        'extension_approved_at': DateTime.now().toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      await supabase
+          .from('bookings')
+          .update({
+            'end_at': newEndAt.toIso8601String(),
+            'end_date': DateTime(
+              newEndAt.year,
+              newEndAt.month,
+              newEndAt.day,
+            ).toIso8601String(),
+            'total_price': newTotal,
+            'rental_subtotal': newSubtotal,
+            'extension_status': 'approved',
+            'extension_approved_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -3177,12 +3232,15 @@ class BookingService {
     String? reason,
   }) async {
     try {
-      await supabase.from('bookings').update({
-        'extension_status': 'rejected',
-        'extension_rejection_reason':
-            reason ?? 'Extension request rejected by operator.',
-        'updated_at': DateTime.now().toIso8601String(),
-      }).eq('id', bookingId);
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_status': 'rejected',
+            'extension_rejection_reason':
+                reason ?? 'Extension request rejected by operator.',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
 
       final conversation = await ChatService().getConversationBookingContext(
         bookingId,
@@ -3243,7 +3301,9 @@ class BookingService {
       try {
         await supabase.from('bookings').update(updates).eq('id', bookingId);
       } catch (dbError) {
-        debugPrint('Full update failed, attempting fallback return update: $dbError');
+        debugPrint(
+          'Full update failed, attempting fallback return update: $dbError',
+        );
         final fallbackUpdates = <String, dynamic>{
           'status': 'return_pending_inspection',
           'returned_at': now.toIso8601String(),
@@ -3253,7 +3313,10 @@ class BookingService {
           fallbackUpdates['late_return_hours'] = lateHours;
           fallbackUpdates['late_return_fee'] = lateFee ?? (lateHours * 300.0);
         }
-        await supabase.from('bookings').update(fallbackUpdates).eq('id', bookingId);
+        await supabase
+            .from('bookings')
+            .update(fallbackUpdates)
+            .eq('id', bookingId);
       }
 
       try {
@@ -3261,7 +3324,8 @@ class BookingService {
         final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
         final vehicleTitle = _vehicleTitle(vehicle);
         final renter = booking?['renter'] as Map<String, dynamic>?;
-        final renterName = renter?['full_name']?.toString().trim().isNotEmpty == true
+        final renterName =
+            renter?['full_name']?.toString().trim().isNotEmpty == true
             ? renter!['full_name'].toString().trim()
             : 'Renter';
 
@@ -3274,7 +3338,9 @@ class BookingService {
           partnerId: vehicle?['owner_id']?.toString(),
         );
       } catch (notifError) {
-        debugPrint('Could not send return notification to operator: $notifError');
+        debugPrint(
+          'Could not send return notification to operator: $notifError',
+        );
       }
     } catch (e) {
       debugPrint('Error initiating return: $e');
@@ -3295,23 +3361,26 @@ class BookingService {
       final now = DateTime.now();
       final endRaw =
           booking['end_at']?.toString() ?? booking['end_date']?.toString();
-      final endAt =
-          endRaw != null ? DateTime.tryParse(endRaw)?.toLocal() : null;
+      final endAt = endRaw != null
+          ? DateTime.tryParse(endRaw)?.toLocal()
+          : null;
       final returnedAtRaw = booking['returned_at']?.toString();
       final returnedAt =
-          (returnedAtRaw != null ? DateTime.tryParse(returnedAtRaw)?.toLocal() : null) ??
-              now;
+          (returnedAtRaw != null
+              ? DateTime.tryParse(returnedAtRaw)?.toLocal()
+              : null) ??
+          now;
 
       double lateReturnFee = 0.0;
       if (endAt != null && returnedAt.isAfter(endAt)) {
-        final lateHours = (returnedAt.difference(endAt).inMinutes / 60.0).ceil();
+        final lateHours = (returnedAt.difference(endAt).inMinutes / 60.0)
+            .ceil();
         if (lateHours > 0) {
           lateReturnFee = lateHours * 200.0;
         }
       }
 
-      final currentTotal =
-          (booking['total_price'] as num?)?.toDouble() ?? 0.0;
+      final currentTotal = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
       final updatedTotal = currentTotal + lateReturnFee;
 
       final isFullPaymentAtCreation =
@@ -3363,7 +3432,6 @@ class BookingService {
     }
   }
 
-
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
@@ -3372,4 +3440,3 @@ class BookingService {
     return error.toString();
   }
 }
-

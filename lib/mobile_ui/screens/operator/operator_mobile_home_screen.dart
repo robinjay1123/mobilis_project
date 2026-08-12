@@ -7,6 +7,16 @@ import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
 import 'package:mobilis_by_psdc_app/services/auth_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 
+bool _bookingNeedsDriver(dynamic value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  if (value is String) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'true' || normalized == 'yes' || normalized == '1';
+  }
+  return false;
+}
+
 /// Mobile-first home screen for Operator role.
 ///
 /// Provides 4 tabs:
@@ -32,11 +42,24 @@ class OperatorMobileHomeScreen extends StatefulWidget {
 class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
   int _selectedTab = 0;
   String? _operatorId;
+  int _pendingBookingBadgeCount = 0;
+  Set<String> _seenPendingBookingIds = {};
+  RealtimeChannel? _pendingBookingChannel;
+  Timer? _pendingBookingRefreshDebounce;
 
   @override
   void initState() {
     super.initState();
     _operatorId = AuthService().currentUser?.id;
+    _loadPendingBookingBadge();
+    _setupPendingBookingListener();
+  }
+
+  @override
+  void dispose() {
+    _pendingBookingRefreshDebounce?.cancel();
+    _pendingBookingChannel?.unsubscribe();
+    super.dispose();
   }
 
   @override
@@ -84,7 +107,7 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
           _DashboardTab(
             operatorId: _operatorId,
             isDark: isDark,
-            onNavigate: (tab) => setState(() => _selectedTab = tab),
+            onNavigate: _selectTab,
           ),
           _BookingsTab(
             operatorId: _operatorId,
@@ -107,24 +130,24 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
         backgroundColor: isDark ? AppColors.darkCard : Colors.white,
         indicatorColor: AppColors.primary.withValues(alpha: 0.2),
         selectedIndex: _selectedTab,
-        onDestinationSelected: (index) => setState(() => _selectedTab = index),
-        destinations: const [
-          NavigationDestination(
+        onDestinationSelected: _selectTab,
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: 'Dashboard',
           ),
           NavigationDestination(
-            icon: Icon(Icons.pending_actions_outlined),
-            selectedIcon: Icon(Icons.pending_actions),
+            icon: _buildPendingTabIcon(Icons.pending_actions_outlined),
+            selectedIcon: _buildPendingTabIcon(Icons.pending_actions),
             label: 'Pending',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.directions_car_outlined),
             selectedIcon: Icon(Icons.directions_car),
             label: 'Active',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
             label: 'History',
@@ -132,6 +155,104 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
         ],
       ),
     );
+  }
+
+  void _selectTab(int index) {
+    if (!mounted) return;
+    setState(() {
+      _selectedTab = index;
+      if (index == 1) _pendingBookingBadgeCount = 0;
+    });
+    if (index == 1) _loadPendingBookingBadge();
+  }
+
+  Widget _buildPendingTabIcon(IconData icon) {
+    final badgeCount = _pendingBookingBadgeCount;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (badgeCount > 0)
+          Positioned(
+            right: -10,
+            top: -8,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                badgeCount > 99 ? '99+' : '$badgeCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _loadPendingBookingBadge() async {
+    final operatorId = _operatorId;
+    if (operatorId == null || operatorId.isEmpty) return;
+
+    try {
+      final pending = await BookingService().getOperatorPendingApproval(
+        operatorId,
+      );
+      if (!mounted) return;
+      final pendingIds = pending
+          .map((booking) => booking['id']?.toString().trim() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final nextCount = _selectedTab == 1
+          ? 0
+          : pendingIds.difference(_seenPendingBookingIds).length;
+      if (_selectedTab == 1) {
+        _seenPendingBookingIds = pendingIds;
+      }
+      if (_pendingBookingBadgeCount != nextCount) {
+        setState(() => _pendingBookingBadgeCount = nextCount);
+      }
+    } catch (e) {
+      debugPrint('Error loading operator pending booking badge: $e');
+    }
+  }
+
+  void _setupPendingBookingListener() {
+    final operatorId = _operatorId;
+    if (operatorId == null || operatorId.isEmpty) return;
+
+    void scheduleRefresh(PostgresChangePayload _) {
+      if (!mounted) return;
+      _pendingBookingRefreshDebounce?.cancel();
+      _pendingBookingRefreshDebounce = Timer(
+        const Duration(milliseconds: 350),
+        _loadPendingBookingBadge,
+      );
+    }
+
+    _pendingBookingChannel = Supabase.instance.client.realtime
+        .channel('op-pending-badge-$operatorId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          callback: scheduleRefresh,
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_job_assignments',
+          callback: scheduleRefresh,
+        )
+        .subscribe();
   }
 
   Future<void> _handleLogout() async {
@@ -208,8 +329,7 @@ class _DashboardTabState extends State<_DashboardTab> {
     if (widget.operatorId == null) return {};
     final service = BookingService();
     final all = await service.getOperatorBookings(widget.operatorId!);
-    final pending =
-        all.where((b) => _status(b) == 'pending').length;
+    final pending = all.where((b) => _status(b) == 'pending').length;
     final active = all.where((b) {
       final s = _status(b);
       return const {
@@ -221,8 +341,7 @@ class _DashboardTabState extends State<_DashboardTab> {
         'awaiting_completion',
       }.contains(s);
     }).toList();
-    final completed =
-        all.where((b) => _status(b) == 'completed').toList();
+    final completed = all.where((b) => _status(b) == 'completed').toList();
 
     final totalRevenue = completed.fold<double>(
       0,
@@ -250,8 +369,9 @@ class _DashboardTabState extends State<_DashboardTab> {
     final isDark = widget.isDark;
     final cardColor = isDark ? AppColors.darkCard : Colors.white;
     final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
-    final textSecondary =
-        isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final textSecondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
 
     return FutureBuilder<Map<String, dynamic>>(
       future: _statsFuture,
@@ -261,8 +381,8 @@ class _DashboardTabState extends State<_DashboardTab> {
         final activeCount = stats['active_count'] as int? ?? 0;
         final completedCount = stats['completed_count'] as int? ?? 0;
         final revenue = stats['total_revenue'] as double? ?? 0;
-        final activeBookings = (stats['active_bookings'] as List?)
-                ?.cast<Map<String, dynamic>>() ??
+        final activeBookings =
+            (stats['active_bookings'] as List?)?.cast<Map<String, dynamic>>() ??
             [];
 
         return RefreshIndicator(
@@ -344,10 +464,12 @@ class _DashboardTabState extends State<_DashboardTab> {
                 const SizedBox(height: 10),
                 ...activeBookings
                     .take(5)
-                    .map((b) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _BookingCard(booking: b, isDark: isDark),
-                        )),
+                    .map(
+                      (b) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _BookingCard(booking: b, isDark: isDark),
+                      ),
+                    ),
               ],
               if (snapshot.connectionState == ConnectionState.waiting)
                 const Center(
@@ -440,6 +562,14 @@ class _BookingsTabState extends State<_BookingsTab> {
             if (mounted) _load();
           },
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'driver_job_assignments',
+          callback: (_) {
+            if (mounted) _load();
+          },
+        )
         .subscribe();
   }
 
@@ -455,7 +585,12 @@ class _BookingsTabState extends State<_BookingsTab> {
         final all = await service.getOperatorBookings(widget.operatorId!);
         return all.where((b) {
           final s = b['status']?.toString().toLowerCase() ?? '';
-          return const {'completed', 'cancelled', 'rejected', 'expired'}.contains(s);
+          return const {
+            'completed',
+            'cancelled',
+            'rejected',
+            'expired',
+          }.contains(s);
         }).toList();
       default:
         return service.getOperatorBookings(widget.operatorId!);
@@ -474,6 +609,110 @@ class _BookingsTabState extends State<_BookingsTab> {
     }).toList();
   }
 
+  Future<void> _showDriverAssignmentDialog(
+    BuildContext context,
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id']?.toString();
+    if (bookingId == null || bookingId.isEmpty) return;
+
+    final bookingDate = DateTime.tryParse(
+      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
+    );
+
+    try {
+      final drivers = await BookingService().getAvailableVerifiedDrivers(
+        bookingDate: bookingDate,
+      );
+      if (!context.mounted) return;
+
+      final selectedDriver = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Assign Driver'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: drivers.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('No available verified drivers found.'),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: drivers.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, index) {
+                      final driver = drivers[index];
+                      final user = driver['users'] as Map<String, dynamic>?;
+                      final name = user?['full_name']?.toString().trim();
+                      final distance = (driver['distance_km'] as num?)
+                          ?.toDouble();
+                      return ListTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.person_outline),
+                        ),
+                        title: Text(
+                          name == null || name.isEmpty
+                              ? 'Unknown Driver'
+                              : name,
+                        ),
+                        subtitle: Text(
+                          distance == null
+                              ? 'Available for this booking'
+                              : '${distance.toStringAsFixed(1)} km away',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(dialogContext, driver),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+
+      if (selectedDriver == null || !context.mounted) return;
+      final driverId = selectedDriver['user_id']?.toString();
+      if (driverId == null || driverId.isEmpty) {
+        throw Exception('Selected driver is missing a user account');
+      }
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      try {
+        await BookingService().assignDriver(bookingId, driverId, 0.0);
+      } finally {
+        if (context.mounted) Navigator.pop(context);
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Driver job offer sent. Waiting for acceptance.'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        _load();
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not assign driver: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   String _vehicleName(Map vehicle) {
     final name = vehicle['vehicle_name']?.toString().trim();
     if (name != null && name.isNotEmpty) return name;
@@ -487,16 +726,16 @@ class _BookingsTabState extends State<_BookingsTab> {
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
     final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
-    final textSecondary =
-        isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final textSecondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
     final inputFill = isDark ? AppColors.darkCard : Colors.white;
 
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snapshot) {
         final bookings = _filter(snapshot.data ?? []);
-        final isLoading =
-            snapshot.connectionState == ConnectionState.waiting;
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
         return Column(
           children: [
@@ -542,11 +781,9 @@ class _BookingsTabState extends State<_BookingsTab> {
                       color: AppColors.primary,
                       onRefresh: () async => _load(),
                       child: ListView.separated(
-                        padding:
-                            const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                         itemCount: bookings.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 10),
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final booking = bookings[index];
                           return _BookingCard(
@@ -554,6 +791,14 @@ class _BookingsTabState extends State<_BookingsTab> {
                             isDark: isDark,
                             showActions: widget.filter == 'pending',
                             onRefresh: _load,
+                            onAssignDriver:
+                                widget.filter == 'pending' &&
+                                    _bookingNeedsDriver(booking['with_driver'])
+                                ? () => _showDriverAssignmentDialog(
+                                    context,
+                                    booking,
+                                  )
+                                : null,
                           );
                         },
                       ),
@@ -575,15 +820,70 @@ class _BookingCard extends StatelessWidget {
   final bool isDark;
   final bool showActions;
   final VoidCallback? onRefresh;
+  final VoidCallback? onAssignDriver;
 
   const _BookingCard({
     required this.booking,
     required this.isDark,
     this.showActions = false,
     this.onRefresh,
+    this.onAssignDriver,
   });
 
   String get _status => booking['status']?.toString().toLowerCase() ?? '';
+
+  bool get _needsDriver => _bookingNeedsDriver(booking['with_driver']);
+
+  Map<String, dynamic>? get _latestAssignment {
+    final rawAssignments = booking['job_assignments'];
+    if (rawAssignments is! List || rawAssignments.isEmpty) return null;
+    final assignments = rawAssignments
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    if (assignments.isEmpty) return null;
+    assignments.sort((a, b) {
+      final aDate = DateTime.tryParse(
+        (a['created_at'] ?? a['offered_at'])?.toString() ?? '',
+      );
+      final bDate = DateTime.tryParse(
+        (b['created_at'] ?? b['offered_at'])?.toString() ?? '',
+      );
+      return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+    });
+    return assignments.first;
+  }
+
+  String? get _driverName {
+    final driver = booking['driver'] as Map?;
+    final user = (driver?['users'] ?? driver?['user']) as Map?;
+    final name = user?['full_name']?.toString().trim();
+    return name == null || name.isEmpty ? null : name;
+  }
+
+  String get _driverStatus {
+    if (!_needsDriver) return 'No driver requested';
+    final status = _latestAssignment?['status']?.toString().toLowerCase();
+    if (status == 'accepted' || status == 'confirmed') {
+      return _driverName == null
+          ? 'Driver accepted'
+          : '$_driverName • Accepted';
+    }
+    if (status == 'pending_offer' || status == 'assigned') {
+      return _driverName == null
+          ? 'Awaiting driver acceptance'
+          : '$_driverName • Awaiting acceptance';
+    }
+    if (status == 'rejected' || status == 'declined') {
+      return 'Driver declined • Assign another';
+    }
+    return 'Driver needed';
+  }
+
+  bool get _driverAccepted {
+    final status = _latestAssignment?['status']?.toString().toLowerCase();
+    return status == 'accepted' || status == 'confirmed';
+  }
 
   String get _vehicleName {
     final v = booking['vehicles'] as Map? ?? {};
@@ -609,8 +909,19 @@ class _BookingCard extends StatelessWidget {
     final end = DateTime.tryParse(rawEnd?.toString() ?? '');
     if (start == null) return 'Date TBD';
     const m = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final fmt = '${m[start.month]} ${start.day}';
     if (end == null) return fmt;
@@ -670,8 +981,9 @@ class _BookingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardColor = isDark ? AppColors.darkCard : Colors.white;
     final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
-    final textSecondary =
-        isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final textSecondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
     final partnerConfirmed = booking['partner_booking_confirmed_at'] != null;
     final v = booking['vehicles'] as Map? ?? {};
     final ownerRole = v['owner_role']?.toString().toLowerCase();
@@ -710,7 +1022,9 @@ class _BookingCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: _statusColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _statusColor.withValues(alpha: 0.4)),
+                    border: Border.all(
+                      color: _statusColor.withValues(alpha: 0.4),
+                    ),
                   ),
                   child: Text(
                     _statusLabel,
@@ -723,6 +1037,55 @@ class _BookingCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (_needsDriver) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      (_driverAccepted ? AppColors.success : AppColors.warning)
+                          .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color:
+                        (_driverAccepted
+                                ? AppColors.success
+                                : AppColors.warning)
+                            .withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _driverAccepted
+                          ? Icons.check_circle_outline
+                          : Icons.directions_car_outlined,
+                      size: 16,
+                      color: _driverAccepted
+                          ? AppColors.success
+                          : AppColors.warning,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _driverStatus,
+                        style: TextStyle(
+                          color: _driverAccepted
+                              ? AppColors.success
+                              : AppColors.warning,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 6),
             Row(
               children: [
@@ -733,8 +1096,11 @@ class _BookingCard extends StatelessWidget {
                   style: TextStyle(color: textSecondary, fontSize: 12),
                 ),
                 const SizedBox(width: 12),
-                Icon(Icons.calendar_today_outlined,
-                    size: 14, color: textSecondary),
+                Icon(
+                  Icons.calendar_today_outlined,
+                  size: 14,
+                  color: textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   _dateRange,
@@ -745,15 +1111,21 @@ class _BookingCard extends StatelessWidget {
             if (needsPartnerConfirmation) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.warning.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.hourglass_top,
-                        size: 14, color: AppColors.warning),
+                    const Icon(
+                      Icons.hourglass_top,
+                      size: 14,
+                      color: AppColors.warning,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -822,7 +1194,10 @@ class _BookingCard extends StatelessWidget {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.error,
                               side: const BorderSide(color: AppColors.error),
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 4,
+                              ),
                             ),
                             onPressed: () async {
                               final bId = booking['id']?.toString();
@@ -839,7 +1214,10 @@ class _BookingCard extends StatelessWidget {
                               fit: BoxFit.scaleDown,
                               child: Text(
                                 'Reject Ext.',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ),
@@ -850,7 +1228,10 @@ class _BookingCard extends StatelessWidget {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 4,
+                              ),
                               elevation: 0,
                             ),
                             onPressed: () async {
@@ -909,7 +1290,10 @@ class _BookingCard extends StatelessWidget {
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -934,6 +1318,32 @@ class _BookingCard extends StatelessWidget {
               const SizedBox(height: 10),
               const Divider(height: 1),
               const SizedBox(height: 10),
+              if (onAssignDriver != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.person_add_alt_1, size: 16),
+                    label: Text(
+                      _driverStatus == 'Driver needed' ||
+                              _driverStatus.startsWith('Driver declined')
+                          ? 'Assign Driver'
+                          : 'Change Driver',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.warning,
+                      side: BorderSide(
+                        color: AppColors.warning.withValues(alpha: 0.7),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    onPressed: onAssignDriver,
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 children: [
                   Expanded(
@@ -951,21 +1361,31 @@ class _BookingCard extends StatelessWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 8,
+                        ),
                       ),
-                      onPressed: () => _showRejectDialog(
-                        context,
-                        booking['id']?.toString(),
-                      ),
+                      onPressed: () =>
+                          _showRejectDialog(context, booking['id']?.toString()),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: ElevatedButton.icon(
-                      icon: const Icon(Icons.check, size: 16),
-                      label: const FittedBox(
+                      icon: Icon(
+                        _needsDriver && !_driverAccepted
+                            ? Icons.hourglass_top
+                            : Icons.check,
+                        size: 16,
+                      ),
+                      label: FittedBox(
                         fit: BoxFit.scaleDown,
-                        child: Text('Approve'),
+                        child: Text(
+                          _needsDriver && !_driverAccepted
+                              ? 'Awaiting Driver'
+                              : 'Approve',
+                        ),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -973,13 +1393,18 @@ class _BookingCard extends StatelessWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                          horizontal: 8,
+                        ),
                         elevation: 0,
                       ),
-                      onPressed: () => _showApproveDialog(
-                        context,
-                        booking['id']?.toString(),
-                      ),
+                      onPressed: _needsDriver && !_driverAccepted
+                          ? null
+                          : () => _showApproveDialog(
+                              context,
+                              booking['id']?.toString(),
+                            ),
                     ),
                   ),
                 ],
@@ -989,11 +1414,12 @@ class _BookingCard extends StatelessWidget {
         ),
       ),
     );
-
   }
 
   Future<void> _showApproveDialog(
-      BuildContext context, String? bookingId) async {
+    BuildContext context,
+    String? bookingId,
+  ) async {
     if (bookingId == null) return;
     final notesController = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -1050,7 +1476,9 @@ class _BookingCard extends StatelessWidget {
   }
 
   Future<void> _showRejectDialog(
-      BuildContext context, String? bookingId) async {
+    BuildContext context,
+    String? bookingId,
+  ) async {
     if (bookingId == null) return;
     final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
@@ -1186,8 +1614,9 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textSecondary =
-        isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final textSecondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
     final label = filter == 'pending'
         ? 'No pending bookings'
         : filter == 'active'

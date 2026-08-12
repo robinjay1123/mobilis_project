@@ -350,7 +350,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
       _bookingsSubscription!
           .onPostgresChanges(
-            event: PostgresChangeEvent.insert,
+            event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'bookings',
             callback: (payload) {
@@ -360,6 +360,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 // Reload bookings to reflect changes
                 _loadPartnerData();
               }
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'driver_job_assignments',
+            callback: (_) {
+              if (mounted) _loadPartnerData();
             },
           )
           .subscribe();
@@ -766,8 +774,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 ),
                 const SizedBox(height: 12),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFF5B5B).withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(14),
@@ -2330,7 +2340,6 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         ],
       ),
     );
-
   }
 
   Widget _buildRecentRequestShowcaseCard(Map<String, dynamic> booking) {
@@ -2647,13 +2656,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     final statuses = switch (selectedBookingTab) {
       0 => {'pending'},
       1 => {'approved', 'confirmed'},
-      2 => {
-        'ongoing',
-        'active',
-        'in_progress',
-        'in transit',
-        'in_transit',
-      },
+      2 => {'ongoing', 'active', 'in_progress', 'in transit', 'in_transit'},
       3 => {'completed', 'successful', 'done', 'finished'},
       _ => {'cancelled', 'canceled', 'declined', 'rejected'},
     };
@@ -2832,14 +2835,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           (b) => b['id']?.toString() == bookingId,
           orElse: () => <String, dynamic>{'id': bookingId},
         );
-        await _showPartnerInspectionDialog(
-          booking,
-          inspectionType: 'after',
-        );
+        await _showPartnerInspectionDialog(booking, inspectionType: 'after');
         _loadPartnerData();
         return;
-      }
- else if ((status == 'cancelled' || status == 'rejected') &&
+      } else if ((status == 'cancelled' || status == 'rejected') &&
           currentPartnerId != null) {
         await bookingService.rejectPartnerBooking(
           bookingId: bookingId,
@@ -2854,8 +2853,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         status == 'confirmed'
             ? 'Booking confirmed!'
             : status == 'return_confirmed'
-                ? 'Vehicle return confirmed!'
-                : 'Booking declined',
+            ? 'Vehicle return confirmed!'
+            : 'Booking declined',
       );
 
       _loadPartnerData();
@@ -3060,7 +3059,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             iconColor: visual.color,
                             isRead: notif['is_read'] == true,
                             onTap: () => _handlePartnerNotificationTap(notif),
-                            onLongPress: () => _showPartnerNotificationDetails(notif),
+                            onLongPress: () =>
+                                _showPartnerNotificationDetails(notif),
                           );
                         },
                       ),
@@ -3171,7 +3171,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   // ===================== BOOKINGS TAB =====================
   // ===================== BOOKINGS TAB =====================
   Widget _buildBookingsTab() {
-    const statusList = ['pending', 'approved', 'ongoing', 'completed', 'cancelled'];
+    const statusList = [
+      'pending',
+      'approved',
+      'ongoing',
+      'completed',
+      'cancelled',
+    ];
     final filteredBookings = bookings
         .where((booking) => _matchesBookingTab(booking, _partnerBookingStatus))
         .toList();
@@ -3209,7 +3215,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 const SizedBox(height: 12),
                 _buildPartnerStatusPillTabs(statusList),
                 const SizedBox(height: 14),
-                if (_partnerBookingStatus == 'ongoing' && filteredBookings.isNotEmpty) ...[
+                if (_partnerBookingStatus == 'ongoing' &&
+                    filteredBookings.isNotEmpty) ...[
                   _buildActiveBookingsHero(filteredBookings),
                   const SizedBox(height: 14),
                 ],
@@ -4399,7 +4406,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           inspectorId: currentUserId,
         );
         if (!mounted) return;
-        _showSuccessSnackBar('Release checklist submitted. The trip is now ongoing.');
+        _showSuccessSnackBar(
+          'Release checklist submitted. The trip is now ongoing.',
+        );
       } else {
         final currentPaymentStatus = (booking['final_payment_status'] ?? '')
             .toString()
@@ -4419,7 +4428,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               ),
               title: const Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange,
+                    size: 28,
+                  ),
                   SizedBox(width: 10),
                   Text(
                     'Final Payment Unchecked',
@@ -4439,10 +4452,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, 'cancel'),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.textTertiary)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textTertiary),
+                  ),
                 ),
                 OutlinedButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'proceed_unpaid'),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'proceed_unpaid'),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Colors.orange),
                     foregroundColor: Colors.orange,
@@ -4450,7 +4467,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   child: const Text('Proceed Return (Stay Ongoing)'),
                 ),
                 ElevatedButton(
-                  onPressed: () => Navigator.pop(dialogContext, 'confirm_payment'),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, 'confirm_payment'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
@@ -4621,7 +4639,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     try {
                       await bookingService.assignDriver(
                         booking['id'],
-                        driver['id'],
+                        driver['user_id'] ?? driver['id'],
                         0.0, // Trip fee - can be customized
                       );
 
