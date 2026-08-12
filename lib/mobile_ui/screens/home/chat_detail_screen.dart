@@ -59,7 +59,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _showSupportFaqs = true;
   bool _liveSupportEnabled = false;
   bool _showBookingActivity = true;
-  String? _bookingStatus; // tracks live booking status for read-only enforcement
+  String?
+  _bookingStatus; // tracks live booking status for read-only enforcement
   List<_SupportFaq>? _configuredSupportFaqs;
   final List<Map<String, String>> _supportAssistantMessages = [];
   final List<Map<String, dynamic>> _pendingMessages = [];
@@ -87,6 +88,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool get _isConversationReadOnly =>
       _bookingStatus != null &&
       _readOnlyStatuses.contains(_bookingStatus!.trim().toLowerCase());
+
+  // Customer Service remains available as the safe appeal/support channel.
+  // Policy restrictions apply to normal user-to-user and booking chats, not
+  // to the support conversation the restricted user may need to access.
+  bool get _isMessagingRestricted =>
+      !widget.isCustomerService && _restrictionState.isMessagingRestricted;
 
   String get _normalizedRole {
     final role = widget.userRole.trim().toLowerCase();
@@ -360,12 +367,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   void _restartRestrictionTicker() {
     _restrictionTicker?.cancel();
-    if (!_restrictionState.isMessagingRestricted) return;
+    if (!_isMessagingRestricted) return;
 
     _restrictionTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {});
-      if (!_restrictionState.isMessagingRestricted) {
+      if (!_isMessagingRestricted) {
         _restrictionTicker?.cancel();
       }
     });
@@ -373,7 +380,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _sendMessage() async {
     if (_messageController.text.trim().isEmpty) return;
-    if (_restrictionState.isMessagingRestricted) {
+    if (_isMessagingRestricted) {
       setState(() {
         _warningMessage =
             'Messaging is temporarily restricted. Please wait for the timer to expire before sending another message.';
@@ -498,7 +505,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _pickAndSendAttachment() async {
-    if (_restrictionState.isMessagingRestricted || _isUploadingAttachment) {
+    if (_isMessagingRestricted || _isUploadingAttachment) {
       return;
     }
 
@@ -1231,605 +1238,626 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       : const SizedBox.shrink(),
                 ),
 
-          // Messages list
-          Expanded(
-            child: widget.isCustomerService && !_liveSupportEnabled
-                ? _buildSupportAssistantConversation()
-                : StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: _messageStream,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  color: AppColors.error,
-                                  size: 34,
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  'Could not load this conversation',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: textColor,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                OutlinedButton.icon(
-                                  onPressed: () => setState(
-                                    () =>
-                                        _messageStream = _buildMessageStream(),
-                                  ),
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text('Retry'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-
-                      final serverMessages = (snapshot.data ?? const []).map((
-                        message,
-                      ) {
-                        final id = message['id']?.toString();
-                        return id == null
-                            ? message
-                            : _messageOverrides[id] ?? message;
-                      }).toList();
-                      final serverIds = serverMessages
-                          .map((message) => message['id']?.toString())
-                          .whereType<String>()
-                          .toSet();
-                      final messages =
-                          <Map<String, dynamic>>[
-                            ...serverMessages,
-                            ..._pendingMessages
-                                .where(
-                                  (message) => !serverIds.contains(
-                                    message['id']?.toString(),
-                                  ),
-                                )
-                                .map((message) {
-                                  final id = message['id']?.toString();
-                                  return id == null
-                                      ? message
-                                      : _messageOverrides[id] ?? message;
-                                }),
-                          ]..sort((a, b) {
-                            final aDate = DateTime.tryParse(
-                              a['created_at']?.toString() ?? '',
+              // Messages list
+              Expanded(
+                child: widget.isCustomerService && !_liveSupportEnabled
+                    ? _buildSupportAssistantConversation()
+                    : StreamBuilder<List<Map<String, dynamic>>>(
+                        stream: _messageStream,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
                             );
-                            final bDate = DateTime.tryParse(
-                              b['created_at']?.toString() ?? '',
-                            );
-                            return (aDate ?? DateTime(1970)).compareTo(
-                              bDate ?? DateTime(1970),
-                            );
-                          });
+                          }
 
-                      if (messages.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (widget.isAutoGenerated)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 16,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.success.withValues(
-                                      alpha: 0.1,
+                          if (snapshot.hasError) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.error_outline,
+                                      color: AppColors.error,
+                                      size: 34,
                                     ),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: AppColors.success,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle,
-                                        color: AppColors.success,
-                                        size: 32,
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      'Could not load this conversation',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: textColor,
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Conversation Started',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: textColor,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    OutlinedButton.icon(
+                                      onPressed: () => setState(
+                                        () => _messageStream =
+                                            _buildMessageStream(),
+                                      ),
+                                      icon: const Icon(Icons.refresh),
+                                      label: const Text('Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+
+                          final serverMessages = (snapshot.data ?? const [])
+                              .map((message) {
+                                final id = message['id']?.toString();
+                                return id == null
+                                    ? message
+                                    : _messageOverrides[id] ?? message;
+                              })
+                              .toList();
+                          final serverIds = serverMessages
+                              .map((message) => message['id']?.toString())
+                              .whereType<String>()
+                              .toSet();
+                          final messages =
+                              <Map<String, dynamic>>[
+                                ...serverMessages,
+                                ..._pendingMessages
+                                    .where(
+                                      (message) => !serverIds.contains(
+                                        message['id']?.toString(),
+                                      ),
+                                    )
+                                    .map((message) {
+                                      final id = message['id']?.toString();
+                                      return id == null
+                                          ? message
+                                          : _messageOverrides[id] ?? message;
+                                    }),
+                              ]..sort((a, b) {
+                                final aDate = DateTime.tryParse(
+                                  a['created_at']?.toString() ?? '',
+                                );
+                                final bDate = DateTime.tryParse(
+                                  b['created_at']?.toString() ?? '',
+                                );
+                                return (aDate ?? DateTime(1970)).compareTo(
+                                  bDate ?? DateTime(1970),
+                                );
+                              });
+
+                          if (messages.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (widget.isAutoGenerated)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 24,
+                                        vertical: 16,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.success.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: AppColors.success,
+                                          width: 1,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'This conversation was automatically created when the booking was confirmed. Start messaging now!',
+                                      child: Column(
+                                        children: [
+                                          Icon(
+                                            Icons.check_circle,
+                                            color: AppColors.success,
+                                            size: 32,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Conversation Started',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'This conversation was automatically created when the booking was confirmed. Start messaging now!',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark
+                                                  ? AppColors.textSecondary
+                                                  : AppColors
+                                                        .lightTextSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else
+                                    Icon(
+                                      Icons.chat_bubble_outline,
+                                      size: 48,
+                                      color: isDark
+                                          ? AppColors.textTertiary
+                                          : AppColors.lightTextTertiary,
+                                    ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    widget.isCustomerService
+                                        ? 'No support messages yet'
+                                        : 'No messages yet',
+                                    style: TextStyle(color: textColor),
+                                  ),
+                                  if (widget.isCustomerService) ...[
+                                    const SizedBox(height: 6),
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 28,
+                                      ),
+                                      child: Text(
+                                        'Choose an FAQ above or type your inquiry below. Your message goes directly to admin support.',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
-                                          fontSize: 12,
-                                          color: isDark
-                                              ? AppColors.textSecondary
-                                              : AppColors.lightTextSecondary,
+                                          color: AppColors.textSecondary,
+                                          fontSize: 11,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          }
+
+                          return NotificationListener<UserScrollNotification>(
+                            onNotification: (notification) {
+                              if (notification.direction !=
+                                      ScrollDirection.idle &&
+                                  _showBookingActivity) {
+                                setState(() => _showBookingActivity = false);
+                              }
+                              return false;
+                            },
+                            child: ListView.builder(
+                              reverse: true,
+                              padding: const EdgeInsets.all(16),
+                              itemCount: messages.length,
+                              itemBuilder: (context, index) {
+                                final message =
+                                    messages[messages.length - 1 - index];
+                                final isAutoGenerated =
+                                    message['is_auto_generated'] == true;
+                                final currentUserId =
+                                    _authService.currentUser?.id;
+                                final isCurrentUser =
+                                    message['sender_id'] == currentUserId;
+                                final isDeleted =
+                                    message['is_deleted'] == true ||
+                                    (message['content'] ?? message['message'])
+                                            ?.toString() ==
+                                        'Message deleted';
+                                final isSending =
+                                    message['_is_sending'] == true;
+                                final sendFailed =
+                                    message['_send_failed'] == true;
+                                final content =
+                                    (message['content'] ??
+                                            message['message'] ??
+                                            '')
+                                        .toString();
+                                final displayContent = isDeleted
+                                    ? 'Message deleted'
+                                    : _visibleMessageContent(content);
+                                final isChecklistAudit =
+                                    !isDeleted &&
+                                    _isChecklistAudit(displayContent);
+                                final attachmentUrl = message['attachment_url']
+                                    ?.toString();
+                                final attachmentName =
+                                    message['attachment_name']?.toString() ??
+                                    'Attachment';
+                                final attachmentType =
+                                    message['attachment_type']?.toString() ??
+                                    'document';
+                                final violatesPolicy =
+                                    !isDeleted &&
+                                    isCurrentUser &&
+                                    MessageFilterService.analyzeMessage(
+                                          content,
+                                        )['should_flag'] ==
+                                        true;
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Column(
+                                    crossAxisAlignment: isCurrentUser
+                                        ? CrossAxisAlignment.end
+                                        : CrossAxisAlignment.start,
+                                    children: [
+                                      // Auto-message badge
+                                      if (isAutoGenerated)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 4,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              '🤖 Auto-generated message',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: AppColors.primary,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      // Message bubble
+                                      Container(
+                                        constraints: BoxConstraints(
+                                          maxWidth: isChecklistAudit
+                                              ? 340
+                                              : 280,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isCurrentUser
+                                              ? AppColors.primary
+                                              : (isDark
+                                                    ? AppColors.darkBgSecondary
+                                                    : Colors.grey[200]),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (!isDeleted &&
+                                                attachmentUrl != null &&
+                                                attachmentUrl.isNotEmpty) ...[
+                                              _buildAttachmentPreview(
+                                                url: attachmentUrl,
+                                                type: attachmentType,
+                                                name: attachmentName,
+                                                isCurrentUser: isCurrentUser,
+                                                isDark: isDark,
+                                              ),
+                                              if (displayContent.isNotEmpty)
+                                                const SizedBox(height: 8),
+                                            ],
+                                            if (displayContent.isNotEmpty)
+                                              if (isChecklistAudit)
+                                                _buildChecklistContent(
+                                                  displayContent,
+                                                  isCurrentUser,
+                                                )
+                                              else
+                                                Text(
+                                                  displayContent,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontStyle: isDeleted
+                                                        ? FontStyle.italic
+                                                        : FontStyle.normal,
+                                                    color: isCurrentUser
+                                                        ? Colors.black
+                                                        : (isDark
+                                                              ? AppColors
+                                                                    .textPrimary
+                                                              : Colors.black),
+                                                  ),
+                                                ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Timestamp
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            RelativeTimeText(
+                                              value: message['created_at'],
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark
+                                                    ? AppColors.textTertiary
+                                                    : AppColors
+                                                          .lightTextTertiary,
+                                              ),
+                                            ),
+                                            if (isSending || sendFailed) ...[
+                                              const SizedBox(width: 7),
+                                              Text(
+                                                sendFailed
+                                                    ? 'Failed'
+                                                    : 'Sending...',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: sendFailed
+                                                      ? AppColors.error
+                                                      : AppColors.textTertiary,
+                                                  fontStyle: FontStyle.italic,
+                                                ),
+                                              ),
+                                            ],
+                                            if (isCurrentUser &&
+                                                !isDeleted &&
+                                                !isAutoGenerated &&
+                                                !isSending &&
+                                                !sendFailed) ...[
+                                              const SizedBox(width: 5),
+                                              IconButton(
+                                                tooltip: 'Delete message',
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minWidth: 28,
+                                                      minHeight: 28,
+                                                    ),
+                                                onPressed: () =>
+                                                    _confirmDeleteMessage(
+                                                      message,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  size: 16,
+                                                  color: AppColors.textTertiary,
+                                                ),
+                                              ),
+                                            ],
+                                            if (violatesPolicy) ...[
+                                              const SizedBox(width: 8),
+                                              const Text(
+                                                'Violates policy',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Color(0xFFFF5B5B),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
                                     ],
                                   ),
-                                )
-                              else
-                                Icon(
-                                  Icons.chat_bubble_outline,
-                                  size: 48,
-                                  color: isDark
-                                      ? AppColors.textTertiary
-                                      : AppColors.lightTextTertiary,
-                                ),
-                              const SizedBox(height: 12),
-                              Text(
-                                widget.isCustomerService
-                                    ? 'No support messages yet'
-                                    : 'No messages yet',
-                                style: TextStyle(color: textColor),
-                              ),
-                              if (widget.isCustomerService) ...[
-                                const SizedBox(height: 6),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 28),
-                                  child: Text(
-                                    'Choose an FAQ above or type your inquiry below. Your message goes directly to admin support.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 11,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        );
-                      }
-
-                      return NotificationListener<UserScrollNotification>(
-                        onNotification: (notification) {
-                          if (notification.direction != ScrollDirection.idle &&
-                              _showBookingActivity) {
-                            setState(() => _showBookingActivity = false);
-                          }
-                          return false;
+                                );
+                              },
+                            ),
+                          );
                         },
-                        child: ListView.builder(
-                          reverse: true,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            final message =
-                                messages[messages.length - 1 - index];
-                            final isAutoGenerated =
-                                message['is_auto_generated'] == true;
-                            final currentUserId = _authService.currentUser?.id;
-                            final isCurrentUser =
-                                message['sender_id'] == currentUserId;
-                            final isDeleted =
-                                message['is_deleted'] == true ||
-                                (message['content'] ?? message['message'])
-                                        ?.toString() ==
-                                    'Message deleted';
-                            final isSending = message['_is_sending'] == true;
-                            final sendFailed = message['_send_failed'] == true;
-                            final content =
-                                (message['content'] ?? message['message'] ?? '')
-                                    .toString();
-                            final displayContent = isDeleted
-                                ? 'Message deleted'
-                                : _visibleMessageContent(content);
-                            final isChecklistAudit =
-                                !isDeleted && _isChecklistAudit(displayContent);
-                            final attachmentUrl = message['attachment_url']
-                                ?.toString();
-                            final attachmentName =
-                                message['attachment_name']?.toString() ??
-                                'Attachment';
-                            final attachmentType =
-                                message['attachment_type']?.toString() ??
-                                'document';
-                            final violatesPolicy =
-                                !isDeleted &&
-                                isCurrentUser &&
-                                MessageFilterService.analyzeMessage(
-                                      content,
-                                    )['should_flag'] ==
-                                    true;
+                      ),
+              ),
 
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                crossAxisAlignment: isCurrentUser
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  // Auto-message badge
-                                  if (isAutoGenerated)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary.withValues(
-                                            alpha: 0.1,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          '🤖 Auto-generated message',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            color: AppColors.primary,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  // Message bubble
-                                  Container(
-                                    constraints: BoxConstraints(
-                                      maxWidth: isChecklistAudit ? 340 : 280,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isCurrentUser
-                                          ? AppColors.primary
-                                          : (isDark
-                                                ? AppColors.darkBgSecondary
-                                                : Colors.grey[200]),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (!isDeleted &&
-                                            attachmentUrl != null &&
-                                            attachmentUrl.isNotEmpty) ...[
-                                          _buildAttachmentPreview(
-                                            url: attachmentUrl,
-                                            type: attachmentType,
-                                            name: attachmentName,
-                                            isCurrentUser: isCurrentUser,
-                                            isDark: isDark,
-                                          ),
-                                          if (displayContent.isNotEmpty)
-                                            const SizedBox(height: 8),
-                                        ],
-                                        if (displayContent.isNotEmpty)
-                                          if (isChecklistAudit)
-                                            _buildChecklistContent(
-                                              displayContent,
-                                              isCurrentUser,
-                                            )
-                                          else
-                                            Text(
-                                              displayContent,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                fontStyle: isDeleted
-                                                    ? FontStyle.italic
-                                                    : FontStyle.normal,
-                                                color: isCurrentUser
-                                                    ? Colors.black
-                                                    : (isDark
-                                                          ? AppColors
-                                                                .textPrimary
-                                                          : Colors.black),
-                                              ),
-                                            ),
-                                      ],
-                                    ),
-                                  ),
-                                  // Timestamp
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        RelativeTimeText(
-                                          value: message['created_at'],
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: isDark
-                                                ? AppColors.textTertiary
-                                                : AppColors.lightTextTertiary,
-                                          ),
-                                        ),
-                                        if (isSending || sendFailed) ...[
-                                          const SizedBox(width: 7),
-                                          Text(
-                                            sendFailed
-                                                ? 'Failed'
-                                                : 'Sending...',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: sendFailed
-                                                  ? AppColors.error
-                                                  : AppColors.textTertiary,
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          ),
-                                        ],
-                                        if (isCurrentUser &&
-                                            !isDeleted &&
-                                            !isAutoGenerated &&
-                                            !isSending &&
-                                            !sendFailed) ...[
-                                          const SizedBox(width: 5),
-                                          IconButton(
-                                            tooltip: 'Delete message',
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 28,
-                                              minHeight: 28,
-                                            ),
-                                            onPressed: () =>
-                                                _confirmDeleteMessage(message),
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              size: 16,
-                                              color: AppColors.textTertiary,
-                                            ),
-                                          ),
-                                        ],
-                                        if (violatesPolicy) ...[
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            'Violates policy',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Color(0xFFFF5B5B),
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      );
-                    },
+              // Warning message
+              if (_warningMessage != null)
+                Container(
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warning),
                   ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_outlined,
+                        color: AppColors.warning,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _warningMessage!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              if (_typingUsers.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  color: cardColor,
+                  padding: const EdgeInsets.fromLTRB(58, 6, 16, 2),
+                  child: Text(
+                    _typingLabel,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+              // Live admin chat is opt-in so FAQ browsing does not create noise in
+              // the support inbox.
+              if (widget.isCustomerService && !_liveSupportEnabled)
+                _buildOpenAdminChatButton(cardColor)
+              else if (_isConversationReadOnly)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : AppColors.lightBorderColor,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.lock_outline_rounded,
+                        size: 16,
+                        color: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'This conversation is read-only — booking is ${_bookingStatus ?? 'completed'}.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark
+                            ? AppColors.borderColor
+                            : AppColors.lightBorderColor,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Attach file',
+                        onPressed:
+                            _isLoading ||
+                                _isUploadingAttachment ||
+                                _isMessagingRestricted
+                            ? null
+                            : _pickAndSendAttachment,
+                        icon: _isUploadingAttachment
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primary,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.add_circle_outline,
+                                color: AppColors.primary,
+                              ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          maxLines: 3,
+                          minLines: 1,
+                          enabled: !_isLoading && !_isMessagingRestricted,
+                          decoration: InputDecoration(
+                            hintText: _isMessagingRestricted
+                                ? 'Messaging restricted'
+                                : widget.isCustomerService
+                                ? 'Type your question for admin...'
+                                : 'Type your message...',
+                            hintStyle: TextStyle(
+                              color: isDark
+                                  ? AppColors.textTertiary
+                                  : AppColors.lightTextTertiary,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderColor
+                                    : AppColors.lightBorderColor,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                          style: TextStyle(color: textColor),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: _isMessagingRestricted
+                              ? AppColors.darkBgTertiary
+                              : AppColors.primary,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: IconButton(
+                          icon: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.black,
+                                    ),
+                                  ),
+                                )
+                              : Icon(
+                                  _isMessagingRestricted
+                                      ? Icons.lock_outline
+                                      : Icons.send,
+                                  color: _isMessagingRestricted
+                                      ? AppColors.textSecondary
+                                      : Colors.black,
+                                ),
+                          onPressed: _isLoading || _isMessagingRestricted
+                              ? null
+                              : _sendMessage,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
 
-          // Warning message
-          if (_warningMessage != null)
-            Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.warning),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.warning_outlined,
-                    color: AppColors.warning,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _warningMessage!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.warning,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (_typingUsers.isNotEmpty)
-            Container(
-              width: double.infinity,
-              color: cardColor,
-              padding: const EdgeInsets.fromLTRB(58, 6, 16, 2),
-              child: Text(
-                _typingLabel,
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-
-          // Live admin chat is opt-in so FAQ browsing does not create noise in
-          // the support inbox.
-          if (widget.isCustomerService && !_liveSupportEnabled)
-            _buildOpenAdminChatButton(cardColor)
-          else if (_isConversationReadOnly)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: cardColor,
-                border: Border(
-                  top: BorderSide(
-                    color: isDark
-                        ? AppColors.borderColor
-                        : AppColors.lightBorderColor,
-                  ),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.lock_outline_rounded,
-                    size: 16,
-                    color: isDark
-                        ? AppColors.textSecondary
-                        : AppColors.lightTextSecondary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'This conversation is read-only — booking is ${_bookingStatus ?? 'completed'}.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark
-                          ? AppColors.textSecondary
-                          : AppColors.lightTextSecondary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cardColor,
-                border: Border(
-                  top: BorderSide(
-                    color: isDark
-                        ? AppColors.borderColor
-                        : AppColors.lightBorderColor,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Attach file',
-                    onPressed:
-                        _isLoading ||
-                            _isUploadingAttachment ||
-                            _restrictionState.isMessagingRestricted
-                        ? null
-                        : _pickAndSendAttachment,
-                    icon: _isUploadingAttachment
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.primary,
-                            ),
-                          )
-                        : const Icon(
-                            Icons.add_circle_outline,
-                            color: AppColors.primary,
-                          ),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      maxLines: 3,
-                      minLines: 1,
-                      enabled:
-                          !_isLoading &&
-                          !_restrictionState.isMessagingRestricted,
-                      decoration: InputDecoration(
-                        hintText: _restrictionState.isMessagingRestricted
-                            ? 'Messaging restricted'
-                            : widget.isCustomerService
-                            ? 'Type your question for admin...'
-                            : 'Type your message...',
-                        hintStyle: TextStyle(
-                          color: isDark
-                              ? AppColors.textTertiary
-                              : AppColors.lightTextTertiary,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: isDark
-                                ? AppColors.borderColor
-                                : AppColors.lightBorderColor,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                      style: TextStyle(color: textColor),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _restrictionState.isMessagingRestricted
-                          ? AppColors.darkBgTertiary
-                          : AppColors.primary,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: IconButton(
-                      icon: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.black,
-                                ),
-                              ),
-                            )
-                          : Icon(
-                              _restrictionState.isMessagingRestricted
-                                  ? Icons.lock_outline
-                                  : Icons.send,
-                              color: _restrictionState.isMessagingRestricted
-                                  ? AppColors.textSecondary
-                                  : Colors.black,
-                            ),
-                      onPressed:
-                          _isLoading || _restrictionState.isMessagingRestricted
-                          ? null
-                          : _sendMessage,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-
-          if (_restrictionState.isMessagingRestricted)
+          if (_isMessagingRestricted)
             Positioned.fill(
               child: ClipRect(
                 child: BackdropFilter(
@@ -1901,8 +1929,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFF5B5B).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),

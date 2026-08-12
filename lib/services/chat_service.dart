@@ -575,6 +575,51 @@ class ChatService {
   }
 
   // Send a message
+  Future<bool> _isCustomerServiceConversation(
+    String conversationId,
+    Map<String, dynamic> conversation,
+  ) async {
+    if (conversation['booking_id'] != null ||
+        conversation['is_group'] == true) {
+      return false;
+    }
+
+    try {
+      final participantRows = await supabase
+          .from('conversation_participants')
+          .select('user_id')
+          .eq('conversation_id', conversationId);
+      final participantIds = <String>{
+        if (conversation['user_id'] != null) conversation['user_id'].toString(),
+        if (conversation['other_user_id'] != null)
+          conversation['other_user_id'].toString(),
+        ...List<Map<String, dynamic>>.from(
+          participantRows,
+        ).map((row) => row['user_id']?.toString() ?? ''),
+      }..removeWhere((id) => id.trim().isEmpty);
+
+      if (participantIds.isEmpty) return false;
+      final users = await supabase
+          .from('users')
+          .select('id, role')
+          .inFilter('id', participantIds.toList());
+      const supportRoles = {
+        'customer_service',
+        'support',
+        'admin',
+        'super_admin',
+      };
+      return List<Map<String, dynamic>>.from(users).any(
+        (user) => supportRoles.contains(
+          user['role']?.toString().trim().toLowerCase(),
+        ),
+      );
+    } catch (error) {
+      debugPrint('Could not classify support conversation: $error');
+      return false;
+    }
+  }
+
   Future<Map<String, dynamic>> sendMessage({
     required String conversationId,
     required String senderId,
@@ -587,20 +632,27 @@ class ChatService {
     try {
       debugPrint('Sending message to conversation: $conversationId');
 
+      final conversation = await supabase
+          .from('conversations')
+          .select('status, booking_id, is_group, user_id, other_user_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+      final isCustomerService =
+          conversation != null &&
+          await _isCustomerServiceConversation(
+            conversationId,
+            Map<String, dynamic>.from(conversation),
+          );
+
       final restriction = await UserRestrictionService().getUserRestriction(
         senderId,
       );
-      if (restriction.isBlocked || restriction.isAccountRestricted) {
+      if (!isCustomerService &&
+          (restriction.isBlocked || restriction.isAccountRestricted)) {
         throw Exception(
           'This account is temporarily restricted from messaging',
         );
       }
-
-      final conversation = await supabase
-          .from('conversations')
-          .select('status')
-          .eq('id', conversationId)
-          .maybeSingle();
 
       if ((conversation?['status']?.toString().toLowerCase() ?? 'active') ==
           'closed') {
