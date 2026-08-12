@@ -4267,47 +4267,152 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final settledTripCount =
         releasedSettlements.length + paidCompletedFallback.length;
     final tracked = _visibleTrackingLocations();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth >= 820
-            ? (constraints.maxWidth - 18) / 2
-            : constraints.maxWidth;
-        return Wrap(
-          spacing: 18,
-          runSpacing: 18,
-          children: [
-            SizedBox(
-              width: width,
-              child: _buildDashboardInsightCard(
-                title: 'Revenue Snapshot',
-                value: 'PHP ${managedValue.toStringAsFixed(2)}',
-                description:
-                    '$settledTripCount settled or paid completed trips managed by this operator',
-                icon: Icons.account_balance_wallet_outlined,
-                accent: const Color(0xFF2E7D32),
-                buttonLabel: 'Open Revenue Analytics',
-                onTap: () => _openDashboardSection(selectedIndex: 7),
-                isDark: isDark,
-              ),
+
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            SizedBox(
-              width: width,
-              child: _buildDashboardInsightCard(
-                title: 'Live Tracking Snapshot',
-                value: '${tracked.length} Active',
-                description: tracked.isEmpty
-                    ? 'No company vehicles are transmitting an active trip location.'
-                    : 'Authorized company trips are currently transmitting location data.',
-                icon: Icons.my_location_rounded,
-                accent: const Color(0xFF1976D2),
-                buttonLabel: 'Open Live Tracking',
-                onTap: () => _openDashboardSection(selectedIndex: 6),
-                isDark: isDark,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFD97706).withValues(alpha: isDark ? 0.35 : 0.2),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.monetization_on_rounded,
+                          color: Colors.black.withValues(alpha: 0.7),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'TOTAL MANAGED REVENUE',
+                          style: TextStyle(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'PHP ${_formatCurrency(managedValue)}',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 38,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Aggregated from ${_formatNumber(settledTripCount)} completed trips',
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        InkWell(
+                          onTap: () => _openDashboardSection(selectedIndex: 7),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Revenue Analytics',
+                                  style: TextStyle(
+                                    color: Colors.amber,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Icon(
+                                  Icons.arrow_forward_rounded,
+                                  size: 13,
+                                  color: Colors.amber,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: const Icon(
+                  Icons.trending_up_rounded,
+                  color: Colors.black,
+                  size: 42,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        _buildDashboardInsightCard(
+          title: 'Live Tracking Snapshot',
+          value: '${_formatNumber(tracked.length)} Active Vehicles',
+          description: tracked.isEmpty
+              ? 'No company vehicles are transmitting an active trip location.'
+              : 'Authorized company trips are currently transmitting location data.',
+          icon: Icons.my_location_rounded,
+          accent: const Color(0xFF1976D2),
+          buttonLabel: 'Open Live Tracking',
+          onTap: () => _openDashboardSection(selectedIndex: 6),
+          isDark: isDark,
+        ),
+      ],
     );
   }
 
@@ -4394,12 +4499,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Widget _buildStatCard(
     String title,
-    String value,
+    String rawValue,
     IconData icon,
     Color color,
     bool isDark, {
     VoidCallback? onTap,
   }) {
+    final parsedNum = num.tryParse(rawValue);
+    final value = parsedNum != null ? _formatNumber(parsedNum) : rawValue;
     final borderRadius = BorderRadius.circular(18);
     return Semantics(
       button: onTap != null,
@@ -4429,12 +4536,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
+                    color: color.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(icon, color: color, size: 24),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 18),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -4461,10 +4568,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 if (onTap != null)
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: isDark ? Colors.grey[500] : Colors.grey.shade400,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'View',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 13,
+                          color: color,
+                        ),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -19771,4 +19902,23 @@ class _VehicleCardState extends State<_VehicleCard> {
       ),
     );
   }
+}
+
+String _formatCurrency(num value, {int decimals = 2}) {
+  final parts = value.toStringAsFixed(decimals).split('.');
+  final integerPart = parts[0].replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+    (Match m) => '${m[1]},',
+  );
+  if (parts.length > 1 && decimals > 0) {
+    return '$integerPart.${parts[1]}';
+  }
+  return integerPart;
+}
+
+String _formatNumber(num value) {
+  return value.toString().replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+    (Match m) => '${m[1]},',
+  );
 }

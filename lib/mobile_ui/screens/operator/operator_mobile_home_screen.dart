@@ -325,7 +325,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                       ),
                     ),
                     Text(
-                      'From $completedCount completed bookings',
+                      'From ${_formatNumber(completedCount)} completed bookings',
                       style: TextStyle(color: textSecondary, fontSize: 12),
                     ),
                   ],
@@ -363,10 +363,23 @@ class _DashboardTabState extends State<_DashboardTab> {
     );
   }
 
-  String _formatCurrency(double value) {
-    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
-    if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}K';
-    return value.toStringAsFixed(0);
+  String _formatCurrency(num value, {int decimals = 2}) {
+    final parts = value.toStringAsFixed(decimals).split('.');
+    final integerPart = parts[0].replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]},',
+    );
+    if (parts.length > 1 && decimals > 0) {
+      return '$integerPart.${parts[1]}';
+    }
+    return integerPart;
+  }
+
+  String _formatNumber(num value) {
+    return value.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]},',
+    );
   }
 }
 

@@ -3468,7 +3468,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'PHP ${_totalRevenue.toStringAsFixed(2)}',
+                        'PHP ${_formatCurrency(_totalRevenue)}',
                         style: const TextStyle(
                           color: Colors.black,
                           fontSize: 38,
@@ -3487,7 +3487,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          'Aggregated from $_totalBookings total bookings',
+                          'Aggregated from ${_formatNumber(_totalBookings)} total bookings',
                           style: const TextStyle(
                             color: Colors.black,
                             fontSize: 12,
@@ -13947,4 +13947,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       ),
     );
   }
+}
+
+String _formatCurrency(num value, {int decimals = 2}) {
+  final parts = value.toStringAsFixed(decimals).split('.');
+  final integerPart = parts[0].replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+    (Match m) => '${m[1]},',
+  );
+  if (parts.length > 1 && decimals > 0) {
+    return '$integerPart.${parts[1]}';
+  }
+  return integerPart;
+}
+
+String _formatNumber(num value) {
+  return value.toString().replaceAllMapped(
+    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+    (Match m) => '${m[1]},',
+  );
 }
