@@ -104,6 +104,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   List<Map<String, dynamic>> notifications = [];
   List<Map<String, dynamic>> trackingLocations = [];
 
+  String _partnerBookingStatus = 'pending';
+
   // 🔔 Real-time bookings listener
   RealtimeChannel? _bookingsSubscription;
   RealtimeChannel? _notificationsSubscription;
@@ -3167,65 +3169,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   // ===================== BOOKINGS TAB =====================
+  // ===================== BOOKINGS TAB =====================
   Widget _buildBookingsTab() {
-    return Column(
-      children: [
-        _buildCenteredTabHeader('My Bookings'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
-          child: RoleTabHeader(
-            title: 'Rental Bookings',
-            subtitle: 'Requests, active rentals, completed trips, and tracking',
-            icon: Icons.calendar_month_outlined,
-            badge: '${bookings.length} total',
-          ),
-        ),
-        const SizedBox(height: 14),
-        Expanded(
-          child: DefaultTabController(
-            length: 5,
-            child: Column(
-              children: [
-                Container(
-                  color: const Color(0xFF131E2D),
-                  child: TabBar(
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    labelColor: AppColors.primary,
-                    unselectedLabelColor: const Color(0xFF98A4B7),
-                    indicatorColor: AppColors.primary,
-                    indicatorWeight: 3,
-                    tabs: const [
-                      Tab(text: 'Pending'),
-                      Tab(text: 'Approved'),
-                      Tab(text: 'Ongoing'),
-                      Tab(text: 'Completed'),
-                      Tab(text: 'Cancelled'),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _buildBookingsList('pending'),
-                      _buildBookingsList('approved'),
-                      _buildBookingsList('ongoing'),
-                      _buildBookingsList('completed'),
-                      _buildBookingsList('cancelled'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBookingsList(String tabKey) {
+    const statusList = ['pending', 'approved', 'ongoing', 'completed', 'cancelled'];
     final filteredBookings = bookings
-        .where((booking) => _matchesBookingTab(booking, tabKey))
+        .where((booking) => _matchesBookingTab(booking, _partnerBookingStatus))
         .toList();
 
     filteredBookings.sort((a, b) {
@@ -3240,58 +3188,108 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       return aDate.compareTo(bDate);
     });
 
-    if (filteredBookings.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: () async {
-          await _loadPartnerData();
-        },
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.72,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: RoleEmptyStateCard(
-                  icon: Icons.calendar_today_outlined,
-                  title:
-                      'No ${_bookingTabLabel(tabKey).toLowerCase()} bookings',
-                  message:
-                      'Booking requests and rental updates will appear here. Pull down to refresh.',
+    return Column(
+      children: [
+        _buildCenteredTabHeader('My Bookings'),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadPartnerData,
+            color: AppColors.primary,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              children: [
+                RoleTabHeader(
+                  title: 'Rental Bookings',
+                  subtitle:
+                      'Requests, active rentals, completed trips, and tracking',
+                  icon: Icons.calendar_month_outlined,
+                  badge: '${bookings.length} total',
                 ),
-              ),
+                const SizedBox(height: 12),
+                _buildPartnerStatusPillTabs(statusList),
+                const SizedBox(height: 14),
+                if (_partnerBookingStatus == 'ongoing' && filteredBookings.isNotEmpty) ...[
+                  _buildActiveBookingsHero(filteredBookings),
+                  const SizedBox(height: 14),
+                ],
+                if (filteredBookings.isEmpty)
+                  RoleEmptyStateCard(
+                    icon: Icons.calendar_today_outlined,
+                    title:
+                        'No ${_bookingTabLabel(_partnerBookingStatus).toLowerCase()} bookings',
+                    message:
+                        'Booking requests and rental updates will appear here once available.',
+                  )
+                else
+                  ...filteredBookings.map(
+                    (booking) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildPartnerBookingCard(
+                        booking,
+                        emphasizeLive: _partnerBookingStatus == 'ongoing',
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
-      );
-    }
+      ],
+    );
+  }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        await _loadPartnerData();
-      },
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
-        children: [
-          if (tabKey == 'ongoing') _buildActiveBookingsHero(filteredBookings),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              children: filteredBookings
-                  .map(
-                    (booking) => Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: _buildPartnerBookingCard(
-                        booking,
-                        emphasizeLive: tabKey == 'active',
-                      ),
-                    ),
-                  )
-                  .toList(),
+  Widget _buildPartnerStatusPillTabs(List<String> statuses) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: statuses.map((status) {
+          final selected = _partnerBookingStatus == status;
+          final count = bookings
+              .where((b) => _matchesBookingTab(b, status))
+              .length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _partnerBookingStatus = status),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: status == 'cancelled' ? 108 : 96,
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.primary
+                      : (isDark ? AppColors.darkBg : Colors.white),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: selected
+                        ? AppColors.primary
+                        : (isDark
+                              ? AppColors.borderColor
+                              : AppColors.lightBorderColor),
+                  ),
+                ),
+                child: Text(
+                  '${_bookingTabLabel(status)} ($count)',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.black
+                        : (isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+        }).toList(),
       ),
     );
   }
