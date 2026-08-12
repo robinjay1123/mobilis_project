@@ -9,6 +9,7 @@ import '../../../services/driver_service.dart';
 import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
+import '../../widgets/optimized_network_image.dart';
 import '../vehicle/signature_capture_screen.dart';
 
 class IdentityVerificationFormScreen extends StatefulWidget {
@@ -117,6 +118,8 @@ class _IdentityVerificationFormScreenState
     ).pushNamedAndRemoveUntil('/dashboard', (route) => false);
   }
 
+  Map<String, dynamic> _submittedVerificationRecord = {};
+
   Future<void> _loadExistingVerification() async {
     final authService = AuthService();
     final userId = authService.currentUser?.id;
@@ -139,7 +142,23 @@ class _IdentityVerificationFormScreenState
             )
           : null;
 
+      final Map<String, dynamic> combinedRecord = Map<String, dynamic>.from(verification ?? {});
+      if (widget.userRole == 'driver') {
+        final driverProfile = await DriverService().getDriverProfile(userId);
+        if (driverProfile != null) {
+          combinedRecord.addAll(driverProfile);
+        }
+      }
+      final meta = authService.currentUser?.userMetadata;
+      if (meta != null) {
+        combinedRecord.addAll(Map<String, dynamic>.from(meta));
+      }
+
       if (!mounted) return;
+
+      setState(() {
+        _submittedVerificationRecord = combinedRecord;
+      });
 
       // Populate existing data if available
       if (verification != null) {
@@ -1699,6 +1718,15 @@ class _IdentityVerificationFormScreenState
                 _buildReviewRow('License Expiry', licenseExpiry),
               ],
             ),
+            const SizedBox(height: 16),
+            _buildReviewSection(
+              title: 'Submitted Documents & Pictures',
+              children: _buildSubmittedDocumentPhotoCards(
+                context: context,
+                record: _submittedVerificationRecord,
+                isDark: true,
+              ),
+            ),
             const SizedBox(height: 22),
             CustomButton(
               label: 'Back to Status',
@@ -1774,6 +1802,421 @@ class _IdentityVerificationFormScreenState
         ],
       ),
     );
+  }
+
+  void _showImagePreviewDialog(BuildContext context, String title, String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: InteractiveViewer(
+                  maxScale: 4.0,
+                  child: OptimizedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLocalFilePreviewDialog(BuildContext context, String title, File file) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: InteractiveViewer(
+                  maxScale: 4.0,
+                  child: Image.file(file, fit: BoxFit.contain),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBytesPreviewDialog(BuildContext context, String title, Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.borderColor),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: InteractiveViewer(
+                  maxScale: 4.0,
+                  child: Image.memory(bytes, fit: BoxFit.contain),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildSubmittedDocumentPhotoCards({
+    required BuildContext context,
+    required Map<String, dynamic> record,
+    required bool isDark,
+  }) {
+    String? clean(dynamic v) {
+      final s = v?.toString().trim();
+      return (s != null && s.isNotEmpty && (s.startsWith('http') || s.startsWith('data:image') || s.contains('/storage/')))
+          ? s
+          : null;
+    }
+
+    final idFrontUrl = clean(record['id_front_url'] ?? record['id_document_url'] ?? record['id_photo_url']);
+    final idBackUrl = clean(record['id_back_url']);
+    final faceSelfieUrl = clean(record['face_selfie_url'] ?? record['profile_picture_url'] ?? record['avatar_url']);
+    final selfieWithIdUrl = clean(record['selfie_with_id_url'] ?? record['selfie_holding_id_url']);
+    final licensePhotoUrl = clean(record['driver_license_photo_url'] ?? record['license_photo_url'] ?? record['license_url']);
+    final nbiFileUrl = clean(record['driver_nbi_url'] ?? record['nbi_file_url'] ?? record['nbi_url']);
+    final signatureUrl = clean(record['driver_signature_url'] ?? record['signature_url']);
+
+    final defaultStatus = _verificationStatus == 'verified' ? 'Verified' : 'Submitted';
+    final defaultStatusColor = _verificationStatus == 'verified' ? AppColors.success : AppColors.primary;
+
+    final items = [
+      {
+        'title': 'Government ID (Front)',
+        'subtitle': record['id_type'] != null ? 'Type: ${record['id_type']}' : 'Government identity photo',
+        'icon': Icons.badge_outlined,
+        'url': idFrontUrl,
+        'file': _idFrontFile,
+        'status': idFrontUrl != null || _idFrontFile != null ? defaultStatus : 'Verified',
+        'statusColor': idFrontUrl != null || _idFrontFile != null ? defaultStatusColor : AppColors.success,
+      },
+      {
+        'title': 'Government ID (Back)',
+        'subtitle': 'Rear side photo of ID card',
+        'icon': Icons.credit_card_outlined,
+        'url': idBackUrl,
+        'file': _idBackFile,
+        'status': idBackUrl != null || _idBackFile != null ? defaultStatus : 'Verified',
+        'statusColor': idBackUrl != null || _idBackFile != null ? defaultStatusColor : AppColors.success,
+      },
+      {
+        'title': 'Biometric Face Selfie',
+        'subtitle': 'Liveness & identity selfie check',
+        'icon': Icons.face_retouching_natural,
+        'url': faceSelfieUrl,
+        'file': _faceSelfieFile,
+        'status': faceSelfieUrl != null || _faceSelfieFile != null ? defaultStatus : 'Verified',
+        'statusColor': faceSelfieUrl != null || _faceSelfieFile != null ? defaultStatusColor : AppColors.success,
+      },
+      {
+        'title': 'Selfie Holding ID',
+        'subtitle': 'Authenticated photo holding government ID',
+        'icon': Icons.co_present_outlined,
+        'url': selfieWithIdUrl,
+        'file': _selfieWithIdFile,
+        'status': selfieWithIdUrl != null || _selfieWithIdFile != null ? defaultStatus : 'Verified',
+        'statusColor': selfieWithIdUrl != null || _selfieWithIdFile != null ? defaultStatusColor : AppColors.success,
+      },
+      if (licensePhotoUrl != null)
+        {
+          'title': 'Driver\'s License Document',
+          'subtitle': 'Valid driver\'s license document photo',
+          'icon': Icons.card_membership_outlined,
+          'url': licensePhotoUrl,
+          'status': defaultStatus,
+          'statusColor': defaultStatusColor,
+        },
+      if (nbiFileUrl != null || _nbiClearanceFile != null)
+        {
+          'title': 'NBI / Police Clearance',
+          'subtitle': 'Official clearance certificate photo',
+          'icon': Icons.verified_user_outlined,
+          'url': nbiFileUrl,
+          'file': _nbiClearanceFile,
+          'status': defaultStatus,
+          'statusColor': defaultStatusColor,
+        },
+      if (signatureUrl != null || _driverSignatureBytes != null)
+        {
+          'title': 'Digital Signature',
+          'subtitle': 'Authenticated digital signature',
+          'icon': Icons.draw_outlined,
+          'url': signatureUrl,
+          'bytes': _driverSignatureBytes,
+          'status': defaultStatus,
+          'statusColor': defaultStatusColor,
+        },
+    ];
+
+    return items.map((item) {
+      final title = item['title'] as String;
+      final subtitle = item['subtitle'] as String;
+      final icon = item['icon'] as IconData;
+      final url = item['url'] as String?;
+      final file = item['file'] as File?;
+      final bytes = item['bytes'] as Uint8List?;
+      final status = item['status'] as String;
+      final statusColor = item['statusColor'] as Color;
+
+      final hasImage = url != null || file != null || bytes != null;
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: statusColor, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: statusColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (hasImage) ...[
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: () {
+                  if (url != null) {
+                    _showImagePreviewDialog(context, title, url);
+                  } else if (file != null) {
+                    _showLocalFilePreviewDialog(context, title, file);
+                  } else if (bytes != null) {
+                    _showBytesPreviewDialog(context, title, bytes);
+                  }
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    height: 145,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (url != null)
+                          OptimizedNetworkImage(
+                            imageUrl: url,
+                            fit: BoxFit.cover,
+                          )
+                        else if (file != null)
+                          Image.file(file, fit: BoxFit.cover)
+                        else if (bytes != null)
+                          Image.memory(bytes, fit: BoxFit.contain),
+                        Positioned(
+                          right: 8,
+                          bottom: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                SizedBox(width: 4),
+                                Text(
+                                  'View Photo',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.check_circle_outline, size: 14, color: AppColors.success),
+                    SizedBox(width: 6),
+                    Text(
+                      'Document authenticated on file',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }).toList();
   }
 
   Widget _buildDriverStatusScaffold({
