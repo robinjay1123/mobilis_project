@@ -172,6 +172,27 @@ class _EmergencyContactScreenState extends State<EmergencyContactScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.darkBg,
         elevation: 0,
+        leadingWidth: 56,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E2837),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: IconButton(
+              icon: const Icon(
+                Icons.arrow_back_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+          ),
+        ),
         title: const Text('Emergency Contact'),
       ),
       body: _isLoading

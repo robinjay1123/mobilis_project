@@ -4200,6 +4200,7 @@ class _SettingsDetailScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (embedded) return child;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: _backgroundColor(context),
@@ -4209,6 +4210,29 @@ class _SettingsDetailScaffold extends StatelessWidget {
         centerTitle: true,
         backgroundColor: _surfaceColor(context),
         foregroundColor: _primaryTextColor(context),
+        leadingWidth: 56,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2837) : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.grey.shade300,
+              ),
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.arrow_back_rounded,
+                color: isDark ? Colors.white : Colors.black87,
+                size: 20,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+          ),
+        ),
         title: Text(
           title,
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
@@ -4242,6 +4266,188 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
     _mpinEnabled = metadata?['mpin_enabled'] == true;
     _mpinHash = metadata?['mpin_hash']?.toString() ?? '';
     _mpinSalt = metadata?['mpin_salt']?.toString() ?? '';
+  }
+
+  Future<void> _showChangeEmailDialog() async {
+    final newEmailController = TextEditingController();
+    final currentEmail = AuthService().currentUser?.email ?? '';
+    bool isSaving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppColors.borderColor),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.alternate_email_rounded,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Change Email',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current: $currentEmail',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'New Email Address',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: newEmailController,
+                    keyboardType: TextInputType.emailAddress,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: 'Enter new email address',
+                      hintStyle: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide:
+                            const BorderSide(color: AppColors.borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide:
+                            const BorderSide(color: AppColors.borderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final newEmail = newEmailController.text.trim();
+                          if (newEmail.isEmpty || !newEmail.contains('@')) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Please enter a valid email address.',
+                                ),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                            return;
+                          }
+                          setDialogState(() => isSaving = true);
+                          try {
+                            await Supabase.instance.client.auth.updateUser(
+                              UserAttributes(email: newEmail),
+                            );
+                            final userId = AuthService().currentUser?.id;
+                            if (userId != null) {
+                              await Supabase.instance.client
+                                  .from('users')
+                                  .update({'email': newEmail})
+                                  .eq('id', userId);
+                            }
+                            if (!mounted) return;
+                            Navigator.pop(dialogContext);
+                            setState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Confirmation link sent to new email. Please check your inbox.',
+                                ),
+                                backgroundColor: AppColors.success,
+                              ),
+                            );
+                          } catch (e) {
+                            setDialogState(() => isSaving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error updating email: $e'),
+                                backgroundColor: AppColors.error,
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: isSaving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text(
+                          'Update Email',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   bool get _hasMpin =>
@@ -4349,33 +4555,58 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            wasConfigured ? 'MPIN updated successfully.' : 'MPIN set.',
+            wasConfigured && !isRecovery
+                ? 'MPIN changed successfully.'
+                : 'MPIN created successfully.',
           ),
-          backgroundColor: AppColors.success,
         ),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not update MPIN: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not update MPIN: ${AuthService().getErrorMessage(error)}',
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSavingMpin = false);
     }
   }
 
   Future<void> _removeMpin() async {
-    final currentMpin = await showDialog<String>(
+    if (!_hasMpin) return;
+
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => const _CurrentMpinDialog(),
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        title: const Text(
+          'Remove MPIN',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'This will remove your 6-digit MPIN protection.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Remove',
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
     );
-    if (currentMpin == null || !mounted) return;
-    if (!_matchesCurrentMpin(currentMpin)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The current MPIN is incorrect.')),
-      );
-      return;
-    }
+
+    if (confirmed != true || !mounted) return;
 
     setState(() => _isSavingMpin = true);
     try {
@@ -4386,74 +4617,47 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
           data: {
             ...?user.userMetadata,
             'mpin_enabled': false,
-            'mpin_hash': null,
-            'mpin_salt': null,
-            'mpin_updated_at': null,
+            'mpin_salt': '',
+            'mpin_hash': '',
+            'mpin_updated_at': DateTime.now().toUtc().toIso8601String(),
           },
         ),
       );
       if (!mounted) return;
       setState(() {
         _mpinEnabled = false;
-        _mpinHash = '';
         _mpinSalt = '';
+        _mpinHash = '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('MPIN removed.'),
-          backgroundColor: AppColors.success,
-        ),
+        const SnackBar(content: Text('MPIN protection removed.')),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not remove MPIN: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not remove MPIN: ${AuthService().getErrorMessage(error)}',
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSavingMpin = false);
     }
   }
 
   Future<void> _sendPasswordReset() async {
-    final identifier = await showDialog<String>(
-      context: context,
-      builder: (_) => const _AccountIdentifierDialog(
-        title: 'Reset Password',
-        description:
-            'Enter the email or mobile number linked to this account to continue.',
-      ),
-    );
-    if (identifier == null || !mounted) return;
+    final email = AuthService().currentUser?.email;
+    if (email == null || email.isEmpty) return;
 
-    final email = AuthService().currentUser?.email?.trim() ?? '';
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No email address is linked to this account.'),
-        ),
-      );
-      return;
-    }
     setState(() => _isSending = true);
     try {
-      final matches = await AuthService().matchesCurrentAccountIdentifier(
-        identifier,
-      );
-      if (!matches) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'That email or mobile number does not match this account.',
-            ),
-          ),
-        );
-        return;
-      }
       await AuthService().resetPassword(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password reset link sent to $email')),
+        const SnackBar(
+          content: Text('Password reset email sent. Check your inbox.'),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
@@ -4478,6 +4682,24 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
             icon: Icons.alternate_email_rounded,
             title: 'Account Email',
             subtitle: email,
+            action: FilledButton(
+              onPressed: _showChangeEmailDialog,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text(
+                'Change Email',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           _DetailCard(
@@ -4489,6 +4711,13 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
               ),
               child: _isSending
                   ? const SizedBox(
@@ -4499,7 +4728,10 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                         color: Colors.black,
                       ),
                     )
-                  : const Text('Reset Password'),
+                  : const Text(
+                      'Reset Password',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
             ),
           ),
           const SizedBox(height: 12),
@@ -4523,6 +4755,9 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                       horizontal: 18,
                       vertical: 12,
                     ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
                   ),
                   child: _isSavingMpin
                       ? const SizedBox.square(
@@ -4532,15 +4767,23 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                             color: Colors.black,
                           ),
                         )
-                      : Text(_hasMpin ? 'Change MPIN' : 'Set MPIN'),
+                      : Text(
+                          _hasMpin ? 'Change MPIN' : 'Set MPIN',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                 ),
                 if (_hasMpin)
                   OutlinedButton(
                     onPressed: _isSavingMpin ? null : _removeMpin,
                     style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(color: AppColors.error),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
                       ),
                     ),
                     child: const Text('Remove'),
@@ -4551,6 +4794,7 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                         ? null
                         : () => _configureMpin(isRecovery: true),
                     style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 12,

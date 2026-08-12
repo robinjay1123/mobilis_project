@@ -133,13 +133,31 @@ class _VerificationDocumentsScreenState
             ),
             child: Row(
               children: [
-                GestureDetector(
-                  onTap: widget.onBack,
-                  child: Icon(
-                    Icons.arrow_back,
-                    color: isDark
-                        ? AppColors.textSecondary
-                        : AppColors.lightTextSecondary,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E2837) : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? Colors.white12 : Colors.grey.shade300,
+                    ),
+                  ),
+                  child: IconButton(
+                    onPressed: () {
+                      if (widget.onBack != null) {
+                        widget.onBack!();
+                      } else {
+                        Navigator.of(context).maybePop();
+                      }
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(
+                      Icons.arrow_back_rounded,
+                      color: isDark ? Colors.white : Colors.black87,
+                      size: 20,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),

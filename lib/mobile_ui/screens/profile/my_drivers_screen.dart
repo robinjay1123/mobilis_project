@@ -44,13 +44,37 @@ class _MyDriversScreenState extends State<MyDriversScreen> {
           ),
           child: Row(
             children: [
-              GestureDetector(
-                onTap: widget.onBack,
-                child: Icon(
-                  Icons.arrow_back,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
                   color: Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.textSecondary
-                      : AppColors.lightTextSecondary,
+                      ? const Color(0xFF1E2837)
+                      : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white12
+                        : Colors.grey.shade300,
+                  ),
+                ),
+                child: IconButton(
+                  onPressed: () {
+                    if (widget.onBack != null) {
+                      widget.onBack!();
+                    } else {
+                      Navigator.of(context).maybePop();
+                    }
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: Icon(
+                    Icons.arrow_back_rounded,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.white
+                        : Colors.black87,
+                    size: 20,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),

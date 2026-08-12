@@ -74,15 +74,34 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
       appBar: AppBar(
         backgroundColor: cardBg,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: textPrimary),
-          onPressed: () {
-            if (widget.onBack != null) {
-              widget.onBack!();
-            } else {
-              Navigator.of(context).pop();
-            }
-          },
+        leadingWidth: 56,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12, top: 8, bottom: 8),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2837) : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.grey.shade300,
+              ),
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.arrow_back_rounded,
+                color: textPrimary,
+                size: 20,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () {
+                if (widget.onBack != null) {
+                  widget.onBack!();
+                } else {
+                  Navigator.of(context).maybePop();
+                }
+              },
+            ),
+          ),
         ),
         title: Text(
           'Terms & Privacy Policy',
