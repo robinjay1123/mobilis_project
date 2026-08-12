@@ -8,6 +8,7 @@ class NotificationItem extends StatelessWidget {
   final String timestamp;
   final Color iconColor;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final bool isRead;
 
   const NotificationItem({
@@ -18,6 +19,7 @@ class NotificationItem extends StatelessWidget {
     required this.timestamp,
     this.iconColor = AppColors.primary,
     this.onTap,
+    this.onLongPress,
     this.isRead = true,
   });
 
@@ -25,6 +27,7 @@ class NotificationItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(18),

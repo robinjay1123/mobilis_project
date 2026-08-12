@@ -3582,89 +3582,105 @@ class _NotificationsTabState extends State<_NotificationsTab> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) {
-        final isDark = _driverIsDark(context);
-        return Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkBgSecondary : Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: isDark
-                  ? AppColors.borderColor
-                  : AppColors.lightBorderColor,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final isDark = _driverIsDark(sheetContext);
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A3548) : Colors.white,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: isDark ? Colors.white12 : AppColors.lightBorderColor,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black45,
+                  blurRadius: 28,
+                  offset: Offset(0, 12),
+                ),
+              ],
             ),
-          ),
-          child: SafeArea(
-            top: false,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      width: 42,
-                      height: 42,
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
-                        color: visual.color.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(14),
+                        color: visual.color.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Icon(visual.icon, color: visual.color),
+                      child: Icon(visual.icon, color: visual.color, size: 26),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     Expanded(
-                      child: Text(
-                        title,
-                        style: TextStyle(
-                          color: isDark
-                              ? AppColors.textPrimary
-                              : AppColors.lightTextPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(
-                        Icons.close,
-                        color: isDark
-                            ? AppColors.textSecondary
-                            : AppColors.lightTextSecondary,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: isDark
+                                  ? AppColors.textPrimary
+                                  : AppColors.lightTextPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          if (createdAt.isNotEmpty) ...[
+                            const SizedBox(height: 3),
+                            Text(
+                              createdAt,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? AppColors.textSecondary
+                                    : AppColors.lightTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
                 Text(
                   message.isEmpty ? 'No message content.' : message,
                   style: TextStyle(
                     color: isDark
-                        ? AppColors.textSecondary
-                        : AppColors.lightTextSecondary,
-                    fontSize: 13,
+                        ? Colors.white70
+                        : AppColors.lightTextPrimary,
+                    fontSize: 14,
                     height: 1.45,
                   ),
                 ),
-                if (createdAt.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Text(
-                    createdAt,
-                    style: const TextStyle(
-                      color: AppColors.textTertiary,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
+                const SizedBox(height: 24),
                 if (isDriverLicenseRenewal) ...[
-                  const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
+                    height: 48,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        Navigator.pop(context);
+                        Navigator.pop(sheetContext);
                         Navigator.pushNamed(
                           context,
                           '/driver-identity-verification',
@@ -3674,15 +3690,41 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(24),
                         ),
                       ),
                       icon: const Icon(Icons.update_outlined),
                       label: Text(
                         actionLabel,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
@@ -3779,6 +3821,7 @@ class _NotificationsTabState extends State<_NotificationsTab> {
 
                 return InkWell(
                   onTap: () => _openNotificationModal(notification),
+                  onLongPress: () => _openNotificationModal(notification),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 12),

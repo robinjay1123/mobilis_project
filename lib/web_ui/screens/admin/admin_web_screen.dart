@@ -414,7 +414,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   // Verifications & Applications tab filters
   String _verificationRoleFilter = 'all'; // 'all', 'renter', 'driver', 'partner'
+  String _verificationSearchQuery = '';
   String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
+  String _applicationSearchQuery = '';
 
   // Pagination & Search
   int _currentUserPage = 1;
@@ -7510,16 +7512,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
     }
 
-    // 2. Filter records based on selected role sub-tab
+    // 2. Filter records based on search query and selected role sub-tab
     final filteredRecords = _verificationRecords.where((r) {
-      if (_verificationRoleFilter == 'all') return true;
-      final user = r['users'] as Map<String, dynamic>?;
-      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
-      final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+      if (_verificationRoleFilter != 'all') {
+        final user = r['users'] as Map<String, dynamic>?;
+        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
+        final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
 
-      if (_verificationRoleFilter == 'renter') return role == 'renter';
-      if (_verificationRoleFilter == 'driver') return isDriver;
-      if (_verificationRoleFilter == 'partner') return role == 'partner';
+        if (_verificationRoleFilter == 'renter' && role != 'renter') return false;
+        if (_verificationRoleFilter == 'driver' && !isDriver) return false;
+        if (_verificationRoleFilter == 'partner' && role != 'partner') return false;
+      }
+
+      if (_verificationSearchQuery.trim().isNotEmpty) {
+        final q = _verificationSearchQuery.toLowerCase().trim();
+        final user = r['users'] as Map<String, dynamic>?;
+        final name = (user?['full_name']?.toString() ?? r['full_name']?.toString() ?? '').toLowerCase();
+        final email = (user?['email']?.toString() ?? r['email']?.toString() ?? '').toLowerCase();
+        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase();
+        final idType = (r['id_type']?.toString() ?? '').toLowerCase();
+        final status = (r['verification_status']?.toString() ?? '').toLowerCase();
+
+        return name.contains(q) ||
+            email.contains(q) ||
+            role.contains(q) ||
+            idType.contains(q) ||
+            status.contains(q);
+      }
       return true;
     }).toList();
 
@@ -7553,15 +7572,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Card with Role Filter Sub-Tabs
+          // Header Card with Search & Role Filter Sub-Tabs
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF021F35) : Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.3),
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
               ),
               boxShadow: [
                 BoxShadow(
@@ -7594,7 +7613,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'User Verifications',
+                            'Identity & Document Verifications',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -7620,7 +7639,68 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Role Filter Sub-Tabs Chips
+                // Search Bar
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        onChanged: (val) =>
+                            setState(() => _verificationSearchQuery = val),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Search verifications by Name, Email, Role, ID Type, or Status...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade500,
+                            fontSize: 13,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                          ),
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.black26
+                              : Colors.grey.shade100,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Role Filter Sub-Tabs Chips (Matching Image 2)
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -7630,6 +7710,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       'All Users',
                       allCount,
                       isDark,
+                      icon: Icons.verified_user_rounded,
                     ),
                     _buildVerificationRoleTab(
                       'renter',
@@ -7637,7 +7718,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       renterCount,
                       isDark,
                       icon: Icons.directions_car_rounded,
-                      color: Colors.purple,
+                      color: AppColors.primary,
                     ),
                     _buildVerificationRoleTab(
                       'driver',
@@ -7645,7 +7726,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       driverCount,
                       isDark,
                       icon: Icons.badge_rounded,
-                      color: Colors.blue,
+                      color: AppColors.primary,
                     ),
                     _buildVerificationRoleTab(
                       'partner',
@@ -7653,7 +7734,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       partnerCount,
                       isDark,
                       icon: Icons.handshake_rounded,
-                      color: Colors.amber,
+                      color: AppColors.primary,
                     ),
                   ],
                 ),
@@ -7663,7 +7744,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
           // Verification Sections
           _buildVerificationSection(
-            title: 'Pending Verifications',
+            title: 'Pending Approvals',
             records: pendingVerifications,
             isDark: isDark,
           ),
@@ -7694,54 +7775,69 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }) {
     final isSelected = _verificationRoleFilter == key;
     final activeColor = color ?? AppColors.primary;
+    final displayIcon = icon ?? Icons.verified_user_rounded;
 
-    return ChoiceChip(
-      avatar: icon != null
-          ? Icon(
-              icon,
+    return InkWell(
+      onTap: () => setState(() => _verificationRoleFilter = key),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: 0.2)
+              : (isDark ? Colors.black26 : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? Colors.white10 : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              displayIcon,
               size: 16,
-              color: isSelected ? Colors.black : activeColor,
-            )
-          : null,
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
               color: isSelected
-                  ? Colors.black.withValues(alpha: 0.2)
-                  : activeColor.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
+                  ? activeColor
+                  : (isDark ? Colors.white70 : Colors.black54),
             ),
-            child: Text(
-              '$count',
+            const SizedBox(width: 8),
+            Text(
+              label,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.black : activeColor,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
-          ),
-        ],
-      ),
-      selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => _verificationRoleFilter = key);
-        }
-      },
-      selectedColor: activeColor,
-      backgroundColor:
-          isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
-      labelStyle: TextStyle(
-        color: isSelected
-            ? Colors.black
-            : (isDark ? Colors.white : Colors.black87),
-        fontSize: 13,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white10 : Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? Colors.black
+                      : (isDark ? Colors.white : Colors.black),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -7936,12 +8032,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildApplicationsContentEnhanced(bool isDark) {
-    final vehicleRecords = _pendingPartnerVehicleApplications;
-    final driverRecords = _verificationRecords.where((r) {
+    var vehicleRecords = _pendingPartnerVehicleApplications;
+    var driverRecords = _verificationRecords.where((r) {
       final user = r['users'] as Map<String, dynamic>?;
       final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
       return role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
     }).toList();
+
+    if (_applicationSearchQuery.trim().isNotEmpty) {
+      final q = _applicationSearchQuery.toLowerCase().trim();
+      vehicleRecords = vehicleRecords.where((v) {
+        final brand = (v['brand']?.toString() ?? '').toLowerCase();
+        final model = (v['model']?.toString() ?? '').toLowerCase();
+        final plate = (v['plate_number']?.toString() ?? '').toLowerCase();
+        final partner = (v['partner_name']?.toString() ?? v['partner_email']?.toString() ?? '').toLowerCase();
+        return brand.contains(q) || model.contains(q) || plate.contains(q) || partner.contains(q);
+      }).toList();
+
+      driverRecords = driverRecords.where((d) {
+        final user = d['users'] as Map<String, dynamic>?;
+        final name = (user?['full_name']?.toString() ?? d['full_name']?.toString() ?? '').toLowerCase();
+        final email = (user?['email']?.toString() ?? d['email']?.toString() ?? '').toLowerCase();
+        return name.contains(q) || email.contains(q);
+      }).toList();
+    }
 
     final showVehicles =
         _applicationTypeFilter == 'all' || _applicationTypeFilter == 'vehicle';
@@ -7953,15 +8067,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Card with Sub-Tabs
+          // Header Card with Search & Sub-Tabs
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF021F35) : Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.3),
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
               ),
               boxShadow: [
                 BoxShadow(
@@ -7994,7 +8108,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Application Management',
+                            'Vehicle & Driver Applications',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -8020,7 +8134,68 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Application Sub-Tab Chips
+                // Search Bar
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        onChanged: (val) =>
+                            setState(() => _applicationSearchQuery = val),
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 13,
+                        ),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Search applications by Partner, Brand, Model, Plate, Year, or Driver Name...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade500,
+                            fontSize: 13,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                          ),
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.black26
+                              : Colors.grey.shade100,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Application Sub-Tab Chips (Matching Image 2)
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -8030,6 +8205,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       'All Applications',
                       vehicleRecords.length + driverRecords.length,
                       isDark,
+                      icon: Icons.assignment_rounded,
                     ),
                     _buildApplicationTypeTab(
                       'vehicle',
@@ -8037,7 +8213,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       vehicleRecords.length,
                       isDark,
                       icon: Icons.directions_car_rounded,
-                      color: Colors.amber,
+                      color: AppColors.primary,
                     ),
                     _buildApplicationTypeTab(
                       'driver',
@@ -8045,7 +8221,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       driverRecords.length,
                       isDark,
                       icon: Icons.badge_rounded,
-                      color: Colors.blue,
+                      color: AppColors.primary,
                     ),
                   ],
                 ),
@@ -8080,54 +8256,69 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }) {
     final isSelected = _applicationTypeFilter == key;
     final activeColor = color ?? AppColors.primary;
+    final displayIcon = icon ?? Icons.assignment_rounded;
 
-    return ChoiceChip(
-      avatar: icon != null
-          ? Icon(
-              icon,
+    return InkWell(
+      onTap: () => setState(() => _applicationTypeFilter = key),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: 0.2)
+              : (isDark ? Colors.black26 : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? Colors.white10 : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              displayIcon,
               size: 16,
-              color: isSelected ? Colors.black : activeColor,
-            )
-          : null,
-      label: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
               color: isSelected
-                  ? Colors.black.withValues(alpha: 0.2)
-                  : activeColor.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
+                  ? activeColor
+                  : (isDark ? Colors.white70 : Colors.black54),
             ),
-            child: Text(
-              '$count',
+            const SizedBox(width: 8),
+            Text(
+              label,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.black : activeColor,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
-          ),
-        ],
-      ),
-      selected: isSelected,
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => _applicationTypeFilter = key);
-        }
-      },
-      selectedColor: activeColor,
-      backgroundColor:
-          isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
-      labelStyle: TextStyle(
-        color: isSelected
-            ? Colors.black
-            : (isDark ? Colors.white : Colors.black87),
-        fontSize: 13,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? activeColor
+                    : (isDark ? Colors.white10 : Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? Colors.black
+                      : (isDark ? Colors.white : Colors.black),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

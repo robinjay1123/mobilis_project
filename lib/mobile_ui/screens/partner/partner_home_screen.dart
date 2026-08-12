@@ -3058,6 +3058,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             iconColor: visual.color,
                             isRead: notif['is_read'] == true,
                             onTap: () => _handlePartnerNotificationTap(notif),
+                            onLongPress: () => _showPartnerNotificationDetails(notif),
                           );
                         },
                       ),
