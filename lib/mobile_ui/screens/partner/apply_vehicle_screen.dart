@@ -386,16 +386,7 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
 
       final partnerId = user.id;
 
-      // Check again for pending application
-      final hasPending = await partnerService.hasPendingApplication(partnerId);
-      if (hasPending) {
-        _showErrorSnackBar('You already have a pending application');
-        setState(() {
-          hasPendingApplication = true;
-          isLoading = false;
-        });
-        return;
-      }
+
 
       final latestVerificationStatus = _normalizeVerificationStatus(
         await partnerService.getVerificationStatus(partnerId),
@@ -1086,42 +1077,13 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
                 : 'Our team is currently verifying your documents. This usually takes 24-48 hours. You will receive a notification once approved.',
           ),
 
-          if (isRejected) ...[
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                setState(_startFreshVehicleApplication);
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Create New Application'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 56),
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-            ),
-          ],
-          if (isApproved) ...[
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                setState(_startFreshVehicleApplication);
-              },
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('Add Another Vehicle'),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 56),
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-              ),
-            ),
-          ],
+          const SizedBox(height: 20),
+          CustomButton(
+            label: 'Add Another Vehicle',
+            onPressed: () {
+              setState(_startFreshVehicleApplication);
+            },
+          ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () {},

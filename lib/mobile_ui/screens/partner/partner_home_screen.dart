@@ -1618,18 +1618,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   Widget _buildStartApplicationAd() {
-    final hasPendingApplication = applications.any((application) {
-      final status =
-          (application['application_status'] ?? application['status'] ?? '')
-              .toString()
-              .toLowerCase();
-      return status == 'pending' || status == 'under_review';
-    });
-
     return GestureDetector(
-      onTap: hasPendingApplication
-          ? () => setState(() => selectedNavIndex = 0)
-          : _handleApplyVehicleNavigation,
+      onTap: _handleApplyVehicleNavigation,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -1649,35 +1639,29 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 color: AppColors.primary.withAlpha(40),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(
-                hasPendingApplication
-                    ? Icons.hourglass_bottom
-                    : Icons.handshake,
+              child: const Icon(
+                Icons.add_circle_outline,
                 color: AppColors.primary,
                 size: 24,
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(
+            const Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    hasPendingApplication
-                        ? 'Application Under Review'
-                        : 'Start Vehicle Application',
-                    style: const TextStyle(
+                    'Add Another Vehicle',
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
-                    hasPendingApplication
-                        ? 'You can apply again after this request is reviewed.'
-                        : 'List your next vehicle and send it for approval.',
-                    style: const TextStyle(
+                    'List your next vehicle and send it for approval.',
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppColors.textSecondary,
                     ),
@@ -1691,9 +1675,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                 color: AppColors.primary,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                hasPendingApplication ? 'Status' : 'Start',
-                style: const TextStyle(
+              child: const Text(
+                'Add Car',
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: Colors.black,
