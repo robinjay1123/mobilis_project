@@ -2420,7 +2420,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'id': booking['id']?.toString() ?? '',
         'created_at': booking['created_at'],
         'updated_at': booking['updated_at'],
+        'vehicle_id': booking['vehicle_id'],
         'operator_id': booking['operator_id'],
+        'completion_stage': booking['completion_stage'],
         'start_at': booking['start_at'],
         'end_at': booking['end_at'],
         'start_date_raw': booking['start_date'],
@@ -2463,6 +2465,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             (booking['renter_return_payment_amount'] as num?)?.toDouble() ??
             0.0,
         'returned_at': booking['returned_at'],
+        'completed_at': booking['completed_at'],
         'cancellationReason':
             booking['cancellation_reason']?.toString().trim().isNotEmpty == true
             ? booking['cancellation_reason'].toString().trim()
@@ -5030,6 +5033,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     rawStatus == 'return_pending_inspection' ||
                     rawStatus == 'awaiting_completion' ||
                     rawStatus == 'completed' ||
+                    rawStatus == 'returned' ||
+                    rawStatus == 'successful' ||
+                    rawStatus == 'success' ||
+                    rawStatus == 'awaiting_ratings' ||
                     booking['returned_at'] != null ||
                     booking['returnedAt'] != null;
                 final isRated = _isRenterBookingFullyRated(booking);
@@ -5840,9 +5847,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .toList();
     final completionStage =
         completionState['completionStage']?.toString() ?? 'not_started';
+    final rawStatus = (booking['rawStatus'] ?? booking['status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    const completedStatuses = {
+      'completed',
+      'returned',
+      'successful',
+      'success',
+      'awaiting_ratings',
+    };
     final isCompletedTrip =
         completionStage == 'completed' ||
+        completedStatuses.contains(rawStatus) ||
         completionState['status'] == 'completed';
+    final effectiveCompletionStage =
+        completionStage == 'not_started' &&
+            completedStatuses.contains(rawStatus)
+        ? 'completed'
+        : completionStage;
 
     if (isPendingTrip) {
       _showPendingBookingDetails(booking);
@@ -5855,7 +5879,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           booking: booking,
           isApprovedTrip: isApprovedTrip,
           isCompletedTrip: isCompletedTrip,
-          completionStage: completionStage,
+          completionStage: effectiveCompletionStage,
           pendingRoles: pendingRoles,
           paymentTypeLabel: _bookingPaymentTypeLabel(booking),
           amountPaidLabel: _bookingAmountPaidLabel(booking),
@@ -5886,14 +5910,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ? () => _handleRenterReturnVehicle(booking)
               : null,
           onSuccessfulTrip:
-              (completionStage == 'renter_rating' ||
-                  // Also allow rating when booking is completed but renter hasn't confirmed
-                  ((completionStage == 'completed' ||
-                          completionStage == 'awaiting_completion') &&
-                      booking['renter_trip_confirmed_at'] == null))
+              ({
+                    'renter_rating',
+                    'completed',
+                    'awaiting_completion',
+                    'awaiting_ratings',
+                  }.contains(effectiveCompletionStage) ||
+                  completedStatuses.contains(rawStatus))
               ? () => _handleSuccessfulTripFromDetails(
                   booking: booking,
-                  completionStage: completionStage,
+                  completionStage: effectiveCompletionStage,
                   pendingRoles: pendingRoles,
                 )
               : null,
@@ -6347,9 +6373,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
 
-    if (completionStage == 'renter_rating' ||
-        (completionStage == 'completed' ||
-            completionStage == 'awaiting_completion')) {
+    if ({
+      'renter_rating',
+      'completed',
+      'awaiting_completion',
+      'awaiting_ratings',
+    }.contains(completionStage)) {
       final submitted = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => TripRatingFlowScreen(
@@ -9174,6 +9203,11 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     final isReturnSubmitted =
         rawStatus == 'return_pending_inspection' ||
         rawStatus == 'awaiting_completion' ||
+        rawStatus == 'completed' ||
+        rawStatus == 'returned' ||
+        rawStatus == 'successful' ||
+        rawStatus == 'success' ||
+        rawStatus == 'awaiting_ratings' ||
         booking['returned_at'] != null ||
         booking['returnedAt'] != null;
 

@@ -82,6 +82,9 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       reviewerUserId: reviewerId,
       reviewerRole: widget.reviewerRole,
       operatorFallbackUserId: operatorFallbackUserId,
+      // Only show ratings that are still pending. Previously submitted targets
+      // are reserved for the service's duplicate-submission recovery path.
+      includePreviouslySubmittedForRecovery: false,
     );
 
     var completionRecovered = false;
@@ -105,13 +108,22 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       final expectedStage = '${cleanReviewerRole}_rating';
       final confirmedAtKey = '${cleanReviewerRole}_trip_confirmed_at';
       final reviewerHasNotConfirmed = bookingContext?[confirmedAtKey] == null;
-      final isAlreadyCompleted = status == 'completed' || stage == 'completed';
+      const completedStatuses = {
+        'completed',
+        'returned',
+        'successful',
+        'success',
+      };
+      final isAlreadyCompleted =
+          completedStatuses.contains(status) || stage == 'completed';
 
       // Post-return stages where we can still allow rating
       const rateableStages = {
         'awaiting_completion',
         'awaiting_after_checklist',
         'awaiting_payment',
+        'awaiting_ratings',
+        'return_pending_inspection',
         'operator_rating',
         'renter_rating',
         'partner_rating',
@@ -126,9 +138,11 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       // If reviewer hasn't confirmed and booking is in a rateable state,
       // force-advance the completion_stage to this reviewer's stage so
       // buildTargetsForBooking can find pending targets.
-      if (reviewerHasNotConfirmed &&
-          (rateableStages.contains(stage) || rateableStages.contains(status)) &&
-          bookingContext != null) {
+      if (bookingContext != null &&
+          (reviewerHasNotConfirmed || isAlreadyCompleted) &&
+          (rateableStages.contains(stage) ||
+              rateableStages.contains(status) ||
+              isAlreadyCompleted)) {
         try {
           await Supabase.instance.client
               .from('bookings')
@@ -145,7 +159,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                 reviewerUserId: reviewerId,
                 reviewerRole: widget.reviewerRole,
                 operatorFallbackUserId: operatorFallbackUserId,
-                includePreviouslySubmittedForRecovery: true,
+                includePreviouslySubmittedForRecovery: false,
               );
 
           if (!mounted) return;
@@ -493,57 +507,60 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   }
 
   Widget _buildNoTargetsState() {
-    return Center(
-      child: Padding(
+    return SafeArea(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 420),
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: AppColors.darkCard,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.borderColor),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(_emptyIcon, color: _emptyIconColor, size: 58),
-              const SizedBox(height: 14),
-              Text(
-                _emptyTitle,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 420),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.darkCard,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: AppColors.borderColor),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_emptyIcon, color: _emptyIconColor, size: 58),
+                const SizedBox(height: 14),
+                Text(
+                  _emptyTitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _emptyMessage,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context, _completionRecovered),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                const SizedBox(height: 8),
+                Text(
+                  _emptyMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        Navigator.pop(context, _completionRecovered),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'Back to Bookings',
+                      style: TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ),
-                  child: const Text(
-                    'Back to Bookings',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -559,28 +576,36 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.darkCard,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         contentPadding: const EdgeInsets.fromLTRB(22, 24, 22, 12),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(_emptyIcon, color: _emptyIconColor, size: 58),
-            const SizedBox(height: 14),
-            Text(
-              _emptyTitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.55,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(_emptyIcon, color: _emptyIconColor, size: 58),
+                const SizedBox(height: 14),
+                Text(
+                  _emptyTitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _emptyMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              _emptyMessage,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.textSecondary),
-            ),
-          ],
+          ),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
         actions: [
