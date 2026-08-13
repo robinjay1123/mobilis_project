@@ -79,9 +79,10 @@ class _AccountVerificationScreenState extends State<AccountVerificationScreen> {
                     child: ElevatedButton(
                       onPressed: () async {
                         // Auto-login
-                        Navigator.of(
-                          context,
-                        ).pushReplacementNamed('/dashboard');
+                        Navigator.of(context).pushNamedAndRemoveUntil(
+                          '/dashboard',
+                          (route) => false,
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,

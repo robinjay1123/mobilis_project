@@ -4,6 +4,7 @@ import '../../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/custom_button.dart';
+import '../../widgets/dialog_status_indicator.dart';
 
 class AdminVerificationHubScreen extends StatefulWidget {
   final bool isDarkMode;
@@ -490,6 +491,18 @@ class _AdminVerificationDetailScreenState
             const SizedBox(height: 12),
 
             const SizedBox(height: 24),
+
+            DialogStatusIndicator(
+              isComplete:
+                  idFrontUrl?.trim().isNotEmpty == true &&
+                  idBackUrl?.trim().isNotEmpty == true,
+              completeLabel: 'Required ID documents complete',
+              incompleteLabel: 'Required ID documents incomplete',
+              completeDetail: 'ID front and back are available for review.',
+              incompleteDetail:
+                  'One or more required ID document images are missing.',
+            ),
+            const SizedBox(height: 20),
 
             // Error message
             if (_errorMessage != null)

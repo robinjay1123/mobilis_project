@@ -90,7 +90,7 @@ class _WelcomeWebScreenState extends State<WelcomeWebScreen> {
                 children: [
                   // Header
                   const Text(
-                    'Mobilis by PSDC',
+                    'Mobilis',
                     style: TextStyle(
                       fontSize: 40,
                       fontWeight: FontWeight.bold,

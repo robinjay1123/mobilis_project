@@ -15,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
+import '../../../mobile_ui/widgets/dialog_status_indicator.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../services/reservation_payment_service.dart';
@@ -163,7 +164,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       color: _adminGold.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.palette_rounded, color: _adminGold, size: 22),
+                    child: Icon(
+                      Icons.palette_rounded,
+                      color: _adminGold,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -183,7 +188,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           'Select your preferred workspace color theme',
                           style: TextStyle(
                             fontSize: 12,
-                            color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                            color: isDark
+                                ? Colors.grey[400]
+                                : Colors.grey.shade600,
                           ),
                         ),
                       ],
@@ -287,7 +294,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       decoration: BoxDecoration(
                                         color: navyDeep,
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white54),
+                                        border: Border.all(
+                                          color: Colors.white54,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -375,8 +384,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final prefs = await SharedPreferences.getInstance();
       if (mounted) {
         setState(() {
-          _lastSeenActionLogCount = prefs.getInt('admin_last_seen_action_log_count') ?? 0;
-          _lastSeenSupportCount = prefs.getInt('admin_last_seen_support_count') ?? 0;
+          _lastSeenActionLogCount =
+              prefs.getInt('admin_last_seen_action_log_count') ?? 0;
+          _lastSeenSupportCount =
+              prefs.getInt('admin_last_seen_support_count') ?? 0;
         });
       }
     } catch (e) {
@@ -413,7 +424,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   RealtimeChannel? _actionLogsSubscription;
 
   // Verifications & Applications tab filters
-  String _verificationRoleFilter = 'all'; // 'all', 'renter', 'driver', 'partner'
+  String _verificationRoleFilter =
+      'all'; // 'all', 'renter', 'driver', 'partner'
   String _verificationSearchQuery = '';
   String _applicationTypeFilter = 'all'; // 'all', 'vehicle', 'driver'
   String _applicationSearchQuery = '';
@@ -435,7 +447,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _supportFaqRole = 'renter';
   Map<String, List<SupportFaq>> _supportFaqsByRole = {};
   final TextEditingController _rentalTermsController = TextEditingController();
-  final TextEditingController _privacyPolicyController = TextEditingController();
+  final TextEditingController _privacyPolicyController =
+      TextEditingController();
   bool _isLoadingPrivacy = false;
   bool _isSavingPrivacy = false;
   final TextEditingController _reservationAmountController =
@@ -718,7 +731,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           if (_selectedIndex == 12) {
             _unreadActionLogsCount = 0;
             _saveLastSeenActionLogCount(logs.length);
-          } else if (_lastSeenActionLogCount > 0 && logs.length > _lastSeenActionLogCount) {
+          } else if (_lastSeenActionLogCount > 0 &&
+              logs.length > _lastSeenActionLogCount) {
             _unreadActionLogsCount = logs.length - _lastSeenActionLogCount;
           } else {
             _unreadActionLogsCount = 0;
@@ -871,13 +885,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (_selectedIndex == 7) {
         _unreadSupportCount = 0;
         _saveLastSeenSupportCount(conversations.length);
-      } else if (_lastSeenSupportCount > 0 && conversations.length > _lastSeenSupportCount) {
+      } else if (_lastSeenSupportCount > 0 &&
+          conversations.length > _lastSeenSupportCount) {
         _unreadSupportCount = conversations.length - _lastSeenSupportCount;
       } else {
         _unreadSupportCount = 0;
       }
-
-
 
       _supportConversations = conversations;
       if (_supportConversations.isEmpty) {
@@ -1075,9 +1088,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _isAnnouncementEditorOpen = false;
       _announcementType = 'maintenance';
       _announcementTargetRole = 'all';
-      _announcementScheduledAt = DateTime.now().add(
-        const Duration(hours: 1),
-      );
+      _announcementScheduledAt = DateTime.now().add(const Duration(hours: 1));
     });
   }
 
@@ -1203,8 +1214,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Future<void> _cancelAnnouncement(Map<String, dynamic> announcement) async {
     final confirmed = await _confirmAnnouncementAction(
       title: 'Cancel scheduled announcement?',
-      message:
-          'This prevents "${announcement['title']}" from being published.',
+      message: 'This prevents "${announcement['title']}" from being published.',
       confirmLabel: 'Cancel announcement',
       destructive: true,
     );
@@ -1256,7 +1266,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(successMessage), backgroundColor: AppColors.success),
+        SnackBar(
+          content: Text(successMessage),
+          backgroundColor: AppColors.success,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -1288,7 +1301,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
             style: FilledButton.styleFrom(
-              backgroundColor: destructive ? AppColors.error : AppColors.primary,
+              backgroundColor: destructive
+                  ? AppColors.error
+                  : AppColors.primary,
               foregroundColor: destructive ? Colors.white : Colors.black,
             ),
             child: Text(confirmLabel),
@@ -1591,27 +1606,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
-
-
   Future<void> _loadStats() async {
     try {
       if (_allUsers.isNotEmpty) {
         _totalUsers = _allUsers.length;
         _totalPartners = _allUsers
-            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+            .where(
+              (user) =>
+                  (user['role'] as String? ?? '').toLowerCase() == 'partner',
+            )
             .length;
         _totalOperators = _allUsers
-            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+            .where(
+              (user) =>
+                  (user['role'] as String? ?? '').toLowerCase() == 'operator',
+            )
             .length;
       } else {
         final usersResponse = await _supabase.from('users').select('id, role');
         final users = List<Map<String, dynamic>>.from(usersResponse);
         _totalUsers = users.length;
         _totalPartners = users
-            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+            .where(
+              (user) =>
+                  (user['role'] as String? ?? '').toLowerCase() == 'partner',
+            )
             .length;
         _totalOperators = users
-            .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+            .where(
+              (user) =>
+                  (user['role'] as String? ?? '').toLowerCase() == 'operator',
+            )
             .length;
       }
 
@@ -1655,7 +1680,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       // 1. Fetch approved verification user IDs from user_verifications, renter_profiles, and drivers
       final approvedUserIds = <String>{};
-      
+
       // user_verifications
       try {
         final verifications = await _supabase
@@ -1663,9 +1688,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .select('user_id, verification_status');
         for (final v in List<Map<String, dynamic>>.from(verifications)) {
           final uid = v['user_id']?.toString() ?? '';
-          final statusStr = v['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final statusStr =
+              v['verification_status']?.toString().trim().toLowerCase() ?? '';
           if (uid.isNotEmpty &&
-              (statusStr == 'approved' || statusStr == 'verified' || statusStr == 'certified')) {
+              (statusStr == 'approved' ||
+                  statusStr == 'verified' ||
+                  statusStr == 'certified')) {
             approvedUserIds.add(uid);
           }
         }
@@ -1680,9 +1708,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .select('user_id, verification_status, is_verified');
         for (final r in List<Map<String, dynamic>>.from(renters)) {
           final uid = r['user_id']?.toString() ?? '';
-          final statusStr = r['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final statusStr =
+              r['verification_status']?.toString().trim().toLowerCase() ?? '';
           final isVer = r['is_verified'] == true;
-          if (uid.isNotEmpty && (isVer || statusStr == 'approved' || statusStr == 'verified')) {
+          if (uid.isNotEmpty &&
+              (isVer || statusStr == 'approved' || statusStr == 'verified')) {
             approvedUserIds.add(uid);
           }
         }
@@ -1717,13 +1747,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         driversResponse = List<Map<String, dynamic>>.from(
           await _supabase
               .from('drivers')
-              .select('id, user_id, is_psdc_driver, driver_tier, verification_status, is_verified'),
+              .select(
+                'id, user_id, is_psdc_driver, driver_tier, verification_status, is_verified',
+              ),
         );
         for (final d in driversResponse) {
           final uid = d['user_id']?.toString() ?? '';
-          final statusStr = d['verification_status']?.toString().trim().toLowerCase() ?? '';
+          final statusStr =
+              d['verification_status']?.toString().trim().toLowerCase() ?? '';
           final isVer = d['is_verified'] == true;
-          if (uid.isNotEmpty && (isVer || statusStr == 'approved' || statusStr == 'verified')) {
+          if (uid.isNotEmpty &&
+              (isVer || statusStr == 'approved' || statusStr == 'verified')) {
             approvedUserIds.add(uid);
           }
         }
@@ -1732,8 +1766,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
 
       final driversMap = <String, Map<String, dynamic>>{
-        for (final d in driversResponse)
-          d['user_id']?.toString() ?? '': d,
+        for (final d in driversResponse) d['user_id']?.toString() ?? '': d,
       };
 
       final userList = <Map<String, dynamic>>[];
@@ -1745,21 +1778,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         seenUserIds.add(userId);
 
         final driverData = driversMap[userId];
-        final isPsdcDriver = user['is_psdc_driver'] == true ||
+        final isPsdcDriver =
+            user['is_psdc_driver'] == true ||
             driverData?['is_psdc_driver'] == true ||
             driverData?['driver_tier'] == 'psdc';
 
         final userRole =
             user['role']?.toString().trim().toLowerCase() ?? 'renter';
-        final isAdminOrOperator = userRole == 'admin' ||
+        final isAdminOrOperator =
+            userRole == 'admin' ||
             userRole == 'operator' ||
             userRole == 'superadmin' ||
             userRole == 'staff';
 
         final verStatus =
             user['verification_status']?.toString().trim().toLowerCase() ?? '';
-        final idVerified = user['id_verified'] == true || user['is_verified'] == true;
-        final isVerified = isAdminOrOperator ||
+        final idVerified =
+            user['id_verified'] == true || user['is_verified'] == true;
+        final isVerified =
+            isAdminOrOperator ||
             idVerified ||
             verStatus == 'approved' ||
             verStatus == 'verified' ||
@@ -1778,7 +1815,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       try {
         final verificationUsers = await _supabase
             .from('user_verifications')
-            .select('user_id, users:user_id(id, email, full_name, phone, role, created_at, avatar_url)');
+            .select(
+              'user_id, users:user_id(id, email, full_name, phone, role, created_at, avatar_url)',
+            );
         for (final v in List<Map<String, dynamic>>.from(verificationUsers)) {
           final uMap = v['users'] as Map<String, dynamic>?;
           final uid = uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
@@ -1790,7 +1829,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               'full_name': uMap?['full_name'] ?? 'User ($uid)',
               'phone': uMap?['phone'] ?? '',
               'role': uMap?['role'] ?? 'renter',
-              'created_at': uMap?['created_at'] ?? DateTime.now().toIso8601String(),
+              'created_at':
+                  uMap?['created_at'] ?? DateTime.now().toIso8601String(),
               'id_verified': true,
               'avatar_url': uMap?['avatar_url'],
             });
@@ -1803,15 +1843,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _allUsers = userList;
       _totalUsers = _allUsers.length;
       _totalPartners = _allUsers
-          .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'partner')
+          .where(
+            (user) =>
+                (user['role'] as String? ?? '').toLowerCase() == 'partner',
+          )
           .length;
       _totalOperators = _allUsers
-          .where((user) => (user['role'] as String? ?? '').toLowerCase() == 'operator')
+          .where(
+            (user) =>
+                (user['role'] as String? ?? '').toLowerCase() == 'operator',
+          )
           .length;
 
       debugPrint('Admin: successfully loaded ${_allUsers.length} users');
     } on PostgrestException catch (e) {
-      debugPrint('Admin _loadAllUsers Postgrest error: ${e.message} code=${e.code}');
+      debugPrint(
+        'Admin _loadAllUsers Postgrest error: ${e.message} code=${e.code}',
+      );
       _allUsers = [];
     } catch (e) {
       debugPrint('Admin _loadAllUsers error: $e');
@@ -1874,7 +1922,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       }
 
       final partnerPlates = partnerVehicles
-          .map((pv) => pv['plate_number']?.toString().trim().toLowerCase() ?? '')
+          .map(
+            (pv) => pv['plate_number']?.toString().trim().toLowerCase() ?? '',
+          )
           .where((p) => p.isNotEmpty)
           .toSet();
       final partnerIds = partnerVehicles
@@ -1894,10 +1944,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final companyVehicles = <Map<String, dynamic>>[];
       for (final vehicle in List<Map<String, dynamic>>.from(companyResponse)) {
         final merged = Map<String, dynamic>.from(vehicle);
-        final plate = merged['plate_number']?.toString().trim().toLowerCase() ?? '';
+        final plate =
+            merged['plate_number']?.toString().trim().toLowerCase() ?? '';
         final id = merged['id']?.toString() ?? '';
-        final ownerRole = (merged['owner'] as Map<String, dynamic>?)?['role']?.toString().toLowerCase() ?? '';
-        final isPartnerFlag = merged['is_partner_vehicle'] == true ||
+        final ownerRole =
+            (merged['owner'] as Map<String, dynamic>?)?['role']
+                ?.toString()
+                .toLowerCase() ??
+            '';
+        final isPartnerFlag =
+            merged['is_partner_vehicle'] == true ||
             merged['partner_id'] != null ||
             ownerRole == 'partner' ||
             partnerPlates.contains(plate) ||
@@ -2246,6 +2302,406 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       debugPrint('Error loading price change requests: $e');
       _priceChangeRequests = [];
     }
+  }
+
+  Map<String, dynamic>? _findPriceChangeRequestForApplication(
+    Map<String, dynamic> application,
+  ) {
+    final applicationIds = <String>{
+      application['id']?.toString().trim() ?? '',
+      application['application_id']?.toString().trim() ?? '',
+      application['partner_vehicle_id']?.toString().trim() ?? '',
+      application['created_vehicle_id']?.toString().trim() ?? '',
+      application['vehicle_id']?.toString().trim() ?? '',
+    }..removeWhere((id) => id.isEmpty);
+    final partnerId = application['partner_id']?.toString().trim() ?? '';
+    final applicationTitle =
+        '${application['brand'] ?? ''} ${application['model'] ?? ''}'
+            .trim()
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .toLowerCase();
+
+    for (final request in _priceChangeRequests) {
+      final data = request['data'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(request['data'])
+          : <String, dynamic>{};
+      final requestIds = <String>{
+        data['application_id']?.toString().trim() ?? '',
+        data['partner_vehicle_application_id']?.toString().trim() ?? '',
+        data['partner_vehicle_id']?.toString().trim() ?? '',
+        data['vehicle_id']?.toString().trim() ?? '',
+      }..removeWhere((id) => id.isEmpty);
+
+      if (applicationIds.any(requestIds.contains)) return request;
+
+      final requestTitle = data['vehicle_title']
+          ?.toString()
+          .trim()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .toLowerCase();
+      final requestPartnerId = data['partner_id']?.toString().trim() ?? '';
+      if (applicationTitle.isNotEmpty &&
+          requestTitle == applicationTitle &&
+          (partnerId.isEmpty ||
+              requestPartnerId.isEmpty ||
+              requestPartnerId == partnerId)) {
+        return request;
+      }
+    }
+
+    return null;
+  }
+
+  double? _readPriceValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString().trim() ?? '');
+  }
+
+  Future<void> _showApplicationPriceChangeDialog(
+    Map<String, dynamic> application,
+    bool isDark,
+  ) async {
+    final request = _findPriceChangeRequestForApplication(application);
+    final data = request?['data'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(request!['data'])
+        : <String, dynamic>{};
+    final currentDaily = _readPriceValue(
+      data['current_price_per_day'] ?? application['price_per_day'],
+    );
+    final currentHourly = _readPriceValue(
+      data['current_price_per_hour'] ?? application['price_per_hour'],
+    );
+    final requestedDaily = _readPriceValue(data['requested_price_per_day']);
+    final requestedHourly = _readPriceValue(data['requested_price_per_hour']);
+    final dailyChange = currentDaily != null && requestedDaily != null
+        ? requestedDaily - currentDaily
+        : null;
+    final hourlyChange = currentHourly != null && requestedHourly != null
+        ? requestedHourly - currentHourly
+        : null;
+    final applicablePeriod = [
+      data['applicable_date']?.toString().trim() ?? '',
+      data['effective_date']?.toString().trim() ?? '',
+      data['effective_period']?.toString().trim() ?? '',
+    ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    final requestReason = [
+      data['reason']?.toString().trim() ?? '',
+      data['note']?.toString().trim() ?? '',
+    ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    final forwarded = data['forwarded_to_operator'] == true;
+    final title =
+        '${application['brand'] ?? data['vehicle_title'] ?? 'Partner vehicle'} '
+                '${application['model'] ?? ''}'
+            .trim();
+
+    String formatPrice(double? value) {
+      return value == null
+          ? 'Not available'
+          : 'PHP ${value.toStringAsFixed(0)}';
+    }
+
+    String formatChange(double? value) {
+      if (value == null) return '—';
+      return '${value >= 0 ? '+' : '-'}PHP ${value.abs().toStringAsFixed(0)}';
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: isDark ? const Color(0xFF021F35) : Colors.white,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 780,
+              maxHeight: MediaQuery.of(context).size.height * 0.86,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(11),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.price_change_rounded,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Application Price Change',
+                              style: TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  if (request == null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark ? Colors.white10 : Colors.grey.shade300,
+                        ),
+                      ),
+                      child: Text(
+                        'No submitted price change request is linked to this application yet. Current application pricing is shown below.',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade800,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  if (request != null &&
+                      (request['message']?.toString().trim().isNotEmpty ??
+                          false)) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.black26 : Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Text(
+                        request['message'].toString(),
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade800,
+                          fontSize: 13,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  Text(
+                    'PRICE COMPARISON',
+                    style: TextStyle(
+                      color: isDark ? Colors.white54 : Colors.grey.shade600,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cardWidth = constraints.maxWidth < 560
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 12) / 2;
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'Current daily rate',
+                              formatPrice(currentDaily),
+                              isDark,
+                              icon: Icons.calendar_today_outlined,
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'New daily rate',
+                              formatPrice(requestedDaily),
+                              isDark,
+                              icon: Icons.trending_up_rounded,
+                              highlightColor: AppColors.primary,
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'Current hourly rate',
+                              formatPrice(currentHourly),
+                              isDark,
+                              icon: Icons.access_time_rounded,
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'New hourly rate',
+                              formatPrice(requestedHourly),
+                              isDark,
+                              icon: Icons.trending_up_rounded,
+                              highlightColor: AppColors.primary,
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'Daily price difference',
+                              formatChange(dailyChange),
+                              isDark,
+                              icon: dailyChange == null
+                                  ? Icons.remove_rounded
+                                  : dailyChange >= 0
+                                  ? Icons.arrow_upward_rounded
+                                  : Icons.arrow_downward_rounded,
+                              highlightColor: dailyChange == null
+                                  ? null
+                                  : dailyChange >= 0
+                                  ? Colors.green
+                                  : Colors.redAccent,
+                            ),
+                          ),
+                          SizedBox(
+                            width: cardWidth,
+                            child: _buildDetailCard(
+                              'Hourly price difference',
+                              formatChange(hourlyChange),
+                              isDark,
+                              icon: hourlyChange == null
+                                  ? Icons.remove_rounded
+                                  : hourlyChange >= 0
+                                  ? Icons.arrow_upward_rounded
+                                  : Icons.arrow_downward_rounded,
+                              highlightColor: hourlyChange == null
+                                  ? null
+                                  : hourlyChange >= 0
+                                  ? Colors.green
+                                  : Colors.redAccent,
+                            ),
+                          ),
+                          if (applicablePeriod.isNotEmpty)
+                            SizedBox(
+                              width: cardWidth,
+                              child: _buildDetailCard(
+                                'Applicable date / period',
+                                applicablePeriod,
+                                isDark,
+                                icon: Icons.event_outlined,
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  if (requestReason.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Reason / details',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.grey.shade700,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      requestReason,
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.grey.shade300
+                            : Colors.grey.shade800,
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                  if (request != null) ...[
+                    const SizedBox(height: 18),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ElevatedButton.icon(
+                        onPressed: forwarded
+                            ? null
+                            : () async {
+                                Navigator.of(dialogContext).pop();
+                                await _forwardPriceChangeRequestToOperators(
+                                  request,
+                                );
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.forward_to_inbox_rounded,
+                          size: 17,
+                        ),
+                        label: Text(
+                          forwarded
+                              ? 'Forwarded to Operator'
+                              : 'Forward to Operator',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _forwardPriceChangeRequestToOperators(
@@ -2706,7 +3162,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'total_trips': 0,
           });
         } catch (insertErr) {
-          debugPrint('Driver insert with is_psdc_driver failed, trying driver_tier: $insertErr');
+          debugPrint(
+            'Driver insert with is_psdc_driver failed, trying driver_tier: $insertErr',
+          );
           await _supabase.from('drivers').insert({
             'user_id': userId,
             'license_number': _placeholderLicenseNumber(userId),
@@ -2721,19 +3179,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         }
       } else {
         try {
-          await _supabase.from('drivers').update({
-            'is_psdc_driver': newStatus,
-            'driver_tier': newStatus ? 'psdc' : 'standard',
-            'verification_status': 'verified',
-            'updated_at': DateTime.now().toIso8601String(),
-          }).eq('user_id', userId);
+          await _supabase
+              .from('drivers')
+              .update({
+                'is_psdc_driver': newStatus,
+                'driver_tier': newStatus ? 'psdc' : 'standard',
+                'verification_status': 'verified',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('user_id', userId);
         } catch (updateErr) {
-          debugPrint('Driver update with is_psdc_driver failed, trying driver_tier: $updateErr');
-          await _supabase.from('drivers').update({
-            'driver_tier': newStatus ? 'psdc' : 'standard',
-            'verification_status': 'verified',
-            'updated_at': DateTime.now().toIso8601String(),
-          }).eq('user_id', userId);
+          debugPrint(
+            'Driver update with is_psdc_driver failed, trying driver_tier: $updateErr',
+          );
+          await _supabase
+              .from('drivers')
+              .update({
+                'driver_tier': newStatus ? 'psdc' : 'standard',
+                'verification_status': 'verified',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('user_id', userId);
         }
       }
 
@@ -2827,8 +3293,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       );
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -2947,7 +3411,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         children: [
           Container(
             height: 92,
-            padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 20 : 14),
+            padding: EdgeInsets.symmetric(
+              horizontal: _sidebarExpanded ? 20 : 14,
+            ),
             child: Row(
               children: [
                 // Logo matching operator rounded square design
@@ -3030,14 +3496,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           _buildNavItem(3, Icons.book_rounded, 'Bookings', isDark),
           _buildNavItem(
             4,
-            Icons.verified_user_rounded,
+            Icons.fact_check_rounded,
             'Verifications',
             isDark,
             badge: _pendingVerifications > 0 ? _pendingVerifications : null,
           ),
           _buildNavItem(
             5,
-            Icons.assignment_outlined,
+            Icons.assignment_rounded,
             'Applications',
             isDark,
             badge: _pendingPartnerVehicleApplications.isNotEmpty
@@ -3184,10 +3650,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         decoration: BoxDecoration(
                           color: Colors.red.shade600,
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _adminNavy,
-                            width: 1.5,
-                          ),
+                          border: Border.all(color: _adminNavy, width: 1.5),
                         ),
                       ),
                     ),
@@ -3199,9 +3662,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: isSelected
-                          ? adminNavyDeep
-                          : Colors.white70,
+                      color: isSelected ? adminNavyDeep : Colors.white70,
                       fontWeight: isSelected
                           ? FontWeight.w700
                           : FontWeight.normal,
@@ -3224,9 +3685,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     child: Text(
                       badge.toString(),
                       style: TextStyle(
-                        color: isSelected
-                            ? adminNavyDeep
-                            : Colors.white,
+                        color: isSelected ? adminNavyDeep : Colors.white,
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
@@ -3284,10 +3743,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             message: 'Customize Workspace Color Theme',
             child: IconButton(
               onPressed: () => _showColorThemeDialog(isDark),
-              icon: Icon(
-                Icons.palette_rounded,
-                color: adminGold,
-              ),
+              icon: Icon(Icons.palette_rounded, color: adminGold),
             ),
           ),
           Tooltip(
@@ -3437,7 +3893,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFD97706).withValues(alpha: isDark ? 0.35 : 0.2),
+                  color: const Color(
+                    0xFFD97706,
+                  ).withValues(alpha: isDark ? 0.35 : 0.2),
                   blurRadius: 24,
                   offset: const Offset(0, 10),
                 ),
@@ -3608,9 +4066,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         'Real-time breakdown of bookings by status',
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark
-                              ? Colors.white54
-                              : Colors.grey.shade600,
+                          color: isDark ? Colors.white54 : Colors.grey.shade600,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -3630,7 +4086,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildSystemStatusItem(String name, String status, Color color, bool isDark) {
+  Widget _buildSystemStatusItem(
+    String name,
+    String status,
+    Color color,
+    bool isDark,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -3836,98 +4297,114 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minWidth: constraints.maxWidth),
                   child: DataTable(
-                  horizontalMargin: 16,
-                  columnSpacing: 32,
-                  columns: [
-            DataColumn(
-              label: Text(
-                'Vehicle',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Renter',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Status',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Amount',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-                  ],
-                  rows: pageBookings.map((booking) {
-            final vehicle =
-                (booking['vehicles'] as Map<String, dynamic>?) ??
-                (booking['vehicle'] as Map<String, dynamic>?);
-            final renterMap =
-                (booking['renter'] as Map<String, dynamic>?) ??
-                (booking['users'] as Map<String, dynamic>?) ??
-                (booking['user'] as Map<String, dynamic>?);
-            final renterName =
-                (renterMap?['full_name'] as String?)?.isNotEmpty == true
-                ? renterMap!['full_name'] as String
-                : ((renterMap?['name'] as String?)?.isNotEmpty == true
-                      ? renterMap!['name'] as String
-                      : ((booking['renter_name'] as String?)?.isNotEmpty == true
-                            ? booking['renter_name'] as String
-                            : ((booking['user_name'] as String?)?.isNotEmpty ==
-                                      true
-                                  ? booking['user_name'] as String
-                                  : 'Unknown Renter')));
-            final vehicleTitle = vehicle != null
-                ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
-                : (booking['vehicle_name'] ?? 'Unknown Vehicle').toString();
-            final status = booking['status'] as String? ?? 'pending';
-            final total =
-                (booking['total_cost'] as num?)?.toDouble() ??
-                (booking['amount'] as num?)?.toDouble() ??
-                0;
+                    horizontalMargin: 16,
+                    columnSpacing: 32,
+                    columns: [
+                      DataColumn(
+                        label: Text(
+                          'Vehicle',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Renter',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Status',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Amount',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                    ],
+                    rows: pageBookings.map((booking) {
+                      final vehicle =
+                          (booking['vehicles'] as Map<String, dynamic>?) ??
+                          (booking['vehicle'] as Map<String, dynamic>?);
+                      final renterMap =
+                          (booking['renter'] as Map<String, dynamic>?) ??
+                          (booking['users'] as Map<String, dynamic>?) ??
+                          (booking['user'] as Map<String, dynamic>?);
+                      final renterName =
+                          (renterMap?['full_name'] as String?)?.isNotEmpty ==
+                              true
+                          ? renterMap!['full_name'] as String
+                          : ((renterMap?['name'] as String?)?.isNotEmpty == true
+                                ? renterMap!['name'] as String
+                                : ((booking['renter_name'] as String?)
+                                              ?.isNotEmpty ==
+                                          true
+                                      ? booking['renter_name'] as String
+                                      : ((booking['user_name'] as String?)
+                                                    ?.isNotEmpty ==
+                                                true
+                                            ? booking['user_name'] as String
+                                            : 'Unknown Renter')));
+                      final vehicleTitle = vehicle != null
+                          ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'
+                                .trim()
+                          : (booking['vehicle_name'] ?? 'Unknown Vehicle')
+                                .toString();
+                      final status = booking['status'] as String? ?? 'pending';
+                      final total =
+                          (booking['total_cost'] as num?)?.toDouble() ??
+                          (booking['amount'] as num?)?.toDouble() ??
+                          0;
 
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    vehicleTitle.isNotEmpty ? vehicleTitle : 'Unknown Vehicle',
-                    style: TextStyle(
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
+                      return DataRow(
+                        cells: [
+                          DataCell(
+                            Text(
+                              vehicleTitle.isNotEmpty
+                                  ? vehicleTitle
+                                  : 'Unknown Vehicle',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              renterName,
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black87,
+                              ),
+                            ),
+                          ),
+                          DataCell(_buildStatusBadge(status)),
+                          DataCell(
+                            Text(
+                              'PHP ${total.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
                   ),
-                ),
-                DataCell(
-                  Text(
-                    renterName,
-                    style: TextStyle(
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
-                  ),
-                ),
-                DataCell(_buildStatusBadge(status)),
-                DataCell(
-                  Text(
-                    'PHP ${total.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green,
-                    ),
-                  ),
-                ),
-              ],
-            );
-                  }).toList(),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
         ),
         const SizedBox(height: 12),
         Divider(
@@ -4051,7 +4528,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   '')
               .toString()
               .toLowerCase();
-      final isVerified = user['id_verified'] == true ||
+      final isVerified =
+          user['id_verified'] == true ||
           user['is_verified'] == true ||
           verificationStatus == 'verified' ||
           verificationStatus == 'approved';
@@ -4060,13 +4538,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           name.contains(_userSearchQuery.toLowerCase()) ||
           email.contains(_userSearchQuery.toLowerCase());
 
-      final matchesRole = _userRoleFilter == 'all' ||
+      final matchesRole =
+          _userRoleFilter == 'all' ||
           role == _userRoleFilter ||
           (_userRoleFilter == 'psdc' && isPsdc) ||
           (_userRoleFilter == 'verified' && isVerified) ||
           (_userRoleFilter == 'unverified' && !isVerified);
 
-      final matchesVerification = _userVerificationFilter == 'all' ||
+      final matchesVerification =
+          _userVerificationFilter == 'all' ||
           (_userVerificationFilter == 'verified' && isVerified) ||
           (_userVerificationFilter == 'unverified' && !isVerified);
 
@@ -4089,11 +4569,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         .where((u) => u['is_psdc_driver'] == true)
         .length;
     final verifiedCount = _allUsers.where((u) {
-      final status = (u['display_verification_status'] ??
-              u['verification_status'] ??
-              '')
-          .toString()
-          .toLowerCase();
+      final status =
+          (u['display_verification_status'] ?? u['verification_status'] ?? '')
+              .toString()
+              .toLowerCase();
       return u['id_verified'] == true ||
           u['is_verified'] == true ||
           status == 'verified' ||
@@ -4111,7 +4590,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: _buildUserStatCard(
                   'Total Users',
                   _allUsers.length.toString(),
-                  Icons.people,
+                  Icons.people_rounded,
                   Colors.blue,
                   isDark,
                   onTap: () {
@@ -4122,7 +4601,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     });
                   },
                   isSelected:
-                      _userRoleFilter == 'all' && _userVerificationFilter == 'all',
+                      _userRoleFilter == 'all' &&
+                      _userVerificationFilter == 'all',
                 ),
               ),
               const SizedBox(width: 12),
@@ -4130,13 +4610,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: _buildUserStatCard(
                   'Verified',
                   verifiedCount.toString(),
-                  Icons.verified_user,
+                  Icons.verified_rounded,
                   Colors.green,
                   isDark,
                   onTap: () {
                     setState(() {
                       _userVerificationFilter =
-                          _userVerificationFilter == 'verified' ? 'all' : 'verified';
+                          _userVerificationFilter == 'verified'
+                          ? 'all'
+                          : 'verified';
                       _currentUserPage = 1;
                     });
                   },
@@ -4148,13 +4630,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: _buildUserStatCard(
                   'Partners',
                   partnersCount.toString(),
-                  Icons.business,
+                  Icons.business_rounded,
                   Colors.purple,
                   isDark,
                   onTap: () {
                     setState(() {
-                      _userRoleFilter =
-                          _userRoleFilter == 'partner' ? 'all' : 'partner';
+                      _userRoleFilter = _userRoleFilter == 'partner'
+                          ? 'all'
+                          : 'partner';
                       _currentUserPage = 1;
                     });
                   },
@@ -4166,13 +4649,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: _buildUserStatCard(
                   'Operators',
                   operatorsCount.toString(),
-                  Icons.admin_panel_settings,
+                  Icons.admin_panel_settings_rounded,
                   Colors.orange,
                   isDark,
                   onTap: () {
                     setState(() {
-                      _userRoleFilter =
-                          _userRoleFilter == 'operator' ? 'all' : 'operator';
+                      _userRoleFilter = _userRoleFilter == 'operator'
+                          ? 'all'
+                          : 'operator';
                       _currentUserPage = 1;
                     });
                   },
@@ -4184,13 +4668,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 child: _buildUserStatCard(
                   'PSDC Drivers',
                   psdcDriversCount.toString(),
-                  Icons.verified_outlined,
+                  Icons.badge_rounded,
                   const Color(0xFFF59E0B),
                   isDark,
                   onTap: () {
                     setState(() {
-                      _userRoleFilter =
-                          _userRoleFilter == 'psdc' ? 'all' : 'psdc';
+                      _userRoleFilter = _userRoleFilter == 'psdc'
+                          ? 'all'
+                          : 'psdc';
                       _currentUserPage = 1;
                     });
                   },
@@ -4203,6 +4688,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           Wrap(
             spacing: 12,
             runSpacing: 12,
+            alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               ConstrainedBox(
@@ -4325,32 +4811,32 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     DropdownMenuItem(
                       value: 'psdc',
-                      child: Text(
-                        '🛡️ PSDC Drivers',
-                        style: TextStyle(
-                          color: isDark ? Colors.amber.shade300 : Colors.amber.shade900,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: _buildUserFilterOption(
+                        icon: Icons.badge_rounded,
+                        label: 'PSDC Drivers',
+                        color: isDark
+                            ? Colors.amber.shade300
+                            : Colors.amber.shade900,
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'verified',
-                      child: Text(
-                        '✅ Verified Users',
-                        style: TextStyle(
-                          color: isDark ? Colors.green.shade300 : Colors.green.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: _buildUserFilterOption(
+                        icon: Icons.verified_rounded,
+                        label: 'Verified Users',
+                        color: isDark
+                            ? Colors.green.shade300
+                            : Colors.green.shade800,
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'unverified',
-                      child: Text(
-                        '❌ Unverified Users',
-                        style: TextStyle(
-                          color: isDark ? Colors.orange.shade300 : Colors.orange.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: _buildUserFilterOption(
+                        icon: Icons.pending_outlined,
+                        label: 'Unverified Users',
+                        color: isDark
+                            ? Colors.orange.shade300
+                            : Colors.orange.shade800,
                       ),
                     ),
                   ],
@@ -4389,22 +4875,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                     DropdownMenuItem(
                       value: 'verified',
-                      child: Text(
-                        '✅ Verified Only',
-                        style: TextStyle(
-                          color: isDark ? Colors.green.shade300 : Colors.green.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: _buildUserFilterOption(
+                        icon: Icons.verified_rounded,
+                        label: 'Verified Only',
+                        color: isDark
+                            ? Colors.green.shade300
+                            : Colors.green.shade800,
                       ),
                     ),
                     DropdownMenuItem(
                       value: 'unverified',
-                      child: Text(
-                        '❌ Unverified Only',
-                        style: TextStyle(
-                          color: isDark ? Colors.orange.shade300 : Colors.orange.shade800,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: _buildUserFilterOption(
+                        icon: Icons.pending_outlined,
+                        label: 'Unverified Only',
+                        color: isDark
+                            ? Colors.orange.shade300
+                            : Colors.orange.shade800,
                       ),
                     ),
                   ],
@@ -4585,8 +5071,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
                                         children: [
                                           Text(
                                             user['full_name'] ?? 'User',
@@ -4598,7 +5086,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                               fontSize: 14,
                                             ),
                                           ),
-                                          if ((user['phone'] as String? ?? '').isNotEmpty)
+                                          if ((user['phone'] as String? ?? '')
+                                              .isNotEmpty)
                                             Text(
                                               user['phone'].toString(),
                                               style: TextStyle(
@@ -4663,8 +5152,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                           children: [
                                             Icon(
                                               isPsdcDriver
-                                                  ? Icons.remove_moderator_outlined
-                                                  : Icons.verified_outlined,
+                                                  ? Icons
+                                                        .remove_moderator_outlined
+                                                  : Icons.badge_rounded,
                                               size: 18,
                                               color: isPsdcDriver
                                                   ? Colors.orange
@@ -4799,6 +5289,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildUserFilterOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 17),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(color: color, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
   Widget _buildUserStatCard(
     String title,
     String value,
@@ -4867,7 +5375,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   String _getUserAvatarUrl(Map<String, dynamic> user) {
-    final direct = user['avatar_url']?.toString().trim() ??
+    final direct =
+        user['avatar_url']?.toString().trim() ??
         user['profile_picture_url']?.toString().trim() ??
         user['profile_image']?.toString().trim() ??
         user['photo_url']?.toString().trim() ??
@@ -4952,7 +5461,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_user_rounded, color: Colors.green, size: 14),
+            Icon(Icons.verified_rounded, color: Colors.green, size: 14),
             SizedBox(width: 5),
             Text(
               'Verified',
@@ -4972,12 +5481,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+        border: Border.all(
+          color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+        ),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.gpp_maybe_rounded, color: Color(0xFFF59E0B), size: 14),
+          Icon(Icons.pending_outlined, color: Color(0xFFF59E0B), size: 14),
           SizedBox(width: 5),
           Text(
             'Unverified',
@@ -5004,7 +5515,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.verified_outlined, size: 13, color: Color(0xFFF59E0B)),
+            Icon(Icons.badge_rounded, size: 13, color: Color(0xFFF59E0B)),
             SizedBox(width: 4),
             Text(
               'PSDC DRIVER',
@@ -5234,9 +5745,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         color: isDark ? Colors.black26 : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: isDark
-                              ? Colors.white10
-                              : Colors.grey.shade300,
+                          color: isDark ? Colors.white10 : Colors.grey.shade300,
                         ),
                       ),
                       child: Row(
@@ -5275,7 +5784,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 const SizedBox(height: 16),
 
                 // Separated Fleet Tabs
-                Row(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
                     _buildVehicleTabChip(
                       'all',
@@ -5284,7 +5795,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       Icons.directions_car_rounded,
                       isDark,
                     ),
-                    const SizedBox(width: 10),
                     _buildVehicleTabChip(
                       'psdc',
                       'PSDC Vehicles',
@@ -5293,7 +5803,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       isDark,
                       accentColor: const Color(0xFFF59E0B),
                     ),
-                    const SizedBox(width: 10),
                     _buildVehicleTabChip(
                       'partner',
                       'Partner Vehicles',
@@ -5342,8 +5851,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               _vehicleTabFilter == 'psdc'
                   ? 'PSDC Company Fleet (${filteredVehicles.length})'
                   : _vehicleTabFilter == 'partner'
-                      ? 'Partner Fleet Vehicles (${filteredVehicles.length})'
-                      : 'All Vehicles Fleet (${filteredVehicles.length})',
+                  ? 'Partner Fleet Vehicles (${filteredVehicles.length})'
+                  : 'All Vehicles Fleet (${filteredVehicles.length})',
               _vehicleViewMode == 'cards'
                   ? _buildAdminVehiclesGrid(filteredVehicles, isDark)
                   : _buildAdminVehiclesTable(filteredVehicles, isDark),
@@ -5469,7 +5978,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 final source =
                     vehicle['source']?.toString().toLowerCase() ?? 'company';
                 final isPartner =
-                    source == 'partner' || vehicle['is_partner_vehicle'] == true;
+                    source == 'partner' ||
+                    vehicle['is_partner_vehicle'] == true;
                 final ownerName =
                     owner?['full_name']?.toString().trim().isNotEmpty == true
                     ? owner!['full_name'].toString().trim()
@@ -5530,9 +6040,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ],
                       ),
                     ),
-                    DataCell(
-                      _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
-                    ),
+                    DataCell(_buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC')),
                     DataCell(
                       Text(
                         ownerName,
@@ -5599,15 +6107,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return InkWell(
       onTap: () => setState(() => _vehicleTabFilter = key),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: isSelected
               ? activeColor.withValues(alpha: 0.2)
               : (isDark ? Colors.black26 : Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected
                 ? activeColor
@@ -5620,35 +6128,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           children: [
             Icon(
               icon,
-              size: 16,
+              size: 17,
               color: isSelected
                   ? activeColor
                   : (isDark ? Colors.white70 : Colors.black54),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white10 : Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
                 count.toString(),
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: isSelected
                       ? Colors.black
@@ -5698,22 +6206,33 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return InkWell(
       onTap: () => _showAdminVehicleDetailsDialog(vehicle, isDark),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: isDark ? Colors.black26 : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(12),
+          color: isDark ? const Color(0xFF021F35) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            color: isDark
+                ? AppColors.primary.withValues(alpha: 0.25)
+                : Colors.grey.shade300,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
               child: Container(
-                height: 150,
+                height: 168,
                 width: double.infinity,
                 color: isDark ? AppColors.darkBgTertiary : Colors.grey.shade200,
                 child: imageUrl.isEmpty
@@ -5729,103 +6248,165 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         errorWidget: Icon(
                           Icons.directions_car,
                           size: 52,
-                          color: isDark ? Colors.grey[600] : Colors.grey.shade500,
+                          color: isDark
+                              ? Colors.grey[600]
+                              : Colors.grey.shade500,
                         ),
                       ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      _buildSourceBadge(isPartner ? 'PARTNER' : 'PSDC'),
+                      _buildSourceBadge(
+                        isPartner ? 'PARTNER FLEET' : 'PSDC FLEET',
+                      ),
                       const SizedBox(width: 8),
                       _buildPostedBadge(posted, isDark),
                     ],
                   ),
-                const SizedBox(height: 12),
-                Text(
-                  '$brand $model${year.isNotEmpty ? ' ($year)' : ''}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                if (plate.isNotEmpty) ...[
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 14),
                   Text(
-                    'Plate: $plate',
+                    '$brand $model${year.isNotEmpty ? ' ($year)' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey.shade700,
-                      fontSize: 12,
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (plate.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Plate number  -  $plate',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildAdminVehicleInfoRow(
+                    Icons.person_outline_rounded,
+                    isPartner ? 'Applied by partner' : 'Added by operator',
+                    ownerName,
+                    isDark,
+                  ),
+                  if (ownerEmail.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 28, top: 2),
+                      child: Text(
+                        ownerEmail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.grey[500]
+                              : Colors.grey.shade600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 14),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final itemWidth = constraints.maxWidth < 330
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 10) / 2;
+                      return Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildVehicleAttributeCard(
+                              'Vehicle Type',
+                              vehicleType,
+                              Icons.category_outlined,
+                              isDark,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildVehicleAttributeCard(
+                              'Capacity',
+                              '$seats seats',
+                              Icons.event_seat_outlined,
+                              isDark,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildVehicleAttributeCard(
+                              'Transmission',
+                              transmission,
+                              Icons.settings_outlined,
+                              isDark,
+                            ),
+                          ),
+                          SizedBox(
+                            width: itemWidth,
+                            child: _buildVehicleAttributeCard(
+                              'Fuel Type',
+                              fuelType,
+                              Icons.local_gas_station_outlined,
+                              isDark,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildRateBox(
+                          'Price/Day',
+                          'PHP ${pricePerDay.toStringAsFixed(0)}',
+                          isDark,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildRateBox(
+                          'Price/Hour',
+                          'PHP ${pricePerHour.toStringAsFixed(0)}',
+                          isDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () =>
+                          _showAdminVehicleDetailsDialog(vehicle, isDark),
+                      icon: const Icon(Icons.visibility_rounded, size: 16),
+                      label: const Text('View details'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                      ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                _buildAdminVehicleInfoRow(
-                  Icons.person_outline,
-                  isPartner ? 'Applied by partner' : 'Added by operator',
-                  ownerName,
-                  isDark,
-                ),
-                if (ownerEmail.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 28, top: 2),
-                    child: Text(
-                      ownerEmail,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isDark ? Colors.grey[500] : Colors.grey.shade600,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _buildMiniVehicleChip(vehicleType, isDark),
-                    _buildMiniVehicleChip('$seats seats', isDark),
-                    _buildMiniVehicleChip(transmission, isDark),
-                    _buildMiniVehicleChip(fuelType, isDark),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildRateBox(
-                        'Price/Day',
-                        'PHP ${pricePerDay.toStringAsFixed(0)}',
-                        isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildRateBox(
-                        'Price/Hour',
-                        'PHP ${pricePerHour.toStringAsFixed(0)}',
-                        isDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   void _showAdminVehicleDetailsDialog(
     Map<String, dynamic> vehicle,
@@ -5833,16 +6414,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   ) {
     final owner = vehicle['owner'] as Map<String, dynamic>?;
     final source = vehicle['source']?.toString().toLowerCase() ?? 'company';
-    final isPartner = source == 'partner' || vehicle['is_partner_vehicle'] == true;
+    final isPartner =
+        source == 'partner' || vehicle['is_partner_vehicle'] == true;
     final ownerFullName = owner?['full_name']?.toString().trim() ?? '';
     final ownerName = ownerFullName.isNotEmpty
         ? ownerFullName
         : (vehicle['partner_name']?.toString().trim() ??
-            (isPartner ? 'Mobilis Partner' : 'PSDC Fleet Operator'));
-    final ownerEmail = owner?['email']?.toString().trim() ??
+              (isPartner ? 'Mobilis Partner' : 'PSDC Fleet Operator'));
+    final ownerEmail =
+        owner?['email']?.toString().trim() ??
         vehicle['partner_email']?.toString().trim() ??
         '';
-    final ownerPhone = owner?['phone']?.toString().trim() ??
+    final ownerPhone =
+        owner?['phone']?.toString().trim() ??
         vehicle['partner_phone']?.toString().trim() ??
         '';
 
@@ -5918,7 +6502,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                         border: Border(
                           bottom: BorderSide(
-                            color: isDark ? Colors.white10 : Colors.grey.shade200,
+                            color: isDark
+                                ? Colors.white10
+                                : Colors.grey.shade200,
                           ),
                         ),
                       ),
@@ -5948,7 +6534,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w900,
-                                        color: isDark ? Colors.white : Colors.black,
+                                        color: isDark
+                                            ? Colors.white
+                                            : Colors.black,
                                       ),
                                     ),
                                     const SizedBox(width: 10),
@@ -6035,15 +6623,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                     final img = imageList[index];
                                     final isSelected = img == activeImage;
                                     return GestureDetector(
-                                      onTap: () =>
-                                          setModalState(() => activeImage = img),
+                                      onTap: () => setModalState(
+                                        () => activeImage = img,
+                                      ),
                                       child: Container(
-                                        margin:
-                                            const EdgeInsets.only(right: 10),
+                                        margin: const EdgeInsets.only(
+                                          right: 10,
+                                        ),
                                         width: 80,
                                         decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                           border: Border.all(
                                             color: isSelected
                                                 ? AppColors.primary
@@ -6052,8 +6643,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                           ),
                                         ),
                                         child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                           child: OptimizedNetworkImage(
                                             imageUrl: img,
                                             fit: BoxFit.cover,
@@ -6088,13 +6680,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         Icons.tune_rounded,
                                         isDark,
                                         [
-                                          _buildModalDetailRow('Brand & Model', '$brand $model', isDark),
-                                          _buildModalDetailRow('Model Year', year.isNotEmpty ? year : 'N/A', isDark),
-                                          _buildModalDetailRow('Plate Number', plate, isDark),
-                                          _buildModalDetailRow('Vehicle Category', vehicleType, isDark),
-                                          _buildModalDetailRow('Seating Capacity', '$seats Seats', isDark),
-                                          _buildModalDetailRow('Transmission', transmission, isDark),
-                                          _buildModalDetailRow('Fuel Type', fuelType, isDark),
+                                          _buildModalDetailRow(
+                                            'Brand & Model',
+                                            '$brand $model',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Model Year',
+                                            year.isNotEmpty ? year : 'N/A',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Plate Number',
+                                            plate,
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Vehicle Category',
+                                            vehicleType,
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Seating Capacity',
+                                            '$seats Seats',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Transmission',
+                                            transmission,
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Fuel Type',
+                                            fuelType,
+                                            isDark,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -6107,10 +6727,29 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         Icons.payments_rounded,
                                         isDark,
                                         [
-                                          _buildModalDetailRow('Price Per Day', 'PHP ${pricePerDay.toStringAsFixed(0)}', isDark, highlight: true),
-                                          _buildModalDetailRow('Price Per Hour', 'PHP ${pricePerHour.toStringAsFixed(0)}', isDark),
-                                          _buildModalDetailRow('Delivery Fee', '₱75 / km delivery rate', isDark),
-                                          _buildModalDetailRow('Posting Status', posted ? 'Available for Rent' : 'Unposted / Maintenance', isDark),
+                                          _buildModalDetailRow(
+                                            'Price Per Day',
+                                            'PHP ${pricePerDay.toStringAsFixed(0)}',
+                                            isDark,
+                                            highlight: true,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Price Per Hour',
+                                            'PHP ${pricePerHour.toStringAsFixed(0)}',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Delivery Fee',
+                                            '₱75 / km delivery rate',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Posting Status',
+                                            posted
+                                                ? 'Available for Rent'
+                                                : 'Unposted / Maintenance',
+                                            isDark,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -6123,12 +6762,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         Icons.person_pin_rounded,
                                         isDark,
                                         [
-                                          _buildModalDetailRow('Owner / Partner', ownerName, isDark),
+                                          _buildModalDetailRow(
+                                            'Owner / Partner',
+                                            ownerName,
+                                            isDark,
+                                          ),
                                           if (ownerEmail.isNotEmpty)
-                                            _buildModalDetailRow('Contact Email', ownerEmail, isDark),
+                                            _buildModalDetailRow(
+                                              'Contact Email',
+                                              ownerEmail,
+                                              isDark,
+                                            ),
                                           if (ownerPhone.isNotEmpty)
-                                            _buildModalDetailRow('Contact Phone', ownerPhone, isDark),
-                                          _buildModalDetailRow('Fleet Type', isPartner ? 'Mobilis Partner Fleet' : 'PSDC Company Fleet', isDark),
+                                            _buildModalDetailRow(
+                                              'Contact Phone',
+                                              ownerPhone,
+                                              isDark,
+                                            ),
+                                          _buildModalDetailRow(
+                                            'Fleet Type',
+                                            isPartner
+                                                ? 'Mobilis Partner Fleet'
+                                                : 'PSDC Company Fleet',
+                                            isDark,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -6141,10 +6798,26 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         Icons.auto_awesome_rounded,
                                         isDark,
                                         [
-                                          _buildModalDetailRow('Air Conditioning', 'Equipped', isDark),
-                                          _buildModalDetailRow('GPS & Map Tracking', 'Live GPS Active', isDark),
-                                          _buildModalDetailRow('Bluetooth Audio', 'Supported', isDark),
-                                          _buildModalDetailRow('Sanitization', 'Verified Clean', isDark),
+                                          _buildModalDetailRow(
+                                            'Air Conditioning',
+                                            'Equipped',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'GPS & Map Tracking',
+                                            'Live GPS Active',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Bluetooth Audio',
+                                            'Supported',
+                                            isDark,
+                                          ),
+                                          _buildModalDetailRow(
+                                            'Sanitization',
+                                            'Verified Clean',
+                                            isDark,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -6172,7 +6845,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                         border: Border(
                           top: BorderSide(
-                            color: isDark ? Colors.white10 : Colors.grey.shade200,
+                            color: isDark
+                                ? Colors.white10
+                                : Colors.grey.shade200,
                           ),
                         ),
                       ),
@@ -6181,7 +6856,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         children: [
                           FilledButton.icon(
                             onPressed: () => Navigator.of(dialogContext).pop(),
-                            icon: const Icon(Icons.check_circle_rounded, size: 16),
+                            icon: const Icon(
+                              Icons.check_circle_rounded,
+                              size: 16,
+                            ),
                             label: const Text('Close Overview'),
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.primary,
@@ -6325,6 +7003,40 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  Widget _buildForwardStatusBadge(bool forwarded) {
+    final color = forwarded ? Colors.green : Colors.orange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            forwarded
+                ? Icons.check_circle_outline_rounded
+                : Icons.pending_outlined,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            forwarded ? 'FORWARDED' : 'PENDING',
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAdminVehicleInfoRow(
     IconData icon,
     String label,
@@ -6381,6 +7093,59 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleAttributeCard(
+    String label,
+    String value,
+    IconData icon,
+    bool isDark,
+  ) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.grey[500] : Colors.grey.shade600,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6500,9 +7265,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final renterEmail = renter?['email']?.toString().toLowerCase() ?? '';
       final driver = booking['drivers'] as Map<String, dynamic>?;
       final driverUser = driver?['users'] as Map<String, dynamic>?;
-      final driverName = driverUser?['full_name']?.toString().toLowerCase() ?? '';
+      final driverName =
+          driverUser?['full_name']?.toString().toLowerCase() ?? '';
       final pickup = booking['pickup_location']?.toString().toLowerCase() ?? '';
-      final dropoff = booking['dropoff_location']?.toString().toLowerCase() ?? '';
+      final dropoff =
+          booking['dropoff_location']?.toString().toLowerCase() ?? '';
 
       return bookingId.contains(query) ||
           vehicleTitle.contains(query) ||
@@ -6646,9 +7413,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         color: isDark ? Colors.black26 : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: isDark
-                              ? Colors.white10
-                              : Colors.grey.shade300,
+                          color: isDark ? Colors.white10 : Colors.grey.shade300,
                         ),
                       ),
                       child: Row(
@@ -6658,16 +7423,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             icon: const Icon(Icons.grid_view_rounded, size: 18),
                             color: _bookingViewMode == 'cards'
                                 ? AppColors.primary
-                                : (isDark ? Colors.white54 : Colors.grey.shade600),
+                                : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
                             onPressed: () =>
                                 setState(() => _bookingViewMode = 'cards'),
                           ),
                           IconButton(
                             tooltip: 'Table View',
-                            icon: const Icon(Icons.table_rows_rounded, size: 18),
+                            icon: const Icon(
+                              Icons.table_rows_rounded,
+                              size: 18,
+                            ),
                             color: _bookingViewMode == 'table'
                                 ? AppColors.primary
-                                : (isDark ? Colors.white54 : Colors.grey.shade600),
+                                : (isDark
+                                      ? Colors.white54
+                                      : Colors.grey.shade600),
                             onPressed: () =>
                                 setState(() => _bookingViewMode = 'table'),
                           ),
@@ -6839,10 +7611,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
-  Widget _buildDetailedBookingCard(
-    Map<String, dynamic> booking,
-    bool isDark,
-  ) {
+  Widget _buildDetailedBookingCard(Map<String, dynamic> booking, bool isDark) {
     final bookingId = booking['id']?.toString() ?? 'N/A';
     final refCode = bookingId.length > 8
         ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
@@ -6858,24 +7627,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
         : 'Unknown Vehicle';
     final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
-    final renterName = renter?['full_name']?.toString().trim() ?? 'Unknown Renter';
+    final renterName =
+        renter?['full_name']?.toString().trim() ?? 'Unknown Renter';
     final renterPhone = renter?['phone']?.toString().trim() ?? '';
     final driverName = driverUser?['full_name']?.toString().trim() ?? 'N/A';
     final driverPhone = driverUser?['phone']?.toString().trim() ?? '';
 
     final startDate = _formatDate(booking['start_date']);
     final endDate = _formatDate(booking['end_date']);
-    final pickup = booking['pickup_location']?.toString().trim() ?? 'Not specified';
-    final dropoff = booking['dropoff_location']?.toString().trim() ??
+    final pickup =
+        booking['pickup_location']?.toString().trim() ?? 'Not specified';
+    final dropoff =
+        booking['dropoff_location']?.toString().trim() ??
         booking['delivery_address']?.toString().trim() ??
         'Not specified';
 
-    final totalCost = (booking['total_price'] as num?)?.toDouble() ??
+    final totalCost =
+        (booking['total_price'] as num?)?.toDouble() ??
         (booking['total_cost'] as num?)?.toDouble() ??
         0;
     final deposit = (booking['deposit_amount'] as num?)?.toDouble() ?? 0;
-    final paymentStatus =
-        (booking['payment_status'] as String? ?? 'pending').toLowerCase();
+    final paymentStatus = (booking['payment_status'] as String? ?? 'pending')
+        .toLowerCase();
 
     final canTrack = _canTrackBooking(booking);
 
@@ -6907,7 +7680,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               color: isDark
                   ? Colors.white.withValues(alpha: 0.04)
                   : Colors.grey.shade50,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
               border: Border(
                 bottom: BorderSide(
                   color: isDark ? Colors.white10 : Colors.grey.shade200,
@@ -7001,8 +7776,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         'Schedule & Route',
                         '$startDate → $endDate',
                         isDark,
-                        subtitle:
-                            'Pickup: $pickup\nDropoff: $dropoff',
+                        subtitle: 'Pickup: $pickup\nDropoff: $dropoff',
                         icon: Icons.route_rounded,
                       ),
                     ),
@@ -7055,7 +7829,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     'Renter Contact: $renterPhone',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                      color: isDark
+                          ? Colors.grey.shade300
+                          : Colors.grey.shade700,
                     ),
                   ),
                 ],
@@ -7098,7 +7874,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         color: isDark ? Colors.black26 : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: highlightColor?.withValues(alpha: 0.4) ??
+          color:
+              highlightColor?.withValues(alpha: 0.4) ??
               (isDark ? AppColors.borderColor : Colors.grey.shade300),
         ),
       ),
@@ -7111,7 +7888,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 Icon(
                   icon,
                   size: 13,
-                  color: highlightColor ?? (isDark ? Colors.white54 : Colors.grey.shade600),
+                  color:
+                      highlightColor ??
+                      (isDark ? Colors.white54 : Colors.grey.shade600),
                 ),
                 const SizedBox(width: 6),
               ],
@@ -7171,116 +7950,131 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 horizontalMargin: 16,
                 columnSpacing: 32,
                 columns: [
-            DataColumn(
-              label: Text(
-                'Booking ID',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Vehicle',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Renter',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Status',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Total Cost',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
-            DataColumn(
-              label: Text(
-                'Tracking',
-                style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              ),
-            ),
+                  DataColumn(
+                    label: Text(
+                      'Booking ID',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Vehicle',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Renter',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Status',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Total Cost',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      'Tracking',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
                 ],
                 rows: sortedBookings.map((booking) {
-            final bookingId = booking['id']?.toString() ?? 'N/A';
-            final refCode = bookingId.length > 8
-                ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
-                : '#BK-$bookingId';
-            final vehicle = booking['vehicles'] as Map<String, dynamic>?;
-            final user = booking['renter'] as Map<String, dynamic>?;
-            final status = booking['status'] as String? ?? 'pending';
-            final canTrack = _canTrackBooking(booking);
-            final total = (booking['total_price'] as num?)?.toDouble() ??
-                (booking['total_cost'] as num?)?.toDouble() ??
-                0;
+                  final bookingId = booking['id']?.toString() ?? 'N/A';
+                  final refCode = bookingId.length > 8
+                      ? '#BK-${bookingId.substring(0, 8).toUpperCase()}'
+                      : '#BK-$bookingId';
+                  final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+                  final user = booking['renter'] as Map<String, dynamic>?;
+                  final status = booking['status'] as String? ?? 'pending';
+                  final canTrack = _canTrackBooking(booking);
+                  final total =
+                      (booking['total_price'] as num?)?.toDouble() ??
+                      (booking['total_cost'] as num?)?.toDouble() ??
+                      0;
 
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    refCode,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? AppColors.primary : Colors.blue.shade800,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    vehicle != null
-                        ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
-                        : 'Unknown',
-                    style: TextStyle(
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(
-                    user?['full_name'] ?? 'Unknown',
-                    style: TextStyle(
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
-                  ),
-                ),
-                DataCell(_buildStatusBadge(status)),
-                DataCell(
-                  Text(
-                    'PHP ${total.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  ElevatedButton.icon(
-                    onPressed: canTrack
-                        ? () => _openTrackingForBooking(booking)
-                        : null,
-                    icon: const Icon(Icons.location_on, size: 16),
-                    label: const Text('Track'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.black,
-                      disabledBackgroundColor: isDark
-                          ? Colors.grey.shade800
-                          : Colors.grey.shade300,
-                      disabledForegroundColor: isDark
-                          ? Colors.grey.shade500
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-                ),
-              ],
-            );
+                  return DataRow(
+                    cells: [
+                      DataCell(
+                        Text(
+                          refCode,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? AppColors.primary
+                                : Colors.blue.shade800,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          vehicle != null
+                              ? '${vehicle['brand']} ${vehicle['model']} ${vehicle['plate_number'] != null ? "(${vehicle['plate_number']})" : ""}'
+                              : 'Unknown',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          user?['full_name'] ?? 'Unknown',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      DataCell(_buildStatusBadge(status)),
+                      DataCell(
+                        Text(
+                          'PHP ${total.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        ElevatedButton.icon(
+                          onPressed: canTrack
+                              ? () => _openTrackingForBooking(booking)
+                              : null,
+                          icon: const Icon(Icons.location_on, size: 16),
+                          label: const Text('Track'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            disabledBackgroundColor: isDark
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade300,
+                            disabledForegroundColor: isDark
+                                ? Colors.grey.shade500
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
                 }).toList(),
               ),
             ),
@@ -7501,8 +8295,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     for (final r in _verificationRecords) {
       final user = r['users'] as Map<String, dynamic>?;
-      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
-      final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
+          .toLowerCase()
+          .trim();
+      final isDriver =
+          role == 'driver' ||
+          (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
       if (role == 'renter') {
         renterCount++;
       } else if (isDriver) {
@@ -7516,22 +8314,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final filteredRecords = _verificationRecords.where((r) {
       if (_verificationRoleFilter != 'all') {
         final user = r['users'] as Map<String, dynamic>?;
-        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
-        final isDriver = role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
+            .toLowerCase()
+            .trim();
+        final isDriver =
+            role == 'driver' ||
+            (r['id_type']?.toString().toLowerCase().contains('driver') ??
+                false);
 
-        if (_verificationRoleFilter == 'renter' && role != 'renter') return false;
+        if (_verificationRoleFilter == 'renter' && role != 'renter')
+          return false;
         if (_verificationRoleFilter == 'driver' && !isDriver) return false;
-        if (_verificationRoleFilter == 'partner' && role != 'partner') return false;
+        if (_verificationRoleFilter == 'partner' && role != 'partner')
+          return false;
       }
 
       if (_verificationSearchQuery.trim().isNotEmpty) {
         final q = _verificationSearchQuery.toLowerCase().trim();
         final user = r['users'] as Map<String, dynamic>?;
-        final name = (user?['full_name']?.toString() ?? r['full_name']?.toString() ?? '').toLowerCase();
-        final email = (user?['email']?.toString() ?? r['email']?.toString() ?? '').toLowerCase();
-        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase();
+        final name =
+            (user?['full_name']?.toString() ?? r['full_name']?.toString() ?? '')
+                .toLowerCase();
+        final email =
+            (user?['email']?.toString() ?? r['email']?.toString() ?? '')
+                .toLowerCase();
+        final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
+            .toLowerCase();
         final idType = (r['id_type']?.toString() ?? '').toLowerCase();
-        final status = (r['verification_status']?.toString() ?? '').toLowerCase();
+        final status = (r['verification_status']?.toString() ?? '')
+            .toLowerCase();
 
         return name.contains(q) ||
             email.contains(q) ||
@@ -7602,7 +8413,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.verified_user_rounded,
+                        Icons.fact_check_rounded,
                         color: AppColors.primary,
                         size: 24,
                       ),
@@ -7710,7 +8521,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       'All Users',
                       allCount,
                       isDark,
-                      icon: Icons.verified_user_rounded,
+                      icon: Icons.fact_check_rounded,
                     ),
                     _buildVerificationRoleTab(
                       'renter',
@@ -7779,15 +8590,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return InkWell(
       onTap: () => setState(() => _verificationRoleFilter = key),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: isSelected
               ? activeColor.withValues(alpha: 0.2)
               : (isDark ? Colors.black26 : Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected
                 ? activeColor
@@ -7800,35 +8611,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           children: [
             Icon(
               displayIcon,
-              size: 16,
+              size: 17,
               color: isSelected
                   ? activeColor
                   : (isDark ? Colors.white70 : Colors.black54),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white10 : Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
                 count.toString(),
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: isSelected
                       ? Colors.black
@@ -8035,8 +8846,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     var vehicleRecords = _pendingPartnerVehicleApplications;
     var driverRecords = _verificationRecords.where((r) {
       final user = r['users'] as Map<String, dynamic>?;
-      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '').toLowerCase().trim();
-      return role == 'driver' || (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+      final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
+          .toLowerCase()
+          .trim();
+      return role == 'driver' ||
+          (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
     }).toList();
 
     if (_applicationSearchQuery.trim().isNotEmpty) {
@@ -8045,14 +8859,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final brand = (v['brand']?.toString() ?? '').toLowerCase();
         final model = (v['model']?.toString() ?? '').toLowerCase();
         final plate = (v['plate_number']?.toString() ?? '').toLowerCase();
-        final partner = (v['partner_name']?.toString() ?? v['partner_email']?.toString() ?? '').toLowerCase();
-        return brand.contains(q) || model.contains(q) || plate.contains(q) || partner.contains(q);
+        final partner =
+            (v['partner_name']?.toString() ??
+                    v['partner_email']?.toString() ??
+                    '')
+                .toLowerCase();
+        return brand.contains(q) ||
+            model.contains(q) ||
+            plate.contains(q) ||
+            partner.contains(q);
       }).toList();
 
       driverRecords = driverRecords.where((d) {
         final user = d['users'] as Map<String, dynamic>?;
-        final name = (user?['full_name']?.toString() ?? d['full_name']?.toString() ?? '').toLowerCase();
-        final email = (user?['email']?.toString() ?? d['email']?.toString() ?? '').toLowerCase();
+        final name =
+            (user?['full_name']?.toString() ?? d['full_name']?.toString() ?? '')
+                .toLowerCase();
+        final email =
+            (user?['email']?.toString() ?? d['email']?.toString() ?? '')
+                .toLowerCase();
         return name.contains(q) || email.contains(q);
       }).toList();
     }
@@ -8097,7 +8922,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.assignment_outlined,
+                        Icons.assignment_rounded,
                         color: AppColors.primary,
                         size: 24,
                       ),
@@ -8234,7 +9059,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             _buildPartnerVehicleApplicationsSection(vehicleRecords, isDark),
             const SizedBox(height: 24),
             _buildPriceChangeRequestsSection(isDark),
-            if (showDrivers && driverRecords.isNotEmpty) const SizedBox(height: 24),
+            if (showDrivers && driverRecords.isNotEmpty)
+              const SizedBox(height: 24),
           ],
 
           // Driver Applications Section
@@ -8260,15 +9086,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return InkWell(
       onTap: () => setState(() => _applicationTypeFilter = key),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: isSelected
               ? activeColor.withValues(alpha: 0.2)
               : (isDark ? Colors.black26 : Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected
                 ? activeColor
@@ -8281,35 +9107,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           children: [
             Icon(
               displayIcon,
-              size: 16,
+              size: 17,
               color: isSelected
                   ? activeColor
                   : (isDark ? Colors.white70 : Colors.black54),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
                 color: isSelected
                     ? activeColor
                     : (isDark ? Colors.white10 : Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
                 count.toString(),
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: isSelected
                       ? Colors.black
@@ -8360,373 +9186,526 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     bool isDark,
   ) {
     return _buildCard(
-            'Partner Vehicle Applications (${records.length})',
-            records.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Text(
-                        'No pending vehicle applications.',
+      'Partner Vehicle Applications (${records.length})',
+      records.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text(
+                  'No pending vehicle applications.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              children: records.map((record) {
+                final partner = record['partner'] as Map<String, dynamic>?;
+                final title =
+                    '${record['brand'] ?? 'Unknown'} ${record['model'] ?? ''}'
+                        .trim();
+                final subtitle = [
+                  if (record['year'] != null) record['year'].toString(),
+                  if ((record['plate_number'] ?? '').toString().isNotEmpty)
+                    'Plate: ${record['plate_number']}',
+                ].join('  •  ');
+                final photoUrls = List<String>.from(
+                  (record['photo_urls'] as List?) ?? const <String>[],
+                );
+                final detailPairs = <MapEntry<String, String>>[
+                  MapEntry(
+                    'Price Per Day',
+                    'PHP ${((record['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                  ),
+                  MapEntry(
+                    'Price Per Hour',
+                    'PHP ${((record['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                  ),
+                  MapEntry('Seats', record['seats']?.toString() ?? 'N/A'),
+                  MapEntry(
+                    'Fuel Type',
+                    record['fuel_type']?.toString() ?? 'N/A',
+                  ),
+                  MapEntry(
+                    'Transmission',
+                    record['transmission']?.toString() ?? 'N/A',
+                  ),
+                  MapEntry(
+                    'Driver Setup',
+                    record['owner_is_driver'] == true
+                        ? 'Owner will drive'
+                        : 'Vehicle only',
+                  ),
+                  MapEntry(
+                    'Submitted',
+                    _formatDate(record['created_at']?.toString() ?? ''),
+                  ),
+                  MapEntry(
+                    'Application Status',
+                    record['application_status']?.toString() ?? 'pending',
+                  ),
+                ];
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.black26 : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.borderColor
+                          : Colors.grey.shade200,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
                         style: TextStyle(
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black,
                         ),
                       ),
-                    ),
-                  )
-                : Column(
-                    children: records.map((record) {
-                      final partner =
-                          record['partner'] as Map<String, dynamic>?;
-                      final title =
-                          '${record['brand'] ?? 'Unknown'} ${record['model'] ?? ''}'
-                              .trim();
-                      final subtitle = [
-                        if (record['year'] != null) record['year'].toString(),
-                        if ((record['plate_number'] ?? '')
-                            .toString()
-                            .isNotEmpty)
-                          'Plate: ${record['plate_number']}',
-                      ].join('  •  ');
-                      final photoUrls = List<String>.from(
-                        (record['photo_urls'] as List?) ?? const <String>[],
-                      );
-                      final detailPairs = <MapEntry<String, String>>[
-                        MapEntry(
-                          'Price Per Day',
-                          'PHP ${((record['price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                        ),
-                        MapEntry(
-                          'Price Per Hour',
-                          'PHP ${((record['price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                        ),
-                        MapEntry('Seats', record['seats']?.toString() ?? 'N/A'),
-                        MapEntry(
-                          'Fuel Type',
-                          record['fuel_type']?.toString() ?? 'N/A',
-                        ),
-                        MapEntry(
-                          'Transmission',
-                          record['transmission']?.toString() ?? 'N/A',
-                        ),
-                        MapEntry(
-                          'Driver Setup',
-                          record['owner_is_driver'] == true
-                              ? 'Owner will drive'
-                              : 'Vehicle only',
-                        ),
-                        MapEntry(
-                          'Submitted',
-                          _formatDate(record['created_at']?.toString() ?? ''),
-                        ),
-                        MapEntry(
-                          'Application Status',
-                          record['application_status']?.toString() ?? 'pending',
-                        ),
-                      ];
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.black26 : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
                             color: isDark
-                                ? AppColors.borderColor
-                                : Colors.grey.shade200,
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade700,
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            if (subtitle.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                subtitle,
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.grey.shade400
-                                      : Colors.grey.shade700,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 6),
-                            Text(
-                              'Partner: ${partner?['full_name'] ?? 'Unknown'} (${partner?['email'] ?? ''})',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDark
-                                    ? Colors.grey.shade300
-                                    : Colors.grey.shade800,
-                              ),
-                            ),
-                            if (photoUrls.isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                height: 150,
-                                child: ListView.separated(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: photoUrls.length,
-                                  separatorBuilder: (_, __) =>
-                                      const SizedBox(width: 12),
-                                  itemBuilder: (context, index) => InkWell(
-                                    onTap: () => _showImageLightbox(
-                                      context,
-                                      'Vehicle Photo ${index + 1}',
-                                      photoUrls[index],
-                                      isDark,
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Container(
-                                        width: 220,
-                                        color: isDark
-                                            ? AppColors.darkBg
-                                            : Colors.grey.shade100,
-                                        child: OptimizedNetworkImage(
-                                          imageUrl: photoUrls[index],
-                                          fit: BoxFit.cover,
-                                          errorWidget: const Center(
-                                            child: Icon(
-                                              Icons.image_not_supported_outlined,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                final isNarrow = constraints.maxWidth < 900;
-                                final cardWidth = isNarrow
-                                    ? constraints.maxWidth
-                                    : (constraints.maxWidth - 24) / 3;
-                                return Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  children: [
-                                    ...detailPairs.map(
-                                      (detail) => SizedBox(
-                                        width: cardWidth,
-                                        child: _buildDetailCard(
-                                          detail.key,
-                                          detail.value,
-                                          isDark,
-                                        ),
-                                      ),
-                                    ),
-                                    if ((record['or_document_url'] ?? '')
-                                        .toString()
-                                        .isNotEmpty)
-                                      SizedBox(
-                                        width: cardWidth,
-                                        child: _buildDocumentPreview(
-                                          title: 'OR Document',
-                                          url:
-                                              record['or_document_url']
-                                                  ?.toString() ??
-                                              '',
-                                          isDark: isDark,
-                                          context: context,
-                                        ),
-                                      ),
-                                    if ((record['cr_document_url'] ?? '')
-                                        .toString()
-                                        .isNotEmpty)
-                                      SizedBox(
-                                        width: cardWidth,
-                                        child: _buildDocumentPreview(
-                                          title: 'CR Document',
-                                          url:
-                                              record['cr_document_url']
-                                                  ?.toString() ??
-                                              '',
-                                          isDark: isDark,
-                                          context: context,
-                                        ),
-                                      ),
-                                  ],
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                FilledButton.icon(
-                                  onPressed: () =>
-                                      _approvePartnerVehicleApplication(record),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  icon: const Icon(Icons.check, size: 16),
-                                  label: const Text('Approve'),
-                                ),
-                                const SizedBox(width: 8),
-                                OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _rejectPartnerVehicleApplication(record),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.red,
-                                    side: const BorderSide(
-                                      color: Colors.redAccent,
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.close, size: 16),
-                                  label: const Text('Reject'),
-                                ),
-                              ],
-                            ),
-                          ],
+                      ],
+                      const SizedBox(height: 6),
+                      Text(
+                        'Partner: ${partner?['full_name'] ?? 'Unknown'} (${partner?['email'] ?? ''})',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade800,
                         ),
-                      );
-                    }).toList(),
+                      ),
+                      if (photoUrls.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          height: 150,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: photoUrls.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) => InkWell(
+                              onTap: () => _showImageLightbox(
+                                context,
+                                'Vehicle Photo ${index + 1}',
+                                photoUrls[index],
+                                isDark,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  width: 220,
+                                  color: isDark
+                                      ? AppColors.darkBg
+                                      : Colors.grey.shade100,
+                                  child: OptimizedNetworkImage(
+                                    imageUrl: photoUrls[index],
+                                    fit: BoxFit.cover,
+                                    errorWidget: const Center(
+                                      child: Icon(
+                                        Icons.image_not_supported_outlined,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isNarrow = constraints.maxWidth < 900;
+                          final cardWidth = isNarrow
+                              ? constraints.maxWidth
+                              : (constraints.maxWidth - 24) / 3;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              ...detailPairs.map(
+                                (detail) => SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDetailCard(
+                                    detail.key,
+                                    detail.value,
+                                    isDark,
+                                  ),
+                                ),
+                              ),
+                              if ((record['or_document_url'] ?? '')
+                                  .toString()
+                                  .isNotEmpty)
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDocumentPreview(
+                                    title: 'OR Document',
+                                    url:
+                                        record['or_document_url']?.toString() ??
+                                        '',
+                                    isDark: isDark,
+                                    context: context,
+                                  ),
+                                ),
+                              if ((record['cr_document_url'] ?? '')
+                                  .toString()
+                                  .isNotEmpty)
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: _buildDocumentPreview(
+                                    title: 'CR Document',
+                                    url:
+                                        record['cr_document_url']?.toString() ??
+                                        '',
+                                    isDark: isDark,
+                                    context: context,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () =>
+                                _approvePartnerVehicleApplication(record),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Approve'),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _rejectPartnerVehicleApplication(record),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              side: const BorderSide(color: Colors.redAccent),
+                            ),
+                            icon: const Icon(Icons.close, size: 16),
+                            label: const Text('Reject'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _showApplicationPriceChangeDialog(
+                              record,
+                              isDark,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: BorderSide(
+                                color: AppColors.primary.withValues(alpha: 0.7),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.price_change_rounded,
+                              size: 16,
+                            ),
+                            label: const Text('Price Change Request'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-            isDark,
-          );
+                );
+              }).toList(),
+            ),
+      isDark,
+    );
   }
 
   Widget _buildPriceChangeRequestsSection(bool isDark) {
     return _buildCard(
       'Price Change Requests (${_priceChangeRequests.length})',
-            _priceChangeRequests.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      child: Text(
-                        'No partner price requests right now.',
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
-                        ),
-                      ),
-                    ),
-                  )
-                : Column(
-                    children: _priceChangeRequests.map((request) {
-                      final data = request['data'] is Map<String, dynamic>
-                          ? Map<String, dynamic>.from(request['data'])
-                          : <String, dynamic>{};
-                      final forwarded = data['forwarded_to_operator'] == true;
+      _priceChangeRequests.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Text(
+                  'No partner price requests right now.',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              children: _priceChangeRequests.map((request) {
+                final data = request['data'] is Map<String, dynamic>
+                    ? Map<String, dynamic>.from(request['data'])
+                    : <String, dynamic>{};
+                final forwarded = data['forwarded_to_operator'] == true;
+                final currentDaily =
+                    (data['current_price_per_day'] as num?)?.toDouble() ?? 0;
+                final requestedDaily =
+                    (data['requested_price_per_day'] as num?)?.toDouble() ?? 0;
+                final currentHourly =
+                    (data['current_price_per_hour'] as num?)?.toDouble() ?? 0;
+                final requestedHourly =
+                    (data['requested_price_per_hour'] as num?)?.toDouble() ?? 0;
+                final dailyChange = requestedDaily - currentDaily;
+                final hourlyChange = requestedHourly - currentHourly;
+                final applicablePeriod = [
+                  data['applicable_date']?.toString().trim() ?? '',
+                  data['effective_date']?.toString().trim() ?? '',
+                  data['effective_period']?.toString().trim() ?? '',
+                ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
+                final requestReason = [
+                  data['reason']?.toString().trim() ?? '',
+                  data['note']?.toString().trim() ?? '',
+                ].firstWhere((value) => value.isNotEmpty, orElse: () => '');
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.black26 : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.borderColor
-                                : Colors.grey.shade200,
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF021F35) : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: forwarded
+                          ? Colors.green.withValues(alpha: 0.35)
+                          : (isDark
+                                ? AppColors.primary.withValues(alpha: 0.25)
+                                : Colors.grey.shade300),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.price_change_rounded,
+                              color: AppColors.primary,
+                              size: 20,
+                            ),
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              data['vehicle_title']?.toString() ??
-                                  'Partner vehicle',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              request['message']?.toString() ?? '',
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.grey.shade300
-                                    : Colors.grey.shade800,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildDetailCard(
-                                  'Current Daily',
-                                  'PHP ${((data['current_price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                                  isDark,
+                                Text(
+                                  data['vehicle_title']?.toString() ??
+                                      'Partner vehicle',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: isDark ? Colors.white : Colors.black,
+                                  ),
                                 ),
-                                _buildDetailCard(
-                                  'Requested Daily',
-                                  'PHP ${((data['requested_price_per_day'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                                  isDark,
-                                ),
-                                _buildDetailCard(
-                                  'Current Hourly',
-                                  'PHP ${((data['current_price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                                  isDark,
-                                ),
-                                _buildDetailCard(
-                                  'Requested Hourly',
-                                  'PHP ${((data['requested_price_per_hour'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                                  isDark,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Partner price update request',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
-                            if ((data['note'] ?? '')
-                                .toString()
-                                .trim()
-                                .isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: Text(
-                                  'Note: ${data['note']}',
-                                  style: TextStyle(
-                                    color: isDark
-                                        ? Colors.grey.shade300
-                                        : Colors.grey.shade800,
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: forwarded
-                                  ? null
-                                  : () => _forwardPriceChangeRequestToOperators(
-                                      request,
-                                    ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.black,
-                              ),
-                              icon: const Icon(
-                                Icons.forward_to_inbox,
-                                size: 16,
-                              ),
-                              label: Text(
-                                forwarded
-                                    ? 'Forwarded to Operator'
-                                    : 'Forward to Operator',
-                              ),
+                          ),
+                          _buildForwardStatusBadge(forwarded),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      if ((request['message']?.toString() ?? '')
+                          .trim()
+                          .isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.black26
+                                : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white10
+                                  : Colors.grey.shade200,
                             ),
-                          ],
+                          ),
+                          child: Text(
+                            request['message'].toString(),
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey.shade300
+                                  : Colors.grey.shade800,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
                         ),
-                      );
-                    }).toList(),
+                      const SizedBox(height: 16),
+                      Text(
+                        'PRICE COMPARISON',
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : Colors.grey.shade600,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _buildDetailCard(
+                            'Current daily rate',
+                            'PHP ${currentDaily.toStringAsFixed(0)}',
+                            isDark,
+                            icon: Icons.calendar_today_outlined,
+                          ),
+                          _buildDetailCard(
+                            'New daily rate',
+                            'PHP ${requestedDaily.toStringAsFixed(0)}',
+                            isDark,
+                            icon: Icons.trending_up_rounded,
+                            highlightColor: AppColors.primary,
+                          ),
+                          _buildDetailCard(
+                            'Current hourly rate',
+                            'PHP ${currentHourly.toStringAsFixed(0)}',
+                            isDark,
+                            icon: Icons.access_time_rounded,
+                          ),
+                          _buildDetailCard(
+                            'New hourly rate',
+                            'PHP ${requestedHourly.toStringAsFixed(0)}',
+                            isDark,
+                            icon: Icons.trending_up_rounded,
+                            highlightColor: AppColors.primary,
+                          ),
+                          _buildDetailCard(
+                            'Daily price change',
+                            '${dailyChange >= 0 ? '+' : '-'}PHP ${dailyChange.abs().toStringAsFixed(0)}',
+                            isDark,
+                            icon: dailyChange >= 0
+                                ? Icons.arrow_upward_rounded
+                                : Icons.arrow_downward_rounded,
+                            highlightColor: dailyChange >= 0
+                                ? Colors.green
+                                : Colors.redAccent,
+                          ),
+                          _buildDetailCard(
+                            'Hourly price change',
+                            '${hourlyChange >= 0 ? '+' : '-'}PHP ${hourlyChange.abs().toStringAsFixed(0)}',
+                            isDark,
+                            icon: hourlyChange >= 0
+                                ? Icons.arrow_upward_rounded
+                                : Icons.arrow_downward_rounded,
+                            highlightColor: hourlyChange >= 0
+                                ? Colors.green
+                                : Colors.redAccent,
+                          ),
+                          if (applicablePeriod.isNotEmpty)
+                            _buildDetailCard(
+                              'Applicable date / period',
+                              applicablePeriod,
+                              isDark,
+                              icon: Icons.event_outlined,
+                            ),
+                        ],
+                      ),
+                      if (requestReason.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            'Reason / details\n$requestReason',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey.shade300
+                                  : Colors.grey.shade800,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton.icon(
+                          onPressed: forwarded
+                              ? null
+                              : () => _forwardPriceChangeRequestToOperators(
+                                  request,
+                                ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.forward_to_inbox_rounded,
+                            size: 17,
+                          ),
+                          label: Text(
+                            forwarded
+                                ? 'Forwarded to Operator'
+                                : 'Forward to Operator',
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-            isDark,
-          );
+                );
+              }).toList(),
+            ),
+      isDark,
+    );
   }
 
   Widget _buildVerificationSection({
@@ -8779,11 +9758,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final userPhone = (record['phone'] as String?)?.trim().isNotEmpty == true
         ? record['phone'].toString().trim()
         : (user?['phone']?.toString().trim() ?? '');
-    final userLocation = (record['location'] as String?)?.trim().isNotEmpty == true
+    final userLocation =
+        (record['location'] as String?)?.trim().isNotEmpty == true
         ? record['location'].toString().trim()
         : '';
     final avatarUrl = user?['avatar_url']?.toString().trim();
-    final joinedAt = user?['created_at']?.toString() ?? record['created_at']?.toString();
+    final joinedAt =
+        user?['created_at']?.toString() ?? record['created_at']?.toString();
 
     final idParts = (record['id_document_url'] as String? ?? '').split('|');
     final legacyIdUrls = idParts
@@ -8803,15 +9784,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         ? legacyIdUrls[1]
         : '';
     final faceSelfieUrl = record['face_selfie_url']?.toString().trim() ?? '';
-    final selfieWithIdUrl = record['selfie_with_id_url']?.toString().trim() ?? '';
-    final driverSignatureUrl = record['driver_signature_url']?.toString().trim() ?? '';
+    final selfieWithIdUrl =
+        record['selfie_with_id_url']?.toString().trim() ?? '';
+    final driverSignatureUrl =
+        record['driver_signature_url']?.toString().trim() ?? '';
     final driverNbiUrl = record['driver_nbi_url']?.toString().trim() ?? '';
-    final driverYearsExperience = record['driver_years_experience']?.toString().trim() ?? '';
-    final driverPreviousCompanies = record['driver_previous_companies']?.toString().trim() ?? '';
-    final driverLicenseExpiry = record['driver_license_expiry']?.toString().trim() ?? '';
+    final driverYearsExperience =
+        record['driver_years_experience']?.toString().trim() ?? '';
+    final driverPreviousCompanies =
+        record['driver_previous_companies']?.toString().trim() ?? '';
+    final driverLicenseExpiry =
+        record['driver_license_expiry']?.toString().trim() ?? '';
     final rejectionReason = record['rejection_reason']?.toString().trim() ?? '';
 
-    final status = (record['verification_status'] as String? ?? 'pending').toLowerCase();
+    final status = (record['verification_status'] as String? ?? 'pending')
+        .toLowerCase();
 
     Color statusBadgeColor;
     IconData statusIcon;
@@ -8830,7 +9817,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         statusIcon = Icons.hourglass_top_rounded;
     }
 
-    final userRole = (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter').toLowerCase().trim();
+    final userRole =
+        (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter')
+            .toLowerCase()
+            .trim();
     Color roleBg = Colors.purple.withValues(alpha: 0.15);
     Color roleText = Colors.purple;
     IconData roleIcon = Icons.directions_car_rounded;
@@ -8890,7 +9880,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               color: isDark
                   ? Colors.white.withValues(alpha: 0.04)
                   : Colors.grey.shade50,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
               border: Border(
                 bottom: BorderSide(
                   color: isDark ? Colors.white10 : Colors.grey.shade200,
@@ -8982,7 +9974,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(statusIcon, size: 13, color: statusBadgeColor),
+                                Icon(
+                                  statusIcon,
+                                  size: 13,
+                                  color: statusBadgeColor,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   status.toUpperCase(),
@@ -9004,7 +10000,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             Icon(
                               Icons.email_outlined,
                               size: 13,
-                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -9022,7 +10020,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             Icon(
                               Icons.phone_outlined,
                               size: 13,
-                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -9040,7 +10040,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             Icon(
                               Icons.calendar_today_outlined,
                               size: 13,
-                              color: isDark ? Colors.white54 : Colors.grey.shade600,
+                              color: isDark
+                                  ? Colors.white54
+                                  : Colors.grey.shade600,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -9091,7 +10093,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               child: const Text('Cancel'),
                             ),
                             FilledButton(
-                              onPressed: () => Navigator.pop(dialogContext, true),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
                               style: FilledButton.styleFrom(
                                 backgroundColor: Colors.green,
                                 foregroundColor: Colors.white,
@@ -9112,14 +10115,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       if (!mounted) return;
                       if (result['success'] == true) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$displayName verified successfully')),
+                          SnackBar(
+                            content: Text('$displayName verified successfully'),
+                          ),
                         );
                         _loadDashboardData();
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              result['message']?.toString() ?? 'Approval failed',
+                              result['message']?.toString() ??
+                                  'Approval failed',
                             ),
                           ),
                         );
@@ -9150,22 +10156,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       if (reason == null || reason.trim().isEmpty) return;
 
                       final adminId = _supabase.auth.currentUser?.id ?? '';
-                      final result = await VerificationService.rejectVerification(
-                        verificationId: record['id'].toString(),
-                        rejectionReason: reason,
-                        adminId: adminId,
-                      );
+                      final result =
+                          await VerificationService.rejectVerification(
+                            verificationId: record['id'].toString(),
+                            rejectionReason: reason,
+                            adminId: adminId,
+                          );
                       if (!mounted) return;
                       if (result['success'] == true) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Verification rejected for $displayName')),
+                          SnackBar(
+                            content: Text(
+                              'Verification rejected for $displayName',
+                            ),
+                          ),
                         );
                         _loadDashboardData();
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              result['message']?.toString() ?? 'Rejection failed',
+                              result['message']?.toString() ??
+                                  'Rejection failed',
                             ),
                           ),
                         );
@@ -9198,7 +10210,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               color: Colors.red.withValues(alpha: 0.1),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red,
+                    size: 18,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -9273,7 +10289,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           width: itemWidth,
                           child: _buildDetailCard(
                             'Registered Address / City',
-                            userLocation.isNotEmpty ? userLocation : 'Not provided',
+                            userLocation.isNotEmpty
+                                ? userLocation
+                                : 'Not provided',
                             isDark,
                             icon: Icons.location_on_outlined,
                           ),
@@ -9330,7 +10348,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   : 'Not provided',
                               isDark,
                               icon: Icons.event_available_rounded,
-                              highlightColor: isLicenseExpired ? Colors.red : null,
+                              highlightColor: isLicenseExpired
+                                  ? Colors.red
+                                  : null,
                             ),
                           ),
                           SizedBox(
@@ -9468,11 +10488,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
                     ];
 
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: docList,
-                    );
+                    return Wrap(spacing: 12, runSpacing: 12, children: docList);
                   },
                 ),
 
@@ -9546,7 +10562,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         color: isDark ? Colors.black26 : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: highlightColor?.withValues(alpha: 0.4) ??
+          color:
+              highlightColor?.withValues(alpha: 0.4) ??
               (isDark ? AppColors.borderColor : Colors.grey.shade300),
         ),
       ),
@@ -9559,7 +10576,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 Icon(
                   icon,
                   size: 13,
-                  color: highlightColor ?? (isDark ? Colors.white54 : Colors.grey.shade600),
+                  color:
+                      highlightColor ??
+                      (isDark ? Colors.white54 : Colors.grey.shade600),
                 ),
                 const SizedBox(width: 6),
               ],
@@ -9569,7 +10588,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   style: TextStyle(
                     fontSize: 11,
                     letterSpacing: 0.4,
-                    color: highlightColor ?? (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                    color:
+                        highlightColor ??
+                        (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
                     fontWeight: FontWeight.w700,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -9624,7 +10645,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       fontSize: 11,
                       letterSpacing: 0.4,
                       fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                      color: isDark
+                          ? Colors.grey.shade300
+                          : Colors.grey.shade800,
                     ),
                   ),
                 ),
@@ -9674,12 +10697,25 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           'Not submitted',
                           style: TextStyle(
                             fontSize: 11,
-                            color: isDark ? Colors.white38 : Colors.grey.shade600,
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade600,
                           ),
                         ),
                       ],
                     ),
                   ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: DialogStatusIndicator(
+              compact: true,
+              isComplete: hasUrl,
+              completeLabel: 'Document submitted',
+              incompleteLabel: 'Document missing',
+              completeDetail: 'Available for admin review.',
+              incompleteDetail: 'Required document has not been submitted.',
+            ),
           ),
         ],
       ),
@@ -9787,37 +10823,39 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             if (loadingProgress == null) return child;
                             return Center(
                               child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
+                                value:
+                                    loadingProgress.expectedTotalBytes != null
                                     ? loadingProgress.cumulativeBytesLoaded /
-                                        loadingProgress.expectedTotalBytes!
+                                          loadingProgress.expectedTotalBytes!
                                     : null,
                                 color: AppColors.primary,
                               ),
                             );
                           },
-                          errorBuilder: (context, error, stackTrace) => Container(
-                            padding: const EdgeInsets.all(40),
-                            alignment: Alignment.center,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.broken_image_rounded,
-                                  size: 48,
-                                  color: Colors.white54,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                padding: const EdgeInsets.all(40),
+                                alignment: Alignment.center,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.broken_image_rounded,
+                                      size: 48,
+                                      color: Colors.white54,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Unable to load document image',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.white70
+                                            : Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Unable to load document image',
-                                  style: TextStyle(
-                                    color: isDark
-                                        ? Colors.white70
-                                        : Colors.grey.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                              ),
                         ),
                       ),
                     ),
@@ -9872,8 +10910,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor:
-                  isDark ? AppColors.darkBgSecondary : Colors.white,
+              backgroundColor: isDark
+                  ? AppColors.darkBgSecondary
+                  : Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -9885,7 +10924,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       color: Colors.red.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.gavel_rounded, color: Colors.red, size: 22),
+                    child: const Icon(
+                      Icons.gavel_rounded,
+                      color: Colors.red,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -9910,7 +10953,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       'Please select a clear rejection reason to inform the applicant:',
                       style: TextStyle(
                         fontSize: 13,
-                        color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                        color: isDark
+                            ? Colors.grey.shade300
+                            : Colors.grey.shade700,
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -9948,8 +10993,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             color: isDark ? Colors.white38 : Colors.grey,
                           ),
                           filled: true,
-                          fillColor:
-                              isDark ? Colors.black26 : Colors.grey.shade100,
+                          fillColor: isDark
+                              ? Colors.black26
+                              : Colors.grey.shade100,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -9968,8 +11014,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   onPressed: () {
                     final finalReason = selectedReason.startsWith('Other')
                         ? (customReasonController.text.trim().isNotEmpty
-                            ? customReasonController.text.trim()
-                            : 'Rejected by admin')
+                              ? customReasonController.text.trim()
+                              : 'Rejected by admin')
                         : selectedReason;
                     Navigator.pop(dialogContext, finalReason);
                   },
@@ -10815,7 +11861,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                       c.startsWith('Sent an attachment:')) {
                                     return '📷 Sent an attachment';
                                   }
-                                  return c.isNotEmpty ? c : 'Open support thread';
+                                  return c.isNotEmpty
+                                      ? c
+                                      : 'Open support thread';
                                 })(),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -10912,8 +11960,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   _supabase.auth.currentUser?.id;
                               final rawContent =
                                   (message['content'] ?? message['message'])
-                                          ?.toString() ??
-                                      '';
+                                      ?.toString() ??
+                                  '';
                               final isDeleted =
                                   message['is_deleted'] == true ||
                                   rawContent == 'Message deleted';
@@ -10956,12 +12004,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                 }
                               }
 
-                              final showContentText = isDeleted ||
+                              final showContentText =
+                                  isDeleted ||
                                   (rawContent.trim().isNotEmpty &&
                                       rawContent.trim() != attachmentUrl &&
-                                      !rawContent
-                                          .trim()
-                                          .startsWith('Sent an attachment:'));
+                                      !rawContent.trim().startsWith(
+                                        'Sent an attachment:',
+                                      ));
 
                               return Align(
                                 alignment: isAdminMessage
@@ -11007,9 +12056,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                       ? Colors.black38
                                                       : Colors.grey.shade200,
                                                   borderRadius:
-                                                      BorderRadius.circular(
-                                                        10,
-                                                      ),
+                                                      BorderRadius.circular(10),
                                                 ),
                                                 child: Stack(
                                                   alignment: Alignment.center,
@@ -11032,8 +12079,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                             const Icon(
                                                               Icons
                                                                   .broken_image_outlined,
-                                                              color: Colors
-                                                                  .amber,
+                                                              color:
+                                                                  Colors.amber,
                                                               size: 20,
                                                             ),
                                                             const SizedBox(
@@ -11046,10 +12093,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                                                   fontSize: 12,
                                                                   color:
                                                                       isAdminMessage
-                                                                          ? Colors
-                                                                              .black87
-                                                                          : Colors
-                                                                              .white,
+                                                                      ? Colors
+                                                                            .black87
+                                                                      : Colors
+                                                                            .white,
                                                                 ),
                                                               ),
                                                             ),
@@ -11124,7 +12171,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                             color: isAdminMessage
                                                 ? const Color(0xFF101820)
                                                 : (isDark
-                                          ? Colors.white
+                                                      ? Colors.white
                                                       : Colors.black87),
                                             fontWeight: isAdminMessage
                                                 ? FontWeight.w500
@@ -11270,17 +12317,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildAnnouncementsOverview(bool isDark) {
-    final selectedAnnouncements = _announcements
-        .where(
-          (announcement) => isSameDay(
-            _announcementDate(announcement),
-            _announcementSelectedDay,
-          ),
-        )
-        .toList()
-      ..sort(
-        (a, b) => _announcementDate(a).compareTo(_announcementDate(b)),
-      );
+    final selectedAnnouncements =
+        _announcements
+            .where(
+              (announcement) => isSameDay(
+                _announcementDate(announcement),
+                _announcementSelectedDay,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) => _announcementDate(a).compareTo(_announcementDate(b)),
+          );
     final statusCounts = <String, int>{
       'scheduled': 0,
       'active': 0,
@@ -11424,11 +12472,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               );
               if (constraints.maxWidth < 1050) {
                 return Column(
-                  children: [
-                    calendar,
-                    const SizedBox(height: 20),
-                    dayList,
-                  ],
+                  children: [calendar, const SizedBox(height: 20), dayList],
                 );
               }
               return IntrinsicHeight(
@@ -11532,7 +12576,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _announcementType,
-                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                        dropdownColor: isDark
+                            ? AppColors.darkCard
+                            : Colors.white,
                         decoration: _announcementInputDecoration(
                           isDark,
                           label: 'Announcement Type',
@@ -11557,7 +12603,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _announcementTargetRole,
-                        dropdownColor: isDark ? AppColors.darkCard : Colors.white,
+                        dropdownColor: isDark
+                            ? AppColors.darkCard
+                            : Colors.white,
                         decoration: _announcementInputDecoration(
                           isDark,
                           label: 'Audience',
@@ -11719,7 +12767,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         focusedDay: _announcementFocusedDay,
         selectedDayPredicate: (day) => isSameDay(day, _announcementSelectedDay),
         eventLoader: (day) => _announcements
-            .where((announcement) => isSameDay(_announcementDate(announcement), day))
+            .where(
+              (announcement) => isSameDay(_announcementDate(announcement), day),
+            )
             .toList(),
         onDaySelected: (selectedDay, focusedDay) {
           setState(() {
@@ -11838,10 +12888,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           : Column(
               children: announcements
                   .map(
-                    (announcement) => _buildAnnouncementListCard(
-                      announcement,
-                      isDark,
-                    ),
+                    (announcement) =>
+                        _buildAnnouncementListCard(announcement, isDark),
                   )
                   .toList(),
             ),
@@ -11936,7 +12984,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(value: 'view', child: Text('View details')),
+                  const PopupMenuItem(
+                    value: 'view',
+                    child: Text('View details'),
+                  ),
                   if (canEdit)
                     const PopupMenuItem(
                       value: 'edit',
@@ -12142,7 +13193,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   String _announcementStatus(Map<String, dynamic> announcement) {
     final status = announcement['status']?.toString().toLowerCase() ?? 'active';
-    if (status == 'scheduled' && !_announcementDate(announcement).isAfter(DateTime.now())) {
+    if (status == 'scheduled' &&
+        !_announcementDate(announcement).isAfter(DateTime.now())) {
       return 'active';
     }
     return {'scheduled', 'active', 'completed', 'cancelled'}.contains(status)
@@ -12208,12 +13260,13 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         backgroundColor: isDark ? AppColors.darkCard : Colors.white,
         title: Row(
           children: [
-            Icon(_announcementTypeIcon(type), color: _announcementTypeColor(type)),
+            Icon(
+              _announcementTypeIcon(type),
+              color: _announcementTypeColor(type),
+            ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                announcement['title']?.toString() ?? 'Announcement',
-              ),
+              child: Text(announcement['title']?.toString() ?? 'Announcement'),
             ),
           ],
         ),
@@ -12492,7 +13545,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.save),
-                      label: Text(_isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy'),
+                      label: Text(
+                        _isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy',
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
@@ -12804,7 +13859,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _supabase.auth.currentUser?.email ?? 'Super Administrator',
+                        _supabase.auth.currentUser?.email ??
+                            'Super Administrator',
                         style: TextStyle(
                           color: isDark ? Colors.white : Colors.black,
                           fontWeight: FontWeight.w700,
@@ -12836,7 +13892,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           Text(
                             'Full System Access',
                             style: TextStyle(
-                              color: isDark ? Colors.grey : Colors.grey.shade600,
+                              color: isDark
+                                  ? Colors.grey
+                                  : Colors.grey.shade600,
                               fontSize: 12,
                             ),
                           ),
@@ -12959,7 +14017,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Password change email link sent to your administrator address.'),
+                    content: Text(
+                      'Password change email link sent to your administrator address.',
+                    ),
                     backgroundColor: Colors.blue,
                   ),
                 );
@@ -12973,7 +14033,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           _buildCard(
             'Ratings, Reviews & System Legal',
             ListTile(
-              leading: const Icon(Icons.star_rate_rounded, color: AppColors.warning),
+              leading: const Icon(
+                Icons.star_rate_rounded,
+                color: AppColors.warning,
+              ),
               title: Text(
                 'View All Ratings & Renter Reviews',
                 style: TextStyle(
@@ -13657,11 +14720,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final category = _actionLogCategoryFilter;
 
     final filteredLogs = _actionLogs.where((log) {
-      final matchesSearch = search.isEmpty ||
+      final matchesSearch =
+          search.isEmpty ||
           (log['notes']?.toString().toLowerCase().contains(search) ?? false) ||
-          (log['actor_name']?.toString().toLowerCase().contains(search) ?? false) ||
-          (log['booking_id']?.toString().toLowerCase().contains(search) ?? false) ||
-          (log['action_type']?.toString().toLowerCase().contains(search) ?? false) ||
+          (log['actor_name']?.toString().toLowerCase().contains(search) ??
+              false) ||
+          (log['booking_id']?.toString().toLowerCase().contains(search) ??
+              false) ||
+          (log['action_type']?.toString().toLowerCase().contains(search) ??
+              false) ||
           (log['category']?.toString().toLowerCase().contains(search) ?? false);
 
       if (!matchesSearch) return false;
@@ -13674,7 +14741,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       if (category == 'drivers') return logCat == 'DRIVER ASSIGNMENT';
       if (category == 'renters') return logCat == 'RENTER REQUEST';
       if (category == 'payments') {
-        return logCat == 'PAYMENT CONFIRMED' || logCat == 'RETURN INSPECTION' || logCat == 'TRIP COMPLETED';
+        return logCat == 'PAYMENT CONFIRMED' ||
+            logCat == 'RETURN INSPECTION' ||
+            logCat == 'TRIP COMPLETED';
       }
       if (category == 'verifications') return logCat == 'USER VERIFICATION';
 
@@ -13692,7 +14761,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             decoration: BoxDecoration(
               color: isDark ? const Color(0xFF021F35) : Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.15),
@@ -13863,54 +14934,50 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             child: _isLoadingActionLogs
                 ? const Center(child: CircularProgressIndicator())
                 : filteredLogs.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.history_rounded,
-                              size: 48,
-                              color: Colors.grey.shade600,
-                            ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'No action logs found',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              search.isNotEmpty
-                                  ? 'Try clearing your search query'
-                                  : 'System action logs will appear here live in real-time.',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.history_rounded,
+                          size: 48,
+                          color: Colors.grey.shade600,
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: filteredLogs.length,
-                        itemBuilder: (context, index) {
-                          final item = filteredLogs[index];
-                          return _buildActionLogCard(item, isDark);
-                        },
-                      ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'No action logs found',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          search.isNotEmpty
+                              ? 'Try clearing your search query'
+                              : 'System action logs will appear here live in real-time.',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: filteredLogs.length,
+                    itemBuilder: (context, index) {
+                      final item = filteredLogs[index];
+                      return _buildActionLogCard(item, isDark);
+                    },
+                  ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildActionLogCategoryChip(
-    String key,
-    String label,
-    bool isDark,
-  ) {
+  Widget _buildActionLogCategoryChip(String key, String label, bool isDark) {
     final isSelected = _actionLogCategoryFilter == key;
     return InkWell(
       onTap: () => setState(() => _actionLogCategoryFilter = key),
@@ -14014,10 +15081,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           // Icon Avatar
           Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: badgeBg,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: badgeBg, shape: BoxShape.circle),
             child: Icon(iconData, color: iconColor, size: 20),
           ),
           const SizedBox(width: 14),
@@ -14127,10 +15191,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               if (parsedTime != null)
                 Text(
                   '${parsedTime.hour.toString().padLeft(2, '0')}:${parsedTime.minute.toString().padLeft(2, '0')}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey.shade500,
-                  ),
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                 ),
             ],
           ),

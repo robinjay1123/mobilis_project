@@ -24,6 +24,7 @@ import '../../widgets/notification_item.dart';
 import '../../widgets/restriction_ui.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/vehicle_inspection_checklist_fields.dart';
@@ -1362,7 +1363,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ],
                 ),
                 const Text(
-                  'Mobilis by PSDC Certified Partner',
+                  'Mobilis Certified Partner',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
@@ -2953,22 +2954,136 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }
 
   void _showPartnerNotificationDetails(Map<String, dynamic> notification) {
-    showDialog<void>(
+    final title = notification['title']?.toString() ?? 'Notification';
+    final rawMessage = notification['message']?.toString().trim() ?? '';
+    final message = rawMessage.isNotEmpty
+        ? rawMessage
+        : 'No additional details are available.';
+    final timestamp = _formatTime(notification['created_at']?.toString());
+    final visual = notificationVisualFor(notification);
+
+    showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(notification['title']?.toString() ?? 'Notification'),
-        content: Text(
-          notification['message']?.toString().trim().isNotEmpty == true
-              ? notification['message'].toString()
-              : 'No additional details are available.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
+        final cardColor = isDark ? const Color(0xFF2A3548) : Colors.white;
+        final primaryText = isDark
+            ? AppColors.textPrimary
+            : AppColors.lightTextPrimary;
+        final secondaryText = isDark
+            ? AppColors.textSecondary
+            : AppColors.lightTextSecondary;
+
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : AppColors.lightBorderColor,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.24)
+                          : Colors.black.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: visual.color.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(visual.icon, color: visual.color, size: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: primaryText,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            timestamp,
+                            style: TextStyle(
+                              color: secondaryText,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  message,
+                  style: TextStyle(
+                    color: primaryText,
+                    fontSize: 15,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                    ),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -4209,6 +4324,26 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  DialogStatusIndicator(
+                    compact: true,
+                    isComplete:
+                        BookingInspectionService.requiredChecklistKeys.every(
+                          (key) => checklistItems[key] == true,
+                        ) &&
+                        fuelController.text.trim().isNotEmpty &&
+                        tiresController.text.trim().isNotEmpty &&
+                        magsController.text.trim().isNotEmpty &&
+                        releasedByController.text.trim().isNotEmpty &&
+                        receivedByController.text.trim().isNotEmpty &&
+                        selectedEvidence.isNotEmpty,
+                    completeLabel: 'Inspection information complete',
+                    incompleteLabel: 'Inspection information incomplete',
+                    completeDetail:
+                        'Checklist, required fields, and evidence are ready.',
+                    incompleteDetail:
+                        'Complete every checklist item, required field, and add evidence.',
+                  ),
+                  const SizedBox(height: 12),
                   VehicleInspectionChecklistFields(
                     values: checklistItems,
                     isDark: true,

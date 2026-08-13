@@ -195,10 +195,10 @@ class _VerificationSuccessScreenState extends State<VerificationSuccessScreen>
 
               // Done button
               CustomButton(
-                label: 'Done',
-                onPressed: () {
-                  Navigator.of(context).popUntil((route) => route.isFirst);
-                },
+                label: 'Go to Dashboard',
+                onPressed: () => Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/dashboard', (route) => false),
               ),
               const SizedBox(height: 16),
 

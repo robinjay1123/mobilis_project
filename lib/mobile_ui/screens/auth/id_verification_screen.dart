@@ -231,9 +231,10 @@ class _IdVerificationScreenState extends State<IdVerificationScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.of(
-                          context,
-                        ).pushReplacementNamed('/dashboard');
+                        Navigator.of(context).pushNamedAndRemoveUntil(
+                          '/dashboard',
+                          (route) => false,
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,

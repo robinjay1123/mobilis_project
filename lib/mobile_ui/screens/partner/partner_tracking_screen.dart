@@ -151,7 +151,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                             ),
                             SizedBox(height: 2),
                             Text(
-                              'Powered by PSDC',
+                              'Powered by Mobilis',
                               style: TextStyle(
                                 color: AppColors.textSecondary,
                                 fontSize: 12,

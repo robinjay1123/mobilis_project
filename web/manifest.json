@@ -1,6 +1,6 @@
 {
-    "name": "mobilis_by_psdc_app",
-    "short_name": "mobilis_by_psdc_app",
+    "name": "Mobilis",
+    "short_name": "Mobilis",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",

@@ -40,6 +40,7 @@ import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../../widgets/dialog_status_indicator.dart';
 import '../profile/unified_profile_screen.dart';
 import '../tracking/trip_navigation_screen.dart';
 import '../../../utils/booking_status.dart';
@@ -903,7 +904,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _applyVehicleFilters() {
     final search = _committedVehicleSearch;
-    final hasLocationFilter = _nearbyLatitude != null && _nearbyLongitude != null;
+    final hasLocationFilter =
+        _nearbyLatitude != null && _nearbyLongitude != null;
     final searchTerms = search
         .split(RegExp(r'[,\s]+'))
         .where((term) => term.length >= 2)
@@ -951,9 +953,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         transmission,
         fuelType,
       ].join(' ');
-      final matchesSearch = searchable.contains(search) ||
-          (searchTerms.isNotEmpty &&
-              searchTerms.every(searchable.contains));
+      final matchesSearch =
+          searchable.contains(search) ||
+          (searchTerms.isNotEmpty && searchTerms.every(searchable.contains));
 
       if (!hasLocationFilter) return matchesSearch;
       return matchesSearch ||
@@ -1154,12 +1156,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
         if (placemarks.isNotEmpty) {
           final place = placemarks.first;
-          final labelParts = [
-            place.subLocality,
-            place.locality,
-            place.subAdministrativeArea,
-            place.administrativeArea,
-          ].whereType<String>().where((part) => part.trim().isNotEmpty).toList();
+          final labelParts =
+              [
+                    place.subLocality,
+                    place.locality,
+                    place.subAdministrativeArea,
+                    place.administrativeArea,
+                  ]
+                  .whereType<String>()
+                  .where((part) => part.trim().isNotEmpty)
+                  .toList();
           if (labelParts.isNotEmpty) {
             label = labelParts.take(2).join(', ');
             tokens.addAll(
@@ -1206,7 +1212,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _moveVehicleMapTo(double latitude, double longitude, {double zoom = 13}) {
+  void _moveVehicleMapTo(
+    double latitude,
+    double longitude, {
+    double zoom = 13,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       try {
@@ -3634,7 +3644,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           horizontal: 16,
                           vertical: 12,
                         ),
-                        prefixIcon: Icon(Icons.search, color: tertiaryTextColor),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: tertiaryTextColor,
+                        ),
                         suffixIcon: Tooltip(
                           message: 'Search location',
                           child: InkWell(
@@ -7758,6 +7771,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                   ],
+                  DialogStatusIndicator(
+                    compact: true,
+                    isComplete:
+                        totalPaymentDue <= 0 ||
+                        selectedPaymentMethod == 'cash_at_desk' ||
+                        (receiptFile != null &&
+                            RegExp(
+                              r'^\d{6,13}$',
+                            ).hasMatch(referenceController.text.trim())),
+                    completeLabel: 'Settlement information complete',
+                    incompleteLabel: 'Settlement information required',
+                    completeDetail: 'Payment details are ready to submit.',
+                    incompleteDetail:
+                        'Add the receipt and a valid 6 to 13-digit reference number.',
+                  ),
+                  const SizedBox(height: 12),
                   if (lateHours > 0) ...[
                     Container(
                       width: double.infinity,
@@ -8000,6 +8029,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         controller: referenceController,
                         keyboardType: TextInputType.number,
                         maxLength: 13,
+                        onChanged: (_) => setDialogState(() {}),
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                           LengthLimitingTextInputFormatter(13),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
@@ -8,6 +11,7 @@ import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
+import '../../widgets/leaflet_map.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -36,6 +40,11 @@ class _SignupScreenState extends State<SignupScreen> {
   String? selectedRole; // 'renter' or 'partner'
   bool _didApplyInitialRouteArgs = false;
   bool _isPartnerRegistration = false;
+  final MapController _locationMapController = MapController();
+  LatLng? _selectedLocationPoint;
+
+  static const double _defaultLocationLatitude = 15.9758;
+  static const double _defaultLocationLongitude = 120.5719;
 
   @override
   void initState() {
@@ -305,6 +314,167 @@ class _SignupScreenState extends State<SignupScreen> {
         )
       : null;
 
+  void _moveLocationMap(LatLng point, {double zoom = 15}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _locationMapController.move(point, zoom);
+      } catch (_) {
+        // The map may not be attached yet on the first layout.
+      }
+    });
+  }
+
+  Future<void> _selectLocationFromMap(double latitude, double longitude) async {
+    final point = LatLng(latitude, longitude);
+    if (mounted) {
+      setState(() {
+        _locationTouched = true;
+        _selectedLocationPoint = point;
+      });
+    }
+    _moveLocationMap(point);
+
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (!mounted) return;
+
+      final place = placemarks.isNotEmpty ? placemarks.first : null;
+      final locationParts =
+          [place?.locality, place?.administrativeArea, place?.country]
+              .map((part) => part?.trim() ?? '')
+              .where((part) => part.isNotEmpty)
+              .toList();
+      final location = locationParts.isNotEmpty
+          ? locationParts.join(', ')
+          : '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
+
+      setState(() {
+        locationController.text = location;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        locationController.text =
+            '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Map location selected, but the address could not be resolved: $e',
+          ),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Widget _buildLocationMap() {
+    final selectedPoint = _selectedLocationPoint;
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: MobilisLeafletMap(
+              mapController: _locationMapController,
+              fallbackLatitude: _defaultLocationLatitude,
+              fallbackLongitude: _defaultLocationLongitude,
+              initialZoom: 11,
+              markers: selectedPoint == null
+                  ? const []
+                  : [
+                      MobilisMapMarker(
+                        latitude: selectedPoint.latitude,
+                        longitude: selectedPoint.longitude,
+                        icon: Icons.location_pin,
+                        color: AppColors.primary,
+                        size: 42,
+                      ),
+                    ],
+              onTap: _selectLocationFromMap,
+            ),
+          ),
+          Positioned(
+            top: 8,
+            left: 8,
+            right: 8,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.68),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Tap the map to choose a location',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationSection() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final field = CustomTextField(
+          label: 'Location *',
+          hintText: 'City, Country',
+          controller: locationController,
+          errorText: _locationError,
+          onChanged: (_) => setState(() => _locationTouched = true),
+          prefixIcon: const Icon(
+            Icons.location_on_outlined,
+            color: AppColors.textTertiary,
+          ),
+          suffixIcon: IconButton(
+            tooltip: 'Use current location',
+            icon: const Icon(
+              Icons.location_searching,
+              color: AppColors.primary,
+            ),
+            onPressed: _getCurrentLocation,
+          ),
+        );
+        final map = SizedBox(height: 178, child: _buildLocationMap());
+
+        if (constraints.maxWidth >= 700) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: field),
+              const SizedBox(width: 14),
+              SizedBox(width: 250, child: map),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [field, const SizedBox(height: 12), map],
+        );
+      },
+    );
+  }
+
   Future<void> _getCurrentLocation() async {
     try {
       // Check if location services are enabled
@@ -356,6 +526,14 @@ class _SignupScreenState extends State<SignupScreen> {
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
       );
+
+      final currentPoint = LatLng(position.latitude, position.longitude);
+      if (mounted) {
+        setState(() {
+          _selectedLocationPoint = currentPoint;
+        });
+        _moveLocationMap(currentPoint);
+      }
 
       // Get address from coordinates
       List<Placemark> placemarks = await placemarkFromCoordinates(
@@ -536,281 +714,281 @@ class _SignupScreenState extends State<SignupScreen> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                    // Renter option
-                    SizedBox(
-                      width: 140,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            selectedRole = 'renter';
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: selectedRole == 'renter'
-                                ? AppColors.primary.withOpacity(0.15)
-                                : AppColors.darkBgSecondary,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
+                      // Renter option
+                      SizedBox(
+                        width: 140,
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedRole = 'renter';
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
                               color: selectedRole == 'renter'
-                                  ? AppColors.primary
-                                  : AppColors.borderColor,
-                              width: selectedRole == 'renter' ? 2 : 1,
+                                  ? AppColors.primary.withOpacity(0.15)
+                                  : AppColors.darkBgSecondary,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selectedRole == 'renter'
+                                    ? AppColors.primary
+                                    : AppColors.borderColor,
+                                width: selectedRole == 'renter' ? 2 : 1,
+                              ),
                             ),
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: selectedRole == 'renter'
-                                      ? AppColors.primary.withOpacity(0.2)
-                                      : AppColors.darkBgTertiary,
-                                  borderRadius: BorderRadius.circular(12),
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: selectedRole == 'renter'
+                                        ? AppColors.primary.withOpacity(0.2)
+                                        : AppColors.darkBgTertiary,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Image.asset(
+                                    'assets/icon/logo1.png',
+                                    fit: BoxFit.contain,
+                                  ),
                                 ),
-                                child: Image.asset(
-                                  'assets/icon/logo1.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Rent a Car',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: selectedRole == 'renter'
-                                      ? AppColors.primary
-                                      : AppColors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Find & book',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textSecondary,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 8),
-                              // Radio indicator
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Rent a Car',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
                                     color: selectedRole == 'renter'
                                         ? AppColors.primary
-                                        : AppColors.textTertiary,
-                                    width: 2,
+                                        : AppColors.textPrimary,
                                   ),
                                 ),
-                                child: selectedRole == 'renter'
-                                    ? Center(
-                                        child: Container(
-                                          width: 10,
-                                          height: 10,
-                                          decoration: const BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: AppColors.primary,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Find & book',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                // Radio indicator
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: selectedRole == 'renter'
+                                          ? AppColors.primary
+                                          : AppColors.textTertiary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: selectedRole == 'renter'
+                                      ? Center(
+                                          child: Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: const BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.primary,
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                            ],
+                                        )
+                                      : null,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Partner option
-                    SizedBox(
-                      width: 140,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            selectedRole = 'partner';
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: selectedRole == 'partner'
-                                ? AppColors.primary.withOpacity(0.15)
-                                : AppColors.darkBgSecondary,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
+                      const SizedBox(width: 12),
+                      // Partner option
+                      SizedBox(
+                        width: 140,
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedRole = 'partner';
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
                               color: selectedRole == 'partner'
-                                  ? AppColors.primary
-                                  : AppColors.borderColor,
-                              width: selectedRole == 'partner' ? 2 : 1,
+                                  ? AppColors.primary.withOpacity(0.15)
+                                  : AppColors.darkBgSecondary,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selectedRole == 'partner'
+                                    ? AppColors.primary
+                                    : AppColors.borderColor,
+                                width: selectedRole == 'partner' ? 2 : 1,
+                              ),
                             ),
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: selectedRole == 'partner'
-                                      ? AppColors.primary.withOpacity(0.2)
-                                      : AppColors.darkBgTertiary,
-                                  borderRadius: BorderRadius.circular(12),
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: selectedRole == 'partner'
+                                        ? AppColors.primary.withOpacity(0.2)
+                                        : AppColors.darkBgTertiary,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Image.asset(
+                                    'assets/icon/logo1.png',
+                                    fit: BoxFit.contain,
+                                  ),
                                 ),
-                                child: Image.asset(
-                                  'assets/icon/logo1.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'List My Car',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: selectedRole == 'partner'
-                                      ? AppColors.primary
-                                      : AppColors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Earn money',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textSecondary,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 8),
-                              // Radio indicator
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
+                                const SizedBox(height: 12),
+                                Text(
+                                  'List My Car',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
                                     color: selectedRole == 'partner'
                                         ? AppColors.primary
-                                        : AppColors.textTertiary,
-                                    width: 2,
+                                        : AppColors.textPrimary,
                                   ),
                                 ),
-                                child: selectedRole == 'partner'
-                                    ? Center(
-                                        child: Container(
-                                          width: 10,
-                                          height: 10,
-                                          decoration: const BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: AppColors.primary,
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Earn money',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                // Radio indicator
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: selectedRole == 'partner'
+                                          ? AppColors.primary
+                                          : AppColors.textTertiary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: selectedRole == 'partner'
+                                      ? Center(
+                                          child: Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: const BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.primary,
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // Driver option
-                    SizedBox(
-                      width: 140,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            selectedRole = 'driver';
-                          });
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: selectedRole == 'driver'
-                                ? AppColors.primary.withOpacity(0.15)
-                                : AppColors.darkBgSecondary,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: selectedRole == 'driver'
-                                  ? AppColors.primary
-                                  : AppColors.borderColor,
-                              width: selectedRole == 'driver' ? 2 : 1,
+                                        )
+                                      : null,
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: selectedRole == 'driver'
-                                      ? AppColors.primary.withOpacity(0.2)
-                                      : AppColors.darkBgTertiary,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Image.asset(
-                                  'assets/icon/logo1.png',
-                                  fit: BoxFit.contain,
-                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Driver option
+                      SizedBox(
+                        width: 140,
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedRole = 'driver';
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: selectedRole == 'driver'
+                                  ? AppColors.primary.withOpacity(0.15)
+                                  : AppColors.darkBgSecondary,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selectedRole == 'driver'
+                                    ? AppColors.primary
+                                    : AppColors.borderColor,
+                                width: selectedRole == 'driver' ? 2 : 1,
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Be a Driver',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: selectedRole == 'driver'
-                                      ? AppColors.primary
-                                      : AppColors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Drive & earn',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textSecondary,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 8),
-                              // Radio indicator
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
+                            ),
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
                                     color: selectedRole == 'driver'
-                                        ? AppColors.primary
-                                        : AppColors.textTertiary,
-                                    width: 2,
+                                        ? AppColors.primary.withOpacity(0.2)
+                                        : AppColors.darkBgTertiary,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Image.asset(
+                                    'assets/icon/logo1.png',
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
-                                child: selectedRole == 'driver'
-                                    ? Center(
-                                        child: Container(
-                                          width: 10,
-                                          height: 10,
-                                          decoration: const BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: AppColors.primary,
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Be a Driver',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: selectedRole == 'driver'
+                                        ? AppColors.primary
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Drive & earn',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                // Radio indicator
+                                Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: selectedRole == 'driver'
+                                          ? AppColors.primary
+                                          : AppColors.textTertiary,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: selectedRole == 'driver'
+                                      ? Center(
+                                          child: Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: const BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.primary,
+                                            ),
                                           ),
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                            ],
+                                        )
+                                      : null,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
                     ],
                   ),
                 ),
@@ -875,24 +1053,7 @@ class _SignupScreenState extends State<SignupScreen> {
               const SizedBox(height: 16),
 
               // Location
-              CustomTextField(
-                label: 'Location *',
-                hintText: 'City, Country',
-                controller: locationController,
-                errorText: _locationError,
-                onChanged: (_) => setState(() => _locationTouched = true),
-                prefixIcon: const Icon(
-                  Icons.location_on_outlined,
-                  color: AppColors.textTertiary,
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(
-                    Icons.location_searching,
-                    color: AppColors.primary,
-                  ),
-                  onPressed: _getCurrentLocation,
-                ),
-              ),
+              _buildLocationSection(),
               const SizedBox(height: 16),
 
               // Home Address
@@ -1037,6 +1198,15 @@ class _SignupScreenState extends State<SignupScreen> {
                                 color: AppColors.primary,
                                 fontWeight: FontWeight.w600,
                               ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () {
+                                  Navigator.of(context).pushNamed(
+                                    '/terms-and-privacy',
+                                    arguments: const <String, dynamic>{
+                                      'tab': 'terms',
+                                    },
+                                  );
+                                },
                             ),
                             const TextSpan(text: ' and '),
                             TextSpan(
@@ -1045,6 +1215,15 @@ class _SignupScreenState extends State<SignupScreen> {
                                 color: AppColors.primary,
                                 fontWeight: FontWeight.w600,
                               ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () {
+                                  Navigator.of(context).pushNamed(
+                                    '/terms-and-privacy',
+                                    arguments: const <String, dynamic>{
+                                      'tab': 'privacy',
+                                    },
+                                  );
+                                },
                             ),
                           ],
                         ),

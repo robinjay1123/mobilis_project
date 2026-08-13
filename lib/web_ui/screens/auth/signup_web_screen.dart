@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
 import '../../../mobile_ui/theme/app_colors.dart';
+import '../../../mobile_ui/widgets/leaflet_map.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class SignupWebScreen extends StatefulWidget {
@@ -31,6 +34,11 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
   bool obscureConfirmPassword = true;
   bool isLoading = false;
   String? selectedRole; // 'renter', 'partner', or 'driver'
+  final MapController _locationMapController = MapController();
+  LatLng? _selectedLocationPoint;
+
+  static const double _defaultLocationLatitude = 15.9758;
+  static const double _defaultLocationLongitude = 120.5719;
 
   @override
   void initState() {
@@ -108,6 +116,12 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
         desiredAccuracy: LocationAccuracy.medium,
       );
 
+      final currentPoint = LatLng(position.latitude, position.longitude);
+      if (mounted) {
+        setState(() => _selectedLocationPoint = currentPoint);
+        _moveLocationMap(currentPoint);
+      }
+
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
@@ -130,6 +144,172 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
         _showErrorSnackBar('Error getting location: ${e.toString()}');
       }
     }
+  }
+
+  void _moveLocationMap(LatLng point, {double zoom = 15}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _locationMapController.move(point, zoom);
+      } catch (_) {
+        // The map may not be attached yet on the first layout.
+      }
+    });
+  }
+
+  Future<void> _selectLocationFromMap(double latitude, double longitude) async {
+    final point = LatLng(latitude, longitude);
+    if (mounted) setState(() => _selectedLocationPoint = point);
+    _moveLocationMap(point);
+
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude);
+      if (!mounted) return;
+      final place = placemarks.isNotEmpty ? placemarks.first : null;
+      final locationParts =
+          [place?.locality, place?.administrativeArea, place?.country]
+              .map((part) => part?.trim() ?? '')
+              .where((part) => part.isNotEmpty)
+              .toList();
+      setState(() {
+        locationController.text = locationParts.isNotEmpty
+            ? locationParts.join(', ')
+            : '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        locationController.text =
+            '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
+      });
+    }
+  }
+
+  Widget _buildLocationMap() {
+    final selectedPoint = _selectedLocationPoint;
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: MobilisLeafletMap(
+              mapController: _locationMapController,
+              fallbackLatitude: _defaultLocationLatitude,
+              fallbackLongitude: _defaultLocationLongitude,
+              initialZoom: 11,
+              markers: selectedPoint == null
+                  ? const []
+                  : [
+                      MobilisMapMarker(
+                        latitude: selectedPoint.latitude,
+                        longitude: selectedPoint.longitude,
+                        icon: Icons.location_pin,
+                        color: AppColors.primary,
+                        size: 40,
+                      ),
+                    ],
+              onTap: _selectLocationFromMap,
+            ),
+          ),
+          Positioned(
+            top: 8,
+            left: 8,
+            right: 8,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.68),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Tap the map to choose a location',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationSection() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final field = _buildTextField(
+          controller: locationController,
+          hintText: 'City, Country',
+          prefixIcon: Icons.location_on_outlined,
+        );
+        final map = SizedBox(height: 178, child: _buildLocationMap());
+
+        if (constraints.maxWidth >= 480) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(child: field),
+                    const SizedBox(width: 8),
+                    _buildCurrentLocationButton(),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(width: 180, child: map),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(child: field),
+                const SizedBox(width: 8),
+                _buildCurrentLocationButton(),
+              ],
+            ),
+            const SizedBox(height: 12),
+            map,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCurrentLocationButton() {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _getCurrentLocation,
+          borderRadius: BorderRadius.circular(12),
+          child: const Padding(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.my_location, color: Colors.black),
+          ),
+        ),
+      ),
+    );
   }
 
   void _handleSignup() async {
@@ -785,39 +965,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                         // Location
                         _buildLabel('Location'),
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildTextField(
-                                controller: locationController,
-                                hintText: 'City, Country',
-                                prefixIcon: Icons.location_on_outlined,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: _getCurrentLocation,
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: Icon(
-                                      Icons.my_location,
-                                      color: Colors.black,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        _buildLocationSection(),
                         const SizedBox(height: 20),
 
                         // Address
@@ -946,7 +1094,12 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                                       ),
                                       recognizer: TapGestureRecognizer()
                                         ..onTap = () {
-                                          // TODO: Navigate to terms of service
+                                          Navigator.of(context).pushNamed(
+                                            '/terms-and-privacy',
+                                            arguments: const <String, dynamic>{
+                                              'tab': 'terms',
+                                            },
+                                          );
                                         },
                                     ),
                                     const TextSpan(
@@ -965,7 +1118,12 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
                                       ),
                                       recognizer: TapGestureRecognizer()
                                         ..onTap = () {
-                                          // TODO: Navigate to privacy policy
+                                          Navigator.of(context).pushNamed(
+                                            '/terms-and-privacy',
+                                            arguments: const <String, dynamic>{
+                                              'tab': 'privacy',
+                                            },
+                                          );
                                         },
                                     ),
                                   ],

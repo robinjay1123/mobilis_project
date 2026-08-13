@@ -875,7 +875,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     Color badgeColor;
     if (role == 'partner') {
       if (isVerified) {
-        label = 'Mobilis by PSDC Certified Partner';
+        label = 'Mobilis Certified Partner';
         badgeColor = AppColors.success;
       } else {
         label = 'Basic Partner';
@@ -883,7 +883,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       }
     } else if (role == 'driver') {
       if (isVerified) {
-        label = 'Mobilis by PSDC Certified Driver';
+        label = 'Mobilis Certified Driver';
         badgeColor = AppColors.success;
       } else {
         label = 'Basic Driver';

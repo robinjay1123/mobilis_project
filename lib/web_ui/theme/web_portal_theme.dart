@@ -13,7 +13,7 @@ class WebPortalTheme {
     final buttonShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
     );
-    const buttonPadding = EdgeInsets.symmetric(horizontal: 20, vertical: 14);
+    const buttonPadding = EdgeInsets.symmetric(horizontal: 16, vertical: 12);
 
     return base.copyWith(
       scaffoldBackgroundColor: isDark
@@ -23,7 +23,9 @@ class WebPortalTheme {
         color: isDark ? const Color(0xFF102033) : Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: isDark ? 0 : 3,
-        shadowColor: isDark ? Colors.transparent : Colors.black.withValues(alpha: 0.08),
+        shadowColor: isDark
+            ? Colors.transparent
+            : Colors.black.withValues(alpha: 0.08),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
@@ -32,7 +34,7 @@ class WebPortalTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          minimumSize: const Size(112, 46),
+          minimumSize: const Size(0, 46),
           padding: buttonPadding,
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.black,
@@ -40,14 +42,24 @@ class WebPortalTheme {
               ? const Color(0xFF263648)
               : const Color(0xFFE4E8ED),
           disabledForegroundColor: isDark ? Colors.white38 : Colors.black38,
-          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           shape: buttonShape,
           elevation: 0,
         ),
       ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 46),
+          padding: buttonPadding,
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          shape: buttonShape,
+        ),
+      ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(112, 46),
+          minimumSize: const Size(0, 46),
           padding: buttonPadding,
           foregroundColor: foreground,
           side: BorderSide(color: border, width: 1.2),
@@ -57,7 +69,7 @@ class WebPortalTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          minimumSize: const Size(88, 42),
+          minimumSize: const Size(0, 42),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           foregroundColor: AppColors.primary,
           textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),

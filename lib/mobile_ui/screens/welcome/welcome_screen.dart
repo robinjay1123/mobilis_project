@@ -203,7 +203,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ),
               const SizedBox(width: 10),
               const Text(
-                'Mobilis by PSDC',
+                'Mobilis',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,

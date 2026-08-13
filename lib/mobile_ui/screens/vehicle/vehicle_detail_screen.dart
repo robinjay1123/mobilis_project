@@ -16,6 +16,7 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../widgets/mpin_verification_dialog.dart';
 import '../../widgets/booking_status_dialog.dart';
+import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../../services/vehicle_service.dart';
@@ -192,8 +193,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   Future<void> _loadVehicleRating() async {
     try {
-      final ratingSummary =
-          await TripRatingService().getVehicleRatingSummary(widget.vehicleId);
+      final ratingSummary = await TripRatingService().getVehicleRatingSummary(
+        widget.vehicleId,
+      );
       if (_vehicle != null) {
         _vehicle!['rating'] = ratingSummary['average'];
         _vehicle!['rating_count'] = ratingSummary['count'];
@@ -207,13 +209,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final brand = _vehicle?['brand']?.toString().trim() ?? '';
     final model = _vehicle?['model']?.toString().trim() ?? '';
     final year = _vehicle?['year']?.toString().trim() ?? '';
-    final vehicleName = [brand, model, year]
-        .where((p) => p.isNotEmpty)
-        .join(' ');
+    final vehicleName = [
+      brand,
+      model,
+      year,
+    ].where((p) => p.isNotEmpty).join(' ');
     final headerTitle = vehicleName.isNotEmpty
         ? '$vehicleName - Reviews & Ratings'
         : 'Vehicle Reviews & Ratings';
-    final ownerId = _vehicle?['owner_id']?.toString() ??
+    final ownerId =
+        _vehicle?['owner_id']?.toString() ??
         _vehicle?['operator_id']?.toString() ??
         '';
 
@@ -377,7 +382,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
     // Hourly bookings span at most 2 calendar days (e.g. 10pm day 1 → 2am day 2).
     // Clamp the end date to start+1 when in hourly mode.
-    if (isHourly && initialEnd.isAfter(initialDate.add(const Duration(days: 1)))) {
+    if (isHourly &&
+        initialEnd.isAfter(initialDate.add(const Duration(days: 1)))) {
       initialEnd = initialDate.add(const Duration(days: 1));
     }
 
@@ -432,10 +438,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         ),
         content: Text(
           message,
-          style: const TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 14,
-          ),
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
         ),
         actions: [
           ElevatedButton(
@@ -628,9 +631,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           if (isHourly &&
                               start != null &&
                               end != null &&
-                              _dateOnly(end)
-                                  .difference(_dateOnly(start))
-                                  .inDays >
+                              _dateOnly(
+                                    end,
+                                  ).difference(_dateOnly(start)).inDays >
                                   1) {
                             _showDateLimitModal(
                               dialogContext,
@@ -664,8 +667,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               // Hourly: also check the flipped range
                               if (isHourly &&
                                   _dateOnly(rangeStart!)
-                                      .difference(_dateOnly(selectedDay))
-                                      .inDays >
+                                          .difference(_dateOnly(selectedDay))
+                                          .inDays >
                                       1) {
                                 _showDateLimitModal(
                                   dialogContext,
@@ -690,8 +693,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               // Hourly: max 2 days
                               if (isHourly &&
                                   _dateOnly(selectedDay)
-                                      .difference(_dateOnly(rangeStart!))
-                                      .inDays >
+                                          .difference(_dateOnly(rangeStart!))
+                                          .inDays >
                                       1) {
                                 _showDateLimitModal(
                                   dialogContext,
@@ -1226,7 +1229,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   double get _rentalSubtotal {
     final pricePerDay = (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-    final pricePerHour = (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+    final pricePerHour =
+        (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
 
     if (_bookingMode == BookingMode.hourly) {
       final hours = _billableHours;
@@ -1306,8 +1310,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       excessHours = 0;
     }
 
-    final startFmt = _format12Hour(_startTime?.hour ?? 9, _startTime?.minute ?? 0);
-    final returnFmt = _format12Hour((_returnTime ?? _startTime)?.hour ?? 9, (_returnTime ?? _startTime)?.minute ?? 0);
+    final startFmt = _format12Hour(
+      _startTime?.hour ?? 9,
+      _startTime?.minute ?? 0,
+    );
+    final returnFmt = _format12Hour(
+      (_returnTime ?? _startTime)?.hour ?? 9,
+      (_returnTime ?? _startTime)?.minute ?? 0,
+    );
 
     if (excessHours == 0) {
       return '$fullDays day${fullDays == 1 ? '' : 's'} ($startFmt - $returnFmt)';
@@ -1981,11 +1991,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 bytes: _signatureBytes!,
                 evidenceType: 'signature',
               );
-              final coTravelerSignatureUrl = await evidenceService.uploadEvidenceBytes(
-                userId: currentUser.id,
-                bytes: _coTravelerSignatureBytes!,
-                evidenceType: 'co_traveler_signature',
-              );
+              final coTravelerSignatureUrl = await evidenceService
+                  .uploadEvidenceBytes(
+                    userId: currentUser.id,
+                    bytes: _coTravelerSignatureBytes!,
+                    evidenceType: 'co_traveler_signature',
+                  );
               final validIdUrl = await evidenceService.uploadEvidenceFile(
                 userId: currentUser.id,
                 file: _validIdPhoto!,
@@ -1996,16 +2007,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 file: _selfiePhoto!,
                 evidenceType: 'selfie',
               );
-              final coTravelerValidIdUrl = await evidenceService.uploadEvidenceFile(
-                userId: currentUser.id,
-                file: _coTravelerValidIdPhoto!,
-                evidenceType: 'co_traveler_valid_id',
-              );
-              final coTravelerSelfieUrl = await evidenceService.uploadEvidenceFile(
-                userId: currentUser.id,
-                file: _coTravelerSelfiePhoto!,
-                evidenceType: 'co_traveler_selfie',
-              );
+              final coTravelerValidIdUrl = await evidenceService
+                  .uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _coTravelerValidIdPhoto!,
+                    evidenceType: 'co_traveler_valid_id',
+                  );
+              final coTravelerSelfieUrl = await evidenceService
+                  .uploadEvidenceFile(
+                    userId: currentUser.id,
+                    file: _coTravelerSelfiePhoto!,
+                    evidenceType: 'co_traveler_selfie',
+                  );
 
               final createdBooking = await BookingService().createBooking(
                 renterId: currentUser.id,
@@ -2015,7 +2028,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 totalPrice: _totalPrice,
                 rentalSubtotal: _rentalSubtotal,
                 discountAmount: _discountAmount,
-                appliedVoucher: _selectedVoucher?.code ?? _selectedVoucher?.title,
+                appliedVoucher:
+                    _selectedVoucher?.code ?? _selectedVoucher?.title,
                 deliveryDistanceKm: _deliveryDistanceKm,
                 deliveryRatePerKm: PricingPolicy.deliveryRatePerKm,
                 deliveryFee: _deliveryFee,
@@ -2026,12 +2040,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 pickupLongitude: _pickupMapPin?.longitude,
                 dropoffLatitude: _dropoffMapPin?.latitude,
                 dropoffLongitude: _dropoffMapPin?.longitude,
-                rentalTermsAcceptedAt: requireTermsAgreement ? DateTime.now() : null,
+                rentalTermsAcceptedAt: requireTermsAgreement
+                    ? DateTime.now()
+                    : null,
                 rentalTermsSnapshot: requireTermsAgreement
                     ? _acceptedTermsSnapshot
                     : null,
                 reservationFeeAmount: reservationPaymentProof?.amount,
-                reservationPaymentReference: reservationPaymentProof?.referenceNumber,
+                reservationPaymentReference:
+                    reservationPaymentProof?.referenceNumber,
                 reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
                 reservationPaymentMethod: reservationPaymentProof?.method,
                 reservationPaymentType: reservationPaymentProof?.paymentType,
@@ -2039,8 +2056,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     ?.toString(),
                 emergencyContactPhone: _defaultEmergencyContact?['phone_number']
                     ?.toString(),
-                emergencyContactRelationship: _defaultEmergencyContact?['relationship']
-                    ?.toString(),
+                emergencyContactRelationship:
+                    _defaultEmergencyContact?['relationship']?.toString(),
                 renterSignatureText: 'Digital signature captured',
                 renterSignatureUrl: signatureUrl,
                 renterValidIdUrl: validIdUrl,
@@ -2048,7 +2065,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 coTravelerName: coTravelerName,
                 coTravelerPhone: coTravelerPhone,
                 coTravelerLicense: coTravelerLicense,
-                coTravelerSignatureText: 'Co-traveler digital signature captured',
+                coTravelerSignatureText:
+                    'Co-traveler digital signature captured',
                 coTravelerSignatureUrl: coTravelerSignatureUrl,
                 coTravelerValidIdUrl: coTravelerValidIdUrl,
                 coTravelerSelfieUrl: coTravelerSelfieUrl,
@@ -2132,6 +2150,15 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    DialogStatusIndicator(
+                      isComplete: accepted,
+                      completeLabel: 'Rental terms acknowledged',
+                      incompleteLabel: 'Agreement required',
+                      completeDetail: 'Ready to continue with the booking.',
+                      incompleteDetail:
+                          'Please review and accept the rental terms before continuing.',
+                    ),
+                    const SizedBox(height: 14),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 320),
                       padding: const EdgeInsets.all(14),
@@ -2390,6 +2417,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               MapEntry('Co-traveler phone', coTravelerPhone),
                               MapEntry('Driver license', coTravelerLicense),
                             ],
+                          ),
+                          const SizedBox(height: 14),
+                          DialogStatusIndicator(
+                            isComplete:
+                                emergencyName.isNotEmpty &&
+                                emergencyPhone.isNotEmpty &&
+                                coTravelerName.trim().isNotEmpty &&
+                                coTravelerPhone.trim().isNotEmpty &&
+                                coTravelerLicense.trim().isNotEmpty,
+                            completeLabel: 'Safety information complete',
+                            incompleteLabel: 'Safety information incomplete',
+                            completeDetail:
+                                'Emergency contact and co-traveler details are ready.',
+                            incompleteDetail:
+                                'Review the missing emergency contact or co-traveler information.',
                           ),
                           const SizedBox(height: 14),
                           _buildBookingReviewSection(
@@ -2768,11 +2810,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               isTotal: true,
                             ),
                             if (!payFullAmount &&
-                                (rentalTotal + (isPartnerVehicle ? partnerCommission : 0.0) - payableAmount) > 0) ...[
+                                (rentalTotal +
+                                        (isPartnerVehicle
+                                            ? partnerCommission
+                                            : 0.0) -
+                                        payableAmount) >
+                                    0) ...[
                               const SizedBox(height: 6),
                               _buildPaymentBreakdownRow(
                                 'Remaining balance (Due upon pickup)',
-                                ((rentalTotal + (isPartnerVehicle ? partnerCommission : 0.0)) - payableAmount)
+                                ((rentalTotal +
+                                            (isPartnerVehicle
+                                                ? partnerCommission
+                                                : 0.0)) -
+                                        payableAmount)
                                     .clamp(0.0, double.infinity),
                               ),
                             ],
@@ -2936,6 +2987,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         keyboardType: TextInputType.number,
                         maxLength: 13,
                         enabled: !isUploading,
+                        onChanged: (_) => setDialogState(() {}),
                         style: const TextStyle(color: AppColors.textPrimary),
                         decoration: InputDecoration(
                           labelText: 'Reference number (6 to 13 digits)',
@@ -2963,6 +3015,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           foregroundColor: AppColors.primary,
                           side: const BorderSide(color: AppColors.primary),
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      DialogStatusIndicator(
+                        compact: true,
+                        isComplete:
+                            settings.qrUrl.trim().isNotEmpty &&
+                            receiptFile != null &&
+                            RegExp(
+                              r'^\d{6,13}$',
+                            ).hasMatch(referenceController.text.trim()),
+                        completeLabel: 'Payment proof complete',
+                        incompleteLabel: 'Payment proof incomplete',
+                        completeDetail:
+                            'QR setup, receipt, and reference number are ready.',
+                        incompleteDetail:
+                            'Add the receipt and a valid 6 to 13-digit reference number.',
                       ),
                       if (errorText != null) ...[
                         const SizedBox(height: 10),
@@ -3070,8 +3138,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       ],
     );
   }
-
-
 
   void _showErrorDialog(String title, String message) {
     if (!mounted) return;
@@ -3828,7 +3894,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   const SizedBox(height: 24),
 
                   // Cost breakdown & Voucher Selection (if dates selected)
-                  if (_selectedStartDate != null && _selectedEndDate != null) ...[
+                  if (_selectedStartDate != null &&
+                      _selectedEndDate != null) ...[
                     _buildVoucherSelectionCard(),
                     const SizedBox(height: 16),
                     Container(
@@ -3842,7 +3909,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         children: [
                           _buildSummaryRow(
                             'Rental mode',
-                            _bookingMode == BookingMode.hourly ? 'Hourly rate' : 'Daily rate',
+                            _bookingMode == BookingMode.hourly
+                                ? 'Hourly rate'
+                                : 'Daily rate',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
@@ -4017,7 +4086,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ? '${_selectedVoucher!.title} Applied'
                       : 'Vouchers & Loyalty Rewards',
                   style: TextStyle(
-                    color: hasVoucher ? AppColors.success : AppColors.textPrimary,
+                    color: hasVoucher
+                        ? AppColors.success
+                        : AppColors.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
@@ -4039,7 +4110,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
           if (hasVoucher)
             IconButton(
-              icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+              icon: const Icon(
+                Icons.close,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
               onPressed: () => setState(() => _selectedVoucher = null),
             )
           else
@@ -4094,7 +4169,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                        icon: const Icon(
+                          Icons.close,
+                          color: AppColors.textSecondary,
+                        ),
                         onPressed: () => Navigator.pop(context),
                       ),
                     ],
@@ -4108,7 +4186,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           style: const TextStyle(color: AppColors.textPrimary),
                           decoration: InputDecoration(
                             hintText: 'Enter Promo Code',
-                            hintStyle: const TextStyle(color: AppColors.textTertiary),
+                            hintStyle: const TextStyle(
+                              color: AppColors.textTertiary,
+                            ),
                             filled: true,
                             fillColor: AppColors.darkBg,
                             contentPadding: const EdgeInsets.symmetric(
@@ -4117,7 +4197,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(color: AppColors.borderColor),
+                              borderSide: const BorderSide(
+                                color: AppColors.borderColor,
+                              ),
                             ),
                           ),
                         ),
@@ -4125,7 +4207,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       const SizedBox(width: 10),
                       FilledButton(
                         onPressed: () {
-                          final code = customCodeController.text.trim().toUpperCase();
+                          final code = customCodeController.text
+                              .trim()
+                              .toUpperCase();
                           if (code.isEmpty) return;
                           final match = availableVouchers.firstWhere(
                             (v) => v.code.toUpperCase() == code,
@@ -4206,8 +4290,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   v.title,
                                   style: TextStyle(
                                     color: AppColors.textPrimary,
-                                    fontWeight:
-                                        isSelected ? FontWeight.w800 : FontWeight.w600,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
                                   ),
                                 ),
                                 subtitle: Text(
@@ -4229,7 +4314,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                         },
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: AppColors.primary,
-                                          side: const BorderSide(color: AppColors.primary),
+                                          side: const BorderSide(
+                                            color: AppColors.primary,
+                                          ),
                                         ),
                                         child: const Text('Select'),
                                       ),
@@ -4302,8 +4389,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
           final pricePerHour =
               (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
-          final hourlyRate =
-              pricePerHour > 0 ? pricePerHour : (pricePerDay / 24.0);
+          final hourlyRate = pricePerHour > 0
+              ? pricePerHour
+              : (pricePerDay / 24.0);
           list.add(
             LoyaltyVoucher(
               code: 'LOYALTY_FREE3H',
@@ -4374,7 +4462,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 width: width,
                 child: _TimeSlotTile(
                   label: _format12Hour(hour),
-                  isAvailable: availableHours.contains(hour) &&
+                  isAvailable:
+                      availableHours.contains(hour) &&
                       (!isToday || hour > now.hour),
                   isSelected: false,
                   onTap: null,
@@ -4413,10 +4502,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 width: width,
                 child: _TimeSlotTile(
                   label: _format12Hour(hour),
-                  isAvailable: availableByHour.containsKey(hour) &&
+                  isAvailable:
+                      availableByHour.containsKey(hour) &&
                       (!isToday || hour > now.hour),
                   isSelected: selectedTime?.hour == hour,
-                  onTap: (availableByHour[hour] == null || (isToday && hour <= now.hour))
+                  onTap:
+                      (availableByHour[hour] == null ||
+                          (isToday && hour <= now.hour))
                       ? null
                       : () => onSelected(availableByHour[hour]!),
                 ),
@@ -4522,7 +4614,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 18),
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppColors.primary,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(

@@ -73,23 +73,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   int _activeWebTab = 0;
   late final TextEditingController _webNameController = TextEditingController();
-  late final TextEditingController _webPhoneController = TextEditingController();
-  late final TextEditingController _webPositionController = TextEditingController();
+  late final TextEditingController _webPhoneController =
+      TextEditingController();
+  late final TextEditingController _webPositionController =
+      TextEditingController();
   bool _isSavingWebProfile = false;
 
   // Admin System Controllers & State
+  final TextEditingController _termsOfServiceController =
+      TextEditingController();
+  bool _isLoadingTermsOfService = false;
+  bool _isSavingTermsOfService = false;
+
   final TextEditingController _rentalTermsController = TextEditingController();
   bool _isLoadingTerms = false;
   bool _isSavingTerms = false;
 
-  final TextEditingController _privacyPolicyController = TextEditingController();
+  final TextEditingController _privacyPolicyController =
+      TextEditingController();
   bool _isLoadingPrivacy = false;
   bool _isSavingPrivacy = false;
 
-  final TextEditingController _reservationAmountController = TextEditingController();
-  final TextEditingController _reservationAccountNameController = TextEditingController();
-  final TextEditingController _reservationQrUrlController = TextEditingController();
-  final TextEditingController _reservationInstructionsController = TextEditingController();
+  final TextEditingController _reservationAmountController =
+      TextEditingController();
+  final TextEditingController _reservationAccountNameController =
+      TextEditingController();
+  final TextEditingController _reservationQrUrlController =
+      TextEditingController();
+  final TextEditingController _reservationInstructionsController =
+      TextEditingController();
   bool _isLoadingReservationPayment = false;
   bool _isSavingReservationPayment = false;
   bool _isUploadingReservationQr = false;
@@ -111,6 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _webNameController.dispose();
     _webPhoneController.dispose();
     _webPositionController.dispose();
+    _termsOfServiceController.dispose();
     _rentalTermsController.dispose();
     _privacyPolicyController.dispose();
     _reservationAmountController.dispose();
@@ -136,9 +149,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _webPhoneController.text = _operatorPhone;
         _webPositionController.text = _operatorPosition;
       });
-      if (widget.operatorMode || widget.adminMode) await _loadOperatorPreferences();
+      if (widget.operatorMode || widget.adminMode)
+        await _loadOperatorPreferences();
       if (widget.adminMode) {
         await Future.wait([
+          _loadTermsOfService(),
           _loadRentalTerms(),
           _loadPrivacyPolicy(),
           _loadReservationPaymentSettings(),
@@ -198,6 +213,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- ADMIN SETTINGS API METHODS ---
+  Future<void> _loadTermsOfService() async {
+    setState(() => _isLoadingTermsOfService = true);
+    try {
+      final terms = await TermsService().getTermsOfService();
+      if (!mounted) return;
+      _termsOfServiceController.text = terms;
+    } catch (e) {
+      debugPrint('Error loading terms of service: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingTermsOfService = false);
+    }
+  }
+
+  Future<void> _saveTermsOfService() async {
+    setState(() => _isSavingTermsOfService = true);
+    try {
+      await TermsService().updateTermsOfService(_termsOfServiceController.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Terms of Service updated successfully'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to update Terms of Service: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingTermsOfService = false);
+    }
+  }
+
   Future<void> _loadRentalTerms() async {
     setState(() => _isLoadingTerms = true);
     try {
@@ -289,7 +341,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveReservationPaymentSettings() async {
-    final amount = double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    final amount =
+        double.tryParse(_reservationAmountController.text.trim()) ?? 0;
     setState(() => _isSavingReservationPayment = true);
     try {
       await ReservationPaymentService().updateSettings(
@@ -327,13 +380,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       if (picked == null) return;
 
-      final qrUrl = await ReservationPaymentService().uploadQrCode(file: picked);
+      final qrUrl = await ReservationPaymentService().uploadQrCode(
+        file: picked,
+      );
       if (!mounted) return;
       setState(() => _reservationQrUrlController.text = qrUrl);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Reservation QR uploaded. Save settings to publish it.'),
+          content: Text(
+            'Reservation QR uploaded. Save settings to publish it.',
+          ),
           backgroundColor: AppColors.success,
         ),
       );
@@ -1229,13 +1286,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final newPos = _webPositionController.text.trim();
 
       if (newName.isEmpty) throw Exception('Name cannot be empty.');
-      if (newPhone.length != 11) throw Exception('Contact number must be 11 digits.');
+      if (newPhone.length != 11)
+        throw Exception('Contact number must be 11 digits.');
 
-      await supabase.from('users').update({
-        'name': newName,
-        'full_name': newName,
-        'phone': newPhone,
-      }).eq('id', user.id);
+      await supabase
+          .from('users')
+          .update({'name': newName, 'full_name': newName, 'phone': newPhone})
+          .eq('id', user.id);
 
       await supabase.auth.updateUser(
         UserAttributes(
@@ -1260,9 +1317,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update profile: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not update profile: $e')));
       }
     } finally {
       if (mounted) setState(() => _isSavingWebProfile = false);
@@ -1289,7 +1346,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Expanded(
                     child: isWide
                         ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               SizedBox(
                                 width: 260,
@@ -1311,7 +1368,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               Expanded(
                                 child: SingleChildScrollView(
                                   physics: const BouncingScrollPhysics(),
-                                  child: _buildWebTabContent(isDark),
+                                  child: Column(
+                                    children: [
+                                      _buildWebTabContent(isDark),
+                                      const SizedBox(height: 20),
+                                      _buildOperatorSignOutCard(),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -1361,7 +1424,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
-              widget.adminMode ? Icons.admin_panel_settings_rounded : Icons.tune_rounded,
+              widget.adminMode
+                  ? Icons.admin_panel_settings_rounded
+                  : Icons.tune_rounded,
               color: AppColors.primary,
               size: 26,
             ),
@@ -1384,11 +1449,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(width: 12),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1453,7 +1523,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text(
                   isOnline ? 'Online' : 'Offline',
                   style: TextStyle(
-                    color: isOnline ? AppColors.success : _secondaryTextColor(context),
+                    color: isOnline
+                        ? AppColors.success
+                        : _secondaryTextColor(context),
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1463,7 +1535,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   scale: 0.8,
                   child: Switch(
                     value: isOnline,
-                    onChanged: (val) => _setOperatorPreference('operator_online_status', val),
+                    onChanged: (val) =>
+                        _setOperatorPreference('operator_online_status', val),
                     activeThumbColor: AppColors.success,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
@@ -1504,24 +1577,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildWebSidebarNav(bool isDark) {
     final tabs = widget.adminMode
         ? [
-            _WebCategoryItem(0, 'All Admin Settings', Icons.space_dashboard_outlined, 'Full view of all settings'),
-            _WebCategoryItem(1, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & portal theme'),
-            _WebCategoryItem(2, 'Rental Terms & Policies', Icons.description_outlined, 'Renter agreement text'),
-            _WebCategoryItem(3, 'Reservation & Payments', Icons.payments_outlined, 'Deposit fee & QR uploader'),
-            _WebCategoryItem(4, 'FAQ Auto-Replies', Icons.question_answer_outlined, 'Customer support bot replies'),
-            _WebCategoryItem(5, 'Profile & Credentials', Icons.badge_outlined, 'Admin details & position'),
-            _WebCategoryItem(6, 'Workflow & System Rules', Icons.tune_rounded, 'Auto-approval & operating mode'),
-            _WebCategoryItem(7, 'Notifications & Alerts', Icons.notifications_none_rounded, 'System & audit alerts'),
-            _WebCategoryItem(8, 'Account & Security', Icons.shield_outlined, 'Password & credentials'),
-            _WebCategoryItem(9, 'Ratings & System Legal', Icons.help_outline_rounded, 'Reviews, terms & help'),
+            _WebCategoryItem(
+              0,
+              'All Admin Settings',
+              Icons.space_dashboard_outlined,
+              'Full view of all settings',
+            ),
+            _WebCategoryItem(
+              1,
+              'Appearance & Theme',
+              Icons.palette_outlined,
+              'Dark mode & portal theme',
+            ),
+            _WebCategoryItem(
+              2,
+              'Rental Agreement Policies',
+              Icons.description_outlined,
+              'Booking agreement text',
+            ),
+            _WebCategoryItem(
+              3,
+              'Reservation & Payments',
+              Icons.payments_outlined,
+              'Deposit fee & QR uploader',
+            ),
+            _WebCategoryItem(
+              4,
+              'FAQ Auto-Replies',
+              Icons.question_answer_outlined,
+              'Customer support bot replies',
+            ),
+            _WebCategoryItem(
+              5,
+              'Profile & Credentials',
+              Icons.badge_outlined,
+              'Admin details & position',
+            ),
+            _WebCategoryItem(
+              6,
+              'Workflow & System Rules',
+              Icons.tune_rounded,
+              'Auto-approval & operating mode',
+            ),
+            _WebCategoryItem(
+              7,
+              'Notifications & Alerts',
+              Icons.notifications_none_rounded,
+              'System & audit alerts',
+            ),
+            _WebCategoryItem(
+              8,
+              'Account & Security',
+              Icons.shield_outlined,
+              'Password & credentials',
+            ),
+            _WebCategoryItem(
+              9,
+              'Ratings & System Legal',
+              Icons.help_outline_rounded,
+              'Reviews, terms & help',
+            ),
           ]
         : [
-            _WebCategoryItem(0, 'Profile & Identity', Icons.badge_outlined, 'Avatar, details & role'),
-            _WebCategoryItem(1, 'Workflow & Availability', Icons.tune_rounded, 'Status, hours & vehicles'),
-            _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, 'Operational alerts'),
-            _WebCategoryItem(3, 'Account & Security', Icons.shield_outlined, 'Password & email'),
-            _WebCategoryItem(4, 'Appearance & Theme', Icons.palette_outlined, 'Dark mode & display'),
-            _WebCategoryItem(5, 'Support & System', Icons.help_outline_rounded, 'Help center & info'),
+            _WebCategoryItem(
+              0,
+              'Profile & Identity',
+              Icons.badge_outlined,
+              'Avatar, details & role',
+            ),
+            _WebCategoryItem(
+              1,
+              'Workflow & Availability',
+              Icons.tune_rounded,
+              'Status, hours & vehicles',
+            ),
+            _WebCategoryItem(
+              2,
+              'Notifications',
+              Icons.notifications_none_rounded,
+              'Operational alerts',
+            ),
+            _WebCategoryItem(
+              3,
+              'Account & Security',
+              Icons.shield_outlined,
+              'Password & email',
+            ),
+            _WebCategoryItem(
+              4,
+              'Appearance & Theme',
+              Icons.palette_outlined,
+              'Dark mode & display',
+            ),
+            _WebCategoryItem(
+              5,
+              'Support & System',
+              Icons.help_outline_rounded,
+              'Help center & info',
+            ),
           ];
 
     return Container(
@@ -1545,117 +1698,441 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ),
-          ...tabs.map((tab) {
-            final isSelected = _activeWebTab == tab.id;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  onTap: () => setState(() => _activeWebTab = tab.id),
-                  borderRadius: BorderRadius.circular(12),
-                  hoverColor: AppColors.primary.withValues(alpha: 0.08),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.primary.withValues(alpha: 0.14)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSelected
-                          ? Border.all(color: AppColors.primary.withValues(alpha: 0.3))
-                          : null,
-                    ),
-                    child: Row(
-                      children: [
-                        if (isSelected)
-                          Container(
-                            width: 3.5,
-                            height: 18,
-                            margin: const EdgeInsets.only(right: 10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        Icon(
-                          tab.icon,
-                          size: 20,
-                          color: isSelected
-                              ? AppColors.primary
-                              : _secondaryTextColor(context),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                tab.title,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? (isDark ? Colors.white : Colors.black87)
-                                      : _primaryTextColor(context),
-                                  fontSize: 13,
-                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Column(
+                children: [
+                  ...tabs.map((tab) {
+                    final isSelected = _activeWebTab == tab.id;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 3,
+                      ),
+                      child: widget.adminMode
+                          ? _buildAdminSettingsNavItem(tab, isDark, isSelected)
+                          : Material(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                onTap: () =>
+                                    setState(() => _activeWebTab = tab.id),
+                                borderRadius: BorderRadius.circular(12),
+                                hoverColor: AppColors.primary.withValues(
+                                  alpha: 0.08,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? AppColors.primary.withValues(
+                                            alpha: 0.14,
+                                          )
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: isSelected
+                                        ? Border.all(
+                                            color: AppColors.primary.withValues(
+                                              alpha: 0.3,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      if (isSelected)
+                                        Container(
+                                          width: 3.5,
+                                          height: 18,
+                                          margin: const EdgeInsets.only(
+                                            right: 10,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(
+                                              2,
+                                            ),
+                                          ),
+                                        ),
+                                      Icon(
+                                        tab.icon,
+                                        size: 20,
+                                        color: isSelected
+                                            ? AppColors.primary
+                                            : _secondaryTextColor(context),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              tab.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: isSelected
+                                                    ? (isDark
+                                                          ? Colors.white
+                                                          : Colors.black87)
+                                                    : _primaryTextColor(
+                                                        context,
+                                                      ),
+                                                fontSize: 13,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500,
+                                              ),
+                                            ),
+                                            Text(
+                                              tab.subtitle,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: _secondaryTextColor(
+                                                  context,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              Text(
-                                tab.subtitle,
+                            ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          widget.adminMode
+              ? _buildAdminSignOutCard()
+              : Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: widget.onSignOut ?? () {},
+                      borderRadius: BorderRadius.circular(12),
+                      hoverColor: AppColors.error.withValues(alpha: 0.1),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 50),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.error.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.logout_rounded,
+                              size: 18,
+                              color: AppColors.error,
+                            ),
+                            SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Sign Out Operator',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: _secondaryTextColor(context),
-                                  fontSize: 11,
+                                  color: AppColors.error,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdminSignOutCard() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
+      child: Semantics(
+        button: true,
+        label: 'Sign out of Admin portal',
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: widget.onSignOut ?? () {},
+              borderRadius: BorderRadius.circular(12),
+              hoverColor: AppColors.error.withValues(alpha: 0.1),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 62),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.error.withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.logout_rounded,
+                        size: 18,
+                        color: AppColors.error,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sign Out Admin',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Leave the admin portal securely',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 17,
+                      color: AppColors.error,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDefaultSettingsNavItem(
+    _WebCategoryItem tab,
+    bool isDark,
+    bool isSelected,
+  ) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => setState(() => _activeWebTab = tab.id),
+        borderRadius: BorderRadius.circular(12),
+        hoverColor: AppColors.primary.withValues(alpha: 0.08),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isSelected
+                ? Border.all(color: AppColors.primary.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Row(
+            children: [
+              if (isSelected)
+                Container(
+                  width: 3.5,
+                  height: 18,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              Icon(
+                tab.icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.primary
+                    : _secondaryTextColor(context),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tab.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isSelected
+                            ? (isDark ? Colors.white : Colors.black87)
+                            : _primaryTextColor(context),
+                        fontSize: 13,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                    Text(
+                      tab.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdminSettingsNavItem(
+    _WebCategoryItem tab,
+    bool isDark,
+    bool isSelected,
+  ) {
+    final isWorkflow = tab.id == 6;
+    return Semantics(
+      button: true,
+      label: 'Open ${tab.title}',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: () => setState(() => _activeWebTab = tab.id),
+            mouseCursor: SystemMouseCursors.click,
+            borderRadius: BorderRadius.circular(12),
+            hoverColor: AppColors.primary.withValues(alpha: 0.08),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppColors.primary.withValues(alpha: 0.14)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+                border: isSelected
+                    ? Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                      )
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  if (isSelected)
+                    Container(
+                      width: 3.5,
+                      height: 18,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  Icon(
+                    tab.icon,
+                    size: 20,
+                    color: isSelected || isWorkflow
+                        ? AppColors.primary
+                        : _secondaryTextColor(context),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          tab.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isSelected
+                                ? (isDark ? Colors.white : Colors.black87)
+                                : isWorkflow
+                                ? AppColors.primary
+                                : _primaryTextColor(context),
+                            fontSize: 13,
+                            fontWeight: isSelected || isWorkflow
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          tab.subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _secondaryTextColor(context),
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ),
-            );
-          }),
-          const SizedBox(height: 20),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: widget.onSignOut ?? () {},
-                borderRadius: BorderRadius.circular(12),
-                hoverColor: AppColors.error.withValues(alpha: 0.1),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: isSelected || isWorkflow
+                        ? AppColors.primary
+                        : _secondaryTextColor(context),
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.logout_rounded, size: 18, color: AppColors.error),
-                      const SizedBox(width: 12),
-                      Text(
-                        widget.adminMode ? 'Sign Out Admin' : 'Sign Out Operator',
-                        style: const TextStyle(
-                          color: AppColors.error,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1663,21 +2140,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildWebHorizontalTabs(bool isDark) {
     final tabs = widget.adminMode
         ? [
-            _WebCategoryItem(0, 'All Settings', Icons.space_dashboard_outlined, ''),
+            _WebCategoryItem(
+              0,
+              'All Settings',
+              Icons.space_dashboard_outlined,
+              '',
+            ),
             _WebCategoryItem(1, 'Appearance', Icons.palette_outlined, ''),
-            _WebCategoryItem(2, 'Rental Terms', Icons.description_outlined, ''),
+            _WebCategoryItem(
+              2,
+              'Rental Agreement',
+              Icons.description_outlined,
+              '',
+            ),
             _WebCategoryItem(3, 'Payments', Icons.payments_outlined, ''),
-            _WebCategoryItem(4, 'FAQ Auto-Replies', Icons.question_answer_outlined, ''),
+            _WebCategoryItem(
+              4,
+              'FAQ Auto-Replies',
+              Icons.question_answer_outlined,
+              '',
+            ),
             _WebCategoryItem(5, 'Profile', Icons.badge_outlined, ''),
             _WebCategoryItem(6, 'Workflow', Icons.tune_rounded, ''),
-            _WebCategoryItem(7, 'Notifications', Icons.notifications_none_rounded, ''),
+            _WebCategoryItem(
+              7,
+              'Notifications',
+              Icons.notifications_none_rounded,
+              '',
+            ),
             _WebCategoryItem(8, 'Security', Icons.shield_outlined, ''),
-            _WebCategoryItem(9, 'Support & Legal', Icons.help_outline_rounded, ''),
+            _WebCategoryItem(
+              9,
+              'Support & Legal',
+              Icons.help_outline_rounded,
+              '',
+            ),
           ]
         : [
             _WebCategoryItem(0, 'Profile', Icons.badge_outlined, ''),
             _WebCategoryItem(1, 'Workflow', Icons.tune_rounded, ''),
-            _WebCategoryItem(2, 'Notifications', Icons.notifications_none_rounded, ''),
+            _WebCategoryItem(
+              2,
+              'Notifications',
+              Icons.notifications_none_rounded,
+              '',
+            ),
             _WebCategoryItem(3, 'Security', Icons.shield_outlined, ''),
             _WebCategoryItem(4, 'Appearance', Icons.palette_outlined, ''),
             _WebCategoryItem(5, 'Support', Icons.help_outline_rounded, ''),
@@ -1698,7 +2205,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Icon(
                     tab.icon,
                     size: 16,
-                    color: isSelected ? AppColors.primary : _secondaryTextColor(context),
+                    color: isSelected
+                        ? AppColors.primary
+                        : _secondaryTextColor(context),
                   ),
                   const SizedBox(width: 6),
                   Text(tab.title),
@@ -1707,7 +2216,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               selectedColor: AppColors.primary.withValues(alpha: 0.16),
               backgroundColor: _surfaceColor(context),
               labelStyle: TextStyle(
-                color: isSelected ? AppColors.primary : _primaryTextColor(context),
+                color: isSelected
+                    ? AppColors.primary
+                    : _primaryTextColor(context),
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                 fontSize: 13,
               ),
@@ -1765,6 +2276,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Widget _buildOperatorSignOutCard() {
+    return _SettingsSection(
+      title: 'Account',
+      children: [
+        _SettingsMenuRow(
+          icon: Icons.logout_rounded,
+          title: 'Sign Out',
+          subtitle: widget.adminMode
+              ? 'Leave the admin portal securely'
+              : 'Leave the operator portal securely',
+          foregroundColor: AppColors.error,
+          showChevron: false,
+          onTap: widget.onSignOut ?? () {},
+        ),
+      ],
+    );
+  }
+
   // --- TAB 0: PROFILE & IDENTITY ---
   Widget _buildWebProfileTabContent(bool isDark) {
     final avatar = _operatorAvatarUrl;
@@ -1791,14 +2320,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.16),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 2),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.4),
+                        width: 2,
+                      ),
                     ),
                     child: avatar.isEmpty
-                        ? const Icon(Icons.person_outline_rounded, size: 40, color: AppColors.primary)
+                        ? const Icon(
+                            Icons.person_outline_rounded,
+                            size: 40,
+                            color: AppColors.primary,
+                          )
                         : Image.network(
                             avatar,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const Icon(Icons.person_outline_rounded, size: 40, color: AppColors.primary),
+                            errorBuilder: (_, _, _) => const Icon(
+                              Icons.person_outline_rounded,
+                              size: 40,
+                              color: AppColors.primary,
+                            ),
                           ),
                   ),
                   Positioned(
@@ -1810,7 +2350,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.success,
                         shape: BoxShape.circle,
-                        border: Border.all(color: _surfaceColor(context), width: 3),
+                        border: Border.all(
+                          color: _surfaceColor(context),
+                          width: 3,
+                        ),
                       ),
                     ),
                   ),
@@ -1822,7 +2365,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _operatorFullName.isEmpty ? 'Operator Desk' : _operatorFullName,
+                      _operatorFullName.isEmpty
+                          ? 'Operator Desk'
+                          : _operatorFullName,
                       style: TextStyle(
                         color: _primaryTextColor(context),
                         fontSize: 20,
@@ -1834,9 +2379,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       spacing: 8,
                       runSpacing: 6,
                       children: [
-                        _buildBadgeChip(Icons.work_outline_rounded, _operatorPosition),
-                        _buildBadgeChip(Icons.alternate_email_rounded, _operatorEmail),
-                        _buildBadgeChip(Icons.star_rounded, '4.9 Operator Rating', isGold: true),
+                        _buildBadgeChip(
+                          Icons.work_outline_rounded,
+                          _operatorPosition,
+                        ),
+                        _buildBadgeChip(
+                          Icons.alternate_email_rounded,
+                          _operatorEmail,
+                        ),
+                        _buildBadgeChip(
+                          Icons.star_rounded,
+                          '4.9 Operator Rating',
+                          isGold: true,
+                        ),
                       ],
                     ),
                   ],
@@ -1853,8 +2408,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1865,8 +2425,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -1890,7 +2455,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.badge_outlined, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.badge_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Personal Credentials',
@@ -1905,7 +2474,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Update your display name, contact phone number, and position title.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
               LayoutBuilder(
@@ -1916,21 +2488,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (isTwoCol)
                         Row(
                           children: [
-                            Expanded(child: _buildWebTextField('Full Name', _webNameController, Icons.person_outline_rounded)),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Full Name',
+                                _webNameController,
+                                Icons.person_outline_rounded,
+                              ),
+                            ),
                             const SizedBox(width: 16),
-                            Expanded(child: _buildWebTextField('Position', _webPositionController, Icons.work_outline_rounded)),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Position',
+                                _webPositionController,
+                                Icons.work_outline_rounded,
+                              ),
+                            ),
                           ],
                         )
                       else ...[
-                        _buildWebTextField('Full Name', _webNameController, Icons.person_outline_rounded),
+                        _buildWebTextField(
+                          'Full Name',
+                          _webNameController,
+                          Icons.person_outline_rounded,
+                        ),
                         const SizedBox(height: 14),
-                        _buildWebTextField('Position', _webPositionController, Icons.work_outline_rounded),
+                        _buildWebTextField(
+                          'Position',
+                          _webPositionController,
+                          Icons.work_outline_rounded,
+                        ),
                       ],
                       const SizedBox(height: 14),
                       if (isTwoCol)
                         Row(
                           children: [
-                            Expanded(child: _buildWebTextField('Contact Number', _webPhoneController, Icons.phone_outlined, keyboardType: TextInputType.phone)),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Contact Number',
+                                _webPhoneController,
+                                Icons.phone_outlined,
+                                keyboardType: TextInputType.phone,
+                              ),
+                            ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: _buildWebTextField(
@@ -1947,7 +2546,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ],
                         )
                       else ...[
-                        _buildWebTextField('Contact Number', _webPhoneController, Icons.phone_outlined, keyboardType: TextInputType.phone),
+                        _buildWebTextField(
+                          'Contact Number',
+                          _webPhoneController,
+                          Icons.phone_outlined,
+                          keyboardType: TextInputType.phone,
+                        ),
                         const SizedBox(height: 14),
                         _buildWebTextField(
                           'Email Address (Login)',
@@ -1970,14 +2574,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: FilledButton.icon(
                   onPressed: _isSavingWebProfile ? null : _saveInlineWebProfile,
                   icon: _isSavingWebProfile
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                      : const Icon(Icons.check_circle_outline_rounded, size: 18),
-                  label: Text(_isSavingWebProfile ? 'Saving...' : 'Save Profile Changes'),
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 18,
+                        ),
+                  label: Text(
+                    _isSavingWebProfile ? 'Saving...' : 'Save Profile Changes',
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -2003,7 +2624,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: Colors.amber.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(Icons.star_rounded, color: Colors.amber, size: 30),
+                child: const Icon(
+                  Icons.star_rounded,
+                  color: Colors.amber,
+                  size: 30,
+                ),
               ),
               const SizedBox(width: 18),
               Expanded(
@@ -2021,7 +2646,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       'View performance feedback and completed trip ratings from renters.',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -2034,8 +2662,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _primaryTextColor(context),
                   side: BorderSide(color: _borderColor(context)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -2063,10 +2696,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.description_outlined, color: AppColors.primary, size: 22),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.gavel_outlined,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Terms of Service',
+                          style: TextStyle(
+                            color: _primaryTextColor(context),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'General system-wide rules for every Mobilis user. Keep this separate from the Rental Agreement.',
+                          style: TextStyle(
+                            color: _secondaryTextColor(context),
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _termsOfServiceController,
+                minLines: 10,
+                maxLines: 18,
+                enabled: !_isLoadingTermsOfService && !_isSavingTermsOfService,
+                style: TextStyle(
+                  color: _primaryTextColor(context),
+                  height: 1.45,
+                  fontSize: 13.5,
+                ),
+                decoration: InputDecoration(
+                  hintText:
+                      'Add headings, numbered sections, responsibilities, prohibited activities, and general platform rules...',
+                  hintStyle: TextStyle(color: _secondaryTextColor(context)),
+                  filled: true,
+                  fillColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _borderColor(context)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  if (_isLoadingTermsOfService)
+                    Text(
+                      'Loading Terms of Service...',
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _isLoadingTermsOfService || _isSavingTermsOfService
+                        ? null
+                        : _loadTermsOfService,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reload'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryTextColor(context),
+                      side: BorderSide(color: _borderColor(context)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed:
+                        _isLoadingTermsOfService || _isSavingTermsOfService
+                        ? null
+                        : _saveTermsOfService,
+                    icon: _isSavingTermsOfService
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(
+                      _isSavingTermsOfService
+                          ? 'Saving...'
+                          : 'Save Terms of Service',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _surfaceColor(context),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _borderColor(context)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.description_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
-                    'Rental Terms & Agreement Policies',
+                    'Rental Agreement Policies',
                     style: TextStyle(
                       color: _primaryTextColor(context),
                       fontSize: 17,
@@ -2077,8 +2869,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'This text is displayed to renters before they finalize booking requests. Renters must check the agreement box before continuing.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                'This separate agreement is shown to renters before booking requests are finalized. It is not the system-wide Terms of Service.',
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -2116,32 +2911,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (_isLoadingTerms)
                     Text(
                       'Loading current terms...',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   const Spacer(),
                   OutlinedButton.icon(
-                    onPressed: _isLoadingTerms || _isSavingTerms ? null : _loadRentalTerms,
+                    onPressed: _isLoadingTerms || _isSavingTerms
+                        ? null
+                        : _loadRentalTerms,
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Reload'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   FilledButton.icon(
-                    onPressed: _isLoadingTerms || _isSavingTerms ? null : _saveRentalTerms,
+                    onPressed: _isLoadingTerms || _isSavingTerms
+                        ? null
+                        : _saveRentalTerms,
                     icon: _isSavingTerms
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
                         : const Icon(Icons.save_outlined, size: 18),
                     label: Text(_isSavingTerms ? 'Saving...' : 'Save Terms'),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -2155,7 +2974,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+            color: isDark
+                ? AppColors.darkBgSecondary
+                : AppColors.lightBgSecondary,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: _borderColor(context)),
           ),
@@ -2170,7 +2991,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: AppColors.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.privacy_tip_outlined, color: AppColors.primary, size: 22),
+                    child: const Icon(
+                      Icons.privacy_tip_outlined,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Text(
@@ -2186,7 +3011,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'This text is displayed in the Privacy Policy section for users and renters detailing data usage, identity verification, location tracking, and security.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
               TextField(
@@ -2224,32 +3052,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (_isLoadingPrivacy)
                     Text(
                       'Loading privacy policy...',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   const Spacer(),
                   OutlinedButton.icon(
-                    onPressed: _isLoadingPrivacy || _isSavingPrivacy ? null : _loadPrivacyPolicy,
+                    onPressed: _isLoadingPrivacy || _isSavingPrivacy
+                        ? null
+                        : _loadPrivacyPolicy,
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Reload'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   FilledButton.icon(
-                    onPressed: _isLoadingPrivacy || _isSavingPrivacy ? null : _savePrivacyPolicy,
+                    onPressed: _isLoadingPrivacy || _isSavingPrivacy
+                        ? null
+                        : _savePrivacyPolicy,
                     icon: _isSavingPrivacy
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
                         : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy'),
+                    label: Text(
+                      _isSavingPrivacy ? 'Saving...' : 'Save Privacy Policy',
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -2281,7 +3135,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.payments_outlined, color: AppColors.primary, size: 22),
+                  const Icon(
+                    Icons.payments_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Refundable Reservation Payment Rules',
@@ -2296,7 +3154,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Configure the refundable reservation deposit and payment instructions shown to renters during booking request creation.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
               LayoutBuilder(
@@ -2361,7 +3222,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       height: 90,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: isDark ? AppColors.darkBgSecondary : Colors.grey.shade200,
+                        color: isDark
+                            ? AppColors.darkBgSecondary
+                            : Colors.grey.shade200,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: _borderColor(context)),
                       ),
@@ -2414,7 +3277,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             runSpacing: 8,
                             children: [
                               OutlinedButton.icon(
-                                onPressed: _isLoadingReservationPayment ||
+                                onPressed:
+                                    _isLoadingReservationPayment ||
                                         _isSavingReservationPayment ||
                                         _isUploadingReservationQr ||
                                         _isDeletingReservationQr
@@ -2424,26 +3288,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ? const SizedBox(
                                         width: 15,
                                         height: 15,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                                       )
-                                    : const Icon(Icons.upload_file_rounded, size: 16),
+                                    : const Icon(
+                                        Icons.upload_file_rounded,
+                                        size: 16,
+                                      ),
                                 label: Text(
                                   _isUploadingReservationQr
                                       ? 'Uploading...'
                                       : hasQr
-                                          ? 'Replace QR Image'
-                                          : 'Upload QR Image',
+                                      ? 'Replace QR Image'
+                                      : 'Upload QR Image',
                                 ),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: _primaryTextColor(context),
-                                  side: BorderSide(color: _borderColor(context)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  side: BorderSide(
+                                    color: _borderColor(context),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                 ),
                               ),
                               if (hasQr)
                                 OutlinedButton.icon(
-                                  onPressed: _isLoadingReservationPayment ||
+                                  onPressed:
+                                      _isLoadingReservationPayment ||
                                           _isSavingReservationPayment ||
                                           _isUploadingReservationQr ||
                                           _isDeletingReservationQr
@@ -2453,15 +3330,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       ? const SizedBox(
                                           width: 15,
                                           height: 15,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
                                         )
-                                      : const Icon(Icons.delete_outline_rounded, size: 16),
-                                  label: Text(_isDeletingReservationQr ? 'Deleting...' : 'Delete QR'),
+                                      : const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 16,
+                                        ),
+                                  label: Text(
+                                    _isDeletingReservationQr
+                                        ? 'Deleting...'
+                                        : 'Delete QR',
+                                  ),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.error,
-                                    side: BorderSide(color: AppColors.error.withValues(alpha: 0.5)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    side: BorderSide(
+                                      color: AppColors.error.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
                                 ),
                             ],
@@ -2488,14 +3383,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 controller: _reservationInstructionsController,
                 minLines: 3,
                 maxLines: 5,
-                enabled: !_isLoadingReservationPayment && !_isSavingReservationPayment,
+                enabled:
+                    !_isLoadingReservationPayment &&
+                    !_isSavingReservationPayment,
                 style: TextStyle(
                   color: _primaryTextColor(context),
                   height: 1.4,
                   fontSize: 13.5,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Enter payment steps and screenshot instructions...',
+                  hintText:
+                      'Enter payment steps and screenshot instructions...',
                   hintStyle: TextStyle(color: _secondaryTextColor(context)),
                   filled: true,
                   fillColor: isDark ? AppColors.darkBg : AppColors.lightBg,
@@ -2519,11 +3417,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (_isLoadingReservationPayment)
                     Text(
                       'Loading payment settings...',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   const Spacer(),
                   OutlinedButton.icon(
-                    onPressed: _isLoadingReservationPayment || _isSavingReservationPayment
+                    onPressed:
+                        _isLoadingReservationPayment ||
+                            _isSavingReservationPayment
                         ? null
                         : _loadReservationPaymentSettings,
                     icon: const Icon(Icons.refresh_rounded, size: 16),
@@ -2531,24 +3434,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   FilledButton.icon(
-                    onPressed: _isLoadingReservationPayment || _isSavingReservationPayment
+                    onPressed:
+                        _isLoadingReservationPayment ||
+                            _isSavingReservationPayment
                         ? null
                         : _saveReservationPaymentSettings,
                     icon: _isSavingReservationPayment
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
                         : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_isSavingReservationPayment ? 'Saving...' : 'Save Payment Settings'),
+                    label: Text(
+                      _isSavingReservationPayment
+                          ? 'Saving...'
+                          : 'Save Payment Settings',
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -2569,7 +3495,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       currentList.add(
         SupportFaq(
           key: newKey,
-          question: 'New Question for ${_supportFaqRole[0].toUpperCase()}${_supportFaqRole.substring(1)}s',
+          question:
+              'New Question for ${_supportFaqRole[0].toUpperCase()}${_supportFaqRole.substring(1)}s',
           answer: 'Enter automatic reply here...',
         ),
       );
@@ -2609,7 +3536,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.question_answer_outlined, color: AppColors.primary, size: 22),
+                  const Icon(
+                    Icons.question_answer_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Customer Support FAQ Auto-Replies',
@@ -2624,7 +3555,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Configure automated responses, questions, and answers shown to Renters, Partners, and Drivers in Customer Support.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -2642,8 +3576,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ChoiceChip(
                           selected: _supportFaqRole == roleOption['key'],
                           label: Text(roleOption['label']!),
-                          selectedColor: AppColors.primary.withValues(alpha: 0.16),
-                          backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
+                          selectedColor: AppColors.primary.withValues(
+                            alpha: 0.16,
+                          ),
+                          backgroundColor: isDark
+                              ? AppColors.darkBg
+                              : AppColors.lightBg,
                           labelStyle: TextStyle(
                             color: _supportFaqRole == roleOption['key']
                                 ? AppColors.primary
@@ -2654,7 +3592,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             fontSize: 13,
                           ),
                           onSelected: (_) {
-                            setState(() => _supportFaqRole = roleOption['key']!);
+                            setState(
+                              () => _supportFaqRole = roleOption['key']!,
+                            );
                           },
                         ),
                     ],
@@ -2669,8 +3609,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -2694,18 +3639,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Column(
                     children: [
-                      Icon(Icons.quiz_outlined, size: 36, color: _secondaryTextColor(context)),
+                      Icon(
+                        Icons.quiz_outlined,
+                        size: 36,
+                        color: _secondaryTextColor(context),
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         'No FAQ questions configured for ${_supportFaqRole}s.',
-                        style: TextStyle(color: _primaryTextColor(context), fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: _primaryTextColor(context),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         onPressed: _addNewFaqQuestion,
                         icon: const Icon(Icons.add),
                         label: const Text('Add First FAQ'),
-                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.black),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                        ),
                       ),
                     ],
                   ),
@@ -2729,9 +3684,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.12),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.12,
+                                ),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -2759,8 +3719,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           initialValue: faq.question,
                           enabled: !_isSavingSupportFaqs,
                           onChanged: (value) {
-                            _supportFaqsByRole[_supportFaqRole]![index] =
-                                faq.copyWith(question: value);
+                            _supportFaqsByRole[_supportFaqRole]![index] = faq
+                                .copyWith(question: value);
                           },
                           style: TextStyle(
                             color: _primaryTextColor(context),
@@ -2774,15 +3734,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             fillColor: _surfaceColor(context),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: _borderColor(context)),
+                              borderSide: BorderSide(
+                                color: _borderColor(context),
+                              ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: _borderColor(context)),
+                              borderSide: BorderSide(
+                                color: _borderColor(context),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppColors.primary),
+                              borderSide: const BorderSide(
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         ),
@@ -2793,8 +3759,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           maxLines: 4,
                           enabled: !_isSavingSupportFaqs,
                           onChanged: (value) {
-                            _supportFaqsByRole[_supportFaqRole]![index] =
-                                faq.copyWith(answer: value);
+                            _supportFaqsByRole[_supportFaqRole]![index] = faq
+                                .copyWith(answer: value);
                           },
                           style: TextStyle(
                             color: _primaryTextColor(context),
@@ -2808,15 +3774,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             fillColor: _surfaceColor(context),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: _borderColor(context)),
+                              borderSide: BorderSide(
+                                color: _borderColor(context),
+                              ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: _borderColor(context)),
+                              borderSide: BorderSide(
+                                color: _borderColor(context),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppColors.primary),
+                              borderSide: const BorderSide(
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         ),
@@ -2836,8 +3808,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -2850,24 +3827,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primaryTextColor(context),
                       side: BorderSide(color: _borderColor(context)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   FilledButton.icon(
-                    onPressed: _isLoadingSupportFaqs || _isSavingSupportFaqs || faqs.isEmpty
+                    onPressed:
+                        _isLoadingSupportFaqs ||
+                            _isSavingSupportFaqs ||
+                            faqs.isEmpty
                         ? null
                         : _saveSupportFaqSettings,
                     icon: _isSavingSupportFaqs
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
+                          )
                         : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies'),
+                    label: Text(
+                      _isSavingSupportFaqs ? 'Saving...' : 'Save Auto-Replies',
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ],
@@ -2884,7 +3883,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final isOnline = _operatorPreferences['operator_online_status'] ?? true;
     final isVacation = _operatorPreferences['operator_vacation_leave'] ?? false;
     final isAutoAccept = _operatorPreferences['operator_auto_accept'] ?? false;
-    final isManualApprove = _operatorPreferences['operator_manual_approval'] ?? true;
+    final isManualApprove =
+        _operatorPreferences['operator_manual_approval'] ?? true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2903,7 +3903,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.wifi_tethering_rounded, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.wifi_tethering_rounded,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Operational Status & Availability',
@@ -2918,7 +3922,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Control whether your operator desk accepts real-time vehicle booking requests.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -2930,7 +3937,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? '🟢 Online — Live and accepting booking requests'
                     : '🔴 Offline — Paused from accepting new bookings',
                 value: isOnline,
-                onChanged: (val) => _setOperatorPreference('operator_online_status', val),
+                onChanged: (val) =>
+                    _setOperatorPreference('operator_online_status', val),
               ),
               const Divider(height: 24),
 
@@ -2942,7 +3950,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? '🏖️ Vacation Mode ON — New incoming requests are paused'
                     : 'Regular operations active',
                 value: isVacation,
-                onChanged: (val) => _setOperatorPreference('operator_vacation_leave', val),
+                onChanged: (val) =>
+                    _setOperatorPreference('operator_vacation_leave', val),
               ),
             ],
           ),
@@ -2963,7 +3972,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.schedule_rounded, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.schedule_rounded,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Operating Hours & Dispatch Automation',
@@ -2978,7 +3991,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Configure working hours and automated approval modes for incoming trips.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -2992,7 +4008,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.access_time_filled_rounded, color: AppColors.primary, size: 20),
+                    const Icon(
+                      Icons.access_time_filled_rounded,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
@@ -3008,7 +4028,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           Text(
                             _operatorWorkingHours,
-                            style: TextStyle(color: _secondaryTextColor(context), fontSize: 12.5),
+                            style: TextStyle(
+                              color: _secondaryTextColor(context),
+                              fontSize: 12.5,
+                            ),
                           ),
                         ],
                       ),
@@ -3018,7 +4041,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.primary,
                         side: const BorderSide(color: AppColors.primary),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       child: const Text('Change Hours'),
                     ),
@@ -3031,9 +4056,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildWebSwitchTile(
                 icon: Icons.bolt_rounded,
                 title: 'Auto-Accept Incoming Bookings',
-                subtitle: 'Automatically approve booking requests without manual confirmation',
+                subtitle:
+                    'Automatically approve booking requests without manual confirmation',
                 value: isAutoAccept,
-                onChanged: (val) => _setOperatorPreference('operator_auto_accept', val),
+                onChanged: (val) =>
+                    _setOperatorPreference('operator_auto_accept', val),
               ),
               const Divider(height: 24),
 
@@ -3041,9 +4068,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildWebSwitchTile(
                 icon: Icons.fact_check_outlined,
                 title: 'Manual Booking Approval Mode',
-                subtitle: 'Require operator verification for each booking before confirmation',
+                subtitle:
+                    'Require operator verification for each booking before confirmation',
                 value: isManualApprove,
-                onChanged: (val) => _setOperatorPreference('operator_manual_approval', val),
+                onChanged: (val) =>
+                    _setOperatorPreference('operator_manual_approval', val),
               ),
             ],
           ),
@@ -3064,7 +4093,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.directions_car_outlined, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.directions_car_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Supported Vehicle Categories',
@@ -3085,7 +4118,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Vehicle types currently managed by your operator console.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 16),
               Wrap(
@@ -3093,16 +4129,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 runSpacing: 10,
                 children: _operatorVehicleCategories.map((cat) {
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primary.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.check_circle_rounded, size: 15, color: AppColors.primary),
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 15,
+                          color: AppColors.primary,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           cat,
@@ -3139,7 +4184,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.notifications_active_outlined, color: AppColors.primary, size: 22),
+              Icon(
+                Icons.notifications_active_outlined,
+                color: AppColors.primary,
+                size: 22,
+              ),
               const SizedBox(width: 10),
               Text(
                 'Operational Alerts & Push Notifications',
@@ -3161,36 +4210,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildWebSwitchTile(
             icon: Icons.event_available_outlined,
             title: 'New Booking Request Alerts',
-            subtitle: 'Get notified immediately when a renter submits a new vehicle reservation',
+            subtitle:
+                'Get notified immediately when a renter submits a new vehicle reservation',
             value: _operatorPreferences['operator_notify_new_booking'] ?? true,
-            onChanged: (val) => _setOperatorPreference('operator_notify_new_booking', val),
+            onChanged: (val) =>
+                _setOperatorPreference('operator_notify_new_booking', val),
           ),
           const Divider(height: 24),
 
           _buildWebSwitchTile(
             icon: Icons.event_busy_outlined,
             title: 'Booking Cancellation & Refund Alerts',
-            subtitle: 'Receive instant alerts if a renter cancels or requests a booking modification',
+            subtitle:
+                'Receive instant alerts if a renter cancels or requests a booking modification',
             value: _operatorPreferences['operator_notify_cancellation'] ?? true,
-            onChanged: (val) => _setOperatorPreference('operator_notify_cancellation', val),
+            onChanged: (val) =>
+                _setOperatorPreference('operator_notify_cancellation', val),
           ),
           const Divider(height: 24),
 
           _buildWebSwitchTile(
             icon: Icons.payments_outlined,
             title: 'Payment Receipt Submissions',
-            subtitle: 'Notifications when GCash / Bank transfer receipts are uploaded for verification',
+            subtitle:
+                'Notifications when GCash / Bank transfer receipts are uploaded for verification',
             value: _operatorPreferences['operator_notify_payment'] ?? true,
-            onChanged: (val) => _setOperatorPreference('operator_notify_payment', val),
+            onChanged: (val) =>
+                _setOperatorPreference('operator_notify_payment', val),
           ),
           const Divider(height: 24),
 
           _buildWebSwitchTile(
             icon: Icons.assignment_ind_outlined,
             title: 'Driver Assignment Updates',
-            subtitle: 'Alerts when assigned drivers accept, reject, or start scheduled trips',
-            value: _operatorPreferences['operator_notify_driver_assignment'] ?? true,
-            onChanged: (val) => _setOperatorPreference('operator_notify_driver_assignment', val),
+            subtitle:
+                'Alerts when assigned drivers accept, reject, or start scheduled trips',
+            value:
+                _operatorPreferences['operator_notify_driver_assignment'] ??
+                true,
+            onChanged: (val) => _setOperatorPreference(
+              'operator_notify_driver_assignment',
+              val,
+            ),
           ),
         ],
       ),
@@ -3219,7 +4280,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: AppColors.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(Icons.password_rounded, color: AppColors.primary, size: 28),
+                child: const Icon(
+                  Icons.password_rounded,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
               ),
               const SizedBox(width: 18),
               Expanded(
@@ -3237,7 +4302,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       'Send a secure password reset link to your operator email address.',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -3250,8 +4318,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -3276,7 +4349,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: Colors.blue.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(Icons.mark_email_read_outlined, color: Colors.blue, size: 28),
+                child: const Icon(
+                  Icons.mark_email_read_outlined,
+                  color: Colors.blue,
+                  size: 28,
+                ),
               ),
               const SizedBox(width: 18),
               Expanded(
@@ -3294,7 +4371,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       _operatorEmail,
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -3307,8 +4387,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _primaryTextColor(context),
                   side: BorderSide(color: _borderColor(context)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -3339,9 +4424,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  _buildSecurityBadge('Operator Level 1 Access', Icons.verified_user_outlined),
+                  _buildSecurityBadge(
+                    'Operator Level 1 Access',
+                    Icons.verified_user_outlined,
+                  ),
                   const SizedBox(width: 12),
-                  _buildSecurityBadge('Supabase JWT Auth', Icons.security_rounded),
+                  _buildSecurityBadge(
+                    'Supabase JWT Auth',
+                    Icons.security_rounded,
+                  ),
                 ],
               ),
             ],
@@ -3369,7 +4460,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.palette_outlined, color: AppColors.primary, size: 22),
+                  Icon(
+                    Icons.palette_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     'Console Color Theme',
@@ -3384,7 +4479,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 4),
               Text(
                 'Choose your preferred visual theme for the operator management portal.',
-                style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -3395,7 +4493,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Expanded(
                     child: _buildThemePreviewCard(
                       title: 'Dark Mode',
-                      subtitle: 'Sleek dark theme optimized for long operational shifts.',
+                      subtitle:
+                          'Sleek dark theme optimized for long operational shifts.',
                       icon: Icons.dark_mode_outlined,
                       isSelected: isDark,
                       previewColor: const Color(0xFF141721),
@@ -3409,7 +4508,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Expanded(
                     child: _buildThemePreviewCard(
                       title: 'Light Mode',
-                      subtitle: 'High contrast light theme for bright environments.',
+                      subtitle:
+                          'High contrast light theme for bright environments.',
                       icon: Icons.light_mode_outlined,
                       isSelected: !isDark,
                       previewColor: const Color(0xFFF4F6FB),
@@ -3442,7 +4542,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   color: AppColors.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(Icons.language_rounded, color: AppColors.primary, size: 26),
+                child: const Icon(
+                  Icons.language_rounded,
+                  color: AppColors.primary,
+                  size: 26,
+                ),
               ),
               const SizedBox(width: 18),
               Expanded(
@@ -3460,7 +4564,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 4),
                     Text(
                       'Current selection: $_operatorLanguage',
-                      style: TextStyle(color: _secondaryTextColor(context), fontSize: 13),
+                      style: TextStyle(
+                        color: _secondaryTextColor(context),
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -3473,8 +4580,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _primaryTextColor(context),
                   side: BorderSide(color: _borderColor(context)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -3520,7 +4632,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSupportCard(
               icon: Icons.info_outline_rounded,
               title: 'System Information',
-              subtitle: 'Mobilis by PSDC v1.0.0 (Web Build)',
+              subtitle: 'Mobilis v1.0.0 (Web Build)',
               buttonText: 'View Terms',
               onTap: _openTerms,
             ),
@@ -3607,13 +4719,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           keyboardType: keyboardType,
           style: TextStyle(color: _primaryTextColor(context), fontSize: 14),
           decoration: InputDecoration(
-            prefixIcon: Icon(icon, size: 18, color: _secondaryTextColor(context)),
+            prefixIcon: Icon(
+              icon,
+              size: 18,
+              color: _secondaryTextColor(context),
+            ),
             suffixIcon: suffixWidget,
             filled: true,
             fillColor: readOnly
                 ? _borderColor(context).withValues(alpha: 0.2)
                 : _surfaceColor(context),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(color: _borderColor(context)),
@@ -3670,14 +4789,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Row(
                 children: [
-                  Icon(icon, color: isSelected ? AppColors.primary : _secondaryTextColor(context), size: 22),
+                  Icon(
+                    icon,
+                    color: isSelected
+                        ? AppColors.primary
+                        : _secondaryTextColor(context),
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Text(
                     title,
                     style: TextStyle(
                       color: _primaryTextColor(context),
                       fontSize: 15,
-                      fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      fontWeight: isSelected
+                          ? FontWeight.w800
+                          : FontWeight.w600,
                     ),
                   ),
                   const Spacer(),
@@ -3688,7 +4815,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: AppColors.primary,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.check, size: 12, color: Colors.black),
+                      child: const Icon(
+                        Icons.check,
+                        size: 12,
+                        color: Colors.black,
+                      ),
                     ),
                 ],
               ),
@@ -3705,15 +4836,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: const EdgeInsets.all(8.0),
                   child: Row(
                     children: [
-                      Container(width: 24, height: 8, decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(4))),
+                      Container(
+                        width: 24,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
                       const SizedBox(width: 8),
-                      Container(width: 40, height: 8, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(4))),
+                      Container(
+                        width: 40,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 8),
-              Text(subtitle, style: TextStyle(color: _secondaryTextColor(context), fontSize: 12)),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: _secondaryTextColor(context),
+                  fontSize: 12,
+                ),
+              ),
             ],
           ),
         ),
@@ -3745,13 +4896,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Expanded(
                 child: Text(
                   title,
-                  style: TextStyle(color: _primaryTextColor(context), fontSize: 15, fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    color: _primaryTextColor(context),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          Text(subtitle, style: TextStyle(color: _secondaryTextColor(context), fontSize: 12.5)),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: _secondaryTextColor(context),
+              fontSize: 12.5,
+            ),
+          ),
           const Spacer(),
           Align(
             alignment: Alignment.centerRight,
@@ -3760,7 +4921,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.primary,
                 side: const BorderSide(color: AppColors.primary),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               child: Text(buttonText),
             ),
@@ -3778,12 +4941,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? Colors.amber.withValues(alpha: 0.14)
             : _borderColor(context).withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(8),
-        border: isGold ? Border.all(color: Colors.amber.withValues(alpha: 0.4)) : null,
+        border: isGold
+            ? Border.all(color: Colors.amber.withValues(alpha: 0.4))
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: isGold ? Colors.amber : _secondaryTextColor(context)),
+          Icon(
+            icon,
+            size: 14,
+            color: isGold ? Colors.amber : _secondaryTextColor(context),
+          ),
           const SizedBox(width: 5),
           Text(
             label,
@@ -3813,7 +4982,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(width: 8),
           Text(
             label,
-            style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -4348,13 +5521,15 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.borderColor),
+                        borderSide: const BorderSide(
+                          color: AppColors.borderColor,
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.borderColor),
+                        borderSide: const BorderSide(
+                          color: AppColors.borderColor,
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -4629,9 +5804,9 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
         _mpinSalt = '';
         _mpinHash = '';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('MPIN protection removed.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('MPIN protection removed.')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5327,7 +6502,9 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
                           color: latitude != null && longitude != null
                               ? AppColors.primary
                               : _borderColor(context),
-                          width: latitude != null && longitude != null ? 1.5 : 1,
+                          width: latitude != null && longitude != null
+                              ? 1.5
+                              : 1,
                         ),
                       ),
                       child: Row(
@@ -5375,18 +6552,21 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
                           OutlinedButton.icon(
                             onPressed: () async {
                               final mapResult =
-                                  await showModalBottomSheet<Map<String, dynamic>>(
-                                context: context,
-                                isScrollControlled: true,
-                                useSafeArea: true,
-                                backgroundColor: _surfaceColor(context),
-                                builder: (ctx) => _AddressMapPickerSheet(
-                                  initialLatitude: latitude,
-                                  initialLongitude: longitude,
-                                  isDark: Theme.of(context).brightness ==
-                                      Brightness.dark,
-                                ),
-                              );
+                                  await showModalBottomSheet<
+                                    Map<String, dynamic>
+                                  >(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    useSafeArea: true,
+                                    backgroundColor: _surfaceColor(context),
+                                    builder: (ctx) => _AddressMapPickerSheet(
+                                      initialLatitude: latitude,
+                                      initialLongitude: longitude,
+                                      isDark:
+                                          Theme.of(context).brightness ==
+                                          Brightness.dark,
+                                    ),
+                                  );
                               if (mapResult != null) {
                                 setSheetState(() {
                                   latitude = mapResult['latitude'] as double?;
@@ -6372,7 +7552,7 @@ class _AboutMobilisScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Mobilis by PSDC',
+                  'Mobilis',
                   style: TextStyle(
                     color: _primaryTextColor(context),
                     fontSize: 21,
@@ -6641,13 +7821,21 @@ class _AddressMapPickerSheetState extends State<_AddressMapPickerSheet> {
       );
       if (placemarks.isNotEmpty) {
         final place = placemarks.first;
-        final parts = [
-          place.street,
-          place.subLocality,
-          place.locality,
-          place.subAdministrativeArea,
-          place.administrativeArea,
-        ].where((p) => p != null && p.trim().isNotEmpty && p.trim() != 'Unnamed Road').join(', ');
+        final parts =
+            [
+                  place.street,
+                  place.subLocality,
+                  place.locality,
+                  place.subAdministrativeArea,
+                  place.administrativeArea,
+                ]
+                .where(
+                  (p) =>
+                      p != null &&
+                      p.trim().isNotEmpty &&
+                      p.trim() != 'Unnamed Road',
+                )
+                .join(', ');
 
         if (mounted) {
           setState(() {
@@ -6678,7 +7866,9 @@ class _AddressMapPickerSheetState extends State<_AddressMapPickerSheet> {
       if (!serviceEnabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enable GPS location services.')),
+            const SnackBar(
+              content: Text('Please enable GPS location services.'),
+            ),
           );
         }
         return;
@@ -6742,9 +7932,9 @@ class _AddressMapPickerSheetState extends State<_AddressMapPickerSheet> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Search failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Search failed: $e')));
       }
     }
   }
@@ -6942,4 +8132,3 @@ class _AddressMapPickerSheetState extends State<_AddressMapPickerSheet> {
     );
   }
 }
-

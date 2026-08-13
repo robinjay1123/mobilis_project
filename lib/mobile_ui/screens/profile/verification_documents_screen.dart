@@ -4,6 +4,7 @@ import '../../../services/driver_service.dart';
 import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/dialog_status_indicator.dart';
 
 class VerificationDocumentsScreen extends StatefulWidget {
   final VoidCallback? onBack;
@@ -50,7 +51,9 @@ class _VerificationDocumentsScreenState
           verification == null || rawStatus == null || rawStatus.isEmpty
           ? 'required'
           : rawStatus;
-      final Map<String, dynamic> combinedRecord = Map<String, dynamic>.from(verification ?? {});
+      final Map<String, dynamic> combinedRecord = Map<String, dynamic>.from(
+        verification ?? {},
+      );
       if (userId != null) {
         final driverProfile = await DriverService().getDriverProfile(userId);
         if (driverProfile != null) {
@@ -153,7 +156,9 @@ class _VerificationDocumentsScreenState
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E2837) : Colors.grey.shade200,
+                    color: isDark
+                        ? const Color(0xFF1E2837)
+                        : Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: isDark ? Colors.white12 : Colors.grey.shade300,
@@ -337,7 +342,8 @@ class _VerificationDocumentsScreenState
                                                 fontWeight: FontWeight.w600,
                                                 color: isDark
                                                     ? AppColors.textPrimary
-                                                    : AppColors.lightTextPrimary,
+                                                    : AppColors
+                                                          .lightTextPrimary,
                                               ),
                                             ),
                                             const SizedBox(height: 4),
@@ -353,7 +359,8 @@ class _VerificationDocumentsScreenState
                                                 fontSize: 12,
                                                 color: isDark
                                                     ? AppColors.textSecondary
-                                                    : AppColors.lightTextSecondary,
+                                                    : AppColors
+                                                          .lightTextSecondary,
                                               ),
                                             ),
                                             if (_verificationStatus ==
@@ -367,32 +374,46 @@ class _VerificationDocumentsScreenState
                                                   fontSize: 12,
                                                   color: isDark
                                                       ? AppColors.textSecondary
-                                                      : AppColors.lightTextSecondary,
+                                                      : AppColors
+                                                            .lightTextSecondary,
                                                 ),
                                               ),
-                                             if (!_isVerified) ...[
-                                               const SizedBox(height: 12),
-                                               SizedBox(
-                                                 width: double.infinity,
-                                                 child: ElevatedButton.icon(
-                                                   onPressed: _openVerificationFlow,
-                                                   icon: const Icon(Icons.edit_document, size: 16),
-                                                   label: Text(
-                                                     _verificationStatus == 'rejected'
-                                                         ? 'Reapply Verification'
-                                                         : 'Update / Submit Verification',
-                                                     style: const TextStyle(fontWeight: FontWeight.bold),
-                                                   ),
-                                                   style: ElevatedButton.styleFrom(
-                                                     backgroundColor: AppColors.primary,
-                                                     foregroundColor: Colors.black,
-                                                     shape: RoundedRectangleBorder(
-                                                       borderRadius: BorderRadius.circular(10),
-                                                     ),
-                                                   ),
-                                                 ),
-                                               ),
-                                             ],
+                                            if (!_isVerified) ...[
+                                              const SizedBox(height: 12),
+                                              SizedBox(
+                                                width: double.infinity,
+                                                child: ElevatedButton.icon(
+                                                  onPressed:
+                                                      _openVerificationFlow,
+                                                  icon: const Icon(
+                                                    Icons.edit_document,
+                                                    size: 16,
+                                                  ),
+                                                  label: Text(
+                                                    _verificationStatus ==
+                                                            'rejected'
+                                                        ? 'Reapply Verification'
+                                                        : 'Update / Submit Verification',
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        AppColors.primary,
+                                                    foregroundColor:
+                                                        Colors.black,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            10,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ],
                                         ),
                                       ),
@@ -414,7 +435,11 @@ class _VerificationDocumentsScreenState
     );
   }
 
-  void _showImagePreviewDialog(BuildContext context, String title, String imageUrl) {
+  void _showImagePreviewDialog(
+    BuildContext context,
+    String title,
+    String imageUrl,
+  ) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog(
@@ -474,54 +499,98 @@ class _VerificationDocumentsScreenState
   }) {
     String? clean(dynamic v) {
       final s = v?.toString().trim();
-      return (s != null && s.isNotEmpty && (s.startsWith('http') || s.startsWith('data:image') || s.contains('/storage/')))
+      return (s != null &&
+              s.isNotEmpty &&
+              (s.startsWith('http') ||
+                  s.startsWith('data:image') ||
+                  s.contains('/storage/')))
           ? s
           : null;
     }
 
-    final idFrontUrl = clean(record['id_front_url'] ?? record['id_document_url'] ?? record['id_photo_url']);
+    final idFrontUrl = clean(
+      record['id_front_url'] ??
+          record['id_document_url'] ??
+          record['id_photo_url'],
+    );
     final idBackUrl = clean(record['id_back_url']);
-    final faceSelfieUrl = clean(record['face_selfie_url'] ?? record['profile_picture_url'] ?? record['avatar_url']);
-    final selfieWithIdUrl = clean(record['selfie_with_id_url'] ?? record['selfie_holding_id_url']);
-    final licensePhotoUrl = clean(record['driver_license_photo_url'] ?? record['license_photo_url'] ?? record['license_url']);
-    final nbiFileUrl = clean(record['driver_nbi_url'] ?? record['nbi_file_url'] ?? record['nbi_url']);
-    final signatureUrl = clean(record['driver_signature_url'] ?? record['signature_url']);
+    final faceSelfieUrl = clean(
+      record['face_selfie_url'] ??
+          record['profile_picture_url'] ??
+          record['avatar_url'],
+    );
+    final selfieWithIdUrl = clean(
+      record['selfie_with_id_url'] ?? record['selfie_holding_id_url'],
+    );
+    final licensePhotoUrl = clean(
+      record['driver_license_photo_url'] ??
+          record['license_photo_url'] ??
+          record['license_url'],
+    );
+    final nbiFileUrl = clean(
+      record['driver_nbi_url'] ?? record['nbi_file_url'] ?? record['nbi_url'],
+    );
+    final signatureUrl = clean(
+      record['driver_signature_url'] ?? record['signature_url'],
+    );
 
-    final defaultStatus = _isVerified ? 'Verified' : (_hasSubmittedVerification ? 'Submitted' : 'Pending');
-    final defaultStatusColor = _isVerified ? AppColors.success : (_hasSubmittedVerification ? AppColors.primary : AppColors.warning);
+    final defaultStatus = _isVerified
+        ? 'Verified'
+        : (_hasSubmittedVerification ? 'Submitted' : 'Pending');
+    final defaultStatusColor = _isVerified || _hasSubmittedVerification
+        ? AppColors.success
+        : AppColors.error;
 
     final items = [
       {
         'title': 'Government ID (Front)',
-        'subtitle': record['id_type'] != null ? 'Type: ${record['id_type']}' : 'Government identity photo',
+        'subtitle': record['id_type'] != null
+            ? 'Type: ${record['id_type']}'
+            : 'Government identity photo',
         'icon': Icons.badge_outlined,
         'url': idFrontUrl,
-        'status': idFrontUrl != null ? defaultStatus : (_isVerified ? 'Verified' : 'Pending'),
-        'statusColor': idFrontUrl != null ? defaultStatusColor : (_isVerified ? AppColors.success : AppColors.warning),
+        'status': idFrontUrl != null
+            ? defaultStatus
+            : (_isVerified ? 'Verified' : 'Missing'),
+        'statusColor': idFrontUrl != null
+            ? defaultStatusColor
+            : (_isVerified ? AppColors.success : AppColors.error),
       },
       {
         'title': 'Government ID (Back)',
         'subtitle': 'Rear side photo of ID card',
         'icon': Icons.credit_card_outlined,
         'url': idBackUrl,
-        'status': idBackUrl != null ? defaultStatus : (_isVerified ? 'Verified' : 'Pending'),
-        'statusColor': idBackUrl != null ? defaultStatusColor : (_isVerified ? AppColors.success : AppColors.warning),
+        'status': idBackUrl != null
+            ? defaultStatus
+            : (_isVerified ? 'Verified' : 'Missing'),
+        'statusColor': idBackUrl != null
+            ? defaultStatusColor
+            : (_isVerified ? AppColors.success : AppColors.error),
       },
       {
         'title': 'Biometric Face Selfie',
         'subtitle': 'Liveness & identity selfie check',
         'icon': Icons.face_retouching_natural,
         'url': faceSelfieUrl,
-        'status': faceSelfieUrl != null ? defaultStatus : (_isVerified ? 'Verified' : 'Pending'),
-        'statusColor': faceSelfieUrl != null ? defaultStatusColor : (_isVerified ? AppColors.success : AppColors.warning),
+        'status': faceSelfieUrl != null
+            ? defaultStatus
+            : (_isVerified ? 'Verified' : 'Missing'),
+        'statusColor': faceSelfieUrl != null
+            ? defaultStatusColor
+            : (_isVerified ? AppColors.success : AppColors.error),
       },
       {
         'title': 'Selfie Holding ID',
         'subtitle': 'Authenticated photo holding government ID',
         'icon': Icons.co_present_outlined,
         'url': selfieWithIdUrl,
-        'status': selfieWithIdUrl != null ? defaultStatus : (_isVerified ? 'Verified' : 'Pending'),
-        'statusColor': selfieWithIdUrl != null ? defaultStatusColor : (_isVerified ? AppColors.success : AppColors.warning),
+        'status': selfieWithIdUrl != null
+            ? defaultStatus
+            : (_isVerified ? 'Verified' : 'Missing'),
+        'statusColor': selfieWithIdUrl != null
+            ? defaultStatusColor
+            : (_isVerified ? AppColors.success : AppColors.error),
       },
       if (licensePhotoUrl != null)
         {
@@ -566,7 +635,9 @@ class _VerificationDocumentsScreenState
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+          color: isDark
+              ? AppColors.darkBgSecondary
+              : AppColors.lightBgSecondary,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
@@ -595,7 +666,9 @@ class _VerificationDocumentsScreenState
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
+                          color: isDark
+                              ? AppColors.textPrimary
+                              : AppColors.lightTextPrimary,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -603,14 +676,19 @@ class _VerificationDocumentsScreenState
                         subtitle,
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+                          color: isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
@@ -625,6 +703,17 @@ class _VerificationDocumentsScreenState
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            DialogStatusIndicator(
+              compact: true,
+              isComplete: hasImage || _isVerified,
+              completeLabel: _isVerified ? 'Verified' : 'Document added',
+              incompleteLabel: 'Document missing',
+              completeDetail: _isVerified
+                  ? 'This requirement has been verified.'
+                  : 'Document is available on your verification record.',
+              incompleteDetail: 'Add this required document to continue.',
             ),
             if (hasImage) ...[
               const SizedBox(height: 12),
@@ -643,15 +732,15 @@ class _VerificationDocumentsScreenState
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        OptimizedNetworkImage(
-                          imageUrl: url,
-                          fit: BoxFit.cover,
-                        ),
+                        OptimizedNetworkImage(imageUrl: url, fit: BoxFit.cover),
                         Positioned(
                           right: 8,
                           bottom: 8,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.8),
                               borderRadius: BorderRadius.circular(8),
@@ -660,7 +749,11 @@ class _VerificationDocumentsScreenState
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                Icon(
+                                  Icons.zoom_in,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
                                 SizedBox(width: 4),
                                 Text(
                                   'View Photo',
@@ -682,14 +775,21 @@ class _VerificationDocumentsScreenState
             ] else ...[
               const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: isDark ? AppColors.darkBg : AppColors.lightBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Row(
                   children: [
-                    Icon(Icons.check_circle_outline, size: 14, color: AppColors.success),
+                    Icon(
+                      Icons.check_circle_outline,
+                      size: 14,
+                      color: AppColors.success,
+                    ),
                     SizedBox(width: 6),
                     Text(
                       'Document authenticated on file',

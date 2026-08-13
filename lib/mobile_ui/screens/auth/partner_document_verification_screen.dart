@@ -759,8 +759,10 @@ class _PartnerDocumentVerificationScreenState
               ),
               const SizedBox(height: 32),
               CustomButton(
-                label: 'Back to Home',
-                onPressed: () => Navigator.pop(context),
+                label: 'Go to Dashboard',
+                onPressed: () => Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/dashboard', (route) => false),
                 backgroundColor: AppColors.primary,
                 textColor: Colors.black,
               ),

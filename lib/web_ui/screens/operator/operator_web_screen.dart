@@ -27,6 +27,7 @@ import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
+import '../../../mobile_ui/widgets/dialog_status_indicator.dart';
 import '../../../mobile_ui/widgets/leaflet_map.dart';
 import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../mobile_ui/widgets/booking_return_countdown.dart';
@@ -2721,7 +2722,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     withDriver
                                         ? partnerVehicle
                                               ? 'Certified drivers ranked near the partner vehicle and renter for ${_vehicleTitle(vehicle)}.'
-                                              : 'Available Mobilis by PSDC certified drivers for ${_vehicleTitle(vehicle)}.'
+                                              : 'Available Mobilis certified drivers for ${_vehicleTitle(vehicle)}.'
                                         : 'Confirm the reservation and create its booking conversation.',
                                     style: const TextStyle(
                                       color: Color(0xFF87A0B7),
@@ -4631,6 +4632,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }) {
     final parsedNum = num.tryParse(rawValue);
     final value = parsedNum != null ? _formatNumber(parsedNum) : rawValue;
+    final isActiveTripCard = title == 'Active Trips';
     final borderRadius = BorderRadius.circular(18);
     return Semantics(
       button: onTap != null,
@@ -4653,74 +4655,105 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               border: Border.all(
                 color: isDark ? AppColors.borderColor : Colors.grey.shade200,
               ),
+              boxShadow: [
+                if (isActiveTripCard)
+                  BoxShadow(
+                    color: color.withOpacity(isDark ? 0.18 : 0.1),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+              ],
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: color, size: 24),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        value,
-                        style: TextStyle(
-                          fontSize: 30,
-                          fontWeight: FontWeight.w800,
-                          color: isDark ? Colors.white : _operatorInk,
-                        ),
+                if (isActiveTripCard) ...[
+                  Container(width: double.infinity, height: 4, color: color),
+                  const SizedBox(height: 14),
+                ],
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      Text(
-                        title.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 11,
-                          letterSpacing: 0.6,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.grey : Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (onTap != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
+                      child: Icon(icon, color: color, size: 24),
                     ),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'View',
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            value,
+                            style: TextStyle(
+                              fontSize: 30,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? Colors.white : _operatorInk,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 3),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          size: 13,
-                          color: color,
-                        ),
-                      ],
+                          Text(
+                            title.toUpperCase(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              letterSpacing: 0.6,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? Colors.grey
+                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    if (onTap != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isActiveTripCard)
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(right: 5),
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            Text(
+                              isActiveTripCard ? 'Live' : 'View',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 13,
+                              color: color,
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -10653,6 +10686,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   );
                 }),
+                const SizedBox(height: 4),
+                DialogStatusIndicator(
+                  compact: true,
+                  isComplete: evidence.every(
+                    (item) => item.value.trim().isNotEmpty,
+                  ),
+                  completeLabel: 'Required evidence complete',
+                  incompleteLabel: 'Required evidence incomplete',
+                  completeDetail: 'All safety files are available for review.',
+                  incompleteDetail:
+                      'One or more required safety files are missing.',
+                ),
               ],
             ),
           ),
@@ -10858,6 +10903,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       othersRemarksController: othersRemarksController,
                       releasedByController: releasedByController,
                       receivedByController: receivedByController,
+                    ),
+                    const SizedBox(height: 12),
+                    DialogStatusIndicator(
+                      compact: true,
+                      isComplete:
+                          BookingInspectionService.requiredChecklistKeys.every(
+                            (key) => checklistItems[key] == true,
+                          ) &&
+                          fuelController.text.trim().isNotEmpty &&
+                          tiresController.text.trim().isNotEmpty &&
+                          magsController.text.trim().isNotEmpty &&
+                          releasedByController.text.trim().isNotEmpty &&
+                          receivedByController.text.trim().isNotEmpty &&
+                          selectedEvidence.isNotEmpty,
+                      completeLabel: 'Inspection information complete',
+                      incompleteLabel: 'Inspection information incomplete',
+                      completeDetail:
+                          'Checklist, required fields, and evidence are ready.',
+                      incompleteDetail:
+                          'Complete every checklist item, required field, and add evidence.',
                     ),
                     Align(
                       alignment: Alignment.centerLeft,

@@ -25,11 +25,11 @@ class CustomButton extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
-      height: 56,
+      height: 48,
       child: ElevatedButton(
         onPressed: isLoading || isDisabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           backgroundColor: isDisabled
               ? (backgroundColor ?? AppColors.primary).withOpacity(0.5)
               : (backgroundColor ?? AppColors.primary),
@@ -38,10 +38,9 @@ class CustomButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
           ),
           elevation: 0,
-          disabledBackgroundColor:
-              (backgroundColor ?? AppColors.primary).withOpacity(0.5),
-          disabledForegroundColor:
-              (textColor ?? Colors.black).withOpacity(0.5),
+          disabledBackgroundColor: (backgroundColor ?? AppColors.primary)
+              .withOpacity(0.5),
+          disabledForegroundColor: (textColor ?? Colors.black).withOpacity(0.5),
         ),
         child: isLoading
             ? const SizedBox(
@@ -59,8 +58,8 @@ class CustomButton extends StatelessWidget {
                   maxLines: 1,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),

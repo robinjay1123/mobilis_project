@@ -46,7 +46,7 @@ class _OwnerVerificationScreenState extends State<OwnerVerificationScreen> {
                 borderRadius: BorderRadius.circular(4),
               ),
               child: const Text(
-                'MOBILIS BY PSDC',
+                'MOBILIS',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,

@@ -752,67 +752,79 @@ class _IdentityVerificationFormScreenState
 
         return Dialog(
           backgroundColor: bgColor,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check_circle,
-                    color: AppColors.success,
-                    size: 48,
-                  ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check_circle,
+                        color: AppColors.success,
+                        size: 48,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      widget.userRole == 'driver'
+                          ? 'Application Submitted!'
+                          : 'Verification Submitted!',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      widget.userRole == 'driver'
+                          ? 'Your driver application has been submitted for admin review. We\'ll notify you once it\'s complete.'
+                          : 'Your verification has been submitted for admin review. We\'ll notify you once it\'s complete.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark
+                            ? AppColors.textSecondary
+                            : AppColors.lightTextSecondary,
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: CustomButton(
+                        label: 'Go to Dashboard',
+                        onPressed: () {
+                          Navigator.pop(context); // Close dialog
+                          Navigator.of(this.context).pushNamedAndRemoveUntil(
+                            '/dashboard',
+                            (route) => false,
+                          );
+                        },
+                        backgroundColor: AppColors.primary,
+                        textColor: Colors.black,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 20),
-                Text(
-                  widget.userRole == 'driver'
-                      ? 'Application Submitted!'
-                      : 'Verification Submitted!',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  widget.userRole == 'driver'
-                      ? 'Your driver application has been submitted for admin review. We\'ll notify you once it\'s complete.'
-                      : 'Your verification has been submitted for admin review. We\'ll notify you once it\'s complete.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark
-                        ? AppColors.textSecondary
-                        : AppColors.lightTextSecondary,
-                    height: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: CustomButton(
-                    label: 'Back to Home',
-                    onPressed: () {
-                      Navigator.pop(context); // Close dialog
-                      _handleBackNavigation();
-                    },
-                    backgroundColor: AppColors.primary,
-                    textColor: Colors.black,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         );

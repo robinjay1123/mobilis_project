@@ -9,7 +9,7 @@ class AnimatedLoadingWidget extends StatelessWidget {
 
   const AnimatedLoadingWidget({
     super.key,
-    this.title = 'Mobilis by PSDC',
+    this.title = 'Mobilis',
     this.subtitle = 'Professional Car Rental Solutions',
     this.gifPath = 'assets/loading.gif',
     this.logoPath = 'assets/icon/logo1.png',

@@ -106,7 +106,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                             text: 'Mobilis ',
                             children: [
                               TextSpan(
-                                text: 'by PSDC',
+                                text: 'Mobilis',
                                 style: TextStyle(color: AppColors.primary),
                               ),
                             ],

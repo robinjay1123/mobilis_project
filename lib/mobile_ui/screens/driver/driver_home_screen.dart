@@ -17,6 +17,7 @@ import '../../../services/verification_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../profile/ratings_reviews_screen.dart';
@@ -1030,6 +1031,14 @@ class __DashboardTabState extends State<_DashboardTab> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const DialogStatusIndicator(
+              isComplete: false,
+              completeLabel: 'Verification complete',
+              incompleteLabel: 'Verification required',
+              incompleteDetail:
+                  'Complete your identity verification to unlock driver features.',
+            ),
+            const SizedBox(height: 12),
             Text(
               'Get verified to unlock:',
               style: TextStyle(
@@ -1449,7 +1458,10 @@ class __DashboardTabState extends State<_DashboardTab> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
@@ -1472,7 +1484,10 @@ class __DashboardTabState extends State<_DashboardTab> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textPrimary,
                         side: const BorderSide(color: Color(0xFF2F5D86)),
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
@@ -1776,7 +1791,7 @@ class __DashboardTabState extends State<_DashboardTab> {
 
   String? _getDriverBadge() {
     if (_isCertifiedDriver) {
-      return 'Mobilis by PSDC Certified Driver';
+      return 'Mobilis Certified Driver';
     }
     if (_isVerified) {
       return 'Basic Driver';
@@ -3459,12 +3474,9 @@ class _NotificationsTabState extends State<_NotificationsTab> {
   void initState() {
     super.initState();
     _notificationsFuture = _loadNotifications();
-    _autoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) {
-        if (mounted) _refresh();
-      },
-    );
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) _refresh();
+    });
     _setupNotificationsListener();
   }
 
@@ -3687,9 +3699,7 @@ class _NotificationsTabState extends State<_NotificationsTab> {
                 Text(
                   message.isEmpty ? 'No message content.' : message,
                   style: TextStyle(
-                    color: isDark
-                        ? Colors.white70
-                        : AppColors.lightTextPrimary,
+                    color: isDark ? Colors.white70 : AppColors.lightTextPrimary,
                     fontSize: 14,
                     height: 1.45,
                   ),
@@ -4327,6 +4337,11 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
   bool isLoading = true;
   bool isSaving = false;
   final Set<DateTime> selectedDates = {};
+  DateTime _availabilityFocusedDay = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
 
   DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
@@ -4373,11 +4388,19 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
           .map(_dateOnly)
           .toSet();
       if (!mounted) return;
+      final sortedDates = dates.toList()..sort();
       setState(() {
         isAvailable = stats['is_available'] == true;
         selectedDates
           ..clear()
           ..addAll(dates);
+        if (sortedDates.isNotEmpty) {
+          _availabilityFocusedDay = DateTime(
+            sortedDates.first.year,
+            sortedDates.first.month,
+            1,
+          );
+        }
         isLoading = false;
       });
     } catch (_) {
@@ -4735,14 +4758,14 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
     return '${fullMonths[date.month - 1]} ${date.year}';
   }
 
-  Map<String, List<DateTime>> _groupDatesByMonth(List<DateTime> dates) {
-    final sorted = dates.toList()..sort((a, b) => a.compareTo(b));
-    final Map<String, List<DateTime>> grouped = {};
-    for (final d in sorted) {
-      final key = _formatMonthYear(d);
-      grouped.putIfAbsent(key, () => []).add(d);
-    }
-    return grouped;
+  void _changeAvailabilityMonth(int offset) {
+    setState(() {
+      _availabilityFocusedDay = DateTime(
+        _availabilityFocusedDay.year,
+        _availabilityFocusedDay.month + offset,
+        1,
+      );
+    });
   }
 
   Future<void> _confirmRemoveAvailabilityDate(DateTime date) async {
@@ -4842,10 +4865,7 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             ),
             child: const Text(
               'Remove',
@@ -4866,149 +4886,324 @@ class __AvailabilityTabState extends State<_AvailabilityTab> {
   }
 
   Widget _buildAvailableDatesSection(bool isDark) {
-    if (selectedDates.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFF07111D),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.borderColor),
-        ),
-        child: const Text(
-          'No dates selected yet.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.textSecondary),
-        ),
-      );
-    }
-
-    final grouped = _groupDatesByMonth(selectedDates.toList());
+    final calendarText = isDark ? Colors.white : Colors.black87;
+    final mutedText = isDark ? Colors.white54 : Colors.grey.shade600;
+    final sortedDates = selectedDates.toList()..sort();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: grouped.entries.map((entry) {
-        final monthName = entry.key;
-        final dates = entry.value;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8, top: 4),
-              child: Row(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF07111D) : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+            ),
+          ),
+          child: Column(
+            children: [
+              Row(
                 children: [
-                  const Icon(
-                    Icons.calendar_month_outlined,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    monthName,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : Colors.black87,
+                  IconButton(
+                    tooltip: 'Previous month',
+                    onPressed: isSaving
+                        ? null
+                        : () => _changeAvailabilityMonth(-1),
+                    icon: Icon(
+                      Icons.chevron_left_rounded,
+                      color: isSaving ? mutedText : AppColors.primary,
+                      size: 28,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                  Expanded(
                     child: Text(
-                      '${dates.length} date${dates.length == 1 ? '' : 's'}',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                      _formatMonthYear(_availabilityFocusedDay),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: calendarText,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
                       ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Next month',
+                    onPressed: isSaving
+                        ? null
+                        : () => _changeAvailabilityMonth(1),
+                    icon: Icon(
+                      Icons.chevron_right_rounded,
+                      color: isSaving ? mutedText : AppColors.primary,
+                      size: 28,
                     ),
                   ),
                 ],
               ),
-            ),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 3.4,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: dates.length,
-              itemBuilder: (context, index) {
-                final date = dates[index];
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+              const SizedBox(height: 4),
+              TableCalendar<void>(
+                firstDay: DateTime(2000, 1, 1),
+                lastDay: DateTime(2100, 12, 31),
+                focusedDay: _availabilityFocusedDay,
+                calendarFormat: CalendarFormat.month,
+                availableCalendarFormats: const {CalendarFormat.month: 'Month'},
+                headerVisible: false,
+                rowHeight: 42,
+                daysOfWeekHeight: 24,
+                selectedDayPredicate: (day) =>
+                    selectedDates.contains(_dateOnly(day)),
+                onPageChanged: (focusedDay) {
+                  setState(() {
+                    _availabilityFocusedDay = DateTime(
+                      focusedDay.year,
+                      focusedDay.month,
+                      1,
+                    );
+                  });
+                },
+                calendarStyle: CalendarStyle(
+                  outsideDaysVisible: false,
+                  cellMargin: const EdgeInsets.all(4),
+                  defaultTextStyle: TextStyle(
+                    color: mutedText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF07111D),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.4),
-                      width: 1,
-                    ),
+                  weekendTextStyle: TextStyle(
+                    color: mutedText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.event_available_rounded,
-                        size: 15,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _formatDate(date),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: isSaving
-                              ? null
-                              : () => _confirmRemoveAvailabilityDate(date),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close_rounded,
-                              size: 13,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
+                  todayDecoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    border: Border.all(color: AppColors.primary),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  todayTextStyle: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  selectedDecoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
                       ),
                     ],
                   ),
-                );
-              },
+                  selectedTextStyle: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                daysOfWeekStyle: DaysOfWeekStyle(
+                  weekdayStyle: TextStyle(
+                    color: mutedText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  weekendStyle: TextStyle(
+                    color: mutedText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                calendarBuilders: CalendarBuilders<void>(
+                  defaultBuilder: (context, day, focusedDay) {
+                    if (!selectedDates.contains(_dateOnly(day))) return null;
+                    return _buildAvailableCalendarDay(
+                      day,
+                      isDark,
+                      isToday: false,
+                    );
+                  },
+                  todayBuilder: (context, day, focusedDay) {
+                    if (selectedDates.contains(_dateOnly(day))) {
+                      return _buildAvailableCalendarDay(
+                        day,
+                        isDark,
+                        isToday: true,
+                      );
+                    }
+                    return _buildCalendarDay(day, isDark, isToday: true);
+                  },
+                  selectedBuilder: (context, day, focusedDay) =>
+                      _buildAvailableCalendarDay(
+                        day,
+                        isDark,
+                        isToday: DateUtils.isSameDay(day, DateTime.now()),
+                      ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  _buildCalendarLegend(
+                    color: AppColors.primary,
+                    label: 'Available',
+                    isDark: isDark,
+                  ),
+                  _buildCalendarLegend(
+                    color: isDark ? Colors.white24 : Colors.grey.shade300,
+                    label: 'Not selected',
+                    isDark: isDark,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (sortedDates.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Text(
+              'No dates selected yet. Use Pick Dates to add availability.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: mutedText, fontSize: 12.5),
             ),
-            const SizedBox(height: 14),
-          ],
-        );
-      }).toList(),
+          )
+        else ...[
+          Text(
+            '${sortedDates.length} available date${sortedDates.length == 1 ? '' : 's'}',
+            style: TextStyle(
+              color: calendarText,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: sortedDates.map((date) {
+              return InputChip(
+                avatar: const Icon(
+                  Icons.event_available_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+                label: Text(_formatDate(date)),
+                onDeleted: isSaving
+                    ? null
+                    : () => _confirmRemoveAvailabilityDate(date),
+                deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                labelStyle: TextStyle(
+                  color: calendarText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+                side: BorderSide(
+                  color: AppColors.primary.withValues(alpha: 0.45),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAvailableCalendarDay(
+    DateTime day,
+    bool isDark, {
+    required bool isToday,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(10),
+        border: isToday
+            ? Border.all(
+                color: isDark ? Colors.white : Colors.black87,
+                width: 2,
+              )
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.25),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: const TextStyle(
+          color: Colors.black,
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCalendarDay(DateTime day, bool isDark, {required bool isToday}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isToday
+            ? AppColors.primary.withValues(alpha: 0.12)
+            : (isDark ? Colors.white.withValues(alpha: 0.035) : Colors.white),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isToday
+              ? AppColors.primary
+              : (isDark ? Colors.white10 : Colors.grey.shade200),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '${day.day}',
+        style: TextStyle(
+          color: isToday
+              ? AppColors.primary
+              : (isDark ? Colors.white54 : Colors.grey.shade600),
+          fontSize: 13,
+          fontWeight: isToday ? FontWeight.w900 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCalendarLegend({
+    required Color color,
+    required String label,
+    required bool isDark,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: isDark ? Colors.white60 : Colors.grey.shade600,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 

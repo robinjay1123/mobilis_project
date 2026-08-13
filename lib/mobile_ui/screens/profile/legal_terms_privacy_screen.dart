@@ -47,7 +47,7 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
     setState(() => _isLoading = true);
     try {
       final termsService = TermsService();
-      final terms = await termsService.getRentalTerms();
+      final terms = await termsService.getTermsOfService();
       final privacy = await termsService.getPrivacyPolicy();
       if (!mounted) return;
       setState(() {
@@ -65,9 +65,15 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
   Widget build(BuildContext context) {
     final isDark = widget.isDarkMode;
     final bg = isDark ? AppColors.darkBg : AppColors.lightBg;
-    final cardBg = isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary;
-    final textPrimary = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
-    final textSecondary = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final cardBg = isDark
+        ? AppColors.darkBgSecondary
+        : AppColors.lightBgSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimary
+        : AppColors.lightTextPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
 
     return Scaffold(
       backgroundColor: bg,
@@ -104,7 +110,7 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
           ),
         ),
         title: Text(
-          'Terms & Privacy Policy',
+          'Terms and Conditions',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
@@ -211,7 +217,9 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
               color: cardBg,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+                color: isDark
+                    ? AppColors.borderColor
+                    : AppColors.lightBorderColor,
               ),
             ),
             child: Row(
@@ -239,11 +247,8 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Mobilis by PSDC Official Policy',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: textSecondary,
-                        ),
+                        'Mobilis Official Policy',
+                        style: TextStyle(fontSize: 12, color: textSecondary),
                       ),
                     ],
                   ),
@@ -259,26 +264,21 @@ class _LegalTermsPrivacyScreenState extends State<LegalTermsPrivacyScreen>
               color: cardBg,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+                color: isDark
+                    ? AppColors.borderColor
+                    : AppColors.lightBorderColor,
               ),
             ),
             child: SelectableText(
               content.isNotEmpty ? content : 'No policy text provided yet.',
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.6,
-                color: textPrimary,
-              ),
+              style: TextStyle(fontSize: 14, height: 1.6, color: textPrimary),
             ),
           ),
           const SizedBox(height: 24),
           Center(
             child: Text(
-              '© ${DateTime.now().year} Mobilis by PSDC. All rights reserved.',
-              style: TextStyle(
-                fontSize: 11,
-                color: textSecondary,
-              ),
+              '© ${DateTime.now().year} Mobilis. All rights reserved.',
+              style: TextStyle(fontSize: 11, color: textSecondary),
             ),
           ),
         ],
