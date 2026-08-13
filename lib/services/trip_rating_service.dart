@@ -59,6 +59,8 @@ class TripRatingService {
             status,
             completion_stage,
             final_payment_status,
+            returned_at,
+            completed_at,
             operator_trip_confirmed_at,
             partner_trip_confirmed_at,
             driver_trip_confirmed_at,
@@ -192,9 +194,110 @@ class TripRatingService {
       return context;
     } on PostgrestException catch (e) {
       debugPrint('Database error loading booking context: ${e.message}');
-      return null;
+      return _loadBookingContextFallback(bookingId);
     } catch (e) {
       debugPrint('Unexpected error loading booking context: $e');
+      return _loadBookingContextFallback(bookingId);
+    }
+  }
+
+  /// Loads the booking context without relying on PostgREST's nested
+  /// relationship aliases. Older booking rows can have a driver relationship
+  /// that is valid in the database but cannot be embedded consistently by the
+  /// client query, which previously made every rating target disappear.
+  Future<Map<String, dynamic>?> _loadBookingContextFallback(
+    String bookingId,
+  ) async {
+    try {
+      final booking = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', bookingId)
+          .maybeSingle();
+      if (booking == null) return null;
+
+      final context = Map<String, dynamic>.from(booking);
+      final vehicleId = context['vehicle_id']?.toString().trim() ?? '';
+      if (vehicleId.isNotEmpty) {
+        final vehicle = await supabase
+            .from('vehicles')
+            .select('*')
+            .eq('id', vehicleId)
+            .maybeSingle();
+        if (vehicle != null) {
+          context['vehicles'] = Map<String, dynamic>.from(vehicle);
+
+          final ownerId = vehicle['owner_id']?.toString().trim() ?? '';
+          if (ownerId.isNotEmpty) {
+            final owner = await supabase
+                .from('users')
+                .select(
+                  'id, full_name, email, role, avatar_url, profile_picture_url',
+                )
+                .eq('id', ownerId)
+                .maybeSingle();
+            if (owner != null) {
+              context['vehicle_owner'] = Map<String, dynamic>.from(owner);
+            }
+          }
+        }
+      }
+
+      final renterId = context['renter_id']?.toString().trim() ?? '';
+      if (renterId.isNotEmpty) {
+        final renter = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, role, avatar_url, profile_picture_url',
+            )
+            .eq('id', renterId)
+            .maybeSingle();
+        if (renter != null) {
+          context['renter'] = Map<String, dynamic>.from(renter);
+        }
+      }
+
+      // bookings.driver_id references users.id in the current schema.
+      final driverId = context['driver_id']?.toString().trim() ?? '';
+      if (driverId.isNotEmpty) {
+        final driver = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, role, avatar_url, profile_picture_url',
+            )
+            .eq('id', driverId)
+            .maybeSingle();
+        if (driver != null) {
+          context['driver'] = {
+            'user_id': driver['id'],
+            'users': Map<String, dynamic>.from(driver),
+          };
+        }
+      }
+
+      final vehicle = context['vehicles'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(context['vehicles'])
+          : <String, dynamic>{};
+      final operatorId = (context['operator_id'] ?? vehicle['operator_id'])
+          ?.toString()
+          .trim();
+      if (operatorId != null && operatorId.isNotEmpty) {
+        final operator = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, role, avatar_url, profile_picture_url',
+            )
+            .eq('id', operatorId)
+            .maybeSingle();
+        if (operator != null) {
+          context['operator_user'] = Map<String, dynamic>.from(operator);
+        }
+      }
+      context['operator_user'] ??= await _findFallbackOperator();
+
+      return context;
+    } catch (error) {
+      debugPrint('Fallback booking context failed: $error');
       return null;
     }
   }
@@ -1039,7 +1142,15 @@ class TripRatingService {
           .eq('id', bookingId);
       context = {...context, 'operator_id': cleanOperatorFallback};
     }
-    if (status == 'completed') {
+    if (status == 'completed' || status == 'returned') {
+      // A terminal booking can still have stale completion metadata. Verify
+      // the actual mandatory rating rows before treating it as fully rated.
+      try {
+        await _assertAllRequiredRatingsComplete(bookingId);
+      } catch (error) {
+        debugPrint('Completed booking still has pending ratings: $error');
+        return false;
+      }
       await _releaseSettlementWithoutBlockingCompletion(
         bookingId: bookingId,
         updatedAt: now,

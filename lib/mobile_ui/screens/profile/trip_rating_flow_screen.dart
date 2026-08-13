@@ -113,9 +113,15 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         'returned',
         'successful',
         'success',
+        'awaiting_ratings',
       };
+      final hasTerminalTimestamp =
+          bookingContext?['completed_at'] != null ||
+          bookingContext?['returned_at'] != null;
       final isAlreadyCompleted =
-          completedStatuses.contains(status) || stage == 'completed';
+          completedStatuses.contains(status) ||
+          stage == 'completed' ||
+          hasTerminalTimestamp;
 
       // Post-return stages where we can still allow rating
       const rateableStages = {
