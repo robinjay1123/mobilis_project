@@ -1434,7 +1434,7 @@ class _IdentityVerificationFormScreenState
             ),
             const SizedBox(height: 16),
             const Text(
-              'By submitting, you agree to Mobilis by PSDC driver screening and partnership review.',
+              'By submitting, you agree to Mobilis driver screening and partnership review.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textTertiary, fontSize: 11),
             ),
@@ -2674,6 +2674,16 @@ class _IdentityVerificationFormScreenState
     required Color hintTextColor,
     bool cameraOnly = false,
   }) {
+    final verificationButtonStyle = ElevatedButton.styleFrom(
+      backgroundColor: AppColors.primary,
+      foregroundColor: Colors.black,
+      minimumSize: const Size(0, 56),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 0,
+    );
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2709,46 +2719,34 @@ class _IdentityVerificationFormScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 12,
-                  runSpacing: 10,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () =>
-                          _pickVerificationPhoto(photoType, ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text(
-                        'Retake',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    if (!cameraOnly)
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
+                    children: [
                       ElevatedButton.icon(
                         onPressed: () => _pickVerificationPhoto(
                           photoType,
-                          ImageSource.gallery,
+                          ImageSource.camera,
                         ),
-                        icon: const Icon(Icons.photo_library),
-                        label: const Text('Change'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                        ),
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Retake'),
+                        style: verificationButtonStyle,
                       ),
-                  ],
+                      if (!cameraOnly)
+                        ElevatedButton.icon(
+                          onPressed: () => _pickVerificationPhoto(
+                            photoType,
+                            ImageSource.gallery,
+                          ),
+                          icon: const Icon(Icons.photo_library),
+                          label: const Text('Change'),
+                          style: verificationButtonStyle,
+                        ),
+                    ],
+                  ),
                 ),
               ],
             )
@@ -2771,43 +2769,34 @@ class _IdentityVerificationFormScreenState
                   style: TextStyle(fontSize: 13, color: hintTextColor),
                 ),
                 const SizedBox(height: 16),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 12,
-                  runSpacing: 10,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () =>
-                          _pickVerificationPhoto(photoType, ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Take Photo'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    if (!cameraOnly)
+                SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 10,
+                    children: [
                       ElevatedButton.icon(
                         onPressed: () => _pickVerificationPhoto(
                           photoType,
-                          ImageSource.gallery,
+                          ImageSource.camera,
                         ),
-                        icon: const Icon(Icons.photo_library),
-                        label: const Text('Upload'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                        ),
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Take Photo'),
+                        style: verificationButtonStyle,
                       ),
-                  ],
+                      if (!cameraOnly)
+                        ElevatedButton.icon(
+                          onPressed: () => _pickVerificationPhoto(
+                            photoType,
+                            ImageSource.gallery,
+                          ),
+                          icon: const Icon(Icons.photo_library),
+                          label: const Text('Upload'),
+                          style: verificationButtonStyle,
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),

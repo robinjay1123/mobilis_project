@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -30,6 +32,7 @@ import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
+import '../../widgets/leaflet_map.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
@@ -89,6 +92,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double? _nearbyLongitude;
   String? _nearbyLocationLabel;
   List<String> _nearbyLocationTokens = [];
+  String _committedVehicleSearch = '';
+  bool _isSearchingVehicles = false;
+  final MapController _vehicleMapController = MapController();
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _vehicles = [];
@@ -142,7 +148,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _checkAuth();
     _loadUserData();
     _initializeConnectivity();
-    _searchController.addListener(_applyVehicleFilters);
     _loadVehicles();
     _loadBookings(); // 📅 Load renter's bookings
     _loadConversations();
@@ -897,9 +902,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _applyVehicleFilters() {
-    final search = _searchController.text.trim().toLowerCase();
+    final search = _committedVehicleSearch;
+    final hasLocationFilter = _nearbyLatitude != null && _nearbyLongitude != null;
+    final searchTerms = search
+        .split(RegExp(r'[,\s]+'))
+        .where((term) => term.length >= 2)
+        .toList();
     final filtered = _vehicles.where((vehicle) {
-      if (search.isEmpty) return true;
       final brand = (vehicle['brand'] ?? '').toString().toLowerCase();
       final model = (vehicle['model'] ?? '').toString().toLowerCase();
       final vehicleName = (vehicle['vehicle_name'] ?? '')
@@ -924,19 +933,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .toLowerCase();
       final fuelType = (vehicle['fuel_type'] ?? '').toString().toLowerCase();
 
-      return brand.contains(search) ||
-          model.contains(search) ||
-          vehicleName.contains(search) ||
-          vehicleType.contains(search) ||
-          category.contains(search) ||
-          source.contains(search) ||
-          location.contains(search) ||
-          city.contains(search) ||
-          province.contains(search) ||
-          address.contains(search) ||
-          description.contains(search) ||
-          transmission.contains(search) ||
-          fuelType.contains(search);
+      final distance = _vehicleDistanceKm(vehicle);
+      if (search.isEmpty) return true;
+
+      final searchable = [
+        brand,
+        model,
+        vehicleName,
+        vehicleType,
+        category,
+        source,
+        location,
+        city,
+        province,
+        address,
+        description,
+        transmission,
+        fuelType,
+      ].join(' ');
+      final matchesSearch = searchable.contains(search) ||
+          (searchTerms.isNotEmpty &&
+              searchTerms.every(searchable.contains));
+
+      if (!hasLocationFilter) return matchesSearch;
+      return matchesSearch ||
+          (distance != null
+              ? distance <= 75
+              : _vehicleMatchesNearbyText(vehicle));
     }).toList();
 
     if (_nearbyLatitude != null && _nearbyLongitude != null) {
@@ -948,15 +971,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final distance = _vehicleDistanceKm(copy);
         if (distance != null) {
           copy['distance_km'] = distance;
-          // When a search query is active (e.g. searching for a friend in another city),
-          // do NOT discard vehicles further than 75km! Keep all location matches.
-          if (search.isNotEmpty || distance <= 75) {
+          // Keep only vehicles within the nearby search radius when coordinates
+          // are available.
+          if (distance <= 75) {
             nearby.add(copy);
           }
           continue;
         }
 
-        if (search.isNotEmpty || _vehicleMatchesNearbyText(copy)) {
+        if (_vehicleMatchesNearbyText(copy)) {
           fallbackNearby.add(copy);
         }
       }
@@ -1070,12 +1093,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (!mounted) return;
       setState(() {
+        _searchController.clear();
+        _committedVehicleSearch = '';
         _nearbyLatitude = position.latitude;
         _nearbyLongitude = position.longitude;
         _nearbyLocationLabel = label;
         _nearbyLocationTokens = tokens.toList();
         userLocation = label;
       });
+      _moveVehicleMapTo(position.latitude, position.longitude, zoom: 14);
       _applyVehicleFilters();
 
       if (!mounted) return;
@@ -1100,9 +1126,100 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _searchVehiclesByLocation() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty || _isSearchingVehicles) return;
+
+    setState(() {
+      _isSearchingVehicles = true;
+    });
+
+    try {
+      final locations = await locationFromAddress(query);
+      if (locations.isEmpty) {
+        throw Exception('No matching location found.');
+      }
+
+      final location = locations.first;
+      var label = query;
+      final tokens = query
+          .split(RegExp(r'[,\s]+'))
+          .where((part) => part.trim().length >= 3)
+          .map((part) => part.trim().toLowerCase())
+          .toSet();
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          location.latitude,
+          location.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          final labelParts = [
+            place.subLocality,
+            place.locality,
+            place.subAdministrativeArea,
+            place.administrativeArea,
+          ].whereType<String>().where((part) => part.trim().isNotEmpty).toList();
+          if (labelParts.isNotEmpty) {
+            label = labelParts.take(2).join(', ');
+            tokens.addAll(
+              labelParts
+                  .expand((part) => part.split(RegExp(r'[,\s]+')))
+                  .where((part) => part.trim().length >= 3)
+                  .map((part) => part.trim().toLowerCase()),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Search reverse geocoding failed: $e');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _committedVehicleSearch = query.toLowerCase();
+        _nearbyLatitude = location.latitude;
+        _nearbyLongitude = location.longitude;
+        _nearbyLocationLabel = label;
+        _nearbyLocationTokens = tokens.toList();
+        userLocation = label;
+      });
+      _moveVehicleMapTo(location.latitude, location.longitude, zoom: 13);
+      _applyVehicleFilters();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Showing available cars near $label'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSearchingVehicles = false);
+    }
+  }
+
+  void _moveVehicleMapTo(double latitude, double longitude, {double zoom = 13}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _vehicleMapController.move(LatLng(latitude, longitude), zoom);
+      } catch (_) {}
+    });
+  }
+
   void _clearNearbyVehicleFilter() {
     if (_nearbyLatitude == null && _nearbyLongitude == null) return;
     setState(() {
+      _searchController.clear();
+      _committedVehicleSearch = '';
       _nearbyLatitude = null;
       _nearbyLongitude = null;
       _nearbyLocationLabel = null;
@@ -1190,6 +1307,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _bookingFilterTo = null;
       selectedCategory = '';
       _searchController.clear();
+      _committedVehicleSearch = '';
       _nearbyLatitude = null;
       _nearbyLongitude = null;
       _nearbyLocationLabel = null;
@@ -3263,6 +3381,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Widget _buildVehicleSearchMap({
+    required Color cardColor,
+    required Color borderColor,
+  }) {
+    final markers = <MobilisMapMarker>[];
+    for (final vehicle in _filteredVehicles) {
+      final latitude = _toDouble(vehicle['latitude']);
+      final longitude = _toDouble(vehicle['longitude']);
+      if (latitude == null || longitude == null) continue;
+      markers.add(
+        MobilisMapMarker(
+          latitude: latitude,
+          longitude: longitude,
+          icon: Icons.directions_car,
+          color: AppColors.success,
+          size: 32,
+        ),
+      );
+    }
+
+    if (_nearbyLatitude != null && _nearbyLongitude != null) {
+      markers.add(
+        MobilisMapMarker(
+          latitude: _nearbyLatitude!,
+          longitude: _nearbyLongitude!,
+          icon: Icons.location_pin,
+          color: AppColors.primary,
+          size: 44,
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        height: 220,
+        width: double.infinity,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor),
+        ),
+        child: MobilisLeafletMap(
+          mapController: _vehicleMapController,
+          markers: markers,
+          fallbackLatitude: _nearbyLatitude ?? 15.9758,
+          fallbackLongitude: _nearbyLongitude ?? 120.5719,
+          initialZoom: _nearbyLatitude != null ? 13 : 11,
+          mapStyle: MobilisMapStyle.street,
+        ),
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Home Tab
   // ---------------------------------------------------------------------------
@@ -3390,14 +3563,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   // Location
                   Row(
                     children: [
-                      const Icon(Icons.location_on, color: AppColors.primary),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: _isLocatingNearbyVehicles
+                            ? null
+                            : _filterVehiclesNearMe,
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: _isLocatingNearbyVehicles
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.primary,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.my_location,
+                                  color: AppColors.primary,
+                                ),
+                        ),
+                      ),
                       const SizedBox(width: 6),
-                      Text(
-                        'CURRENT LOCATION',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: secondaryTextColor,
+                      GestureDetector(
+                        onTap: _isLocatingNearbyVehicles
+                            ? null
+                            : _filterVehiclesNearMe,
+                        child: Text(
+                          'CURRENT LOCATION',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: secondaryTextColor,
+                          ),
                         ),
                       ),
                     ],
@@ -3421,7 +3620,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (_) => _applyVehicleFilters(),
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _searchVehiclesByLocation(),
                       style: TextStyle(color: textColor),
                       decoration: InputDecoration(
                         hintText: 'Search city, location, brand, or model...',
@@ -3431,32 +3631,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           horizontal: 16,
                           vertical: 12,
                         ),
-                        prefixIcon: Icon(
-                          Icons.search,
-                          color: tertiaryTextColor,
-                        ),
+                        prefixIcon: Icon(Icons.search, color: tertiaryTextColor),
                         suffixIcon: Tooltip(
-                          message: _nearbyLatitude != null
-                              ? 'Show all cars'
-                              : 'Find cars near me',
+                          message: 'Search location',
                           child: InkWell(
                             borderRadius: BorderRadius.circular(8),
-                            onTap: _isLocatingNearbyVehicles
+                            onTap: _isSearchingVehicles
                                 ? null
-                                : _nearbyLatitude != null
-                                ? _clearNearbyVehicleFilter
-                                : _filterVehiclesNearMe,
+                                : _searchVehiclesByLocation,
                             child: Container(
                               width: 42,
                               height: 42,
                               margin: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: _nearbyLatitude != null
-                                    ? AppColors.success
-                                    : AppColors.primary,
+                                color: AppColors.primary,
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: _isLocatingNearbyVehicles
+                              child: _isSearchingVehicles
                                   ? const Padding(
                                       padding: EdgeInsets.all(11),
                                       child: CircularProgressIndicator(
@@ -3464,10 +3655,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         color: Colors.black,
                                       ),
                                     )
-                                  : Icon(
-                                      _nearbyLatitude != null
-                                          ? Icons.location_off
-                                          : Icons.my_location,
+                                  : const Icon(
+                                      Icons.search,
                                       color: Colors.black,
                                       size: 18,
                                     ),
@@ -3476,6 +3665,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ),
+                  ),
+                  _buildVehicleSearchMap(
+                    cardColor: cardColor,
+                    borderColor: borderColor,
                   ),
                   if (_nearbyLatitude != null) ...[
                     const SizedBox(height: 10),

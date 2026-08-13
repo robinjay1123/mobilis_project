@@ -35,6 +35,7 @@ class _SignupScreenState extends State<SignupScreen> {
   bool isLoading = false;
   String? selectedRole; // 'renter' or 'partner'
   bool _didApplyInitialRouteArgs = false;
+  bool _isPartnerRegistration = false;
 
   @override
   void initState() {
@@ -60,6 +61,7 @@ class _SignupScreenState extends State<SignupScreen> {
       final role = (args['initialRole'] as String).trim().toLowerCase();
       if (['renter', 'partner', 'driver'].contains(role)) {
         selectedRole = role;
+        _isPartnerRegistration = role == 'partner';
       }
     }
   }
@@ -472,27 +474,68 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Role Selection Section (Required)
-              const Text(
-                'I want to...',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+              if (_isPartnerRegistration) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.primary, width: 1.5),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.business, color: AppColors.primary, size: 28),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Partner Registration',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'You are applying as a Partner to list your vehicle.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.lock_outline, color: AppColors.primary),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Choose your role (required)',
-                style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
-              ),
-              const SizedBox(height: 12),
+              ] else ...[
+                // Role Selection Section (Required)
+                const Text(
+                  'I want to...',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Choose your role (required)',
+                  style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                ),
+                const SizedBox(height: 12),
 
-              // Role options as radio cards (scrollable row for 3 options)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
+                // Role options as radio cards (scrollable row for 3 options)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
                     // Renter option
                     SizedBox(
                       width: 140,
@@ -768,9 +811,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                     ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 24),
 
               // Personal Details Section
