@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../services/verification_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/driver_service.dart';
+import '../../../services/partner_service.dart';
 import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
@@ -17,6 +18,7 @@ class IdentityVerificationFormScreen extends StatefulWidget {
   final bool isDarkMode;
   final String? userRole;
   final String? driverMode;
+  final bool viewSubmittedDocuments;
 
   const IdentityVerificationFormScreen({
     super.key,
@@ -24,6 +26,7 @@ class IdentityVerificationFormScreen extends StatefulWidget {
     this.isDarkMode = true,
     this.userRole = 'renter',
     this.driverMode,
+    this.viewSubmittedDocuments = false,
   });
 
   @override
@@ -142,11 +145,30 @@ class _IdentityVerificationFormScreenState
             )
           : null;
 
-      final Map<String, dynamic> combinedRecord = Map<String, dynamic>.from(verification ?? {});
+      final Map<String, dynamic> combinedRecord = Map<String, dynamic>.from(
+        verification ?? {},
+      );
       if (widget.userRole == 'driver') {
         final driverProfile = await DriverService().getDriverProfile(userId);
         if (driverProfile != null) {
           combinedRecord.addAll(driverProfile);
+        }
+      }
+      if (widget.viewSubmittedDocuments && widget.userRole == 'partner') {
+        try {
+          final partnerService = PartnerService();
+          final partnerProfile = await partnerService.getPartnerProfile(userId);
+          if (partnerProfile != null) {
+            combinedRecord.addAll(partnerProfile);
+          }
+          combinedRecord['partner_vehicle_documents'] = await partnerService
+              .getSubmittedVehicleDocuments(userId);
+        } catch (e) {
+          debugPrint('Partner document details lookup skipped: $e');
+        }
+        final userProfile = await authService.getCurrentUserProfile();
+        if (userProfile != null) {
+          combinedRecord.addAll(userProfile);
         }
       }
       final meta = authService.currentUser?.userMetadata;
@@ -847,6 +869,22 @@ class _IdentityVerificationFormScreenState
         : AppColors.lightTextSecondary;
     final inputBorderColor = isDark ? AppColors.borderColor : Colors.grey[300]!;
     final inputFillColor = isDark ? AppColors.darkCard : Colors.white;
+
+    if (widget.viewSubmittedDocuments) {
+      if (_isInitialLoading) {
+        return Scaffold(
+          backgroundColor: bgColor,
+          body: const Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          ),
+        );
+      }
+      return _buildPartnerVerificationDetailsScaffold(
+        isDark: isDark,
+        bgColor: bgColor,
+        textColor: textColor,
+      );
+    }
 
     if (widget.userRole == 'driver') {
       if (_isInitialLoading) {
@@ -1754,6 +1792,250 @@ class _IdentityVerificationFormScreenState
     );
   }
 
+  Widget _buildPartnerVerificationDetailsScaffold({
+    required bool isDark,
+    required Color bgColor,
+    required Color textColor,
+  }) {
+    final status = _verificationStatusLabel(_verificationStatus);
+    final statusColor = _verificationStatusColor(status);
+    final documentCards = _buildSubmittedDocumentPhotoCards(
+      context: context,
+      record: _submittedVerificationRecord,
+      isDark: isDark,
+      includePartnerDocuments: true,
+    );
+    final rejectionReason = _submittedVerificationRecord['rejection_reason']
+        ?.toString()
+        .trim();
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: bgColor,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: textColor),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Verification Details',
+          style: TextStyle(color: textColor, fontWeight: FontWeight.w800),
+        ),
+        centerTitle: true,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.darkBgSecondary
+                    : AppColors.lightBgSecondary,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: statusColor.withValues(alpha: 0.45)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(11),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      status == 'Verified'
+                          ? Icons.verified_outlined
+                          : status == 'Rejected'
+                          ? Icons.error_outline_rounded
+                          : status == 'Pending'
+                          ? Icons.hourglass_top_rounded
+                          : Icons.assignment_late_outlined,
+                      color: statusColor,
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Verification and Documents',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'View-only access to the files and pictures submitted with your application.',
+                          style: TextStyle(
+                            color: isDark
+                                ? AppColors.textSecondary
+                                : AppColors.lightTextSecondary,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            status,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            if (rejectionReason != null && rejectionReason.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.error.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: AppColors.error.withValues(alpha: 0.30),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.info_outline_rounded,
+                      color: AppColors.error,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        rejectionReason,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
+            _buildReviewSection(
+              title: 'Submitted Documents & Pictures',
+              children: documentCards.isEmpty
+                  ? [_buildNoSubmittedDocumentsState(isDark)]
+                  : documentCards,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Status is an indicator only. Your submitted files remain available here for viewing.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.textSecondary
+                    : AppColors.lightTextSecondary,
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoSubmittedDocumentsState(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkBg : AppColors.lightBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+        ),
+      ),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.folder_open_outlined,
+            color: AppColors.textSecondary,
+            size: 30,
+          ),
+          SizedBox(height: 8),
+          Text(
+            'No submitted files found',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Uploaded files will appear here after they are submitted.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _verificationStatusLabel(dynamic rawStatus) {
+    final status = rawStatus?.toString().trim().toLowerCase() ?? '';
+    if (status == 'verified' || status == 'approved' || status == 'certified') {
+      return 'Verified';
+    }
+    if (status == 'pending' ||
+        status == 'submitted' ||
+        status == 'under_review' ||
+        status == 'under review') {
+      return 'Pending';
+    }
+    if (status == 'rejected' || status == 'declined') return 'Rejected';
+    return 'Incomplete';
+  }
+
+  Color _verificationStatusColor(String status) {
+    switch (status) {
+      case 'Verified':
+        return AppColors.success;
+      case 'Rejected':
+        return AppColors.error;
+      case 'Pending':
+        return AppColors.warning;
+      default:
+        return AppColors.textSecondary;
+    }
+  }
+
   Widget _buildReviewSection({
     required String title,
     required List<Widget> children,
@@ -1816,7 +2098,11 @@ class _IdentityVerificationFormScreenState
     );
   }
 
-  void _showImagePreviewDialog(BuildContext context, String title, String imageUrl) {
+  void _showImagePreviewDialog(
+    BuildContext context,
+    String title,
+    String imageUrl,
+  ) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog(
@@ -1869,7 +2155,11 @@ class _IdentityVerificationFormScreenState
     );
   }
 
-  void _showLocalFilePreviewDialog(BuildContext context, String title, File file) {
+  void _showLocalFilePreviewDialog(
+    BuildContext context,
+    String title,
+    File file,
+  ) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog(
@@ -1919,7 +2209,11 @@ class _IdentityVerificationFormScreenState
     );
   }
 
-  void _showBytesPreviewDialog(BuildContext context, String title, Uint8List bytes) {
+  void _showBytesPreviewDialog(
+    BuildContext context,
+    String title,
+    Uint8List bytes,
+  ) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => Dialog(
@@ -1973,34 +2267,78 @@ class _IdentityVerificationFormScreenState
     required BuildContext context,
     required Map<String, dynamic> record,
     required bool isDark,
+    bool includePartnerDocuments = false,
   }) {
-    String? clean(dynamic v) {
+    List<String> cleanUrls(dynamic v) {
       final s = v?.toString().trim();
-      return (s != null && s.isNotEmpty && (s.startsWith('http') || s.startsWith('data:image') || s.contains('/storage/')))
-          ? s
-          : null;
+      if (s == null || s.isEmpty) return const [];
+      return s
+          .split('|')
+          .map((part) => part.trim())
+          .where(
+            (part) =>
+                part.isNotEmpty &&
+                (part.startsWith('http') ||
+                    part.startsWith('data:image') ||
+                    part.contains('/storage/')),
+          )
+          .toList();
     }
 
-    final idFrontUrl = clean(record['id_front_url'] ?? record['id_document_url'] ?? record['id_photo_url']);
-    final idBackUrl = clean(record['id_back_url']);
-    final faceSelfieUrl = clean(record['face_selfie_url'] ?? record['profile_picture_url'] ?? record['avatar_url']);
-    final selfieWithIdUrl = clean(record['selfie_with_id_url'] ?? record['selfie_holding_id_url']);
-    final licensePhotoUrl = clean(record['driver_license_photo_url'] ?? record['license_photo_url'] ?? record['license_url']);
-    final nbiFileUrl = clean(record['driver_nbi_url'] ?? record['nbi_file_url'] ?? record['nbi_url']);
-    final signatureUrl = clean(record['driver_signature_url'] ?? record['signature_url']);
+    String? clean(dynamic v) {
+      final urls = cleanUrls(v);
+      return urls.isEmpty ? null : urls.first;
+    }
 
-    final defaultStatus = _verificationStatus == 'verified' ? 'Verified' : 'Submitted';
-    final defaultStatusColor = _verificationStatus == 'verified' ? AppColors.success : AppColors.primary;
+    final combinedIdUrls = cleanUrls(record['id_document_url']);
+    final idFrontUrl =
+        clean(record['id_front_url']) ??
+        (combinedIdUrls.isNotEmpty ? combinedIdUrls.first : null) ??
+        clean(record['id_photo_url']);
+    final idBackUrl =
+        clean(record['id_back_url']) ??
+        (combinedIdUrls.length > 1 ? combinedIdUrls[1] : null);
+    final faceSelfieUrl =
+        clean(record['face_selfie_url']) ??
+        (!includePartnerDocuments
+            ? clean(record['profile_picture_url'] ?? record['avatar_url'])
+            : null);
+    final profilePictureUrl = includePartnerDocuments
+        ? clean(record['profile_picture_url'] ?? record['avatar_url'])
+        : null;
+    final selfieWithIdUrl = clean(
+      record['selfie_with_id_url'] ?? record['selfie_holding_id_url'],
+    );
+    final licensePhotoUrl = clean(
+      record['driver_license_photo_url'] ??
+          record['license_photo_url'] ??
+          record['license_url'],
+    );
+    final nbiFileUrl = clean(
+      record['driver_nbi_url'] ?? record['nbi_file_url'] ?? record['nbi_url'],
+    );
+    final signatureUrl = clean(
+      record['driver_signature_url'] ?? record['signature_url'],
+    );
 
-    final items = [
+    final defaultStatus = _verificationStatusLabel(_verificationStatus);
+    final defaultStatusColor = _verificationStatusColor(defaultStatus);
+
+    final items = <Map<String, dynamic>>[
       {
         'title': 'Government ID (Front)',
-        'subtitle': record['id_type'] != null ? 'Type: ${record['id_type']}' : 'Government identity photo',
+        'subtitle': record['id_type'] != null
+            ? 'Type: ${record['id_type']}'
+            : 'Government identity photo',
         'icon': Icons.badge_outlined,
         'url': idFrontUrl,
         'file': _idFrontFile,
-        'status': idFrontUrl != null || _idFrontFile != null ? defaultStatus : 'Verified',
-        'statusColor': idFrontUrl != null || _idFrontFile != null ? defaultStatusColor : AppColors.success,
+        'status': idFrontUrl != null || _idFrontFile != null
+            ? defaultStatus
+            : 'Incomplete',
+        'statusColor': idFrontUrl != null || _idFrontFile != null
+            ? defaultStatusColor
+            : AppColors.warning,
       },
       {
         'title': 'Government ID (Back)',
@@ -2008,8 +2346,12 @@ class _IdentityVerificationFormScreenState
         'icon': Icons.credit_card_outlined,
         'url': idBackUrl,
         'file': _idBackFile,
-        'status': idBackUrl != null || _idBackFile != null ? defaultStatus : 'Verified',
-        'statusColor': idBackUrl != null || _idBackFile != null ? defaultStatusColor : AppColors.success,
+        'status': idBackUrl != null || _idBackFile != null
+            ? defaultStatus
+            : 'Incomplete',
+        'statusColor': idBackUrl != null || _idBackFile != null
+            ? defaultStatusColor
+            : AppColors.warning,
       },
       {
         'title': 'Biometric Face Selfie',
@@ -2017,8 +2359,12 @@ class _IdentityVerificationFormScreenState
         'icon': Icons.face_retouching_natural,
         'url': faceSelfieUrl,
         'file': _faceSelfieFile,
-        'status': faceSelfieUrl != null || _faceSelfieFile != null ? defaultStatus : 'Verified',
-        'statusColor': faceSelfieUrl != null || _faceSelfieFile != null ? defaultStatusColor : AppColors.success,
+        'status': faceSelfieUrl != null || _faceSelfieFile != null
+            ? defaultStatus
+            : 'Incomplete',
+        'statusColor': faceSelfieUrl != null || _faceSelfieFile != null
+            ? defaultStatusColor
+            : AppColors.warning,
       },
       {
         'title': 'Selfie Holding ID',
@@ -2026,8 +2372,12 @@ class _IdentityVerificationFormScreenState
         'icon': Icons.co_present_outlined,
         'url': selfieWithIdUrl,
         'file': _selfieWithIdFile,
-        'status': selfieWithIdUrl != null || _selfieWithIdFile != null ? defaultStatus : 'Verified',
-        'statusColor': selfieWithIdUrl != null || _selfieWithIdFile != null ? defaultStatusColor : AppColors.success,
+        'status': selfieWithIdUrl != null || _selfieWithIdFile != null
+            ? defaultStatus
+            : 'Incomplete',
+        'statusColor': selfieWithIdUrl != null || _selfieWithIdFile != null
+            ? defaultStatusColor
+            : AppColors.warning,
       },
       if (licensePhotoUrl != null)
         {
@@ -2060,6 +2410,48 @@ class _IdentityVerificationFormScreenState
         },
     ];
 
+    if (includePartnerDocuments && profilePictureUrl != null) {
+      items.add({
+        'title': 'Profile Picture',
+        'subtitle': 'Submitted profile or verification picture',
+        'icon': Icons.account_circle_outlined,
+        'url': profilePictureUrl,
+        'status': defaultStatus,
+        'statusColor': defaultStatusColor,
+      });
+    }
+
+    if (includePartnerDocuments) {
+      final partnerDocuments = record['partner_vehicle_documents'];
+      if (partnerDocuments is List) {
+        for (final rawDocument in partnerDocuments) {
+          if (rawDocument is! Map) continue;
+          final document = Map<String, dynamic>.from(rawDocument);
+          final documentType =
+              document['document_type']?.toString().toLowerCase() ?? '';
+          final documentStatus = _verificationStatusLabel(document['status']);
+          items.add({
+            'title':
+                document['title']?.toString() ??
+                (documentType == 'or'
+                    ? 'Official Receipt (OR)'
+                    : documentType == 'cr'
+                    ? 'Certificate of Registration (CR)'
+                    : 'Vehicle Document'),
+            'subtitle':
+                document['subtitle']?.toString() ??
+                'Submitted partner vehicle document',
+            'icon': documentType.contains('vehicle')
+                ? Icons.directions_car_outlined
+                : Icons.description_outlined,
+            'url': clean(document['file_url'] ?? document['url']),
+            'status': documentStatus,
+            'statusColor': _verificationStatusColor(documentStatus),
+          });
+        }
+      }
+    }
+
     return items.map((item) {
       final title = item['title'] as String;
       final subtitle = item['subtitle'] as String;
@@ -2067,8 +2459,9 @@ class _IdentityVerificationFormScreenState
       final url = item['url'] as String?;
       final file = item['file'] as File?;
       final bytes = item['bytes'] as Uint8List?;
-      final status = item['status'] as String;
-      final statusColor = item['statusColor'] as Color;
+      final status = item['status']?.toString() ?? 'Incomplete';
+      final statusColor =
+          item['statusColor'] as Color? ?? _verificationStatusColor(status);
 
       final hasImage = url != null || file != null || bytes != null;
 
@@ -2076,7 +2469,9 @@ class _IdentityVerificationFormScreenState
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isDark ? AppColors.darkBgSecondary : AppColors.lightBgSecondary,
+          color: isDark
+              ? AppColors.darkBgSecondary
+              : AppColors.lightBgSecondary,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
@@ -2105,7 +2500,9 @@ class _IdentityVerificationFormScreenState
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.textPrimary : AppColors.lightTextPrimary,
+                          color: isDark
+                              ? AppColors.textPrimary
+                              : AppColors.lightTextPrimary,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -2113,14 +2510,19 @@ class _IdentityVerificationFormScreenState
                         subtitle,
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
+                          color: isDark
+                              ? AppColors.textSecondary
+                              : AppColors.lightTextSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
@@ -2174,7 +2576,10 @@ class _IdentityVerificationFormScreenState
                           right: 8,
                           bottom: 8,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.8),
                               borderRadius: BorderRadius.circular(8),
@@ -2183,7 +2588,11 @@ class _IdentityVerificationFormScreenState
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                Icon(
+                                  Icons.zoom_in,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
                                 SizedBox(width: 4),
                                 Text(
                                   'View Photo',
@@ -2205,18 +2614,25 @@ class _IdentityVerificationFormScreenState
             ] else ...[
               const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: isDark ? AppColors.darkBg : AppColors.lightBg,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline, size: 14, color: AppColors.success),
+                    Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: AppColors.warning,
+                    ),
                     SizedBox(width: 6),
                     Text(
-                      'Document authenticated on file',
-                      style: TextStyle(
+                      'No submitted file found',
+                      style: const TextStyle(
                         fontSize: 11,
                         color: AppColors.textSecondary,
                       ),

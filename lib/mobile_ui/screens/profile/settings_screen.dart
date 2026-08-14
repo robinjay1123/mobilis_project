@@ -22,6 +22,7 @@ import '../../../services/support_faq_service.dart';
 import '../../../services/terms_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/leaflet_map.dart';
+import '../../widgets/location_picker_modal.dart';
 import 'legal_terms_privacy_screen.dart';
 import 'ratings_reviews_screen.dart';
 
@@ -6552,30 +6553,22 @@ class _MyAddressesScreenState extends State<_MyAddressesScreen> {
                           OutlinedButton.icon(
                             onPressed: () async {
                               final mapResult =
-                                  await showModalBottomSheet<
-                                    Map<String, dynamic>
-                                  >(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    useSafeArea: true,
-                                    backgroundColor: _surfaceColor(context),
-                                    builder: (ctx) => _AddressMapPickerSheet(
-                                      initialLatitude: latitude,
-                                      initialLongitude: longitude,
-                                      isDark:
-                                          Theme.of(context).brightness ==
-                                          Brightness.dark,
-                                    ),
+                                  await MobilisLocationPickerModal.show(
+                                    context,
+                                    title: 'Pin Address Location',
+                                    subtitle:
+                                        'Search an address or use your current location to set the exact pin.',
+                                    confirmLabel: 'Confirm Pinned Location',
+                                    initialAddress: addressController.text
+                                        .trim(),
+                                    initialLatitude: latitude,
+                                    initialLongitude: longitude,
                                   );
                               if (mapResult != null) {
                                 setSheetState(() {
-                                  latitude = mapResult['latitude'] as double?;
-                                  longitude = mapResult['longitude'] as double?;
-                                  final newAddress =
-                                      mapResult['address']?.toString() ?? '';
-                                  if (newAddress.isNotEmpty) {
-                                    addressController.text = newAddress;
-                                  }
+                                  latitude = mapResult.latitude;
+                                  longitude = mapResult.longitude;
+                                  addressController.text = mapResult.address;
                                 });
                               }
                             },

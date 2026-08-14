@@ -18,6 +18,8 @@ class CustomTextField extends StatelessWidget {
   final TextCapitalization textCapitalization;
   final AutovalidateMode? autovalidateMode;
   final int? maxLength;
+  final bool readOnly;
+  final VoidCallback? onTap;
 
   const CustomTextField({
     super.key,
@@ -36,15 +38,23 @@ class CustomTextField extends StatelessWidget {
     this.textCapitalization = TextCapitalization.none,
     this.autovalidateMode,
     this.maxLength,
+    this.readOnly = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
-    final hintColor = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final textColor = isDark
+        ? AppColors.textPrimary
+        : AppColors.lightTextPrimary;
+    final hintColor = isDark
+        ? AppColors.textSecondary
+        : AppColors.lightTextSecondary;
     final fieldFillColor = isDark ? AppColors.darkBgSecondary : Colors.white;
-    final borderThemeColor = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final borderThemeColor = isDark
+        ? AppColors.borderColor
+        : AppColors.lightBorderColor;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,6 +72,8 @@ class CustomTextField extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           obscureText: obscureText,
+          readOnly: readOnly,
+          onTap: onTap,
           maxLines: obscureText ? 1 : maxLines,
           validator: validator,
           autovalidateMode: autovalidateMode,
@@ -84,7 +96,10 @@ class CustomTextField extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+              borderSide: const BorderSide(
+                color: AppColors.primary,
+                width: 1.5,
+              ),
             ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),

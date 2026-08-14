@@ -11,6 +11,7 @@ import '../../../services/tracking_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../../widgets/leaflet_map.dart';
+import '../../widgets/location_picker_modal.dart';
 
 class TripNavigationScreen extends StatefulWidget {
   final String bookingId;
@@ -331,19 +332,77 @@ class _TripNavigationScreenState extends State<TripNavigationScreen> {
                     style: const TextStyle(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: SizedBox(
-                      height: 390,
-                      child: markers.isEmpty
-                          ? _ErrorState(
-                              message: _error ?? 'Waiting for vehicle GPS.',
-                            )
-                          : MobilisLeafletMap(
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: markers.isEmpty
+                          ? null
+                          : () => _openTripMap(
+                              vehicleTitle: vehicleTitle,
                               markers: markers,
-                              routePoints: _route,
-                              showAttribution: true,
                             ),
+                      borderRadius: BorderRadius.circular(18),
+                      child: Container(
+                        height: 156,
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBgSecondary,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.16,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.map_outlined,
+                                color: AppColors.primary,
+                                size: 30,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Live trip map',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    markers.isEmpty
+                                        ? (_error ?? 'Waiting for vehicle GPS.')
+                                        : 'Tap to view the route and vehicle location',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              markers.isEmpty
+                                  ? Icons.hourglass_empty_rounded
+                                  : Icons.chevron_right_rounded,
+                              color: AppColors.primary,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -413,6 +472,21 @@ class _TripNavigationScreenState extends State<TripNavigationScreen> {
   double? _asDouble(dynamic value) => value is num
       ? value.toDouble()
       : double.tryParse(value?.toString() ?? '');
+
+  Future<void> _openTripMap({
+    required String vehicleTitle,
+    required List<MobilisMapMarker> markers,
+  }) {
+    return MobilisMapViewerModal.show(
+      context,
+      title: 'Trip map',
+      subtitle: '$vehicleTitle • Live route and vehicle location',
+      markers: markers,
+      routePoints: _route,
+      fallbackLatitude: _destinationLatitude ?? 15.9758,
+      fallbackLongitude: _destinationLongitude ?? 120.5719,
+    );
+  }
 }
 
 class _MetricCard extends StatelessWidget {

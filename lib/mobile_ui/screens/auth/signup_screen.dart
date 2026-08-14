@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:latlong2/latlong.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/connectivity_service.dart';
 import '../../../services/preferences_service.dart';
@@ -11,7 +7,7 @@ import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
-import '../../widgets/leaflet_map.dart';
+import '../../widgets/location_picker_modal.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -40,11 +36,7 @@ class _SignupScreenState extends State<SignupScreen> {
   String? selectedRole; // 'renter' or 'partner'
   bool _didApplyInitialRouteArgs = false;
   bool _isPartnerRegistration = false;
-  final MapController _locationMapController = MapController();
-  LatLng? _selectedLocationPoint;
-
-  static const double _defaultLocationLatitude = 15.9758;
-  static const double _defaultLocationLongitude = 120.5719;
+  MobilisLocationSelection? _selectedLocation;
 
   @override
   void initState() {
@@ -314,274 +306,43 @@ class _SignupScreenState extends State<SignupScreen> {
         )
       : null;
 
-  void _moveLocationMap(LatLng point, {double zoom = 15}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      try {
-        _locationMapController.move(point, zoom);
-      } catch (_) {
-        // The map may not be attached yet on the first layout.
-      }
-    });
-  }
-
-  Future<void> _selectLocationFromMap(double latitude, double longitude) async {
-    final point = LatLng(latitude, longitude);
-    if (mounted) {
-      setState(() {
-        _locationTouched = true;
-        _selectedLocationPoint = point;
-      });
-    }
-    _moveLocationMap(point);
-
-    try {
-      final placemarks = await placemarkFromCoordinates(latitude, longitude);
-      if (!mounted) return;
-
-      final place = placemarks.isNotEmpty ? placemarks.first : null;
-      final locationParts =
-          [place?.locality, place?.administrativeArea, place?.country]
-              .map((part) => part?.trim() ?? '')
-              .where((part) => part.isNotEmpty)
-              .toList();
-      final location = locationParts.isNotEmpty
-          ? locationParts.join(', ')
-          : '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
-
-      setState(() {
-        locationController.text = location;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        locationController.text =
-            '${latitude.toStringAsFixed(5)}, ${longitude.toStringAsFixed(5)}';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Map location selected, but the address could not be resolved: $e',
-          ),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  Widget _buildLocationMap() {
-    final selectedPoint = _selectedLocationPoint;
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.darkCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: MobilisLeafletMap(
-              mapController: _locationMapController,
-              fallbackLatitude: _defaultLocationLatitude,
-              fallbackLongitude: _defaultLocationLongitude,
-              initialZoom: 11,
-              markers: selectedPoint == null
-                  ? const []
-                  : [
-                      MobilisMapMarker(
-                        latitude: selectedPoint.latitude,
-                        longitude: selectedPoint.longitude,
-                        icon: Icons.location_pin,
-                        color: AppColors.primary,
-                        size: 42,
-                      ),
-                    ],
-              onTap: _selectLocationFromMap,
-            ),
-          ),
-          Positioned(
-            top: 8,
-            left: 8,
-            right: 8,
-            child: IgnorePointer(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.68),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Tap the map to choose a location',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildLocationSection() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final field = CustomTextField(
-          label: 'Location *',
-          hintText: 'City, Country',
-          controller: locationController,
-          errorText: _locationError,
-          onChanged: (_) => setState(() => _locationTouched = true),
-          prefixIcon: const Icon(
-            Icons.location_on_outlined,
-            color: AppColors.textTertiary,
-          ),
-          suffixIcon: IconButton(
-            tooltip: 'Use current location',
-            icon: const Icon(
-              Icons.location_searching,
-              color: AppColors.primary,
-            ),
-            onPressed: _getCurrentLocation,
-          ),
-        );
-        final map = SizedBox(height: 178, child: _buildLocationMap());
-
-        if (constraints.maxWidth >= 700) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: field),
-              const SizedBox(width: 14),
-              SizedBox(width: 250, child: map),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [field, const SizedBox(height: 12), map],
-        );
-      },
+    return CustomTextField(
+      label: 'Location *',
+      hintText: 'Tap to choose your city or address',
+      controller: locationController,
+      readOnly: true,
+      onTap: _openLocationPicker,
+      errorText: _locationError,
+      onChanged: (_) => setState(() => _locationTouched = true),
+      prefixIcon: const Icon(
+        Icons.location_on_outlined,
+        color: AppColors.textTertiary,
+      ),
+      suffixIcon: IconButton(
+        tooltip: 'Open map',
+        icon: const Icon(Icons.map_outlined, color: AppColors.primary),
+        onPressed: _openLocationPicker,
+      ),
     );
   }
 
-  Future<void> _getCurrentLocation() async {
-    try {
-      // Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please enable location services in your settings'),
-            backgroundColor: AppColors.error,
-            duration: Duration(seconds: 2),
-          ),
-        );
-        return;
-      }
-
-      // Request location permission
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location permission is required'),
-              backgroundColor: AppColors.error,
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Location permission is permanently denied. Please enable it in app settings.',
-            ),
-            backgroundColor: AppColors.error,
-            duration: Duration(seconds: 2),
-          ),
-        );
-        return;
-      }
-
-      // Get current position with longer timeout for stability
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      );
-
-      final currentPoint = LatLng(position.latitude, position.longitude);
-      if (mounted) {
-        setState(() {
-          _selectedLocationPoint = currentPoint;
-        });
-        _moveLocationMap(currentPoint);
-      }
-
-      // Get address from coordinates
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      if (placemarks.isNotEmpty && mounted) {
-        Placemark place = placemarks.first;
-        String location =
-            '${place.locality ?? place.administrativeArea ?? ''}, ${place.country ?? ''}'
-                .trim();
-
-        setState(() {
-          locationController.text = location;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Location updated'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 1),
-          ),
-        );
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Could not find address for this location'),
-              backgroundColor: AppColors.error,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error: ${e.toString().replaceAll('Exception: ', '')}',
-            ),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    }
+  Future<void> _openLocationPicker() async {
+    setState(() => _locationTouched = true);
+    final selection = await MobilisLocationPickerModal.show(
+      context,
+      title: 'Set your location',
+      subtitle: 'Search an address or pin your location on the map.',
+      confirmLabel: 'Use this location',
+      initialAddress: locationController.text.trim(),
+      initialLatitude: _selectedLocation?.latitude,
+      initialLongitude: _selectedLocation?.longitude,
+    );
+    if (!mounted || selection == null) return;
+    setState(() {
+      _selectedLocation = selection;
+      locationController.text = selection.address;
+    });
   }
 
   @override

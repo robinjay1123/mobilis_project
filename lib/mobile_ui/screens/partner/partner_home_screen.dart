@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -31,6 +29,7 @@ import '../../widgets/vehicle_inspection_checklist_fields.dart';
 import '../../widgets/vehicle_inspection_record_view.dart';
 import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
+import '../profile/settings_screen.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
@@ -1036,8 +1035,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     },
                   ),
                   _buildDrawerItem(
-                    icon: Icons.handshake,
-                    label: 'Partnership',
+                    icon: Icons.add_circle_outline,
+                    label: 'Add Car',
                     onTap: () {
                       Navigator.pop(context);
                       _handleApplyVehicleNavigation();
@@ -1083,11 +1082,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     },
                   ),
                   _buildDrawerItem(
-                    icon: Icons.star_outline_rounded,
-                    label: 'My Ratings',
+                    icon: Icons.settings_outlined,
+                    label: 'Settings',
                     onTap: () {
                       Navigator.pop(context);
-                      _showRatesReviewsDialog();
+                      _openPartnerSettings();
                     },
                   ),
                   _buildDrawerItem(
@@ -1283,10 +1282,17 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Start Application Banner
+          // Partner value proposition
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _buildStartApplicationAd(),
+            child: _buildWhyPartnerWithPsdcSection(),
+          ),
+          const SizedBox(height: 24),
+
+          // Live Tracking shortcut
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _buildLiveTrackingSection(),
           ),
           const SizedBox(height: 24),
 
@@ -1630,75 +1636,367 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
-  Widget _buildStartApplicationAd() {
-    return GestureDetector(
-      onTap: _handleApplyVehicleNavigation,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF06233A), Color(0xFF0B3146)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.primary.withAlpha(55)),
+  Widget _buildWhyPartnerWithPsdcSection() {
+    const benefits = [
+      (
+        icon: Icons.verified_user_outlined,
+        title: 'Trusted Platform',
+        description: 'Connect with renters through a trusted rental platform.',
+      ),
+      (
+        icon: Icons.trending_up_rounded,
+        title: 'More Income',
+        description: 'Unlock more booking opportunities for your vehicles.',
+      ),
+      (
+        icon: Icons.visibility_outlined,
+        title: 'More Visibility',
+        description: 'Help more potential renters discover your fleet.',
+      ),
+      (
+        icon: Icons.event_available_outlined,
+        title: 'Easy Management',
+        description: 'Manage bookings and availability in one place.',
+      ),
+      (
+        icon: Icons.lock_outline_rounded,
+        title: 'Secure Transactions',
+        description: 'Keep rental activity organized and easy to follow.',
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF102E45), Color(0xFF17374F)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withAlpha(40),
-                borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.handshake_outlined,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
               ),
-              child: const Icon(
-                Icons.add_circle_outline,
-                color: AppColors.primary,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Add Another Vehicle',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Why Partner with PSDC?',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Grow your fleet with tools built for confident, organized rentals.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          GridView.builder(
+            itemCount: benefits.length,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              mainAxisExtent: 88,
+            ),
+            itemBuilder: (context, index) {
+              final benefit = benefits[index];
+              return Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.055),
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    'List your next vehicle and send it for approval.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(benefit.icon, color: AppColors.primary, size: 19),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            benefit.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            benefit.description,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 10,
+                              height: 1.25,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveTrackingSection() {
+    final activeBookings = bookings
+        .where(
+          (booking) =>
+              bookingStatusGroup(booking['status']) ==
+              BookingStatusGroup.ongoing,
+        )
+        .toList();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102A3D),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF24516D)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.location_searching_rounded,
+                  color: AppColors.success,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Live Tracking',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'Monitor vehicles on an active trip',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: activeBookings.isEmpty
+                      ? AppColors.darkBgSecondary
+                      : AppColors.success.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${activeBookings.length} active',
+                  style: TextStyle(
+                    color: activeBookings.isEmpty
+                        ? AppColors.textSecondary
+                        : AppColors.success,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (activeBookings.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.directions_car_outlined,
+                    color: AppColors.textTertiary,
+                    size: 20,
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'No active trips right now. Live vehicle updates will appear here.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Add Car',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black,
-                ),
+            )
+          else
+            ...activeBookings.take(3).map(_buildLiveTrackingBookingTile),
+          if (activeBookings.length > 3) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => setState(() {
+                  selectedNavIndex = 1;
+                  _partnerBookingStatus = 'ongoing';
+                }),
+                child: const Text('View all active trips'),
               ),
             ),
           ],
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveTrackingBookingTile(Map<String, dynamic> booking) {
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final renter = booking['users'] as Map<String, dynamic>?;
+    final tracking = _trackingForBooking(booking);
+    final vehicleName =
+        [vehicle?['vehicle_name'], vehicle?['brand'], vehicle?['model']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
+    final status = _bookingStatusLabel(booking, tracking);
+    final renterName = renter?['full_name']?.toString().trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: AppColors.darkBg.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: const Color(0xFF24516D)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.directions_car_filled_outlined,
+              color: AppColors.primary,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vehicleName.isEmpty ? 'Active vehicle' : vehicleName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${renterName?.isNotEmpty == true ? renterName : 'Renter'} • $status',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _bookingStatusColor(status),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: () => _openTrackingScreen(booking),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              side: const BorderSide(color: AppColors.primary),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text(
+              'Track',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1712,6 +2010,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         builder: (_) => RatingsReviewsScreen(
           userId: userId,
           title: 'Partner Ratings & Reviews',
+        ),
+      ),
+    );
+  }
+
+  void _openPartnerSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (settingsContext) => SettingsScreen(
+          isDarkMode: widget.isDarkMode,
+          onThemeToggle: widget.onThemeToggle,
+          onBack: () => Navigator.of(settingsContext).pop(),
+          onOpenSupport: _openCustomerServiceConversation,
+          onProfileUpdated: _loadPartnerData,
         ),
       ),
     );
@@ -4951,8 +5263,11 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       onThemeToggle: widget.onThemeToggle,
       onLogout: _handleLogout,
       onOpenSupport: _openCustomerServiceConversation,
-      onOpenVerification: () =>
-          Navigator.pushNamed(context, '/owner-verification'),
+      onOpenVerification: () => Navigator.pushNamed(
+        context,
+        '/owner-verification',
+        arguments: const {'viewSubmittedDocuments': true},
+      ),
       onProfileUpdated: _loadPartnerData,
       stats: [
         ProfileStatItem(

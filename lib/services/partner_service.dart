@@ -179,6 +179,123 @@ class PartnerService {
     }
   }
 
+  /// Read the files submitted with a partner's vehicle applications.
+  ///
+  /// This is intentionally read-only and keeps the UI from needing to know
+  /// which application table stores each submitted file.
+  Future<List<Map<String, dynamic>>> getSubmittedVehicleDocuments(
+    String partnerId,
+  ) async {
+    try {
+      final applications = await getVehicleApplications(partnerId);
+      final documents = <Map<String, dynamic>>[];
+      final seenUrls = <String>{};
+
+      void addDocument({
+        required String title,
+        required String subtitle,
+        required String? url,
+        required String status,
+        String? vehicleLabel,
+      }) {
+        final cleanUrl = url?.trim();
+        if (cleanUrl != null && cleanUrl.isNotEmpty) {
+          if (!seenUrls.add(cleanUrl)) return;
+        }
+        documents.add({
+          'title': title,
+          'subtitle': vehicleLabel == null || vehicleLabel.isEmpty
+              ? subtitle
+              : '$subtitle • $vehicleLabel',
+          'file_url': cleanUrl,
+          'status': cleanUrl == null || cleanUrl.isEmpty
+              ? 'incomplete'
+              : status,
+        });
+      }
+
+      String applicationStatus(Map<String, dynamic> application) {
+        final value =
+            (application['application_status'] ?? application['status'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+        if (value == 'approved' ||
+            value == 'verified' ||
+            value == 'certified') {
+          return 'verified';
+        }
+        if (value == 'rejected' || value == 'declined') return 'rejected';
+        if (value == 'pending' ||
+            value == 'submitted' ||
+            value == 'under_review' ||
+            value == 'under review') {
+          return 'pending';
+        }
+        return 'incomplete';
+      }
+
+      for (final application in applications) {
+        final vehicleLabel = [
+          application['brand']?.toString().trim(),
+          application['model']?.toString().trim(),
+          application['year']?.toString().trim(),
+        ].whereType<String>().where((value) => value.isNotEmpty).join(' ');
+        final status = applicationStatus(application);
+
+        addDocument(
+          title: 'Official Receipt (OR)',
+          subtitle: 'Vehicle registration document',
+          url: application['or_document_url']?.toString(),
+          status: status,
+          vehicleLabel: vehicleLabel,
+        );
+        addDocument(
+          title: 'Certificate of Registration (CR)',
+          subtitle: 'Vehicle ownership document',
+          url: application['cr_document_url']?.toString(),
+          status: status,
+          vehicleLabel: vehicleLabel,
+        );
+        addDocument(
+          title: 'Vehicle Photo',
+          subtitle: 'Submitted vehicle image',
+          url: application['vehicle_photo_url']?.toString(),
+          status: status,
+          vehicleLabel: vehicleLabel,
+        );
+
+        final applicationId = application['id']?.toString().trim() ?? '';
+        if (applicationId.isEmpty) continue;
+
+        try {
+          final rows = await supabase
+              .from('partner_vehicle_documents')
+              .select('document_type,file_url')
+              .eq('partner_vehicle_application_id', applicationId);
+          for (final row in List<Map<String, dynamic>>.from(rows)) {
+            final documentType = row['document_type']?.toString() ?? '';
+            if (documentType != 'vehicle_photo') continue;
+            addDocument(
+              title: 'Vehicle Photo',
+              subtitle: 'Additional submitted vehicle image',
+              url: row['file_url']?.toString(),
+              status: status,
+              vehicleLabel: vehicleLabel,
+            );
+          }
+        } catch (e) {
+          debugPrint('Error loading extra partner vehicle documents: $e');
+        }
+      }
+
+      return documents;
+    } catch (e) {
+      debugPrint('Error loading submitted partner vehicle documents: $e');
+      return [];
+    }
+  }
+
   // Get vehicle applications by status
   Future<List<Map<String, dynamic>>> getVehicleApplicationsByStatus(
     String partnerId,

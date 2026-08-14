@@ -11,7 +11,9 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
 
 class ApplyVehicleScreen extends StatefulWidget {
-  const ApplyVehicleScreen({super.key});
+  final bool startFreshApplication;
+
+  const ApplyVehicleScreen({super.key, this.startFreshApplication = false});
 
   @override
   State<ApplyVehicleScreen> createState() => _ApplyVehicleScreenState();
@@ -108,6 +110,14 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
               latestApplication?['rejection_reason']?.toString();
           isCheckingEligibility = false;
         });
+        if (widget.startFreshApplication &&
+            (latestStatus == 'rejected' ||
+                latestStatus == 'declined' ||
+                latestStatus == 'cancelled' ||
+                latestStatus == 'canceled') &&
+            mounted) {
+          setState(_startFreshVehicleApplication);
+        }
       } else if (mounted) {
         setState(() {
           isCheckingEligibility = false;
@@ -126,7 +136,22 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
   bool get _isVerifiedPartner =>
       verificationStatus == 'verified' || verificationStatus == 'certified';
 
-  bool get _shouldShowStatusTracker => hasPendingApplication;
+  bool get _shouldShowStatusTracker {
+    const applicationUpdateStatuses = {
+      'pending',
+      'submitted',
+      'under_review',
+      'in_review',
+      'rejected',
+      'declined',
+      'cancelled',
+      'canceled',
+      'needs_action',
+      'needs_correction',
+    };
+    return hasPendingApplication &&
+        applicationUpdateStatuses.contains(_latestApplicationStatus);
+  }
 
   String _normalizeApplicationStatus(String? rawStatus) {
     final value = (rawStatus ?? '').trim().toLowerCase();
@@ -385,8 +410,6 @@ class _ApplyVehicleScreenState extends State<ApplyVehicleScreen> {
       }
 
       final partnerId = user.id;
-
-
 
       final latestVerificationStatus = _normalizeVerificationStatus(
         await partnerService.getVerificationStatus(partnerId),

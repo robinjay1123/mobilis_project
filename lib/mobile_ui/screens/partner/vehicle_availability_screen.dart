@@ -195,11 +195,12 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     final filteredApplications = _filteredApplicationsForSelectedStatus();
     var displayedApplications =
         selectedApplicationStatusTab == 1 && selectedApprovedVehicleTab == 1
-            ? filteredApplications.where(_isPostedVehicle).toList()
-            : filteredApplications;
+        ? filteredApplications.where(_isPostedVehicle).toList()
+        : filteredApplications;
 
-    displayedApplications =
-        List<Map<String, dynamic>>.from(displayedApplications);
+    displayedApplications = List<Map<String, dynamic>>.from(
+      displayedApplications,
+    );
 
     if (_carSearchQuery.trim().isNotEmpty) {
       final q = _carSearchQuery.toLowerCase().trim();
@@ -353,11 +354,15 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.borderColor),
+                      borderSide: const BorderSide(
+                        color: AppColors.borderColor,
+                      ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.borderColor),
+                      borderSide: const BorderSide(
+                        color: AppColors.borderColor,
+                      ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -371,9 +376,9 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                   _carSearchQuery.isNotEmpty
                       ? 'No cars match "${_carSearchQuery}".'
                       : (selectedApplicationStatusTab == 1 &&
-                              selectedApprovedVehicleTab == 1
-                          ? 'No posted cars yet.'
-                          : 'No ${selectedStatusTitle.toLowerCase()} yet.'),
+                                selectedApprovedVehicleTab == 1
+                            ? 'No posted cars yet.'
+                            : 'No ${selectedStatusTitle.toLowerCase()} yet.'),
                   style: const TextStyle(color: AppColors.textSecondary),
                 )
               else if (selectedApplicationStatusTab == 1 &&
@@ -925,11 +930,17 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     final createdAt = application['created_at']?.toString();
     final ownerIsDriver = _truthy(application['owner_is_driver']);
     final isAvailable = _truthy(application['is_available']);
+    final isDeclined = {
+      'rejected',
+      'declined',
+      'cancelled',
+      'canceled',
+    }.contains(status);
 
     Color statusColor = AppColors.warning;
     if (status == 'approved') {
       statusColor = AppColors.success;
-    } else if (status == 'rejected') {
+    } else if (isDeclined) {
       statusColor = AppColors.error;
     }
 
@@ -1004,7 +1015,7 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
               ),
             ),
           ],
-          if (status == 'rejected' &&
+          if (isDeclined &&
               application['rejection_reason'] != null &&
               application['rejection_reason'].toString().trim().isNotEmpty) ...[
             const SizedBox(height: 6),
@@ -1022,6 +1033,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
               label: Text(
                 status == 'approved'
                     ? 'View vehicle details'
+                    : isDeclined
+                    ? 'View Application'
                     : 'View application details',
               ),
               style: OutlinedButton.styleFrom(
@@ -1133,7 +1146,10 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     ],
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: isConnected
                           ? Colors.green.withValues(alpha: 0.15)
@@ -1166,13 +1182,18 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          final vehicleTitle = '${application['brand'] ?? ''} ${application['model'] ?? ''}'.trim();
-                          final plateNumber = application['plate_number']?.toString() ?? '';
+                          final vehicleTitle =
+                              '${application['brand'] ?? ''} ${application['model'] ?? ''}'
+                                  .trim();
+                          final plateNumber =
+                              application['plate_number']?.toString() ?? '';
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => VehicleTrackingMapScreen(
-                                vehicleTitle: vehicleTitle.isNotEmpty ? vehicleTitle : 'Vehicle',
+                                vehicleTitle: vehicleTitle.isNotEmpty
+                                    ? vehicleTitle
+                                    : 'Vehicle',
                                 plateNumber: plateNumber,
                                 tracker: tracker,
                               ),
@@ -1190,7 +1211,10 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                         icon: const Icon(Icons.map_rounded, size: 16),
                         label: const Text(
                           'Track Vehicle',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -1200,19 +1224,26 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                         final updated = await Navigator.push<bool>(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => GpsTrackerSettingsScreen(tracker: tracker),
+                            builder: (_) =>
+                                GpsTrackerSettingsScreen(tracker: tracker),
                           ),
                         );
                         if (updated == true) setState(() {});
                       },
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       icon: const Icon(Icons.settings_rounded, size: 16),
-                      label: const Text('GPS Settings', style: TextStyle(fontSize: 12)),
+                      label: const Text(
+                        'GPS Settings',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ],
                 ),
@@ -1227,7 +1258,9 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                         MaterialPageRoute(
                           builder: (_) => ConnectGpsTrackerScreen(
                             vehicleId: vehicleId.isNotEmpty ? vehicleId : null,
-                            vehicleApplicationId: appId.isNotEmpty ? appId : null,
+                            vehicleApplicationId: appId.isNotEmpty
+                                ? appId
+                                : null,
                           ),
                         ),
                       );
@@ -1235,15 +1268,25 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     },
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      side: BorderSide(color: Colors.orange.withValues(alpha: 0.5)),
+                      side: BorderSide(
+                        color: Colors.orange.withValues(alpha: 0.5),
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    icon: const Icon(Icons.add_link_rounded, size: 16, color: Colors.orange),
+                    icon: const Icon(
+                      Icons.add_link_rounded,
+                      size: 16,
+                      color: Colors.orange,
+                    ),
                     label: const Text(
                       'Connect GPS Tracker',
-                      style: TextStyle(fontSize: 12, color: Colors.orange, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -2432,8 +2475,169 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     }
   }
 
+  String? _adminAdditionalRejectionDetails(Map<String, dynamic> application) {
+    final reason = application['rejection_reason']?.toString().trim() ?? '';
+    const detailKeys = [
+      'rejection_details',
+      'admin_rejection_reason',
+      'admin_notes',
+      'review_notes',
+      'review_note',
+      'rejection_note',
+      'notes',
+    ];
+    for (final key in detailKeys) {
+      final value = application[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != reason) return value;
+    }
+    return null;
+  }
+
+  void _openReapplyFlow() {
+    Navigator.of(context).pop();
+    Navigator.of(context).pushNamed(
+      '/apply-vehicle',
+      arguments: const {'startFreshApplication': true},
+    );
+  }
+
+  Widget _buildSubmittedDocumentPreview({
+    required String title,
+    required String url,
+  }) {
+    return GestureDetector(
+      onTap: () => _showDocumentPreviewDialog(title, url),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.darkBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.description_outlined,
+                  color: AppColors.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.open_in_full_rounded,
+                  color: AppColors.textSecondary,
+                  size: 15,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                height: 118,
+                width: double.infinity,
+                child: OptimizedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.cover,
+                  errorWidget: const Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            const Text(
+              'Tap to view full document',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDocumentPreviewDialog(String title, String url) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        insetPadding: const EdgeInsets.all(18),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: InteractiveViewer(
+                  maxScale: 4,
+                  child: OptimizedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showApplicationDetailsDialog(Map<String, dynamic> application) {
     final status = _applicationStatus(application);
+    final isDeclined = {
+      'rejected',
+      'declined',
+      'cancelled',
+      'canceled',
+    }.contains(status);
+    String formatApplicationPrice(dynamic value) {
+      final amount = value is num
+          ? value.toDouble()
+          : double.tryParse(value?.toString().trim() ?? '');
+      return amount == null ? 'N/A' : 'PHP ${amount.toStringAsFixed(0)}';
+    }
+
     final detailRows = <MapEntry<String, String>>[
       MapEntry('Brand', application['brand']?.toString() ?? 'N/A'),
       MapEntry('Model', application['model']?.toString() ?? 'N/A'),
@@ -2453,6 +2657,14 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
         _truthy(application['owner_is_driver'])
             ? 'Owner will drive'
             : 'Vehicle only',
+      ),
+      MapEntry(
+        'Price Per Day',
+        formatApplicationPrice(application['price_per_day']),
+      ),
+      MapEntry(
+        'Price Per Hour',
+        formatApplicationPrice(application['price_per_hour']),
       ),
       MapEntry(
         'Availability',
@@ -2486,6 +2698,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                     child: Text(
                       status == 'approved'
                           ? 'Approved Vehicle Details'
+                          : isDeclined
+                          ? 'Declined Application Details'
                           : 'Pending Application Details',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
@@ -2537,6 +2751,45 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                   return _VehiclePhotoCarousel(photoUrls: photoUrls);
                 },
               ),
+              if (application['or_document_url']
+                          ?.toString()
+                          .trim()
+                          .isNotEmpty ==
+                      true ||
+                  application['cr_document_url']
+                          ?.toString()
+                          .trim()
+                          .isNotEmpty ==
+                      true) ...[
+                const Text(
+                  'Submitted Documents',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (application['or_document_url']
+                        ?.toString()
+                        .trim()
+                        .isNotEmpty ==
+                    true)
+                  _buildSubmittedDocumentPreview(
+                    title: 'Official Receipt (OR)',
+                    url: application['or_document_url'].toString().trim(),
+                  ),
+                if (application['cr_document_url']
+                        ?.toString()
+                        .trim()
+                        .isNotEmpty ==
+                    true)
+                  _buildSubmittedDocumentPreview(
+                    title: 'Certificate of Registration (CR)',
+                    url: application['cr_document_url'].toString().trim(),
+                  ),
+                const SizedBox(height: 6),
+              ],
               LayoutBuilder(
                 builder: (context, constraints) {
                   final itemWidth = (constraints.maxWidth - 10) / 2;
@@ -2552,16 +2805,16 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                           decoration: BoxDecoration(
                             color: AppColors.darkBg,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: AppColors.borderColor,
-                            ),
+                            border: Border.all(color: AppColors.borderColor),
                           ),
                           child: Row(
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.12),
+                                  color: AppColors.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Icon(
@@ -2606,28 +2859,127 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                   );
                 },
               ),
-              if (status == 'rejected' &&
-                  application['rejection_reason']
-                          ?.toString()
-                          .trim()
-                          .isNotEmpty ==
-                      true)
+              if (isDeclined) ...[
+                const SizedBox(height: 16),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.error),
+                    color: AppColors.error.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: AppColors.error.withValues(alpha: 0.70),
+                    ),
                   ),
-                  child: Text(
-                    'Reason: ${application['rejection_reason']}',
-                    style: const TextStyle(
-                      color: AppColors.error,
-                      fontSize: 13,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            color: AppColors.error,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Reason for Rejection',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.error.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'ADMIN FEEDBACK',
+                              style: TextStyle(
+                                color: AppColors.error,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        application['rejection_reason']
+                                    ?.toString()
+                                    .trim()
+                                    .isNotEmpty ==
+                                true
+                            ? application['rejection_reason'].toString().trim()
+                            : 'No specific rejection reason was provided.',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'This feedback was provided by an admin and cannot be edited here.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                          height: 1.35,
+                        ),
+                      ),
+                      if (_adminAdditionalRejectionDetails(application) !=
+                          null) ...[
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Additional Details',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _adminAdditionalRejectionDetails(application)!,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _openReapplyFlow,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Re-apply'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
@@ -3005,6 +3357,10 @@ IconData _getDetailIcon(String key) {
       return Icons.speed_outlined;
     case 'driver setup':
       return Icons.person_outlined;
+    case 'price per day':
+      return Icons.payments_outlined;
+    case 'price per hour':
+      return Icons.schedule_outlined;
     case 'availability':
       return Icons.check_circle_outline;
     case 'submitted':

@@ -622,6 +622,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      child: Divider(color: _driverBorderColor(context)),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 33,
                         vertical: 6,
                       ),
@@ -669,13 +676,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           ),
                         );
                       },
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      child: Divider(color: _driverBorderColor(context)),
                     ),
                     _DriverDrawerItem(
                       icon: Icons.settings,

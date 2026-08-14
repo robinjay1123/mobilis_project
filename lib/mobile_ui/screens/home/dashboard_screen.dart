@@ -2,9 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:latlong2/latlong.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../services/auth_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -32,13 +30,14 @@ import '../../widgets/cost_breakdown_row.dart';
 import '../../widgets/trip_timeline_step.dart';
 import '../../widgets/role_ui.dart';
 import '../../widgets/optimized_network_image.dart';
-import '../../widgets/leaflet_map.dart';
+import '../../widgets/location_picker_modal.dart';
 import '../../widgets/vehicle_image_carousel.dart';
 import '../../widgets/relative_time_text.dart';
 import '../../widgets/booking_return_countdown.dart';
 import '../profile/settings_screen.dart';
 import '../profile/payment_methods_screen.dart';
 import '../profile/verification_documents_screen.dart';
+import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../profile/unified_profile_screen.dart';
@@ -83,7 +82,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String selectedCategory = '';
 
   bool _isLoadingVehicles = false;
-  bool _isLocatingNearbyVehicles = false;
   bool _hasShownVerificationPrompt = false;
   bool _dimCustomerServiceFab = false;
   DateTime? _lastBackPressedAt;
@@ -95,7 +93,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<String> _nearbyLocationTokens = [];
   String _committedVehicleSearch = '';
   bool _isSearchingVehicles = false;
-  final MapController _vehicleMapController = MapController();
 
   List<Map<String, dynamic>> _bookings = [];
   List<Map<String, dynamic>> _vehicles = [];
@@ -1039,93 +1036,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return _nearbyLocationTokens.any(location.contains);
   }
 
-  Future<void> _filterVehiclesNearMe() async {
-    if (_isLocatingNearbyVehicles) return;
+  Future<void> _openCurrentLocationPicker() async {
+    final selection = await MobilisLocationPickerModal.show(
+      context,
+      title: 'Pin trip destination',
+      subtitle:
+          'Search an address or use your current location to set the exact pin.',
+      confirmLabel: 'Use this location',
+      initialAddress: userLocation == 'Not specified' ? '' : userLocation,
+      initialLatitude: _nearbyLatitude,
+      initialLongitude: _nearbyLongitude,
+    );
+    if (!mounted || selection == null) return;
 
-    setState(() => _isLocatingNearbyVehicles = true);
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw Exception('Please turn on location services first.');
-      }
+    final tokens = selection.address
+        .split(RegExp(r'[,\s]+'))
+        .where((part) => part.trim().length >= 3)
+        .map((part) => part.trim().toLowerCase())
+        .toSet()
+        .toList();
+    setState(() {
+      _searchController.clear();
+      _committedVehicleSearch = '';
+      _nearbyLatitude = selection.latitude;
+      _nearbyLongitude = selection.longitude;
+      _nearbyLocationLabel = selection.address;
+      _nearbyLocationTokens = tokens;
+      userLocation = selection.address;
+    });
+    _applyVehicleFilters();
 
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        throw Exception('Location permission is required to find nearby cars.');
-      }
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception(
-          'Location permission is permanently denied. Enable it in settings.',
-        );
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      var label = 'your location';
-      final tokens = <String>{};
-      try {
-        final placemarks = await placemarkFromCoordinates(
-          position.latitude,
-          position.longitude,
-        );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          final labelParts = [
-            p.subLocality,
-            p.locality,
-            p.subAdministrativeArea,
-            p.administrativeArea,
-          ].where((part) => part != null && part.trim().isNotEmpty).toList();
-          if (labelParts.isNotEmpty) {
-            label = labelParts.take(2).join(', ');
-          }
-          for (final part in labelParts) {
-            final token = part!.trim().toLowerCase();
-            if (token.length >= 3) tokens.add(token);
-          }
-        }
-      } catch (e) {
-        debugPrint('Nearby reverse geocoding failed: $e');
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _searchController.clear();
-        _committedVehicleSearch = '';
-        _nearbyLatitude = position.latitude;
-        _nearbyLongitude = position.longitude;
-        _nearbyLocationLabel = label;
-        _nearbyLocationTokens = tokens.toList();
-        userLocation = label;
-      });
-      _moveVehicleMapTo(position.latitude, position.longitude, zoom: 14);
-      _applyVehicleFilters();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Showing available cars near $label'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isLocatingNearbyVehicles = false);
-      }
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Showing available cars near ${selection.address}'),
+        backgroundColor: AppColors.success,
+      ),
+    );
   }
 
   Future<void> _searchVehiclesByLocation() async {
@@ -1189,7 +1135,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _nearbyLocationTokens = tokens.toList();
         userLocation = label;
       });
-      _moveVehicleMapTo(location.latitude, location.longitude, zoom: 13);
       _applyVehicleFilters();
 
       if (!mounted) return;
@@ -1210,19 +1155,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } finally {
       if (mounted) setState(() => _isSearchingVehicles = false);
     }
-  }
-
-  void _moveVehicleMapTo(
-    double latitude,
-    double longitude, {
-    double zoom = 13,
-  }) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      try {
-        _vehicleMapController.move(LatLng(latitude, longitude), zoom);
-      } catch (_) {}
-    });
   }
 
   void _clearNearbyVehicleFilter() {
@@ -3039,6 +2971,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _openRenterRatings() {
+    final userId = AuthService().currentUser?.id;
+    if (userId == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RatingsReviewsScreen(
+          userId: userId,
+          title: 'Renter Ratings & Reviews',
+        ),
+      ),
+    );
+  }
+
   Widget _buildRenterDrawer() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final foreground = isDark
@@ -3194,6 +3140,118 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         color: isDark
                             ? AppColors.borderColor
                             : AppColors.lightBorderColor,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 33,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.dark_mode, color: secondary, size: 20),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              'Dark Mode',
+                              style: TextStyle(
+                                color: foreground,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Switch(
+                            value: widget.isDarkMode,
+                            activeColor: AppColors.primary,
+                            onChanged: (value) =>
+                                widget.onThemeToggle?.call(value),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openRenterRatings();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 17,
+                            vertical: 11,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.star_rounded,
+                                color: foreground,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 14),
+                              Text(
+                                'Reviews & Ratings',
+                                style: TextStyle(
+                                  color: foreground,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {
+                          Navigator.pop(context);
+                          setState(() {
+                            selectedNavIndex = 4;
+                            selectedBookingIndex = null;
+                            selectedProfilePage = 'settings';
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 17,
+                            vertical: 11,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.settings_outlined,
+                                color: foreground,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 14),
+                              Text(
+                                'Settings',
+                                style: TextStyle(
+                                  color: foreground,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                     Padding(
@@ -3394,61 +3452,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Widget _buildVehicleSearchMap({
-    required Color cardColor,
-    required Color borderColor,
-  }) {
-    final markers = <MobilisMapMarker>[];
-    for (final vehicle in _filteredVehicles) {
-      final latitude = _toDouble(vehicle['latitude']);
-      final longitude = _toDouble(vehicle['longitude']);
-      if (latitude == null || longitude == null) continue;
-      markers.add(
-        MobilisMapMarker(
-          latitude: latitude,
-          longitude: longitude,
-          icon: Icons.directions_car,
-          color: AppColors.success,
-          size: 32,
-        ),
-      );
-    }
-
-    if (_nearbyLatitude != null && _nearbyLongitude != null) {
-      markers.add(
-        MobilisMapMarker(
-          latitude: _nearbyLatitude!,
-          longitude: _nearbyLongitude!,
-          icon: Icons.location_pin,
-          color: AppColors.primary,
-          size: 44,
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        height: 220,
-        width: double.infinity,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor),
-        ),
-        child: MobilisLeafletMap(
-          mapController: _vehicleMapController,
-          markers: markers,
-          fallbackLatitude: _nearbyLatitude ?? 15.9758,
-          fallbackLongitude: _nearbyLongitude ?? 120.5719,
-          initialZoom: _nearbyLatitude != null ? 13 : 11,
-          mapStyle: MobilisMapStyle.street,
-        ),
-      ),
-    );
-  }
-
   // ---------------------------------------------------------------------------
   // Home Tab
   // ---------------------------------------------------------------------------
@@ -3573,54 +3576,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  // Location
-                  Row(
-                    children: [
-                      InkWell(
-                        borderRadius: BorderRadius.circular(20),
-                        onTap: _isLocatingNearbyVehicles
-                            ? null
-                            : _filterVehiclesNearMe,
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: _isLocatingNearbyVehicles
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.primary,
+                  // Compact location field; the map opens only when needed.
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _openCurrentLocationPicker,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cardColor,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withAlpha(28),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.my_location_rounded,
+                                color: AppColors.primary,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'CURRENT LOCATION',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.5,
+                                      color: secondaryTextColor,
+                                    ),
                                   ),
-                                )
-                              : const Icon(
-                                  Icons.my_location,
-                                  color: AppColors.primary,
-                                ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    userLocation,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: secondaryTextColor,
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: _isLocatingNearbyVehicles
-                            ? null
-                            : _filterVehiclesNearMe,
-                        child: Text(
-                          'CURRENT LOCATION',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: secondaryTextColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    userLocation,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: textColor,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -3681,10 +3703,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ),
-                  ),
-                  _buildVehicleSearchMap(
-                    cardColor: cardColor,
-                    borderColor: borderColor,
                   ),
                   if (_nearbyLatitude != null) ...[
                     const SizedBox(height: 10),

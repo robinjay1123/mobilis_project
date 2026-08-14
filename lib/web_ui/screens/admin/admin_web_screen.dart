@@ -2776,9 +2776,224 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     }
   }
 
+  Future<bool> _showVehicleApprovalConfirmation(
+    Map<String, dynamic> application,
+  ) async {
+    final vehicleTitle =
+        '${application['brand'] ?? 'Vehicle'} ${application['model'] ?? ''}'
+            .trim();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _adminNavyDeep,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text(
+          'Confirm Approval',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'Are you sure you want to approve this vehicle application?\n\n${vehicleTitle.isEmpty ? 'This application' : vehicleTitle} will be added to the partner fleet.',
+          style: const TextStyle(color: Colors.white70, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm Approval'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<String?> _showVehicleRejectionDialog() async {
+    const rejectionReasons = [
+      'Incomplete/Missing Papers',
+      'Uploaded Document is Unclear',
+      'Government ID is Expired',
+      'Invalid or Unreadable Document',
+      'Vehicle Information is Incomplete',
+      'Submitted Information Does Not Match',
+      'Vehicle Photos are Unclear',
+      'Vehicle Does Not Meet Listing Requirements',
+      'Daily Rental Price is Too High',
+      'Hourly Rental Price is Too High',
+      'Pricing Information is Inconsistent',
+      'Other',
+    ];
+    final otherController = TextEditingController();
+    String? selectedReason;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final isOther = selectedReason == 'Other';
+          final enteredReason = otherController.text.trim();
+          final reasonToConfirm = isOther
+              ? enteredReason
+              : selectedReason?.trim() ?? '';
+          final canConfirm = reasonToConfirm.isNotEmpty;
+
+          return AlertDialog(
+            backgroundColor: _adminNavyDeep,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Text(
+              'Reject Vehicle Application',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Select a rejection reason before confirming this action.',
+                    style: TextStyle(color: Colors.white70, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: selectedReason,
+                    isExpanded: true,
+                    dropdownColor: _adminNavy,
+                    decoration: InputDecoration(
+                      labelText: 'Rejection Reason',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Colors.white24),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Colors.white24),
+                      ),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    hint: const Text(
+                      'Choose a reason',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    items: rejectionReasons
+                        .map(
+                          (reason) => DropdownMenuItem<String>(
+                            value: reason,
+                            child: Text(reason),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedReason = value;
+                        if (value != 'Other') otherController.clear();
+                      });
+                    },
+                  ),
+                  if (isOther) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: otherController,
+                      onChanged: (_) => setDialogState(() {}),
+                      minLines: 2,
+                      maxLines: 4,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Specify the reason',
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        hintText: 'Enter the specific admin feedback',
+                        hintStyle: const TextStyle(color: Colors.white54),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.06),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Colors.white24),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (canConfirm) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.redAccent.withValues(alpha: 0.45),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Are you sure you want to reject this vehicle application?',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Selected reason: $reasonToConfirm',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: canConfirm
+                    ? () => Navigator.of(dialogContext).pop(reasonToConfirm)
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Confirm Rejection'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    otherController.dispose();
+    return result;
+  }
+
   Future<void> _approvePartnerVehicleApplication(
     Map<String, dynamic> application,
   ) async {
+    final shouldApprove = await _showVehicleApprovalConfirmation(application);
+    if (!shouldApprove) return;
+
     try {
       final appId = application['id']?.toString();
       final partnerId = application['partner_id']?.toString();
@@ -2964,6 +3179,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Future<void> _rejectPartnerVehicleApplication(
     Map<String, dynamic> application,
   ) async {
+    final rejectionReason = await _showVehicleRejectionDialog();
+    if (rejectionReason == null || rejectionReason.trim().isEmpty) return;
+
     try {
       final appId = application['id']?.toString();
       if (appId == null || appId.isEmpty) {
@@ -2984,7 +3202,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             'reviewed_at': DateTime.now().toIso8601String(),
             'verified_at': DateTime.now().toIso8601String(),
             'verified_by': _supabase.auth.currentUser?.id,
-            'rejection_reason': 'Rejected by admin',
+            'rejection_reason': rejectionReason.trim(),
             'is_available': false,
           })
           .eq('id', appId);

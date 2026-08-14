@@ -220,6 +220,9 @@ class _MyAppState extends State<MyApp> {
           );
         },
         '/apply-vehicle': (context) {
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
           final authService = AuthService();
           if (!authService.isAuthenticated) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -227,7 +230,9 @@ class _MyAppState extends State<MyApp> {
             });
             return const ResponsiveLoginScreen();
           }
-          return const ApplyVehicleScreen();
+          return ApplyVehicleScreen(
+            startFreshApplication: args?['startFreshApplication'] == true,
+          );
         },
         '/vehicle-availability': (context) {
           final authService = AuthService();
@@ -239,8 +244,15 @@ class _MyAppState extends State<MyApp> {
           }
           return const VehicleAvailabilityScreen();
         },
-        '/owner-verification': (context) =>
-            const IdentityVerificationFormScreen(userRole: 'partner'),
+        '/owner-verification': (context) {
+          final args =
+              ModalRoute.of(context)?.settings.arguments
+                  as Map<String, dynamic>?;
+          return IdentityVerificationFormScreen(
+            userRole: 'partner',
+            viewSubmittedDocuments: args?['viewSubmittedDocuments'] == true,
+          );
+        },
         '/vehicle-registration-upload': (context) =>
             const VehicleRegistrationUploadScreen(),
         '/verification-success': (context) => const VerificationSuccessScreen(),
