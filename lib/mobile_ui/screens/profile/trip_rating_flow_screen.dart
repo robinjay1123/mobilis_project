@@ -35,7 +35,6 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   bool _completionRecovered = false;
-  bool _alreadyCompletedDialogShown = false;
   List<Map<String, dynamic>> _targets = [];
   int _currentIndex = 0;
   double _selectedRating = 0;
@@ -82,124 +81,77 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       reviewerUserId: reviewerId,
       reviewerRole: widget.reviewerRole,
       operatorFallbackUserId: operatorFallbackUserId,
-      // Only show ratings that are still pending. Previously submitted targets
-      // are reserved for the service's duplicate-submission recovery path.
       includePreviouslySubmittedForRecovery: false,
     );
 
     var completionRecovered = false;
-    var emptyTitle = 'No pending rating found';
+    var emptyTitle = 'Ratings Already Completed';
     var emptyMessage =
-        'Refresh the booking details and try again. If this trip was just updated, it may take a moment to sync.';
-    var emptyIcon = Icons.info_outline_rounded;
-    var emptyIconColor = AppColors.warning;
+        'You have already submitted all your reviews for this trip. Thank you!';
+    var emptyIcon = Icons.check_circle_outline_rounded;
+    var emptyIconColor = AppColors.success;
+
     if (targets.isEmpty) {
+      // Check if this reviewer has already submitted any ratings for this booking
+      var hasAlreadySubmitted = false;
+      try {
+        final existingRatings = await Supabase.instance.client
+            .from('trip_ratings')
+            .select('id')
+            .eq('booking_id', widget.bookingId)
+            .eq('reviewer_user_id', reviewerId);
+        hasAlreadySubmitted = (existingRatings as List).isNotEmpty;
+      } catch (_) {}
+
       final bookingContext = await _tripRatingService.getBookingContext(
         widget.bookingId,
       );
-      final stage =
-          bookingContext?['completion_stage']
-              ?.toString()
-              .trim()
-              .toLowerCase() ??
-          '';
       final status =
           bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
-      final expectedStage = '${cleanReviewerRole}_rating';
-      final confirmedAtKey = '${cleanReviewerRole}_trip_confirmed_at';
-      final reviewerHasNotConfirmed = bookingContext?[confirmedAtKey] == null;
-      const completedStatuses = {
-        'completed',
-        'returned',
-        'successful',
-        'success',
-        'awaiting_ratings',
-      };
-      final hasTerminalTimestamp =
-          bookingContext?['completed_at'] != null ||
-          bookingContext?['returned_at'] != null;
-      final isAlreadyCompleted =
-          completedStatuses.contains(status) ||
-          stage == 'completed' ||
-          hasTerminalTimestamp;
 
-      // Post-return stages where we can still allow rating
-      const rateableStages = {
-        'awaiting_completion',
-        'awaiting_after_checklist',
-        'awaiting_payment',
-        'awaiting_ratings',
-        'return_pending_inspection',
-        'operator_rating',
-        'renter_rating',
-        'partner_rating',
-        'driver_rating',
-        'completed',
-        'returned',
-        'ongoing',
-        'not_started',
-        '',
-      };
-
-      // If reviewer hasn't confirmed and booking is in a rateable state,
-      // force-advance the completion_stage to this reviewer's stage so
-      // buildTargetsForBooking can find pending targets.
-      if (bookingContext != null &&
-          (reviewerHasNotConfirmed || isAlreadyCompleted) &&
-          (rateableStages.contains(stage) ||
-              rateableStages.contains(status) ||
-              isAlreadyCompleted)) {
-        try {
-          await Supabase.instance.client
-              .from('bookings')
-              .update({
-                'completion_stage': expectedStage,
-                'updated_at': DateTime.now().toUtc().toIso8601String(),
-              })
-              .eq('id', widget.bookingId);
-
-          // Reload targets with the updated stage
-          final retriedTargets = await _tripRatingService
-              .buildTargetsForBooking(
-                bookingId: widget.bookingId,
-                reviewerUserId: reviewerId,
-                reviewerRole: widget.reviewerRole,
-                operatorFallbackUserId: operatorFallbackUserId,
-                includePreviouslySubmittedForRecovery: false,
-              );
-
-          if (!mounted) return;
-          if (retriedTargets.isNotEmpty) {
-            setState(() {
-              _targets = retriedTargets;
-              _isLoading = false;
-            });
-            return;
-          }
-        } catch (e) {
-          debugPrint('[RatingFlow] Could not advance stage: $e');
-        }
-      }
-
-      if (isAlreadyCompleted) {
-        completionRecovered = await _tripRatingService
-            .reconcileCompletedBooking(
-              widget.bookingId,
-              operatorFallbackUserId: operatorFallbackUserId,
-            );
-        emptyTitle = 'Ratings already completed';
+      if (hasAlreadySubmitted) {
+        completionRecovered = await _tripRatingService.reconcileCompletedBooking(
+          widget.bookingId,
+          operatorFallbackUserId: operatorFallbackUserId,
+        );
+        emptyTitle = 'Ratings Already Completed';
         emptyMessage = completionRecovered
-            ? 'This trip is now completed and its revenue is being recorded.'
-            : 'There are no pending reviews for you at this trip stage.';
+            ? 'This trip is completed and its revenue and ratings are finalized.'
+            : 'You have already submitted all your reviews for this trip. Thank you!';
         emptyIcon = Icons.check_circle_outline_rounded;
         emptyIconColor = AppColors.success;
       } else {
-        emptyTitle = 'Rating Not Ready Yet';
-        emptyMessage = stage.isNotEmpty
-            ? _stageWaitingMessage(stage)
-            : 'Vehicle return, return inspection, and payment verification must be completed before trip ratings can begin.';
-        emptyIcon = Icons.hourglass_bottom_rounded;
-        emptyIconColor = AppColors.warning;
+        // Reviewer has NOT rated yet. Try to load targets for recovery / direct rating
+        final retryTargets = await _tripRatingService.buildTargetsForBooking(
+          bookingId: widget.bookingId,
+          reviewerUserId: reviewerId,
+          reviewerRole: widget.reviewerRole,
+          operatorFallbackUserId: operatorFallbackUserId,
+          includePreviouslySubmittedForRecovery: true,
+        );
+
+        if (retryTargets.isNotEmpty) {
+          if (!mounted) return;
+          setState(() {
+            _targets = retryTargets;
+            _isLoading = false;
+          });
+          return;
+        }
+
+        if (status == 'cancelled') {
+          emptyTitle = 'Booking Cancelled';
+          emptyMessage =
+              'This booking was cancelled and is not eligible for trip reviews.';
+          emptyIcon = Icons.cancel_outlined;
+          emptyIconColor = AppColors.error;
+        } else {
+          emptyTitle = 'Rating Not Ready Yet';
+          emptyMessage =
+              'Vehicle return and inspection must be completed before trip ratings can begin.';
+          emptyIcon = Icons.hourglass_bottom_rounded;
+          emptyIconColor = AppColors.warning;
+        }
       }
     }
 
@@ -213,30 +165,6 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       _emptyIconColor = emptyIconColor;
       _isLoading = false;
     });
-
-    if (targets.isEmpty) {
-      _showAlreadyCompletedDialog();
-    }
-  }
-
-  String _stageWaitingMessage(String stage) {
-    final readable = stage.replaceAll('_', ' ');
-    switch (stage) {
-      case 'operator_rating':
-        return 'The operator must rate the renter before the next trip step can continue.';
-      case 'partner_rating':
-        return 'The partner must rate the renter before the next trip step can continue.';
-      case 'driver_rating':
-        return 'The assigned driver must rate the renter before the renter can finish final ratings.';
-      case 'renter_rating':
-        return 'This trip is waiting for the renter final ratings.';
-      case 'awaiting_payment':
-        return 'Final payment review is required before ratings can start.';
-      case 'return_checklist':
-        return 'The return checklist must be completed before ratings can start.';
-      default:
-        return 'This trip is not ready for your rating yet. Current stage: $readable.';
-    }
   }
 
   Map<String, dynamic>? get _currentTarget {
@@ -569,74 +497,6 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Future<void> _showAlreadyCompletedDialog() async {
-    if (_alreadyCompletedDialogShown || !mounted) return;
-    _alreadyCompletedDialogShown = true;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.darkCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        contentPadding: const EdgeInsets.fromLTRB(22, 24, 22, 12),
-        content: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.55,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(_emptyIcon, color: _emptyIconColor, size: 58),
-                const SizedBox(height: 14),
-                Text(
-                  _emptyTitle,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _emptyMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pop(dialogContext);
-                if (mounted) Navigator.pop(context, _completionRecovered);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: const Text(
-                'Back to Bookings',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
