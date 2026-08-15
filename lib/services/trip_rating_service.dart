@@ -600,10 +600,7 @@ class TripRatingService {
       includePreviouslySubmittedForRecovery: false,
       operatorFallbackUserId: operatorFallbackUserId,
     );
-    final activeStage =
-        context['completion_stage']?.toString().trim().toLowerCase() ?? '';
-    if (pendingTargets.isEmpty &&
-        activeStage == '${cleanReviewerRole}_rating') {
+    if (pendingTargets.isEmpty) {
       pendingTargets = await buildTargetsForBooking(
         bookingId: bookingId,
         reviewerUserId: reviewerUserId,
@@ -673,7 +670,6 @@ class TripRatingService {
     }
 
     final renterId = text(context['renter_id']);
-    final operatorId = text(context['operator_id']);
     final owner = context['vehicle_owner'] is Map<String, dynamic>
         ? Map<String, dynamic>.from(context['vehicle_owner'])
         : <String, dynamic>{};
@@ -1262,26 +1258,28 @@ class TripRatingService {
             String targetId,
           })
         >[
-          (
-            reviewerRole: firstReviewerRole,
-            reviewerId: firstReviewerId,
-            targetRole: 'renter',
-            targetId: renterId,
-          ),
-          if (hasDriver)
+          if (firstReviewerId.isNotEmpty && renterId.isNotEmpty)
+            (
+              reviewerRole: firstReviewerRole,
+              reviewerId: firstReviewerId,
+              targetRole: 'renter',
+              targetId: renterId,
+            ),
+          if (hasDriver && driverUserId.isNotEmpty && renterId.isNotEmpty)
             (
               reviewerRole: 'driver',
               reviewerId: driverUserId,
               targetRole: 'renter',
               targetId: renterId,
             ),
-          (
-            reviewerRole: 'renter',
-            reviewerId: renterId,
-            targetRole: isPartnerVehicle ? 'partner' : 'operator',
-            targetId: renterPrimaryTargetId,
-          ),
-          if (hasDriver)
+          if (renterId.isNotEmpty && renterPrimaryTargetId.isNotEmpty)
+            (
+              reviewerRole: 'renter',
+              reviewerId: renterId,
+              targetRole: isPartnerVehicle ? 'partner' : 'operator',
+              targetId: renterPrimaryTargetId,
+            ),
+          if (hasDriver && renterId.isNotEmpty && driverUserId.isNotEmpty)
             (
               reviewerRole: 'renter',
               reviewerId: renterId,
@@ -1289,12 +1287,6 @@ class TripRatingService {
               targetId: driverUserId,
             ),
         ];
-
-    if (requiredPairs.any(
-      (pair) => pair.reviewerId.isEmpty || pair.targetId.isEmpty,
-    )) {
-      throw Exception('A required trip participant could not be identified');
-    }
 
     final response = await supabase
         .from('trip_ratings')
