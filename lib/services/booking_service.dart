@@ -3477,6 +3477,106 @@ class BookingService {
     }
   }
 
+  /// Operator or Admin confirms manual refund disbursement for a cancelled booking.
+  /// Updates refund status to 'refunded' and sends instant notifications to the renter and owner.
+  Future<Map<String, dynamic>> processRefundDisbursement({
+    required String bookingId,
+    required String refundReference,
+    double? refundAmount,
+    String? notes,
+    String? operatorId,
+  }) async {
+    try {
+      debugPrint('Processing refund disbursement for booking #$bookingId');
+
+      final cleanRef = refundReference.trim();
+      if (cleanRef.isEmpty) {
+        throw Exception('Refund transaction reference number is required.');
+      }
+
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final renterId = booking['renter_id']?.toString() ?? '';
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ??
+          booking['vehicle'] as Map<String, dynamic>?;
+      final vehicleTitle = vehicle != null
+          ? '${vehicle['brand'] ?? vehicle['make'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+          : 'your rental vehicle';
+
+      final amount = refundAmount ??
+          (booking['reservation_payment_amount'] as num?)?.toDouble() ??
+          (booking['reservation_fee'] as num?)?.toDouble() ??
+          (booking['total_amount'] as num?)?.toDouble() ??
+          (booking['total_price'] as num?)?.toDouble() ??
+          0.0;
+
+      final now = DateTime.now();
+
+      await supabase.from('bookings').update({
+        'refund_status': 'refunded',
+        'refund_reference': cleanRef,
+        'refund_amount': amount,
+        'refund_notes': notes?.trim(),
+        'refund_processed_at': now.toIso8601String(),
+        if (operatorId != null && operatorId.isNotEmpty)
+          'refund_operator_id': operatorId,
+        'updated_at': now.toIso8601String(),
+      }).eq('id', bookingId);
+
+      // 1. Notify Renter
+      if (renterId.isNotEmpty) {
+        final amountFmt =
+            amount > 0 ? ' of PHP ${amount.toStringAsFixed(2)}' : '';
+        await NotificationService().createNotification(
+          userId: renterId,
+          title: '💰 Refund Completed',
+          message:
+              'Your refund$amountFmt for $vehicleTitle has been disbursed to your account. Reference: $cleanRef.',
+          type: 'booking_refund',
+          data: {
+            'booking_id': bookingId,
+            'status': 'cancelled',
+            'refund_status': 'refunded',
+            'refund_reference': cleanRef,
+            'refund_amount': amount,
+            'event': 'refund_disbursed',
+          },
+        );
+      }
+
+      // 2. Notify Vehicle Owner if applicable
+      final ownerId = vehicle?['owner_id']?.toString();
+      if (ownerId != null && ownerId.isNotEmpty && ownerId != renterId) {
+        await NotificationService().createNotification(
+          userId: ownerId,
+          title: 'Booking Refund Disbursed',
+          message:
+              'Refund for cancelled booking #$bookingId ($vehicleTitle) has been completed. Reference: $cleanRef.',
+          type: 'booking',
+          data: {
+            'booking_id': bookingId,
+            'refund_status': 'refunded',
+            'event': 'owner_refund_recorded',
+          },
+        );
+      }
+
+      return {
+        'success': true,
+        'refund_status': 'refunded',
+        'refund_reference': cleanRef,
+        'refund_amount': amount,
+      };
+    } catch (e) {
+      debugPrint('Error processing refund disbursement: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
   // Get error message from exception
   String getErrorMessage(dynamic error) {
     if (error is PostgrestException) {
