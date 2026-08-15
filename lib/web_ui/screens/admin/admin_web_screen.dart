@@ -8516,15 +8516,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
           .toLowerCase()
           .trim();
-      final isDriver =
-          role == 'driver' ||
-          (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
-      if (role == 'renter') {
-        renterCount++;
-      } else if (isDriver) {
-        driverCount++;
-      } else if (role == 'partner') {
+      if (role == 'partner') {
         partnerCount++;
+      } else if (role == 'driver') {
+        driverCount++;
+      } else {
+        renterCount++;
       }
     }
 
@@ -8535,16 +8532,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
             .toLowerCase()
             .trim();
-        final isDriver =
-            role == 'driver' ||
-            (r['id_type']?.toString().toLowerCase().contains('driver') ??
-                false);
 
-        if (_verificationRoleFilter == 'renter' && role != 'renter')
-          return false;
-        if (_verificationRoleFilter == 'driver' && !isDriver) return false;
-        if (_verificationRoleFilter == 'partner' && role != 'partner')
-          return false;
+        if (_verificationRoleFilter == 'renter') {
+          if (role != 'renter' && role.isNotEmpty && role != 'customer') {
+            return false;
+          }
+        } else if (_verificationRoleFilter == 'driver') {
+          if (role != 'driver') return false;
+        } else if (_verificationRoleFilter == 'partner') {
+          if (role != 'partner') return false;
+        }
       }
 
       if (_verificationSearchQuery.trim().isNotEmpty) {
@@ -9067,8 +9064,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final role = (user?['role']?.toString() ?? r['role']?.toString() ?? '')
           .toLowerCase()
           .trim();
-      return role == 'driver' ||
-          (r['id_type']?.toString().toLowerCase().contains('driver') ?? false);
+      return role == 'driver';
     }).toList();
 
     if (_applicationSearchQuery.trim().isNotEmpty) {
@@ -9961,11 +9957,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildVerificationCard(Map<String, dynamic> record, bool isDark) {
     final user = record['users'] as Map<String, dynamic>?;
-    final role = user?['role']?.toString().trim().toLowerCase() ?? '';
-    final isDriverRecord =
-        role == 'driver' ||
-        (record['id_type']?.toString().toLowerCase().contains('driver') ??
-            false);
+    final role =
+        (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter')
+            .trim()
+            .toLowerCase();
     final submittedName = (record['full_name'] as String?)?.trim();
     final profileName = (user?['full_name'] as String?)?.trim();
     final displayName = submittedName?.isNotEmpty == true
@@ -10035,30 +10030,31 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         statusIcon = Icons.hourglass_top_rounded;
     }
 
-    final userRole =
-        (user?['role']?.toString() ?? record['role']?.toString() ?? 'renter')
-            .toLowerCase()
-            .trim();
     Color roleBg = Colors.purple.withValues(alpha: 0.15);
     Color roleText = Colors.purple;
     IconData roleIcon = Icons.directions_car_rounded;
     String roleTag = 'RENTER';
 
-    if (userRole == 'driver' || isDriverRecord) {
+    if (role == 'driver') {
       roleTag = 'DRIVER';
       roleBg = Colors.blue.withValues(alpha: 0.15);
       roleText = Colors.blue;
       roleIcon = Icons.badge_rounded;
-    } else if (userRole == 'partner') {
+    } else if (role == 'partner') {
       roleTag = 'PARTNER';
       roleBg = Colors.amber.withValues(alpha: 0.15);
       roleText = Colors.amber;
       roleIcon = Icons.handshake_rounded;
-    } else if (userRole == 'admin') {
+    } else if (role == 'admin' || role == 'superadmin') {
       roleTag = 'ADMIN';
       roleBg = Colors.teal.withValues(alpha: 0.15);
       roleText = Colors.teal;
       roleIcon = Icons.admin_panel_settings_rounded;
+    } else if (role == 'operator') {
+      roleTag = 'OPERATOR';
+      roleBg = Colors.indigo.withValues(alpha: 0.15);
+      roleText = Colors.indigo;
+      roleIcon = Icons.headset_mic_rounded;
     }
 
     // License expiry validity check
