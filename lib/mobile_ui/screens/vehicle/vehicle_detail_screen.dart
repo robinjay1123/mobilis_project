@@ -2626,7 +2626,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     final settings = await service.getSettings();
     final savedNumbers =
         await ReservationPaymentService.getSavedSenderNumbers(userId);
-    final userProfilePhone = _currentUser?.phone?.trim() ?? '';
+    final user = AuthService().currentUser;
+    final userProfilePhone =
+        user?.phone?.trim() ??
+        (user?.userMetadata?['phone']?.toString().trim() ?? '');
     final defaultPhone = savedNumbers.isNotEmpty
         ? savedNumbers.first
         : (userProfilePhone.isNotEmpty ? userProfilePhone : '');
@@ -3025,6 +3028,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   ),
                                 ],
                               ),
+                      ),
                       if (savedNumbers.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(

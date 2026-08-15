@@ -10552,7 +10552,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         ),
 
                         // Driver credentials cards
-                        if (isDriverRecord) ...[
+                        if (role == 'driver') ...[
                           SizedBox(
                             width: itemWidth,
                             child: _buildDetailCard(
