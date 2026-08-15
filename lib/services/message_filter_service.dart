@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'user_restriction_service.dart';
+
 class MessageFilterService {
   static final supabase = Supabase.instance.client;
 
@@ -414,6 +416,9 @@ class MessageFilterService {
   /// Load users who have message flags, elevated flag count, or have been blocked/suspended for message violations.
   static Future<List<Map<String, dynamic>>> getViolatingUsers() async {
     try {
+      // First process any expired restrictions across the platform to auto-unban users whose time is up
+      await UserRestrictionService().processExpiredRestrictions();
+
       final flagsResponse = await supabase
           .from('message_flags')
           .select(
@@ -431,9 +436,9 @@ class MessageFilterService {
       final usersQuery = await supabase
           .from('users')
           .select(
-            'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at',
+            'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at, chat_restricted_until, account_restricted_until, restriction_level, restriction_reason',
           )
-          .or('off_platform_flag_count.gt.0,is_blocked.eq.true,is_active.eq.false');
+          .or('off_platform_flag_count.gt.0,is_blocked.eq.true,is_active.eq.false,account_restricted_until.not.is.null,chat_restricted_until.not.is.null');
 
       final usersList = List<Map<String, dynamic>>.from(usersQuery);
       final userMap = <String, Map<String, dynamic>>{};
@@ -452,7 +457,7 @@ class MessageFilterService {
         final missingUsers = await supabase
             .from('users')
             .select(
-              'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at',
+              'id, name, full_name, email, role, avatar_url, profile_picture_url, off_platform_flag_count, is_blocked, is_active, suspension_reason, suspended_at, chat_restricted_until, account_restricted_until, restriction_level, restriction_reason',
             )
             .inFilter('id', missingUserIds);
         for (final user in List<Map<String, dynamic>>.from(missingUsers)) {
@@ -463,6 +468,7 @@ class MessageFilterService {
         }
       }
 
+      final now = DateTime.now();
       final result = <Map<String, dynamic>>[];
       for (final entry in userMap.entries) {
         final userId = entry.key;
@@ -470,6 +476,26 @@ class MessageFilterService {
         final userFlags = flagsList
             .where((f) => f['sender_id']?.toString() == userId)
             .toList();
+
+        final accountUntil = DateTime.tryParse(
+          user['account_restricted_until']?.toString() ?? '',
+        );
+        final chatUntil = DateTime.tryParse(
+          user['chat_restricted_until']?.toString() ?? '',
+        );
+        final level = user['restriction_level']?.toString().trim() ?? '';
+        final isPermanent =
+            level == 'third_attempt_blocked' ||
+            level == 'matched_blocked_identity';
+        final isExpired =
+            !isPermanent &&
+            ((accountUntil != null && accountUntil.isBefore(now)) ||
+                (chatUntil != null && chatUntil.isBefore(now)));
+
+        if (isExpired) {
+          user['is_blocked'] = false;
+          user['is_active'] = true;
+        }
 
         user['user_flags'] = userFlags;
         user['flag_count'] =
@@ -508,24 +534,8 @@ class MessageFilterService {
     }
   }
 
-  /// Unban/unblock user and reset their message violation flag count
-  static Future<Map<String, dynamic>> unbanUser(String userId) async {
-    try {
-      await supabase
-          .from('users')
-          .update({
-            'is_active': true,
-            'is_blocked': false,
-            'off_platform_flag_count': 0,
-            'suspension_reason': null,
-            'suspended_at': null,
-          })
-          .eq('id', userId);
-
-      return {'success': true};
-    } catch (e) {
-      debugPrint('Error unbanning user: $e');
-      return {'success': false, 'error': e.toString()};
-    }
+  /// Unban/unblock user and completely reset all restriction blocks and message violation flags
+  static Future<Map<String, dynamic>> unbanUser(String userId) {
+    return UserRestrictionService().unbanUser(userId);
   }
 }

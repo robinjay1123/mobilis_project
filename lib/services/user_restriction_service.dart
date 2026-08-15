@@ -78,29 +78,267 @@ class UserRestrictionService {
       final response = await supabase
           .from('users')
           .select(
-            'off_platform_flag_count, is_blocked, chat_restricted_until, account_restricted_until, restriction_reason, restriction_level',
+            'id, role, off_platform_flag_count, is_blocked, is_active, chat_restricted_until, account_restricted_until, restriction_reason, restriction_level',
           )
           .eq('id', userId)
           .maybeSingle();
 
       if (response == null) return UserRestrictionState.empty;
 
+      final isBlocked = response['is_blocked'] == true;
+      final chatRestrictedUntil = DateTime.tryParse(
+        response['chat_restricted_until']?.toString() ?? '',
+      )?.toLocal();
+      final accountRestrictedUntil = DateTime.tryParse(
+        response['account_restricted_until']?.toString() ?? '',
+      )?.toLocal();
+      final level = response['restriction_level']?.toString().trim() ?? 'none';
+      final role = response['role']?.toString().trim().toLowerCase() ?? '';
+      final now = DateTime.now();
+
+      final isPermanentBlocked =
+          level == 'third_attempt_blocked' ||
+          level == 'matched_blocked_identity';
+      final hasExpiredAccount =
+          accountRestrictedUntil != null && accountRestrictedUntil.isBefore(now);
+      final hasExpiredChat =
+          chatRestrictedUntil != null && chatRestrictedUntil.isBefore(now);
+
+      // If temporary restriction has expired (e.g. 7 days or 30 days have passed), auto-unban!
+      if (!isPermanentBlocked &&
+          (hasExpiredAccount ||
+              hasExpiredChat ||
+              (isBlocked &&
+                  accountRestrictedUntil == null &&
+                  chatRestrictedUntil == null &&
+                  level != 'third_attempt_blocked' &&
+                  level != 'matched_blocked_identity'))) {
+        if (hasExpiredAccount || hasExpiredChat) {
+          await liftExpiredRestriction(userId: userId, role: role);
+          return UserRestrictionState.empty;
+        }
+      }
+
       return UserRestrictionState(
         violationCount:
             (response['off_platform_flag_count'] as num?)?.toInt() ?? 0,
-        isBlocked: response['is_blocked'] == true,
-        chatRestrictedUntil: DateTime.tryParse(
-          response['chat_restricted_until']?.toString() ?? '',
-        )?.toLocal(),
-        accountRestrictedUntil: DateTime.tryParse(
-          response['account_restricted_until']?.toString() ?? '',
-        )?.toLocal(),
+        isBlocked:
+            isBlocked &&
+            (isPermanentBlocked ||
+                (accountRestrictedUntil != null &&
+                    accountRestrictedUntil.isAfter(now))),
+        chatRestrictedUntil: chatRestrictedUntil,
+        accountRestrictedUntil: accountRestrictedUntil,
         reason: response['restriction_reason']?.toString().trim() ?? '',
-        level: response['restriction_level']?.toString().trim() ?? 'none',
+        level: level,
       );
     } catch (e) {
       debugPrint('Error fetching user restriction state: $e');
       return UserRestrictionState.empty;
+    }
+  }
+
+  /// Automatically lifts expired temporary restrictions (e.g. after 7 days)
+  Future<void> liftExpiredRestriction({
+    required String userId,
+    String? role,
+  }) async {
+    try {
+      debugPrint('Automatically lifting expired restriction for user: $userId');
+
+      await supabase
+          .from('users')
+          .update({
+            'is_active': true,
+            'is_blocked': false,
+            'chat_restricted_until': null,
+            'account_restricted_until': null,
+            'restriction_reason': null,
+            'restriction_level': 'none',
+            'verification_status': 'verified',
+            'id_verified': true,
+          })
+          .eq('id', userId);
+
+      final normalizedRole = role?.trim().toLowerCase() ?? '';
+      if (normalizedRole == 'driver') {
+        try {
+          await supabase
+              .from('users')
+              .update({'is_available': true})
+              .eq('id', userId);
+        } catch (e) {
+          debugPrint('Error restoring driver availability: $e');
+        }
+      }
+
+      if (normalizedRole == 'partner') {
+        try {
+          await supabase
+              .from('vehicles')
+              .update({'is_available': true, 'is_posted': true})
+              .eq('owner_id', userId);
+        } catch (e) {
+          debugPrint('Error restoring partner vehicles: $e');
+        }
+        try {
+          await supabase
+              .from('partner_vehicles')
+              .update({
+                'is_available': true,
+                'status': 'approved',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('partner_id', userId);
+        } catch (e) {
+          debugPrint('Error restoring partner fleet: $e');
+        }
+      }
+
+      try {
+        await NotificationService().createNotification(
+          userId: userId,
+          title: 'Account Restriction Ended',
+          message:
+              'Your temporary restriction has concluded. Full access to messaging and bookings has been restored.',
+          type: 'policy_restriction',
+          data: {'event': 'restriction_lifted_auto'},
+        );
+      } catch (e) {
+        debugPrint('Error sending auto-unban notification: $e');
+      }
+    } catch (e) {
+      debugPrint('Error lifting expired restriction: $e');
+    }
+  }
+
+  /// Batch scans and clears all expired user restrictions across the platform
+  Future<void> processExpiredRestrictions() async {
+    try {
+      final nowIso = DateTime.now().toIso8601String();
+      final expiredUsers = await supabase
+          .from('users')
+          .select(
+            'id, role, account_restricted_until, chat_restricted_until, restriction_level',
+          )
+          .or('account_restricted_until.lte.$nowIso,chat_restricted_until.lte.$nowIso');
+
+      final list = List<Map<String, dynamic>>.from(expiredUsers);
+      for (final user in list) {
+        final level = user['restriction_level']?.toString().trim() ?? '';
+        if (level == 'third_attempt_blocked' ||
+            level == 'matched_blocked_identity') {
+          continue; // Permanent blocks require admin unban
+        }
+        final userId = user['id']?.toString();
+        if (userId != null && userId.isNotEmpty) {
+          await liftExpiredRestriction(
+            userId: userId,
+            role: user['role']?.toString(),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error processing expired restrictions: $e');
+    }
+  }
+
+  /// Manually unbans and reactivates a user, clearing all blocks, flags, and restrictions
+  Future<Map<String, dynamic>> unbanUser(String userId) async {
+    try {
+      debugPrint('Manually unbanning user: $userId');
+
+      final userResponse = await supabase
+          .from('users')
+          .select('id, role, email, full_name')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final role =
+          userResponse?['role']?.toString().trim().toLowerCase() ?? '';
+
+      await supabase
+          .from('users')
+          .update({
+            'is_active': true,
+            'is_blocked': false,
+            'chat_restricted_until': null,
+            'account_restricted_until': null,
+            'restriction_reason': null,
+            'restriction_level': 'none',
+            'off_platform_flag_count': 0,
+            'suspension_reason': null,
+            'suspended_at': null,
+            'verification_status': 'verified',
+            'id_verified': true,
+          })
+          .eq('id', userId);
+
+      if (role == 'driver') {
+        try {
+          await supabase
+              .from('users')
+              .update({'is_available': true})
+              .eq('id', userId);
+        } catch (e) {
+          debugPrint('Error enabling driver availability on unban: $e');
+        }
+      }
+
+      if (role == 'partner') {
+        try {
+          await supabase
+              .from('vehicles')
+              .update({'is_available': true, 'is_posted': true})
+              .eq('owner_id', userId);
+        } catch (e) {
+          debugPrint('Error enabling partner vehicles on unban: $e');
+        }
+        try {
+          await supabase
+              .from('partner_vehicles')
+              .update({
+                'is_available': true,
+                'status': 'approved',
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('partner_id', userId);
+        } catch (e) {
+          debugPrint('Error enabling partner fleet on unban: $e');
+        }
+      }
+
+      try {
+        await supabase
+            .from('message_flags')
+            .update({
+              'status': 'dismissed',
+              'admin_notes': 'Dismissed on manual unban/reactivation',
+              'reviewed_at': DateTime.now().toIso8601String(),
+            })
+            .eq('sender_id', userId)
+            .eq('status', 'pending_review');
+      } catch (e) {
+        debugPrint('Error dismissing flags on unban: $e');
+      }
+
+      try {
+        await NotificationService().createNotification(
+          userId: userId,
+          title: 'Account Reactivated',
+          message:
+              'Your account has been unbanned and reactivated by administration. Full access to messaging, bookings, and platform features has been restored.',
+          type: 'policy_restriction',
+          data: {'event': 'manual_unban_reactivated'},
+        );
+      } catch (e) {
+        debugPrint('Error sending unban notification: $e');
+      }
+
+      return {'success': true};
+    } catch (e) {
+      debugPrint('Error in unbanUser: $e');
+      return {'success': false, 'error': e.toString()};
     }
   }
 
