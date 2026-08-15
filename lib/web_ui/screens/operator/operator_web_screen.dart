@@ -2647,6 +2647,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       bookingDate: bookingDate,
       proximityTargets: proximityTargets,
       prioritizeProximity: partnerVehicle,
+      prioritizePsdc: !partnerVehicle,
     );
 
     showDialog(

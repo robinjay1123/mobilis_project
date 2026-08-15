@@ -609,6 +609,58 @@ class _BookingsTabState extends State<_BookingsTab> {
     }).toList();
   }
 
+  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
+    final ownerRole =
+        vehicle['owner_role']?.toString().trim().toLowerCase() ?? '';
+    final source = vehicle['source']?.toString().trim().toLowerCase() ?? '';
+    final isPartner =
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null ||
+        vehicle['partner_name'] != null;
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final ownerRoleNested =
+        owner?['role']?.toString().trim().toLowerCase() ?? '';
+    return ownerRole == 'partner' ||
+        source == 'partner' ||
+        isPartner ||
+        ownerRoleNested == 'partner';
+  }
+
+  double? _coordinateValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  List<Map<String, double>> _driverProximityTargets(
+    Map<String, dynamic> booking,
+    Map<String, dynamic> vehicle,
+    Map<String, dynamic> renter,
+  ) {
+    final targets = <Map<String, double>>[];
+
+    void addTarget(dynamic latitudeValue, dynamic longitudeValue) {
+      final latitude = _coordinateValue(latitudeValue);
+      final longitude = _coordinateValue(longitudeValue);
+      if (latitude == null || longitude == null) return;
+      final duplicate = targets.any(
+        (target) =>
+            (target['latitude']! - latitude).abs() < 0.000001 &&
+            (target['longitude']! - longitude).abs() < 0.000001,
+      );
+      if (!duplicate) {
+        targets.add({'latitude': latitude, 'longitude': longitude});
+      }
+    }
+
+    addTarget(vehicle['latitude'], vehicle['longitude']);
+    final owner = vehicle['owner'] as Map<String, dynamic>? ?? {};
+    addTarget(owner['latitude'], owner['longitude']);
+    addTarget(renter['latitude'], renter['longitude']);
+    addTarget(booking['pickup_latitude'], booking['pickup_longitude']);
+    return targets;
+  }
+
   Future<void> _showDriverAssignmentDialog(
     BuildContext context,
     Map<String, dynamic> booking,
@@ -620,64 +672,317 @@ class _BookingsTabState extends State<_BookingsTab> {
       (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
     );
 
+    final vehicle = (booking['vehicles'] as Map<String, dynamic>?) ?? {};
+    final renter = (booking['users'] as Map<String, dynamic>?) ??
+        (booking['renter'] as Map<String, dynamic>?) ??
+        {};
+    final partnerVehicle = _isPartnerBookingVehicle(vehicle);
+    final proximityTargets = partnerVehicle
+        ? _driverProximityTargets(booking, vehicle, renter)
+        : const <Map<String, double>>[];
+
     try {
       final drivers = await BookingService().getAvailableVerifiedDrivers(
         bookingDate: bookingDate,
+        proximityTargets: proximityTargets,
+        prioritizeProximity: partnerVehicle,
+        prioritizePsdc: !partnerVehicle,
       );
       if (!context.mounted) return;
 
-      final selectedDriver = await showDialog<Map<String, dynamic>>(
+      final isDark = widget.isDark;
+      final bgCard = isDark ? AppColors.darkCard : Colors.white;
+      final textPrimary = isDark ? Colors.white : AppColors.lightTextPrimary;
+      final textSecondary = isDark
+          ? AppColors.textSecondary
+          : AppColors.lightTextSecondary;
+
+      final selectedDriver = await showModalBottomSheet<Map<String, dynamic>>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Assign Driver'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: drivers.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Text('No available verified drivers found.'),
-                  )
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: drivers.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (_, index) {
-                      final driver = drivers[index];
-                      final user = driver['users'] as Map<String, dynamic>?;
-                      final name = user?['full_name']?.toString().trim();
-                      final distance = (driver['distance_km'] as num?)
-                          ?.toDouble();
-                      return ListTile(
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.person_outline),
-                        ),
-                        title: Text(
-                          name == null || name.isEmpty
-                              ? 'Unknown Driver'
-                              : name,
-                        ),
-                        subtitle: Text(
-                          distance == null
-                              ? 'Available for this booking'
-                              : '${distance.toStringAsFixed(1)} km away',
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(dialogContext, driver),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+        isScrollControlled: true,
+        backgroundColor: bgCard,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (dialogContext) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(dialogContext).size.height * 0.75,
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: partnerVehicle
+                                  ? AppColors.primary.withValues(alpha: 0.15)
+                                  : AppColors.warning.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              partnerVehicle
+                                  ? 'PARTNER VEHICLE'
+                                  : 'PSDC VEHICLE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: partnerVehicle
+                                    ? AppColors.primary
+                                    : AppColors.warning,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${drivers.length} available',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Assign Driver',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        partnerVehicle
+                            ? 'Drivers near the partner vehicle & renter are ranked first. All available verified drivers are listed below.'
+                            : 'Official PSDC-flagged drivers are prioritized for this vehicle.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: drivers.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.person_off_outlined,
+                                  size: 44,
+                                  color: textSecondary,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No available verified drivers found',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'No drivers are active or eligible for this date.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          itemCount: drivers.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 1),
+                          itemBuilder: (_, index) {
+                            final driver = drivers[index];
+                            final user =
+                                driver['users'] as Map<String, dynamic>? ?? {};
+                            final name =
+                                user['full_name']?.toString().trim() ??
+                                    'Unknown Driver';
+                            final isPsdcDriver =
+                                driver['is_psdc_driver'] == true;
+                            final rating =
+                                (driver['rating'] as num?)?.toDouble() ?? 0.0;
+                            final trips =
+                                (driver['total_trips'] as num?)?.toInt() ?? 0;
+                            final distance =
+                                (driver['distance_km'] as num?)?.toDouble();
+
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              leading: CircleAvatar(
+                                backgroundColor: isPsdcDriver
+                                    ? AppColors.warning.withValues(alpha: 0.2)
+                                    : AppColors.primary.withValues(alpha: 0.15),
+                                child: Text(
+                                  name.isNotEmpty
+                                      ? name[0].toUpperCase()
+                                      : '?',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: isPsdcDriver
+                                        ? AppColors.warning
+                                        : AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isPsdcDriver)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.warning,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'PSDC DRIVER',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    if (rating > 0) ...[
+                                      const Icon(
+                                        Icons.star,
+                                        size: 13,
+                                        color: Colors.amber,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        rating.toStringAsFixed(1),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Text(
+                                      '$trips trips',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: textSecondary,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    if (distance != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: index == 0 && partnerVehicle
+                                              ? AppColors.success
+                                                  .withValues(alpha: 0.15)
+                                              : Colors.grey
+                                                  .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          '${distance.toStringAsFixed(1)} km away${index == 0 && partnerVehicle ? ' (Nearest)' : ''}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: index == 0 && partnerVehicle
+                                                ? AppColors.success
+                                                : textSecondary,
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      Text(
+                                        'Available',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.success,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              onTap: () =>
+                                  Navigator.pop(dialogContext, driver),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
         ),
       );
 
       if (selectedDriver == null || !context.mounted) return;
-      final driverId = selectedDriver['user_id']?.toString();
+      final driverId = selectedDriver['user_id']?.toString() ??
+          selectedDriver['id']?.toString();
       if (driverId == null || driverId.isEmpty) {
         throw Exception('Selected driver is missing a user account');
       }
@@ -688,7 +993,12 @@ class _BookingsTabState extends State<_BookingsTab> {
         builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       try {
-        await BookingService().assignDriver(bookingId, driverId, 0.0);
+        await BookingService().assignDriver(
+          bookingId,
+          driverId,
+          0.0,
+          operatorId: widget.operatorId,
+        );
       } finally {
         if (context.mounted) Navigator.pop(context);
       }

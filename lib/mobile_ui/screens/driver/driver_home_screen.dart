@@ -2619,23 +2619,49 @@ class _TripCardState extends State<_TripCard> {
   }
 
   Future<void> _markReturned(BuildContext context) async {
-    final startDate = DateTime.tryParse(trip['start_date']?.toString() ?? '');
-    final scheduledEnd =
-        DateTime.tryParse(trip['end_date']?.toString() ?? '') ?? DateTime.now();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final now = DateTime.now();
 
-    final returnedDate = await showDatePicker(
+    final confirmed = await showDialog<bool>(
       context: context,
-      initialDate: scheduledEnd,
-      firstDate: startDate ?? DateTime(2020),
-      lastDate: scheduledEnd.add(const Duration(days: 365)),
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: Text(
+          'Confirm Vehicle Return',
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          'Mark this vehicle as returned now? This will notify the operator and vehicle owner to conduct the post-trip inspection and finalize billing.',
+          style: TextStyle(
+            color: isDark ? AppColors.textSecondary : Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Confirm Return'),
+          ),
+        ],
+      ),
     );
 
-    if (returnedDate == null) return;
+    if (confirmed != true || !context.mounted) return;
 
     try {
       final total = await DriverService().completeAssignedBookingReturn(
         bookingId: trip['id'].toString(),
-        returnedAt: returnedDate,
+        returnedAt: now,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

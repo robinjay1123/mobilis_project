@@ -1333,9 +1333,9 @@ class BookingService {
           .from('bookings')
           .select(
             '*, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
-            '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url), '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, latitude, longitude, '
+            '  owner:owner_id(id, full_name, role, latitude, longitude), vehicle_images(image_url, display_order)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
             '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
@@ -1362,9 +1362,9 @@ class BookingService {
           .from('bookings')
           .select(
             '*, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, '
-            '  owner:owner_id(id, full_name, role), vehicle_images(image_url, display_order)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url), '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, latitude, longitude, '
+            '  owner:owner_id(id, full_name, role, latitude, longitude), vehicle_images(image_url, display_order)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
             '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
@@ -1407,11 +1407,12 @@ class BookingService {
           .select(
             'id, renter_id, vehicle_id, start_at, end_at, start_date, end_date, '
             'status, total_price, with_driver, driver_id, driver_assigned_at, created_at, '
+            'pickup_location, dropoff_location, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, '
             'partner_booking_confirmed_at, reservation_payment_status, '
             'reservation_payment_covers_total, reservation_fee_amount, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, '
-            '  owner:owner_id(id, full_name, role)), '
-            'users:users!bookings_renter_id_fkey(id, full_name, email, phone), '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, latitude, longitude, '
+            '  owner:owner_id(id, full_name, role, latitude, longitude)), '
+            'users:users!bookings_renter_id_fkey(id, full_name, email, phone, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
             '  users!drivers_user_id_fkey(id, full_name, email, phone)), '
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
@@ -1534,8 +1535,9 @@ class BookingService {
   Future<void> assignDriver(
     String bookingId,
     String driverId,
-    double tripFee,
-  ) async {
+    double tripFee, {
+    String? operatorId,
+  }) async {
     try {
       debugPrint(
         'Assigning driver $driverId to booking $bookingId with fee: $tripFee',
@@ -1543,7 +1545,7 @@ class BookingService {
 
       final booking = await supabase
           .from('bookings')
-          .select('id, with_driver, status, renter_id')
+          .select('id, with_driver, status, renter_id, operator_id')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -1556,16 +1558,8 @@ class BookingService {
         throw Exception('Selected user is not a valid driver');
       }
 
-      if (_isExplicitlyUnavailable(driver['is_available'])) {
-        throw Exception('Selected driver is not available');
-      }
-
-      final driverProfileId = driver['driver_id']?.toString();
       final driverUserId = driver['user_id']?.toString();
-      if (driverProfileId == null ||
-          driverProfileId.isEmpty ||
-          driverUserId == null ||
-          driverUserId.isEmpty) {
+      if (driverUserId == null || driverUserId.isEmpty) {
         throw Exception('Selected driver is missing profile linkage');
       }
 
@@ -1574,14 +1568,23 @@ class BookingService {
 
       if (!{
         'pending',
+        'pending_approval',
+        'awaiting_driver',
         'approved',
         'confirmed',
+        'assigned',
         'active',
+        'ongoing',
       }.contains(currentStatus)) {
         throw Exception(
           'A driver can only be assigned to pending, approved, confirmed, or active bookings',
         );
       }
+
+      final effectiveOperatorId =
+          operatorId ??
+          booking['operator_id']?.toString() ??
+          supabase.auth.currentUser?.id;
 
       final now = DateTime.now().toIso8601String();
       await supabase
@@ -1606,15 +1609,20 @@ class BookingService {
       final assignmentId = assignment['id']?.toString();
 
       try {
+        final updateData = <String, dynamic>{
+          'driver_id': driverUserId,
+          'with_driver': true,
+          'status': 'pending',
+          'driver_assigned_at': now,
+          'updated_at': now,
+        };
+        if (effectiveOperatorId != null && effectiveOperatorId.isNotEmpty) {
+          updateData['operator_id'] = effectiveOperatorId;
+        }
+
         await supabase
             .from('bookings')
-            .update({
-              'driver_id': driverUserId,
-              'with_driver': true,
-              'status': 'pending',
-              'driver_assigned_at': now,
-              'updated_at': now,
-            })
+            .update(updateData)
             .eq('id', bookingId);
       } catch (_) {
         if (assignmentId != null && assignmentId.isNotEmpty) {
@@ -1883,6 +1891,7 @@ class BookingService {
     DateTime? bookingDate,
     List<Map<String, double>> proximityTargets = const [],
     bool prioritizeProximity = false,
+    bool prioritizePsdc = false,
   }) async {
     try {
       final targetDate = (bookingDate ?? DateTime.now()).toLocal();
@@ -1998,6 +2007,26 @@ class BookingService {
             return 1;
           }
         }
+
+        if (prioritizePsdc || (!prioritizeProximity && prioritizePsdc)) {
+          final aIsPsdc = a['is_psdc_driver'] == true;
+          final bIsPsdc = b['is_psdc_driver'] == true;
+          if (aIsPsdc && !bIsPsdc) return -1;
+          if (!aIsPsdc && bIsPsdc) return 1;
+        }
+
+        final aRating = (a['rating'] as num?)?.toDouble() ?? 0.0;
+        final bRating = (b['rating'] as num?)?.toDouble() ?? 0.0;
+        if (aRating != bRating) {
+          return bRating.compareTo(aRating);
+        }
+
+        final aTrips = (a['total_trips'] as num?)?.toInt() ?? 0;
+        final bTrips = (b['total_trips'] as num?)?.toInt() ?? 0;
+        if (aTrips != bTrips) {
+          return bTrips.compareTo(aTrips);
+        }
+
         final aUser = a['users'] as Map<String, dynamic>?;
         final bUser = b['users'] as Map<String, dynamic>?;
         final aName = aUser?['full_name']?.toString() ?? '';
@@ -2141,9 +2170,14 @@ class BookingService {
           'Return updates are only allowed for with-driver bookings',
         );
       }
-      if (currentUserId == null ||
-          assignedDriverId == null ||
-          assignedDriverId != currentUserId) {
+      final isDriver = currentUserId != null &&
+          assignedDriverId != null &&
+          (assignedDriverId == currentUserId ||
+              assignedDriverId ==
+                  await _getDriverProfileIdForUser(currentUserId) ||
+              await _getDriverUserIdForProfile(assignedDriverId) ==
+                  currentUserId);
+      if (!isDriver) {
         throw Exception('Only the assigned driver can mark return time');
       }
 
@@ -2162,8 +2196,8 @@ class BookingService {
           })
           .eq('id', bookingId);
 
-      final driverUserId = booking['driver_id']?.toString();
-      if (driverUserId != null && driverUserId.isNotEmpty) {
+      final driverUserId = booking['driver_id']?.toString() ?? currentUserId;
+      if (driverUserId.isNotEmpty) {
         await supabase
             .from('users')
             .update({'is_available': true})
@@ -2178,7 +2212,7 @@ class BookingService {
               'updated_at': DateTime.now().toIso8601String(),
             })
             .eq('booking_id', bookingId)
-            .eq('driver_id', currentUserId);
+            .inFilter('status', ['assigned', 'accepted', 'ongoing', 'in_progress', 'pending_offer']);
       } catch (e) {
         debugPrint('Could not update assignment return status: $e');
       }
@@ -2561,7 +2595,8 @@ class BookingService {
     final status = value?.toString().trim().toLowerCase() ?? '';
     return status == 'verified' ||
         status == 'approved' ||
-        status == 'certified';
+        status == 'certified' ||
+        status == 'active';
   }
 
   Future<Map<String, dynamic>?> _getDriverAssignmentTarget(
@@ -2586,14 +2621,6 @@ class BookingService {
     if (driver == null) return null;
 
     final user = driver['users'] as Map<String, dynamic>?;
-    final role = user?['role']?.toString().trim().toLowerCase();
-    if (role != null &&
-        role.isNotEmpty &&
-        role != 'driver' &&
-        role != 'admin' &&
-        role != 'operator') {
-      return null;
-    }
 
     return {
       'driver_id': driver['id'],
