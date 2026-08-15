@@ -44,7 +44,6 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
   int _selectedTab = 0;
   String? _operatorId;
   int _pendingBookingBadgeCount = 0;
-  Set<String> _seenPendingBookingIds = {};
   RealtimeChannel? _pendingBookingChannel;
   Timer? _pendingBookingRefreshDebounce;
 
@@ -162,9 +161,8 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
     if (!mounted) return;
     setState(() {
       _selectedTab = index;
-      if (index == 1) _pendingBookingBadgeCount = 0;
     });
-    if (index == 1) _loadPendingBookingBadge();
+    _loadPendingBookingBadge();
   }
 
   Widget _buildPendingTabIcon(IconData icon) {
@@ -208,16 +206,7 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
         operatorId,
       );
       if (!mounted) return;
-      final pendingIds = pending
-          .map((booking) => booking['id']?.toString().trim() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet();
-      final nextCount = _selectedTab == 1
-          ? 0
-          : pendingIds.difference(_seenPendingBookingIds).length;
-      if (_selectedTab == 1) {
-        _seenPendingBookingIds = pendingIds;
-      }
+      final nextCount = pending.length;
       if (_pendingBookingBadgeCount != nextCount) {
         setState(() => _pendingBookingBadgeCount = nextCount);
       }

@@ -334,6 +334,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   int _totalVehicles = 0;
 
   int _pendingVerifications = 0;
+  int _pendingBookingsCount = 0;
+  int _pendingApplicationsCount = 0;
+  int _unreadNotificationsCount = 0;
   int _activeBookings = 0;
   int _totalBookings = 0;
   double _totalRevenue = 0;
@@ -348,6 +351,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   List<Map<String, dynamic>> _trackingLocations = [];
   String? _focusedTrackingBookingId;
   Timer? _trackingRefreshTimer;
+  Timer? _notificationsRefreshTimer;
+  List<Map<String, dynamic>> _notifications = [];
   List<Map<String, dynamic>> _announcements = [];
   Timer? _announcementRefreshTimer;
   List<Map<String, dynamic>> _supportConversations = [];
@@ -512,11 +517,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       const Duration(seconds: 30),
       (_) => _refreshAnnouncementsIfVisible(),
     );
+    _notificationsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _loadNotifications(showLoading: false),
+    );
   }
 
   @override
   void dispose() {
     _trackingRefreshTimer?.cancel();
+    _notificationsRefreshTimer?.cancel();
     _actionLogsRefreshTimer?.cancel();
     _announcementRefreshTimer?.cancel();
     _actionLogsSubscription?.unsubscribe();
@@ -711,13 +721,23 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadPendingVerifications(),
         _loadPendingPartnerVehicleApplications(),
         _loadPriceChangeRequests(),
+        _loadNotifications(showLoading: false),
         _loadActionLogs(showLoading: false),
       ]);
+      if (mounted) {
+        setState(() {
+          _pendingApplicationsCount =
+              _pendingPartnerVehicleApplications.length +
+              _priceChangeRequests
+                  .where((r) => !(r['data']?['forwarded_to_operator'] == true))
+                  .length;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _loadActionLogs({bool showLoading = true}) async {
@@ -1654,6 +1674,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .eq('verification_status', 'pending');
       _pendingVerifications = (pendingResponse as List).length;
 
+      final pendingBookingsResponse = await _supabase
+          .from('bookings')
+          .select('id')
+          .eq('status', 'pending');
+      _pendingBookingsCount = (pendingBookingsResponse as List).length;
+
       final activeBookingsResponse = await _supabase
           .from('bookings')
           .select('id')
@@ -2302,6 +2328,270 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       debugPrint('Error loading price change requests: $e');
       _priceChangeRequests = [];
     }
+  }
+
+  Future<void> _loadNotifications({bool showLoading = false}) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      _notifications = [];
+      _unreadNotificationsCount = 0;
+      return;
+    }
+
+    try {
+      final list = await NotificationService().getNotifications(currentUserId);
+      final unreadCount = list.where((n) => n['is_read'] == false).length;
+      if (mounted) {
+        setState(() {
+          _notifications = list;
+          _unreadNotificationsCount = unreadCount;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading admin notifications: $e');
+    }
+  }
+
+  Future<void> _showNotificationsDialog(bool isDark) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final unreadCount =
+                _notifications.where((n) => n['is_read'] == false).length;
+            final bg = isDark ? _adminNavyDeep : Colors.white;
+            final border = isDark ? Colors.white12 : Colors.black12;
+
+            return Dialog(
+              backgroundColor: bg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: border),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 520,
+                  maxHeight: 650,
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: border)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.notifications_rounded,
+                            color: _adminGold,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Notifications',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : _adminInk,
+                            ),
+                          ),
+                          if (unreadCount > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$unreadCount unread',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          if (unreadCount > 0)
+                            TextButton.icon(
+                              onPressed: () async {
+                                await NotificationService().markAllAsRead(
+                                  currentUserId,
+                                );
+                                if (mounted) {
+                                  setState(() {
+                                    for (var n in _notifications) {
+                                      n['is_read'] = true;
+                                    }
+                                    _unreadNotificationsCount = 0;
+                                  });
+                                  setModalState(() {});
+                                }
+                              },
+                              icon: const Icon(
+                                Icons.done_all_rounded,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Mark all read',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              style: TextButton.styleFrom(
+                                foregroundColor: _adminGold,
+                              ),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () => Navigator.pop(dialogContext),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: _notifications.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.notifications_off_outlined,
+                                    size: 48,
+                                    color: Colors.grey.withOpacity(0.5),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'No notifications yet',
+                                    style: TextStyle(
+                                      color: Colors.grey.withOpacity(0.8),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 12,
+                              ),
+                              itemCount: _notifications.length,
+                              separatorBuilder: (_, __) =>
+                                  Divider(color: border, height: 1),
+                              itemBuilder: (context, index) {
+                                final n = _notifications[index];
+                                final isRead = n['is_read'] == true;
+                                final title = n['title']?.toString() ?? 'Notification';
+                                final message = n['message']?.toString() ?? '';
+                                final notifId = n['id']?.toString() ?? '';
+
+                                return InkWell(
+                                  onTap: () async {
+                                    if (!isRead && notifId.isNotEmpty) {
+                                      await NotificationService().markAsRead(notifId);
+                                      if (mounted) {
+                                        setState(() {
+                                          n['is_read'] = true;
+                                          _unreadNotificationsCount =
+                                              _notifications.where((x) => x['is_read'] == false).length;
+                                        });
+                                        setModalState(() {});
+                                      }
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isRead
+                                          ? Colors.transparent
+                                          : _adminGold.withOpacity(0.06),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          margin: const EdgeInsets.only(top: 3),
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: isRead
+                                                ? Colors.transparent
+                                                : _adminGold,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                title,
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: isRead
+                                                      ? FontWeight.w600
+                                                      : FontWeight.w800,
+                                                  color: isDark
+                                                      ? Colors.white
+                                                      : _adminInk,
+                                                ),
+                                              ),
+                                              if (message.isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  message,
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    color: isDark
+                                                        ? Colors.white70
+                                                        : Colors.black87,
+                                                    height: 1.3,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Map<String, dynamic>? _findPriceChangeRequestForApplication(
@@ -3708,10 +3998,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             Icons.people_rounded,
             'Users',
             isDark,
-            badge: _allUsers.length,
           ),
           _buildNavItem(2, Icons.directions_car_rounded, 'Vehicles', isDark),
-          _buildNavItem(3, Icons.book_rounded, 'Bookings', isDark),
+          _buildNavItem(
+            3,
+            Icons.book_rounded,
+            'Bookings',
+            isDark,
+            badge: _pendingBookingsCount > 0 ? _pendingBookingsCount : null,
+          ),
           _buildNavItem(
             4,
             Icons.fact_check_rounded,
@@ -3724,9 +4019,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             Icons.assignment_rounded,
             'Applications',
             isDark,
-            badge: _pendingPartnerVehicleApplications.isNotEmpty
-                ? _pendingPartnerVehicleApplications.length
-                : null,
+            badge:
+                _pendingApplicationsCount > 0
+                    ? _pendingApplicationsCount
+                    : null,
           ),
           _buildNavItem(6, Icons.mail_rounded, 'Message Review', isDark),
           _buildNavItem(
@@ -3972,6 +4268,48 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                 isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
                 color: isDark ? Colors.white70 : _adminInk,
               ),
+            ),
+          ),
+          Tooltip(
+            message: 'Notifications',
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  onPressed: () => _showNotificationsDialog(isDark),
+                  icon: Icon(
+                    Icons.notifications_none_rounded,
+                    color: isDark ? Colors.white70 : _adminInk,
+                  ),
+                ),
+                if (_unreadNotificationsCount > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        _unreadNotificationsCount > 99
+                            ? '99+'
+                            : '$_unreadNotificationsCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Tooltip(

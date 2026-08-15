@@ -154,50 +154,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _bookingPage = 0;
   static const int _bookingPageSize = 10;
 
-  // New pending booking notification badge state. Track booking IDs instead
-  // of the total row count so old/completed bookings do not create a false
-  // "new booking" notification.
-  int _unreadBookingsCount = 0;
-  Set<String> _lastSeenPendingBookingIds = {};
-  bool _hasLoadedLastSeenPendingBookingIds = false;
-
-  Future<void> _loadLastSeenPendingBookingIds() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (mounted) {
-        setState(() {
-          _lastSeenPendingBookingIds =
-              (prefs.getStringList('operator_last_seen_pending_booking_ids') ??
-                      <String>[])
-                  .toSet();
-          _hasLoadedLastSeenPendingBookingIds = true;
-        });
-        _recalculateUnreadPendingBookings();
-      }
-    } catch (e) {
-      debugPrint('Error loading last seen pending booking IDs: $e');
-    }
-  }
-
-  Future<void> _saveLastSeenPendingBookingIds(Iterable<String> ids) async {
-    final normalizedIds = ids
-        .map((id) => id.trim())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    _lastSeenPendingBookingIds = normalizedIds;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        'operator_last_seen_pending_booking_ids',
-        normalizedIds.toList(),
-      );
-    } catch (e) {
-      debugPrint('Error saving last seen pending booking IDs: $e');
-    }
-  }
+  // Database-backed badge counts
+  int _pendingBookingsCount = 0;
+  int _unreadMessagesCount = 0;
 
   bool _isPendingBookingForCurrentOperator(Map<String, dynamic> booking) {
-    if (booking['status']?.toString().trim().toLowerCase() != 'pending') {
+    final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+    if (status != 'pending') {
       return false;
     }
 
@@ -213,44 +176,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return bookingOperatorId == operatorId || vehicleOperatorId == operatorId;
   }
 
-  Set<String> _currentPendingBookingIds() {
-    return _recentBookings
-        .where(_isPendingBookingForCurrentOperator)
-        .map((booking) => booking['id']?.toString().trim() ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
+  void _recalculatePendingBookings() {
+    final count =
+        _recentBookings.where(_isPendingBookingForCurrentOperator).length;
+    if (mounted && _pendingBookingsCount != count) {
+      setState(() => _pendingBookingsCount = count);
+    }
   }
 
-  void _recalculateUnreadPendingBookings() {
-    if (!_hasLoadedLastSeenPendingBookingIds || !mounted) return;
-
-    final currentIds = _currentPendingBookingIds();
-    if (_selectedIndex == 1) {
-      if (_unreadBookingsCount != 0) {
-        setState(() => _unreadBookingsCount = 0);
-      }
-      if (_lastSeenPendingBookingIds.length != currentIds.length ||
-          !_lastSeenPendingBookingIds.containsAll(currentIds)) {
-        _saveLastSeenPendingBookingIds(currentIds);
+  Future<void> _loadUnreadMessagesCount() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      if (mounted && _unreadMessagesCount != 0) {
+        setState(() => _unreadMessagesCount = 0);
       }
       return;
     }
 
-    final unreadCount = currentIds
-        .difference(_lastSeenPendingBookingIds)
-        .length;
-    if (_unreadBookingsCount != unreadCount) {
-      setState(() => _unreadBookingsCount = unreadCount);
+    try {
+      final unreadMessages = await _supabase
+          .from('messages')
+          .select('id')
+          .eq('is_read', false)
+          .neq('sender_id', currentUserId);
+      final count = (unreadMessages as List).length;
+      if (mounted && _unreadMessagesCount != count) {
+        setState(() => _unreadMessagesCount = count);
+      }
+    } catch (e) {
+      debugPrint('Error loading unread messages count: $e');
     }
-  }
-
-  void _markPendingBookingsSeen() {
-    final currentIds = _currentPendingBookingIds();
-    _lastSeenPendingBookingIds = currentIds;
-    if (mounted) {
-      setState(() => _unreadBookingsCount = 0);
-    }
-    _saveLastSeenPendingBookingIds(currentIds);
   }
 
   // Stats
@@ -556,7 +511,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void initState() {
     super.initState();
     _loadColorTheme();
-    _loadLastSeenPendingBookingIds();
+    _loadUnreadMessagesCount();
     _loadDashboardData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadConversations();
@@ -569,7 +524,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 15), (
       _,
     ) {
-      if (mounted) _loadNotifications();
+      if (mounted) {
+        _loadNotifications();
+        _loadUnreadMessagesCount();
+      }
     });
   }
 
@@ -828,6 +786,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadOperatorProfile(),
         _loadStats(),
         _loadNotifications(),
+        _loadUnreadMessagesCount(),
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
@@ -1594,7 +1553,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return normalizedBooking;
       }).toList();
 
-      _recalculateUnreadPendingBookings();
+      _recalculatePendingBookings();
     } catch (e, st) {
       debugPrint(
         '[Bookings] Error loading recent bookings (driver embed via drivers -> users): $e',
@@ -3755,13 +3714,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   Icons.calendar_month_outlined,
                   'Bookings',
                   isDark,
-                  badge: _unreadBookingsCount > 0 ? _unreadBookingsCount : null,
+                  badge:
+                      _pendingBookingsCount > 0 ? _pendingBookingsCount : null,
                 ),
                 _buildNavItem(
                   2,
                   Icons.chat_bubble_outline_rounded,
                   'Messages',
                   isDark,
+                  badge: _unreadMessagesCount > 0 ? _unreadMessagesCount : null,
                 ),
                 _buildNavItem(
                   3,
@@ -3941,11 +3902,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (_selectedIndex != index) {
       setState(() => _selectedIndex = index);
     }
-    if (index == 1) {
-      _markPendingBookingsSeen();
-    }
     if (index == 2) {
       _loadConversations();
+      _loadUnreadMessagesCount();
     }
   }
 
