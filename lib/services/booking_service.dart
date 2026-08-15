@@ -335,6 +335,7 @@ class BookingService {
     String? reservationPaymentProofUrl,
     String? reservationPaymentMethod,
     String? reservationPaymentType,
+    String? reservationPaymentSenderPhone,
     String? emergencyContactName,
     String? emergencyContactPhone,
     String? emergencyContactRelationship,
@@ -514,6 +515,13 @@ class BookingService {
           reservationPaymentMethod.trim().isNotEmpty) {
         bookingPayload['reservation_payment_method'] = reservationPaymentMethod
             .trim();
+      }
+
+      if (reservationPaymentSenderPhone != null &&
+          reservationPaymentSenderPhone.trim().isNotEmpty) {
+        final cleanSenderPhone = reservationPaymentSenderPhone.trim();
+        bookingPayload['reservation_payment_sender_phone'] = cleanSenderPhone;
+        bookingPayload['refund_phone'] = cleanSenderPhone;
       }
 
       if (rentalTermsAcceptedAt != null) {

@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'image_optimization_service.dart';
 
@@ -24,6 +26,7 @@ class ReservationPaymentProof {
   final String referenceNumber;
   final String proofUrl;
   final String? proofStoragePath;
+  final String? senderPhone;
 
   const ReservationPaymentProof({
     required this.amount,
@@ -32,6 +35,7 @@ class ReservationPaymentProof {
     required this.referenceNumber,
     required this.proofUrl,
     this.proofStoragePath,
+    this.senderPhone,
   });
 }
 
@@ -42,6 +46,7 @@ class ReservationPaymentService {
   static const instructionsKey = 'reservation_payment_instructions';
   static const _receiptBucket = 'reservation_receipts';
   static const _qrBucket = 'reservation_qr_codes';
+  static const _senderNumbersPrefix = 'renter_payment_sender_numbers_';
 
   static const defaultInstructions =
       'Pay the refundable reservation fee, upload the payment screenshot, and enter the 13-digit transaction reference number.';
@@ -201,7 +206,7 @@ class ReservationPaymentService {
     required String renterId,
     required ReservationPaymentProof proof,
   }) async {
-    await _supabase.from('reservation_payment_receipts').insert({
+    final payload = <String, dynamic>{
       'booking_id': bookingId,
       'renter_id': renterId,
       'amount': proof.amount,
@@ -212,7 +217,74 @@ class ReservationPaymentService {
       'proof_storage_path': proof.proofStoragePath,
       'status': 'pending_review',
       'submitted_at': DateTime.now().toIso8601String(),
-    });
+    };
+    if (proof.senderPhone != null && proof.senderPhone!.trim().isNotEmpty) {
+      payload['sender_phone'] = proof.senderPhone!.trim();
+    }
+    await _supabase.from('reservation_payment_receipts').insert(payload);
+  }
+
+  /// Get saved sender/GCash phone numbers for this renter that have been used 2+ times.
+  static Future<List<String>> getSavedSenderNumbers(String userId) async {
+    if (userId.trim().isEmpty) return [];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_senderNumbersPrefix$userId';
+      final raw = prefs.getString(key);
+      if (raw == null || raw.isEmpty) return [];
+
+      final Map<String, dynamic> decoded = jsonDecode(raw);
+      final List<String> frequent = [];
+      decoded.forEach((number, count) {
+        if (count is num && count >= 2 && number.toString().trim().isNotEmpty) {
+          frequent.add(number.toString().trim());
+        }
+      });
+      return frequent;
+    } catch (e) {
+      debugPrint('Error getting saved sender numbers: $e');
+      return [];
+    }
+  }
+
+  /// Get all previous sender numbers for this renter regardless of count.
+  static Future<Map<String, int>> getAllSenderNumberUsage(String userId) async {
+    if (userId.trim().isEmpty) return {};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_senderNumbersPrefix$userId';
+      final raw = prefs.getString(key);
+      if (raw == null || raw.isEmpty) return {};
+      final Map<String, dynamic> decoded = jsonDecode(raw);
+      return decoded.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /// Records usage of a sender/GCash phone number.
+  /// When used twice or more, it will automatically appear in the saved numbers dropdown on subsequent bookings.
+  static Future<void> recordSenderNumberUsage(
+    String userId,
+    String phoneNumber,
+  ) async {
+    final cleanPhone = phoneNumber.trim();
+    if (cleanPhone.isEmpty || userId.trim().isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_senderNumbersPrefix$userId';
+      final currentMap = await getAllSenderNumberUsage(userId);
+      final count = (currentMap[cleanPhone] ?? 0) + 1;
+      currentMap[cleanPhone] = count;
+
+      await prefs.setString(key, jsonEncode(currentMap));
+      debugPrint(
+        'Recorded payment sender number $cleanPhone usage count: $count for user $userId',
+      );
+    } catch (e) {
+      debugPrint('Error recording sender number usage: $e');
+    }
   }
 
   String _fileExtension(String rawName, {required String fallback}) {

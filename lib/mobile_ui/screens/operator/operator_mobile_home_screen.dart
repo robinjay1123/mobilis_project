@@ -1214,6 +1214,11 @@ class _BookingCard extends StatelessWidget {
   }
 
   String get _renterPhone {
+    final senderPhone =
+        booking['reservation_payment_sender_phone']?.toString().trim();
+    if (senderPhone != null && senderPhone.isNotEmpty) return senderPhone;
+    final refundPhone = booking['refund_phone']?.toString().trim();
+    if (refundPhone != null && refundPhone.isNotEmpty) return refundPhone;
     final u = booking['users'] as Map? ?? {};
     final phone = u['phone']?.toString().trim();
     if (phone != null && phone.isNotEmpty) return phone;
@@ -1973,7 +1978,11 @@ class _BookingCard extends StatelessWidget {
     final bookingId = booking['id']?.toString() ?? '';
     final renter = booking['users'] as Map? ?? {};
     final renterName = renter['full_name']?.toString().trim() ?? 'Renter';
-    final renterPhone = renter['phone']?.toString().trim() ?? '';
+    final renterPhone =
+        booking['reservation_payment_sender_phone']?.toString().trim() ??
+        booking['refund_phone']?.toString().trim() ??
+        renter['phone']?.toString().trim() ??
+        '';
     final originalRef =
         booking['reservation_payment_reference']?.toString().trim() ?? '';
     final amount = (booking['reservation_payment_amount'] as num?)?.toDouble() ??

@@ -2052,6 +2052,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,
                 reservationPaymentMethod: reservationPaymentProof?.method,
                 reservationPaymentType: reservationPaymentProof?.paymentType,
+                reservationPaymentSenderPhone:
+                    reservationPaymentProof?.senderPhone,
                 emergencyContactName: _defaultEmergencyContact?['full_name']
                     ?.toString(),
                 emergencyContactPhone: _defaultEmergencyContact?['phone_number']
@@ -2073,6 +2075,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               );
 
               if (reservationPaymentProof != null) {
+                final senderPhone =
+                    reservationPaymentProof.senderPhone?.trim();
+                if (senderPhone != null && senderPhone.isNotEmpty) {
+                  unawaited(
+                    ReservationPaymentService.recordSenderNumberUsage(
+                      currentUser.id,
+                      senderPhone,
+                    ),
+                  );
+                }
+
                 final bookingId = createdBooking['id']?.toString();
                 if (bookingId != null && bookingId.isNotEmpty) {
                   unawaited(
@@ -2611,9 +2624,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }) async {
     final service = ReservationPaymentService();
     final settings = await service.getSettings();
+    final savedNumbers =
+        await ReservationPaymentService.getSavedSenderNumbers(userId);
+    final userProfilePhone = _currentUser?.phone?.trim() ?? '';
+    final defaultPhone = savedNumbers.isNotEmpty
+        ? savedNumbers.first
+        : (userProfilePhone.isNotEmpty ? userProfilePhone : '');
+
     if (!mounted) return null;
 
     final referenceController = TextEditingController();
+    final senderPhoneController = TextEditingController(text: defaultPhone);
+    String? selectedSavedNumber =
+        savedNumbers.isNotEmpty ? savedNumbers.first : null;
+    bool isCustomNumber = savedNumbers.isEmpty;
     XFile? receiptFile;
     bool isUploading = false;
     bool payFullAmount = false;
@@ -2656,6 +2680,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
               Future<void> confirmPayment() async {
                 final reference = referenceController.text.trim();
+                final senderPhone = (isCustomNumber
+                        ? senderPhoneController.text.trim()
+                        : (selectedSavedNumber ??
+                            senderPhoneController.text.trim()))
+                    .trim();
                 final payableAmount = payFullAmount
                     ? rentalTotal + partnerCommission
                     : reservationOnlyAmount;
@@ -2663,6 +2692,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   setDialogState(() {
                     errorText =
                         'Payment QR is not configured yet. Please contact support.';
+                  });
+                  return;
+                }
+                if (senderPhone.isEmpty) {
+                  setDialogState(() {
+                    errorText =
+                        'Please enter the GCash / mobile number used to send payment.';
+                  });
+                  return;
+                }
+                if (!RegExp(r'^\d{10,13}$').hasMatch(senderPhone) &&
+                    !RegExp(r'^(09|\+639)\d{9}$').hasMatch(senderPhone)) {
+                  setDialogState(() {
+                    errorText =
+                        'Please enter a valid Philippine mobile number (e.g. 09171234567).';
                   });
                   return;
                 }
@@ -2702,6 +2746,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       referenceNumber: reference,
                       proofUrl: receiptUpload.publicUrl,
                       proofStoragePath: receiptUpload.storagePath,
+                      senderPhone: senderPhone,
                     ),
                   );
                 } catch (e) {
@@ -2980,7 +3025,93 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   ),
                                 ],
                               ),
-                      ),
+                      if (savedNumbers.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          value: isCustomNumber ? 'other' : selectedSavedNumber,
+                          dropdownColor: AppColors.darkBg,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 14,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'GCash / Sender Mobile Number',
+                            helperText:
+                                'Used to send payment & for automatic refunds if needed',
+                            helperStyle: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: AppColors.darkBg,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: [
+                            ...savedNumbers.map(
+                              (phoneItem) => DropdownMenuItem(
+                                value: phoneItem,
+                                child: Text('📱 $phoneItem (Saved GCash)'),
+                              ),
+                            ),
+                            const DropdownMenuItem(
+                              value: 'other',
+                              child: Text('➕ Use a different number'),
+                            ),
+                          ],
+                          onChanged: isUploading
+                              ? null
+                              : (val) {
+                                  setDialogState(() {
+                                    if (val == 'other') {
+                                      isCustomNumber = true;
+                                      selectedSavedNumber = null;
+                                    } else {
+                                      isCustomNumber = false;
+                                      selectedSavedNumber = val;
+                                      if (val != null) {
+                                        senderPhoneController.text = val;
+                                      }
+                                    }
+                                    errorText = null;
+                                  });
+                                },
+                        ),
+                      ],
+                      if (isCustomNumber || savedNumbers.isEmpty) ...[
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: senderPhoneController,
+                          keyboardType: TextInputType.phone,
+                          maxLength: 13,
+                          enabled: !isUploading,
+                          onChanged: (_) => setDialogState(() {}),
+                          style: const TextStyle(color: AppColors.textPrimary),
+                          decoration: InputDecoration(
+                            labelText:
+                                'GCash / Sender Mobile Number (for refund)',
+                            hintText: 'e.g. 09171234567',
+                            counterText: '',
+                            helperText:
+                                'Number used to send money / where refunds will be returned',
+                            helperStyle: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.phone_android,
+                              color: AppColors.primary,
+                              size: 18,
+                            ),
+                            filled: true,
+                            fillColor: AppColors.darkBg,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       TextField(
                         controller: referenceController,
@@ -3072,6 +3203,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       );
     } finally {
       referenceController.dispose();
+      senderPhoneController.dispose();
     }
   }
 
