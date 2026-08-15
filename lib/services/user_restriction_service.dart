@@ -195,6 +195,21 @@ class UserRestrictionService {
         }
       }
 
+      // Clear safety freeze on any active bookings for this renter
+      try {
+        await supabase
+            .from('bookings')
+            .update({
+              'safety_freeze': false,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('renter_id', userId)
+            .inFilter('status', ['active', 'ongoing'])
+            .eq('safety_freeze', true);
+      } catch (e) {
+        debugPrint('Error lifting safety freeze on renter bookings: $e');
+      }
+
       try {
         await NotificationService().createNotification(
           userId: userId,
@@ -308,6 +323,21 @@ class UserRestrictionService {
         }
       }
 
+      // Clear safety freeze on any active bookings for this renter
+      try {
+        await supabase
+            .from('bookings')
+            .update({
+              'safety_freeze': false,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('renter_id', userId)
+            .inFilter('status', ['active', 'ongoing'])
+            .eq('safety_freeze', true);
+      } catch (e) {
+        debugPrint('Error lifting safety freeze on renter bookings on unban: $e');
+      }
+
       try {
         await supabase
             .from('message_flags')
@@ -380,6 +410,7 @@ class UserRestrictionService {
         updatePayload['restriction_level'] = 'third_attempt_blocked';
         await supabase.from('users').update(updatePayload).eq('id', userId);
         await _applyRoleRestrictions(userId: userId, role: role);
+        await _handleRenterBookingsOnViolation(userId: userId);
         await _recordBlockedIdentity(
           userId: userId,
           email: response['email']?.toString(),
@@ -404,6 +435,10 @@ class UserRestrictionService {
         await _applyRoleRestrictions(
           userId: userId,
           role: role,
+          restrictedUntil: until,
+        );
+        await _handleRenterBookingsOnViolation(
+          userId: userId,
           restrictedUntil: until,
         );
       }
@@ -635,6 +670,193 @@ class UserRestrictionService {
         'refund_status': 'refund_initiated',
       },
     );
+  }
+
+  /// Handles renter's bookings when a policy violation occurs:
+  /// 1. Auto-cancels upcoming/pending bookings, frees vehicles, and initiates refund.
+  /// 2. Applies Safety Freeze on active/ongoing trips (keeps live recovery, tracking, & return checklist active; locks extensions).
+  Future<void> _handleRenterBookingsOnViolation({
+    required String userId,
+    DateTime? restrictedUntil,
+  }) async {
+    try {
+      final rows = await supabase
+          .from('bookings')
+          .select(
+            'id, renter_id, vehicle_id, status, operator_id, start_date, end_date, total_amount, vehicle:vehicles(id, make, model, year, plate_number, owner_id)',
+          )
+          .eq('renter_id', userId)
+          .inFilter('status', [
+            'pending',
+            'pending_approval',
+            'approved',
+            'confirmed',
+            'awaiting_driver',
+            'active',
+            'ongoing',
+          ]);
+
+      final bookings = List<Map<String, dynamic>>.from(rows);
+      if (bookings.isEmpty) return;
+
+      for (final booking in bookings) {
+        final bookingId = booking['id']?.toString();
+        final vehicleId = booking['vehicle_id']?.toString();
+        final status = booking['status']?.toString().trim().toLowerCase() ?? '';
+        if (bookingId == null || bookingId.isEmpty) continue;
+
+        final vehicle = booking['vehicle'] as Map<String, dynamic>?;
+        final vehicleName = vehicle != null
+            ? '${vehicle['make'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
+            : 'Vehicle';
+        final ownerId = vehicle?['owner_id']?.toString();
+        final operatorId = booking['operator_id']?.toString();
+
+        final isActiveTrip = status == 'active' || status == 'ongoing';
+
+        if (isActiveTrip) {
+          // 1. ACTIVE TRIP: Apply Safety Freeze (Do NOT cancel or terminate tracking!)
+          debugPrint('Applying Safety Freeze to active trip booking #$bookingId');
+          await supabase.from('bookings').update({
+            'safety_freeze': true,
+            'cancellation_reason':
+                'Active trip under Safety Freeze: Renter account is under safety review. Extensions and new bookings blocked; live recovery & return inspection remain active.',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', bookingId);
+
+          // Alert Renter
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Active Trip Safety Notice',
+            message:
+                'Your account is currently under safety review. Your active trip for $vehicleName is under a Safety Freeze. Trip extensions are locked, but your live return and emergency services remain active.',
+            type: 'policy_restriction',
+            data: {
+              'booking_id': bookingId,
+              'event': 'active_trip_safety_freeze',
+              if (restrictedUntil != null)
+                'restricted_until': restrictedUntil.toIso8601String(),
+            },
+          );
+
+          // Alert Vehicle Owner / Partner
+          if (ownerId != null && ownerId.isNotEmpty && ownerId != userId) {
+            await NotificationService().createNotification(
+              userId: ownerId,
+              title: '⚠️ Active Trip Safety Alert (Safety Freeze)',
+              message:
+                  'The renter on active booking #$bookingId for your $vehicleName triggered a safety violation. The trip is placed in Safety Freeze (extensions locked, tracking and return inspection active). Please monitor until return.',
+              type: 'policy_restriction',
+              data: {
+                'booking_id': bookingId,
+                'vehicle_id': vehicleId,
+                'event': 'owner_active_safety_freeze',
+              },
+            );
+          }
+
+          // Alert Operator
+          if (operatorId != null && operatorId.isNotEmpty) {
+            await NotificationService().createNotification(
+              userId: operatorId,
+              title: '⚠️ Active Trip Safety Freeze Alert',
+              message:
+                  'Renter on active booking #$bookingId ($vehicleName) has triggered a policy violation. Trip is in Safety Freeze.',
+              type: 'policy_restriction',
+              data: {
+                'booking_id': bookingId,
+                'operator_id': operatorId,
+                'event': 'operator_active_safety_freeze',
+              },
+            );
+          }
+        } else {
+          // 2. UPCOMING / PENDING: Auto-Cancel & Initiate Refund & Free Vehicle
+          debugPrint('Auto-cancelling upcoming booking #$bookingId due to renter violation');
+          await supabase.from('bookings').update({
+            'status': 'cancelled',
+            'refund_status': 'refund_needed',
+            'cancellation_reason':
+                'Booking cancelled automatically due to a safety policy violation on the renter account.',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', bookingId);
+
+          // Free vehicle
+          if (vehicleId != null && vehicleId.isNotEmpty) {
+            try {
+              await supabase
+                  .from('vehicles')
+                  .update({'is_available': true})
+                  .eq('id', vehicleId);
+            } catch (e) {
+              debugPrint('Error freeing vehicle $vehicleId: $e');
+            }
+          }
+
+          // Close chat conversation
+          try {
+            await supabase
+                .from('conversations')
+                .update({
+                  'status': 'closed',
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('booking_id', bookingId);
+          } catch (e) {
+            debugPrint('Error closing conversation for cancelled booking: $e');
+          }
+
+          // Notify Renter
+          await NotificationService().createNotification(
+            userId: userId,
+            title: 'Upcoming Booking Cancelled',
+            message:
+                'Your upcoming reservation for $vehicleName was cancelled because your account is under safety review. Refund processing has been initiated.',
+            type: 'booking',
+            data: {
+              'booking_id': bookingId,
+              'status': 'cancelled',
+              'event': 'renter_violation_cancelled',
+            },
+          );
+
+          // Notify Vehicle Owner / Partner
+          if (ownerId != null && ownerId.isNotEmpty && ownerId != userId) {
+            await NotificationService().createNotification(
+              userId: ownerId,
+              title: 'Upcoming Booking Cancelled',
+              message:
+                  'Upcoming booking #$bookingId for your $vehicleName was cancelled due to a safety violation on the renter account. Your vehicle is now available for new bookings.',
+              type: 'booking',
+              data: {
+                'booking_id': bookingId,
+                'vehicle_id': vehicleId,
+                'status': 'cancelled',
+                'event': 'renter_violation_vehicle_freed',
+              },
+            );
+          }
+
+          // Notify Operator
+          if (operatorId != null && operatorId.isNotEmpty) {
+            await NotificationService().createNotification(
+              userId: operatorId,
+              title: 'Booking Cancelled (Renter Safety Violation)',
+              message:
+                  'Booking #$bookingId ($vehicleName) has been automatically cancelled due to renter safety violation.',
+              type: 'booking',
+              data: {
+                'booking_id': bookingId,
+                'status': 'cancelled',
+                'event': 'operator_booking_auto_cancelled',
+              },
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error handling renter bookings on violation: $e');
+    }
   }
 
   Future<void> _recordBlockedIdentity({

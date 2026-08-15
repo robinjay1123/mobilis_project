@@ -3121,6 +3121,24 @@ class BookingService {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
 
+      if (booking['safety_freeze'] == true) {
+        throw Exception(
+          'This trip is currently under a Safety Freeze and cannot be extended. Please contact support.',
+        );
+      }
+
+      final renterId = booking['renter_id']?.toString() ?? '';
+      if (renterId.isNotEmpty) {
+        final restriction = await UserRestrictionService().getUserRestriction(
+          renterId,
+        );
+        if (restriction.isBlocked || restriction.isAccountRestricted) {
+          throw Exception(
+            'Your account is under safety review and cannot request trip extensions. Please return the vehicle by the scheduled time.',
+          );
+        }
+      }
+
       final currentEndRaw =
           booking['end_at']?.toString() ?? booking['end_date']?.toString();
       final currentEndAt = currentEndRaw != null
