@@ -5607,25 +5607,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  Widget _buildTrackingContent(bool isDark) {
-    final visibleLocations = _visibleTrackingLocations();
-    final mapMarkers = visibleLocations
-        .where(
-          (location) =>
-              location['latitude'] is num && location['longitude'] is num,
-        )
-        .take(50)
-        .map(
-          (location) => MobilisMapMarker(
-            latitude: (location['latitude'] as num).toDouble(),
-            longitude: (location['longitude'] as num).toDouble(),
-            icon: Icons.directions_car_filled_rounded,
-            color: AppColors.primary,
-            size: 40,
-          ),
-        )
-        .toList();
-
   MobilisMapPoint? _resolveOperatorTrackingPoint(
     dynamic latVal,
     dynamic lngVal,
