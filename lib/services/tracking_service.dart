@@ -621,10 +621,21 @@ class TrackingService {
           ''')
           .order('recorded_at', ascending: false);
 
+      const activeStatuses = {
+        'active',
+        'ongoing',
+        'picked_up',
+        'in_progress',
+        'confirmed',
+        'approved',
+        'assigned',
+        'return_pending_inspection',
+      };
+
       return List<Map<String, dynamic>>.from(response).where((location) {
         final booking = location['bookings'] as Map<String, dynamic>?;
-        final status = booking?['status']?.toString().toLowerCase();
-        return (status == 'active' || status == 'ongoing') &&
+        final status = booking?['status']?.toString().toLowerCase() ?? '';
+        return activeStatuses.contains(status) &&
             _canViewTracking(access, booking);
       }).toList();
     } catch (e) {
@@ -681,7 +692,17 @@ class TrackingService {
       final location = Map<String, dynamic>.from(response);
       final booking = location['bookings'] as Map<String, dynamic>?;
       final status = booking?['status']?.toString().toLowerCase() ?? '';
-      if (!{'active', 'ongoing'}.contains(status)) return null;
+      const activeStatuses = {
+        'active',
+        'ongoing',
+        'picked_up',
+        'in_progress',
+        'confirmed',
+        'approved',
+        'assigned',
+        'return_pending_inspection',
+      };
+      if (!activeStatuses.contains(status)) return null;
       if (!_canViewTracking(access, booking)) return null;
       return location;
     } catch (e) {
@@ -761,7 +782,16 @@ class TrackingService {
             renter_id,
             driver_id
           ''')
-          .inFilter('status', ['active', 'ongoing']);
+          .inFilter('status', [
+            'active',
+            'ongoing',
+            'picked_up',
+            'in_progress',
+            'confirmed',
+            'approved',
+            'assigned',
+            'return_pending_inspection',
+          ]);
 
       final activeBookings = List<Map<String, dynamic>>.from(bookings);
       if (activeBookings.isEmpty) return;
