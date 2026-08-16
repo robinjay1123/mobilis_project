@@ -5607,6 +5607,81 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  final Map<String, List<MobilisMapPoint>> _operatorTrackingRoadRouteCache = {};
+
+  List<MobilisMapPoint> _getOperatorTrackingRoutePoints(
+    MobilisMapPoint? pickupPoint,
+    MobilisMapPoint? carPoint,
+    MobilisMapPoint? destPoint,
+  ) {
+    if (carPoint == null) return const [];
+    if (destPoint == null) {
+      if (pickupPoint != null) return [pickupPoint, carPoint];
+      return [carPoint];
+    }
+
+    final cacheKey =
+        '${carPoint.latitude.toStringAsFixed(3)},${carPoint.longitude.toStringAsFixed(3)}->${destPoint.latitude.toStringAsFixed(3)},${destPoint.longitude.toStringAsFixed(3)}';
+
+    if (_operatorTrackingRoadRouteCache.containsKey(cacheKey)) {
+      final cachedRoad = _operatorTrackingRoadRouteCache[cacheKey]!;
+      if (pickupPoint != null) {
+        return [pickupPoint, ...cachedRoad];
+      }
+      return cachedRoad;
+    }
+
+    // Trigger async fetch in background
+    _fetchOperatorRoadPathway(cacheKey, carPoint, destPoint);
+
+    // Fallback straight line while road pathway is loading
+    if (pickupPoint != null) {
+      return [pickupPoint, carPoint, destPoint];
+    }
+    return [carPoint, destPoint];
+  }
+
+  Future<void> _fetchOperatorRoadPathway(
+    String cacheKey,
+    MobilisMapPoint fromPoint,
+    MobilisMapPoint toPoint,
+  ) async {
+    if (_operatorTrackingRoadRouteCache.containsKey(cacheKey)) return;
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${fromPoint.longitude},${fromPoint.latitude};'
+        '${toPoint.longitude},${toPoint.latitude}'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinates = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinates != null && coordinates.length >= 2) {
+            final roadPoints = coordinates.map((coordinate) {
+              final pair = coordinate as List<dynamic>;
+              return MobilisMapPoint(
+                latitude: (pair[1] as num).toDouble(),
+                longitude: (pair[0] as num).toDouble(),
+              );
+            }).toList();
+            _operatorTrackingRoadRouteCache[cacheKey] = roadPoints;
+            if (mounted) setState(() {});
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Unable to fetch OSRM road route points: $e');
+    }
+    _operatorTrackingRoadRouteCache[cacheKey] = [fromPoint, toPoint];
+  }
+
   MobilisMapPoint? _resolveOperatorTrackingPoint(
     dynamic latVal,
     dynamic lngVal,
@@ -5716,7 +5791,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     // Build map markers
     final mapMarkers = <MobilisMapMarker>[];
-    final routePoints = <MobilisMapPoint>[];
+    List<MobilisMapPoint> routePoints = const [];
 
     if (isFocused && focusedLocation != null) {
       final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
@@ -5732,10 +5807,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             size: 36,
           ),
         );
-        routePoints.add(pickupPoint);
       }
 
       if (carLat != null && carLng != null) {
+        final carPoint = MobilisMapPoint(latitude: carLat, longitude: carLng);
         mapMarkers.add(
           MobilisMapMarker(
             latitude: carLat,
@@ -5745,7 +5820,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             size: 46,
           ),
         );
-        routePoints.add(MobilisMapPoint(latitude: carLat, longitude: carLng));
+
+        // Fetch real road routing pathway
+        routePoints = _getOperatorTrackingRoutePoints(
+          pickupPoint,
+          carPoint,
+          destPoint,
+        );
       }
 
       if (destPoint != null) {
@@ -5758,7 +5839,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             size: 44,
           ),
         );
-        routePoints.add(destPoint);
       }
     } else {
       // Show all car markers
@@ -5806,17 +5886,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 if (isFocused) ...[
                   ElevatedButton.icon(
                     onPressed: () {
-                      setState(() {
-                        _focusedTrackingBookingId = null;
-                      });
+                      setState(() => _focusedTrackingBookingId = null);
                     },
                     icon: const Icon(Icons.view_carousel_rounded),
                     label: const Text('Show All Vehicles'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
                           isDark ? Colors.grey[800] : Colors.grey[200],
-                      foregroundColor:
-                          isDark ? Colors.white : Colors.black87,
+                      foregroundColor: isDark ? Colors.white : Colors.black87,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -5824,7 +5901,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 Expanded(
                   child: Text(
                     isFocused
-                        ? '🎯 Focused on vehicle & declared destination route. Click "Show All Vehicles" to reset.'
+                        ? '🎯 Focused on vehicle & declared destination road route. Click "Show All Vehicles" to reset.'
                         : '💡 Click any booking card below to focus on the vehicle and view its declared destination route.',
                     style: TextStyle(
                       color: isDark ? Colors.grey[400] : Colors.grey[700],
@@ -5948,7 +6025,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     (m) =>
                                         '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
                                   )
-                                  .join('|'),
+                                  .join('|') +
+                              '_${routePoints.length}',
                         ),
                         markers: mapMarkers,
                         routePoints: routePoints,
@@ -6086,26 +6164,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   color: isDark ? Colors.white : Colors.black87,
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              if (isFocused)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    '🎯 FOCUSED',
-                                    style: TextStyle(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                           const SizedBox(height: 2),

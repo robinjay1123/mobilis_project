@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8646,6 +8648,81 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     );
   }
 
+  final Map<String, List<MobilisMapPoint>> _trackingRoadRouteCache = {};
+
+  List<MobilisMapPoint> _getTrackingRoutePoints(
+    MobilisMapPoint? pickupPoint,
+    MobilisMapPoint? carPoint,
+    MobilisMapPoint? destPoint,
+  ) {
+    if (carPoint == null) return const [];
+    if (destPoint == null) {
+      if (pickupPoint != null) return [pickupPoint, carPoint];
+      return [carPoint];
+    }
+
+    final cacheKey =
+        '${carPoint.latitude.toStringAsFixed(3)},${carPoint.longitude.toStringAsFixed(3)}->${destPoint.latitude.toStringAsFixed(3)},${destPoint.longitude.toStringAsFixed(3)}';
+
+    if (_trackingRoadRouteCache.containsKey(cacheKey)) {
+      final cachedRoad = _trackingRoadRouteCache[cacheKey]!;
+      if (pickupPoint != null) {
+        return [pickupPoint, ...cachedRoad];
+      }
+      return cachedRoad;
+    }
+
+    // Trigger async fetch in background
+    _fetchRoadPathway(cacheKey, carPoint, destPoint);
+
+    // Fallback straight line while road pathway is loading
+    if (pickupPoint != null) {
+      return [pickupPoint, carPoint, destPoint];
+    }
+    return [carPoint, destPoint];
+  }
+
+  Future<void> _fetchRoadPathway(
+    String cacheKey,
+    MobilisMapPoint fromPoint,
+    MobilisMapPoint toPoint,
+  ) async {
+    if (_trackingRoadRouteCache.containsKey(cacheKey)) return;
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '${fromPoint.longitude},${fromPoint.latitude};'
+        '${toPoint.longitude},${toPoint.latitude}'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinates = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinates != null && coordinates.length >= 2) {
+            final roadPoints = coordinates.map((coordinate) {
+              final pair = coordinate as List<dynamic>;
+              return MobilisMapPoint(
+                latitude: (pair[1] as num).toDouble(),
+                longitude: (pair[0] as num).toDouble(),
+              );
+            }).toList();
+            _trackingRoadRouteCache[cacheKey] = roadPoints;
+            if (mounted) setState(() {});
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Unable to fetch OSRM road route points: $e');
+    }
+    _trackingRoadRouteCache[cacheKey] = [fromPoint, toPoint];
+  }
+
   MobilisMapPoint? _resolveTrackingLocationPoint(
     dynamic latVal,
     dynamic lngVal,
@@ -8755,7 +8832,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     // Build map markers
     final mapMarkers = <MobilisMapMarker>[];
-    final routePoints = <MobilisMapPoint>[];
+    List<MobilisMapPoint> routePoints = const [];
 
     if (isFocused && focusedLocation != null) {
       final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
@@ -8771,10 +8848,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             size: 36,
           ),
         );
-        routePoints.add(pickupPoint);
       }
 
       if (carLat != null && carLng != null) {
+        final carPoint = MobilisMapPoint(latitude: carLat, longitude: carLng);
         mapMarkers.add(
           MobilisMapMarker(
             latitude: carLat,
@@ -8784,7 +8861,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             size: 46,
           ),
         );
-        routePoints.add(MobilisMapPoint(latitude: carLat, longitude: carLng));
+
+        // Fetch real road routing pathway
+        routePoints = _getTrackingRoutePoints(pickupPoint, carPoint, destPoint);
       }
 
       if (destPoint != null) {
@@ -8797,7 +8876,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             size: 44,
           ),
         );
-        routePoints.add(destPoint);
       }
     } else {
       // Show all car markers
@@ -8864,7 +8942,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     Expanded(
                       child: Text(
                         isFocused
-                            ? '🎯 Focused on vehicle & declared destination route. Click "Show All Vehicles" to reset.'
+                            ? '🎯 Focused on vehicle & declared destination road route. Click "Show All Vehicles" to reset.'
                             : '💡 Click any booking card below to focus on the vehicle and view its declared destination route.',
                         style: TextStyle(
                           color: isDark ? Colors.grey[400] : Colors.grey[700],
@@ -8990,7 +9068,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                         (m) =>
                                             '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
                                       )
-                                      .join('|'),
+                                      .join('|') +
+                                  '_${routePoints.length}',
                             ),
                             markers: mapMarkers,
                             routePoints: routePoints,
@@ -9118,39 +9197,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                vehicleName.isEmpty
-                                    ? 'Tracked booking'
-                                    : vehicleName,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
-                                  color: isDark ? Colors.white : Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (isFocused)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    '🎯 FOCUSED',
-                                    style: TextStyle(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
-                            ],
+                          Text(
+                            vehicleName.isEmpty
+                                ? 'Tracked booking'
+                                : vehicleName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
