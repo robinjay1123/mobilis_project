@@ -5610,34 +5610,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   final Map<String, List<MobilisMapPoint>> _operatorTrackingRoadRouteCache = {};
 
   List<MobilisMapPoint> _getOperatorTrackingRoutePoints(
-    MobilisMapPoint? pickupPoint,
     MobilisMapPoint? carPoint,
     MobilisMapPoint? destPoint,
   ) {
     if (carPoint == null) return const [];
-    if (destPoint == null) {
-      if (pickupPoint != null) return [pickupPoint, carPoint];
-      return [carPoint];
-    }
+    if (destPoint == null) return [carPoint];
 
     final cacheKey =
         '${carPoint.latitude.toStringAsFixed(3)},${carPoint.longitude.toStringAsFixed(3)}->${destPoint.latitude.toStringAsFixed(3)},${destPoint.longitude.toStringAsFixed(3)}';
 
     if (_operatorTrackingRoadRouteCache.containsKey(cacheKey)) {
-      final cachedRoad = _operatorTrackingRoadRouteCache[cacheKey]!;
-      if (pickupPoint != null) {
-        return [pickupPoint, ...cachedRoad];
-      }
-      return cachedRoad;
+      return _operatorTrackingRoadRouteCache[cacheKey]!;
     }
 
     // Trigger async fetch in background
     _fetchOperatorRoadPathway(cacheKey, carPoint, destPoint);
 
     // Fallback straight line while road pathway is loading
-    if (pickupPoint != null) {
-      return [pickupPoint, carPoint, destPoint];
-    }
     return [carPoint, destPoint];
   }
 
@@ -5687,23 +5676,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     dynamic lngVal,
     String address,
   ) {
-    final lat = latVal is num
-        ? latVal.toDouble()
-        : double.tryParse(latVal?.toString() ?? '');
-    final lng = lngVal is num
-        ? lngVal.toDouble()
-        : double.tryParse(lngVal?.toString() ?? '');
-
-    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
-      return MobilisMapPoint(latitude: lat, longitude: lng);
-    }
-
     final normalized = address.toLowerCase().trim();
+
     if (normalized.contains('bayambang')) {
       return const MobilisMapPoint(latitude: 15.8127, longitude: 120.4557);
-    }
-    if (normalized.contains('urdaneta')) {
-      return const MobilisMapPoint(latitude: 15.9758, longitude: 120.5719);
     }
     if (normalized.contains('san carlos')) {
       return const MobilisMapPoint(latitude: 15.9281, longitude: 120.3488);
@@ -5744,8 +5720,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     if (normalized.contains('binalonan')) {
       return const MobilisMapPoint(latitude: 16.0489, longitude: 120.5947);
     }
-    if (normalized.contains('psdc garage') || normalized.contains('xgfw+jq')) {
+    if (normalized.contains('urdaneta') ||
+        normalized.contains('psdc garage') ||
+        normalized.contains('xgfw+jq')) {
       return const MobilisMapPoint(latitude: 15.9758, longitude: 120.5719);
+    }
+
+    final lat = latVal is num
+        ? latVal.toDouble()
+        : double.tryParse(latVal?.toString() ?? '');
+    final lng = lngVal is num
+        ? lngVal.toDouble()
+        : double.tryParse(lngVal?.toString() ?? '');
+
+    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+      return MobilisMapPoint(latitude: lat, longitude: lng);
     }
 
     return null;
@@ -5823,7 +5812,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
         // Fetch real road routing pathway
         routePoints = _getOperatorTrackingRoutePoints(
-          pickupPoint,
           carPoint,
           destPoint,
         );
