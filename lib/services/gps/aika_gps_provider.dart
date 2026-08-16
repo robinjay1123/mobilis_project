@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/gps_tracker_model.dart';
 import 'gps_provider.dart';
 
@@ -25,6 +27,54 @@ class AikaGpsProvider implements GpsProvider {
   @override
   String get providerName => 'AIKA168';
 
+  /// Calls the Supabase Edge Function `gps-tracker-poll` which handles
+  /// the AIKA168 server communication server-side (no CORS issues).
+  Future<Map<String, dynamic>?> _callEdgeFunction({
+    required String deviceIdentifier,
+    required String password,
+    String action = 'location',
+  }) async {
+    try {
+      final supabase = Supabase.instance.client;
+      final response = await supabase.functions.invoke(
+        'gps-tracker-poll',
+        body: {
+          'device_identifier': deviceIdentifier.trim(),
+          'password': password.trim(),
+          'provider': 'aika168',
+          'action': action,
+        },
+      );
+
+      if (response.status != 200) {
+        debugPrint(
+          '[AikaGPS] Edge function returned status ${response.status}',
+        );
+        return null;
+      }
+
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+
+      // Try parsing string response
+      if (data is String) {
+        try {
+          return jsonDecode(data) as Map<String, dynamic>;
+        } catch (_) {
+          debugPrint('[AikaGPS] Could not parse edge function response');
+          return null;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('[AikaGPS] Edge function call failed: $e');
+      return null;
+    }
+  }
+
   @override
   Future<bool> verifyCredentials({
     required String deviceIdentifier,
@@ -38,25 +88,26 @@ class AikaGpsProvider implements GpsProvider {
       return false;
     }
 
-    debugPrint('[AikaGPS] Starting authentication for device: ${cleanDevice.length > 4 ? cleanDevice.substring(cleanDevice.length - 4) : cleanDevice}');
+    debugPrint(
+      '[AikaGPS] Starting authentication for device: ${cleanDevice.length > 4 ? '****${cleanDevice.substring(cleanDevice.length - 4)}' : cleanDevice}',
+    );
 
-    try {
-      // NOTE: ASP.NET Web Forms session workflow simulation:
-      // 1. GET AikaConfig.baseUrl + AikaConfig.loginPath
-      // 2. Extract hidden fields (__VIEWSTATE, __EVENTVALIDATION)
-      // 3. POST credentials + ASP.NET form fields
-      // 4. Store session cookie
-      //
-      // TODO: Update with confirmed AIKA login XHR/Form request captured from browser DevTools Network tab.
+    final result = await _callEdgeFunction(
+      deviceIdentifier: cleanDevice,
+      password: cleanPassword,
+      action: 'verify',
+    );
 
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      debugPrint('[AikaGPS] Authentication successful');
-      return true;
-    } catch (e) {
-      debugPrint('[AikaGPS] Authentication failed with exception');
+    if (result == null) {
+      debugPrint('[AikaGPS] Verification: No response from edge function');
       return false;
     }
+
+    final success = result['success'] == true;
+    debugPrint(
+      '[AikaGPS] Authentication ${success ? 'successful' : 'failed'}',
+    );
+    return success;
   }
 
   @override
@@ -73,33 +124,51 @@ class AikaGpsProvider implements GpsProvider {
 
     debugPrint('[AikaGPS] Requesting position for vehicle: $vehicleId');
 
-    try {
-      // NOTE: AIKA location request flow:
-      // 1. Authenticate / reuse ASP.NET session
-      // 2. Execute location fetch request
-      // 3. Parse JSON / HTML coordinates
-      //
-      // TODO: Replace with confirmed AIKA location request captured from browser DevTools Network tab.
+    final result = await _callEdgeFunction(
+      deviceIdentifier: cleanDevice,
+      password: password,
+      action: 'location',
+    );
 
-      await Future.delayed(const Duration(milliseconds: 600));
-
-      debugPrint('[AikaGPS] Position received');
-
-      // Returns normalized position object
-      return GpsPositionData(
-        vehicleId: vehicleId,
-        latitude: 15.928312,
-        longitude: 120.348901,
-        speedKph: 32.0,
-        ignitionOn: true,
-        isOnline: true,
-        statusText: 'GPS Online',
-        gpsTime: DateTime.now().toUtc(),
-        receivedAt: DateTime.now(),
-      );
-    } catch (e) {
-      debugPrint('[AikaGPS] Request position failed');
+    if (result == null) {
+      debugPrint('[AikaGPS] No response from edge function');
       return null;
     }
+
+    if (result['success'] != true || result['position'] == null) {
+      debugPrint(
+        '[AikaGPS] Position fetch failed: ${result['error'] ?? 'Unknown error'}',
+      );
+      return null;
+    }
+
+    final position = result['position'] as Map<String, dynamic>;
+    final lat = (position['latitude'] as num?)?.toDouble() ?? 0.0;
+    final lng = (position['longitude'] as num?)?.toDouble() ?? 0.0;
+
+    if (lat == 0.0 && lng == 0.0) {
+      debugPrint('[AikaGPS] Position returned zero coordinates');
+      return null;
+    }
+
+    debugPrint('[AikaGPS] Position received: $lat, $lng');
+
+    final gpsTimeStr = position['gps_time']?.toString();
+    DateTime? gpsTime;
+    if (gpsTimeStr != null && gpsTimeStr.isNotEmpty) {
+      gpsTime = DateTime.tryParse(gpsTimeStr);
+    }
+
+    return GpsPositionData(
+      vehicleId: vehicleId,
+      latitude: lat,
+      longitude: lng,
+      speedKph: (position['speed_kph'] as num?)?.toDouble() ?? 0.0,
+      ignitionOn: position['ignition'] == true,
+      isOnline: position['online'] != false,
+      statusText: position['status_text']?.toString() ?? 'GPS Online',
+      gpsTime: gpsTime ?? DateTime.now().toUtc(),
+      receivedAt: DateTime.now(),
+    );
   }
 }

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -36,9 +35,25 @@ class GpsService {
     );
   }
 
+  /// Encodes the password in a reversible format so it can be recovered
+  /// for GPS provider API authentication.
   String _encryptSecret(String text) {
     final bytes = utf8.encode('MOBILIS_GPS_SALT_$text');
-    return sha256.convert(bytes).toString();
+    return base64Encode(bytes);
+  }
+
+  /// Recovers the original password from the stored Base64 value.
+  static String decryptSecret(String encoded) {
+    try {
+      final decoded = utf8.decode(base64Decode(encoded));
+      const prefix = 'MOBILIS_GPS_SALT_';
+      if (decoded.startsWith(prefix)) {
+        return decoded.substring(prefix.length);
+      }
+      return decoded;
+    } catch (_) {
+      return '';
+    }
   }
 
   /// Verifies credentials against provider and connects tracker to vehicle/application
@@ -200,10 +215,11 @@ class GpsService {
   }) async {
     try {
       final providerImpl = getProvider(tracker.provider);
+      final rawPassword = decryptSecret(tracker.encryptedPassword ?? '');
       final position = await providerImpl.getLatestPosition(
         vehicleId: tracker.vehicleId ?? tracker.partnerVehicleId ?? tracker.id,
         deviceIdentifier: tracker.deviceIdentifier,
-        password: tracker.encryptedPassword ?? '',
+        password: rawPassword,
       );
 
       if (position != null) {

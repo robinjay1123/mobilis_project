@@ -880,10 +880,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _loadTrackingLocations() async {
+    await TrackingService().pollGpsTrackersForActiveBookings();
     _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
   Future<void> _refreshTrackingLocations() async {
+    await TrackingService().pollGpsTrackersForActiveBookings();
     final locations = await TrackingService().getActiveTrackingLocations();
     if (!mounted) return;
     setState(() => _trackingLocations = locations);
@@ -3067,6 +3069,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   )
                 : MobilisLeafletMap(
+                    key: ValueKey(
+                      mapMarkers
+                          .map(
+                            (m) =>
+                                '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
+                          )
+                          .join('|'),
+                    ),
                     markers: mapMarkers,
                     initialZoom: mapMarkers.length > 1 ? 10 : 14,
                   ),

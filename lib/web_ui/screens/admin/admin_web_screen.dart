@@ -2095,10 +2095,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _loadTrackingLocations() async {
+    // First poll IMEI GPS trackers to upsert their latest positions
+    await TrackingService().pollGpsTrackersForActiveBookings();
     _trackingLocations = await TrackingService().getActiveTrackingLocations();
   }
 
   Future<void> _refreshTrackingLocations() async {
+    // Poll GPS trackers first, then refresh the locations list
+    await TrackingService().pollGpsTrackersForActiveBookings();
     final locations = await TrackingService().getActiveTrackingLocations();
     if (!mounted) return;
     setState(() => _trackingLocations = locations);
@@ -8738,6 +8742,14 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             ),
                           )
                         : MobilisLeafletMap(
+                            key: ValueKey(
+                              mapMarkers
+                                  .map(
+                                    (m) =>
+                                        '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
+                                  )
+                                  .join('|'),
+                            ),
                             markers: mapMarkers,
                             initialZoom: mapMarkers.length > 1 ? 10 : 14,
                           ),

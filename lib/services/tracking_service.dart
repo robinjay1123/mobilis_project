@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
+import 'gps_service.dart';
 
 class TrackingService {
   static final TrackingService _instance = TrackingService._internal();
@@ -640,6 +641,10 @@ class TrackingService {
       if (access == null || {'renter', 'driver'}.contains(access.role)) {
         return null;
       }
+
+      // Try polling the GPS tracker if assigned to this booking
+      await pollGpsTrackerForBooking(bookingId);
+
       final response = await supabase
           .from('tracking_locations')
           .select('''
@@ -738,6 +743,132 @@ class TrackingService {
 
     if (permission == LocationPermission.deniedForever) {
       throw Exception('Location permission permanently denied');
+    }
+  }
+
+  /// Polls all connected GPS hardware trackers linked to active bookings
+  /// and upserts their latest position into [tracking_locations] so the
+  /// admin Live Tracking page can display real-time IMEI GPS tracker data.
+  Future<void> pollGpsTrackersForActiveBookings() async {
+    try {
+      // 1. Find all active/ongoing bookings that have a connected GPS tracker
+      final bookings = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            status,
+            vehicle_id,
+            renter_id,
+            driver_id
+          ''')
+          .inFilter('status', ['active', 'ongoing']);
+
+      final activeBookings = List<Map<String, dynamic>>.from(bookings);
+      if (activeBookings.isEmpty) return;
+
+      final gpsService = GpsService();
+
+      for (final booking in activeBookings) {
+        final vehicleId = booking['vehicle_id']?.toString() ?? '';
+        if (vehicleId.isEmpty) continue;
+
+        try {
+          // 2. Check if this vehicle has a connected GPS tracker
+          final tracker = await gpsService.getTrackerForVehicle(vehicleId);
+          if (tracker == null || !tracker.isConnected) continue;
+
+          // 3. Poll the GPS tracker for its latest position
+          final position = await gpsService.fetchLatestLocation(
+            tracker: tracker,
+          );
+          if (position == null ||
+              (position.latitude == 0.0 && position.longitude == 0.0)) {
+            continue;
+          }
+
+          // 4. Upsert into tracking_locations so the Live Tracking map shows it
+          final bookingId = booking['id']?.toString() ?? '';
+          final trackedUserId = booking['driver_id']?.toString() ??
+              booking['renter_id']?.toString() ??
+              '';
+
+          await supabase.from('tracking_locations').upsert(
+            {
+              'booking_id': bookingId,
+              'vehicle_id': vehicleId,
+              'tracked_user_id':
+                  trackedUserId.isEmpty ? vehicleId : trackedUserId,
+              'latitude': position.latitude,
+              'longitude': position.longitude,
+              'accuracy_meters': 10.0,
+              'speed_mps': position.speedKph / 3.6,
+              'heading_degrees': 0.0,
+              'source': 'gps_tracker',
+              'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                  DateTime.now().toUtc().toIso8601String(),
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            },
+            onConflict: 'booking_id,tracked_user_id',
+          );
+        } catch (e) {
+          debugPrint(
+            'GPS tracker poll failed for vehicle $vehicleId: $e',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error polling GPS trackers for active bookings: $e');
+    }
+  }
+
+  /// Polls the GPS hardware tracker for a specific booking and upserts the
+  /// location into [tracking_locations].
+  Future<void> pollGpsTrackerForBooking(String bookingId) async {
+    if (bookingId.isEmpty) return;
+    try {
+      final booking = await supabase
+          .from('bookings')
+          .select('id, vehicle_id, renter_id, driver_id')
+          .eq('id', bookingId)
+          .maybeSingle();
+      if (booking == null) return;
+
+      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      if (vehicleId.isEmpty) return;
+
+      final gpsService = GpsService();
+      final tracker = await gpsService.getTrackerForVehicle(vehicleId);
+      if (tracker == null || !tracker.isConnected) return;
+
+      final position = await gpsService.fetchLatestLocation(tracker: tracker);
+      if (position == null ||
+          (position.latitude == 0.0 && position.longitude == 0.0)) {
+        return;
+      }
+
+      final trackedUserId = booking['driver_id']?.toString() ??
+          booking['renter_id']?.toString() ??
+          '';
+
+      await supabase.from('tracking_locations').upsert(
+        {
+          'booking_id': bookingId,
+          'vehicle_id': vehicleId,
+          'tracked_user_id': trackedUserId.isEmpty ? vehicleId : trackedUserId,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'accuracy_meters': 10.0,
+          'speed_mps': position.speedKph / 3.6,
+          'heading_degrees': 0.0,
+          'source': 'gps_tracker',
+          'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+              DateTime.now().toUtc().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'booking_id,tracked_user_id',
+      );
+    } catch (e) {
+      debugPrint('Error polling GPS tracker for booking $bookingId: $e');
     }
   }
 }
