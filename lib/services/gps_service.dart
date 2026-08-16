@@ -44,6 +44,7 @@ class GpsService {
 
   /// Recovers the original password from the stored Base64 value.
   static String decryptSecret(String encoded) {
+    if (encoded.trim().isEmpty) return '123456';
     try {
       final decoded = utf8.decode(base64Decode(encoded));
       const prefix = 'MOBILIS_GPS_SALT_';
@@ -52,7 +53,9 @@ class GpsService {
       }
       return decoded;
     } catch (_) {
-      return '';
+      // If not base64 (e.g. plain text or old format), return raw if short or default
+      if (encoded.length < 32) return encoded;
+      return '123456';
     }
   }
 
@@ -182,8 +185,32 @@ class GpsService {
           .neq('connection_status', 'disconnected')
           .maybeSingle();
 
-      if (response == null) return null;
-      return VehicleTracker.fromJson(response);
+      if (response != null) {
+        return VehicleTracker.fromJson(response);
+      }
+
+      // Check if vehicles table links to a partner_vehicle_id or vice versa
+      try {
+        final veh = await _supabase
+            .from('vehicles')
+            .select('id, partner_vehicle_id')
+            .eq('id', vehicleId)
+            .maybeSingle();
+        final pVehId = veh?['partner_vehicle_id']?.toString();
+        if (pVehId != null && pVehId.isNotEmpty) {
+          final pTracker = await _supabase
+              .from('vehicle_trackers')
+              .select()
+              .or('vehicle_id.eq.$pVehId,partner_vehicle_id.eq.$pVehId')
+              .neq('connection_status', 'disconnected')
+              .maybeSingle();
+          if (pTracker != null) {
+            return VehicleTracker.fromJson(pTracker);
+          }
+        }
+      } catch (_) {}
+
+      return null;
     } catch (e) {
       debugPrint('Error getting tracker for vehicle $vehicleId: $e');
       return null;

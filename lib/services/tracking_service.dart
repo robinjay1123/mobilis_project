@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
 import 'gps_service.dart';
+import '../models/gps_tracker_model.dart';
 
 class TrackingService {
   static final TrackingService _instance = TrackingService._internal();
@@ -603,6 +604,12 @@ class TrackingService {
               operator_id,
               pickup_location,
               dropoff_location,
+              pickup_latitude,
+              pickup_longitude,
+              dropoff_latitude,
+              dropoff_longitude,
+              start_at,
+              end_at,
               vehicles:vehicle_id (
                 id,
                 brand,
@@ -667,6 +674,12 @@ class TrackingService {
               operator_id,
               pickup_location,
               dropoff_location,
+              pickup_latitude,
+              pickup_longitude,
+              dropoff_latitude,
+              dropoff_longitude,
+              start_at,
+              end_at,
               vehicles:vehicle_id (
                 id,
                 brand,
@@ -803,9 +816,13 @@ class TrackingService {
         if (vehicleId.isEmpty) continue;
 
         try {
-          // 2. Check if this vehicle has a connected GPS tracker
+          // 2. Check if this vehicle has a registered GPS tracker
           final tracker = await gpsService.getTrackerForVehicle(vehicleId);
-          if (tracker == null || !tracker.isConnected) continue;
+          if (tracker == null ||
+              tracker.connectionStatus == GpsConnectionStatus.disconnected ||
+              tracker.deviceIdentifier.trim().isEmpty) {
+            continue;
+          }
 
           // 3. Poll the GPS tracker for its latest position
           final position = await gpsService.fetchLatestLocation(
@@ -868,7 +885,11 @@ class TrackingService {
 
       final gpsService = GpsService();
       final tracker = await gpsService.getTrackerForVehicle(vehicleId);
-      if (tracker == null || !tracker.isConnected) return;
+      if (tracker == null ||
+          tracker.connectionStatus == GpsConnectionStatus.disconnected ||
+          tracker.deviceIdentifier.trim().isEmpty) {
+        return;
+      }
 
       final position = await gpsService.fetchLatestLocation(tracker: tracker);
       if (position == null ||
