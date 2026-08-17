@@ -882,7 +882,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadTrackingLocations() async {
     await TrackingService().pollGpsTrackersForActiveBookings();
-    _trackingLocations = await TrackingService().getActiveTrackingLocations();
+    final locations = await TrackingService().getActiveTrackingLocations();
+    if (!mounted) return;
+    setState(() => _trackingLocations = locations);
   }
 
   Future<void> _refreshTrackingLocations() async {
@@ -16993,6 +16995,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       _resetNewVehicleForm();
       await _loadVehicles();
+      await _loadTrackingLocations();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

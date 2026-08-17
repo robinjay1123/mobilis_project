@@ -665,28 +665,14 @@ class TrackingService {
       try {
         final trackerRows = await supabase
             .from('vehicle_trackers')
-            .select('''
-              id,
-              vehicle_id,
-              partner_vehicle_id,
-              vehicle_application_id,
-              provider,
-              device_identifier,
-              connection_status,
-              last_latitude,
-              last_longitude,
-              last_speed_kph,
-              last_battery_percent,
-              last_ignition_on,
-              last_sync_at
-            ''')
+            .select('*')
             .neq('connection_status', 'disconnected');
 
         final trackers = List<Map<String, dynamic>>.from(trackerRows);
 
         // Fetch vehicle details for all tracked vehicles
         final vehicleIds = trackers
-            .map((t) => t['vehicle_id']?.toString())
+            .map((t) => (t['vehicle_id'] ?? t['partner_vehicle_id'])?.toString())
             .whereType<String>()
             .where(
               (id) =>
@@ -697,26 +683,34 @@ class TrackingService {
 
         final vehiclesMap = <String, Map<String, dynamic>>{};
         if (vehicleIds.isNotEmpty) {
-          final vehRows = await supabase
-              .from('vehicles')
-              .select('id, brand, model, plate_number, owner_id, status')
-              .inFilter('id', vehicleIds);
-          for (final v in List<Map<String, dynamic>>.from(vehRows)) {
-            vehiclesMap[v['id'].toString()] = v;
+          try {
+            final vehRows = await supabase
+                .from('vehicles')
+                .select('id, brand, model, vehicle_name, plate_number, owner_id, status, latitude, longitude')
+                .inFilter('id', vehicleIds);
+            for (final v in List<Map<String, dynamic>>.from(vehRows)) {
+              vehiclesMap[v['id'].toString()] = v;
+            }
+          } catch (e) {
+            debugPrint('Error fetching vehicles for trackers: $e');
           }
+
+          try {
+            final pVehRows = await supabase
+                .from('partner_vehicles')
+                .select('id, brand, model, vehicle_name, plate_number, partner_id, status, latitude, longitude')
+                .inFilter('id', vehicleIds);
+            for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
+              vehiclesMap[pv['id'].toString()] = pv;
+            }
+          } catch (_) {}
         }
 
         // Add idle tracked vehicles to the result list
         for (final t in trackers) {
-          final vid = t['vehicle_id']?.toString() ?? '';
+          final vid = (t['vehicle_id'] ?? t['partner_vehicle_id'])?.toString() ?? '';
           if (vid.isNotEmpty && vehiclesWithActiveTracking.contains(vid)) {
             continue; // Already included as active booking
-          }
-
-          final lat = (t['last_latitude'] as num?)?.toDouble();
-          final lng = (t['last_longitude'] as num?)?.toDouble();
-          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
-            continue;
           }
 
           final veh = vehiclesMap[vid] ?? {
@@ -726,16 +720,31 @@ class TrackingService {
             'plate_number': t['device_identifier']?.toString() ?? '',
           };
 
+          var lat = (t['last_latitude'] as num?)?.toDouble();
+          var lng = (t['last_longitude'] as num?)?.toDouble();
+
+          // Fallback to vehicle registered coordinates if tracker position is not yet synced
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            lat = _asDouble(veh['latitude']);
+            lng = _asDouble(veh['longitude']);
+          }
+
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            continue;
+          }
+
+          final lastSpeed = (t['last_speed'] as num?)?.toDouble() ?? 0.0;
+
           activeList.add({
             'id': 'idle_tracker_${t['id']}',
             'vehicle_id': vid,
             'latitude': lat,
             'longitude': lng,
-            'speed_mps': ((t['last_speed_kph'] as num?) ?? 0) / 3.6,
+            'speed_mps': lastSpeed / 3.6,
             'heading_degrees': 0.0,
             'source': 'gps_tracker',
             'recorded_at':
-                t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
+                t['last_sync_at'] ?? t['last_location_at'] ?? DateTime.now().toUtc().toIso8601String(),
             'updated_at':
                 t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
             'has_active_booking': false,
@@ -743,7 +752,7 @@ class TrackingService {
             'bookings': null,
             'vehicle': veh,
             'tracker': t,
-            'status': 'Idle / Available',
+            'status': 'Available (Idle)',
           });
         }
       } catch (e) {
@@ -895,22 +904,7 @@ class TrackingService {
       // 1. Fetch all connected trackers from database
       final trackerRows = await supabase
           .from('vehicle_trackers')
-          .select('''
-            id,
-            vehicle_id,
-            partner_vehicle_id,
-            vehicle_application_id,
-            provider,
-            device_identifier,
-            encrypted_password,
-            connection_status,
-            last_latitude,
-            last_longitude,
-            last_speed_kph,
-            last_battery_percent,
-            last_ignition_on,
-            last_sync_at
-          ''')
+          .select('*')
           .neq('connection_status', 'disconnected');
 
       final activeTrackers = List<Map<String, dynamic>>.from(trackerRows);

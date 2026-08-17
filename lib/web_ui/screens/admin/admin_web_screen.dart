@@ -2100,7 +2100,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Future<void> _loadTrackingLocations() async {
     // First poll IMEI GPS trackers to upsert their latest positions
     await TrackingService().pollGpsTrackersForActiveBookings();
-    _trackingLocations = await TrackingService().getActiveTrackingLocations();
+    final locations = await TrackingService().getActiveTrackingLocations();
+    if (!mounted) return;
+    setState(() => _trackingLocations = locations);
   }
 
   Future<void> _refreshTrackingLocations() async {
