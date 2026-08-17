@@ -25,6 +25,7 @@ import '../../../utils/locations.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 import '../../../services/gps_service.dart';
+import '../../../models/gps_tracker_model.dart';
 import '../../../services/message_filter_service.dart';
 import '../../../mobile_ui/widgets/optimized_network_image.dart';
 import '../../../mobile_ui/widgets/dialog_status_indicator.dart';
@@ -18651,7 +18652,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final existingTracker =
             await GpsService().getTrackerForVehicle(targetVehicleId);
         if (existingTracker != null) {
-          final rawPass = GpsService().decryptSecret(
+          final rawPass = GpsService.decryptSecret(
             existingTracker.encryptedPassword ?? '',
           );
           _gpsDeviceIdController.text = existingTracker.deviceIdentifier;
