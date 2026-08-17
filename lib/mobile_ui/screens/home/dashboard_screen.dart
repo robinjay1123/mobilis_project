@@ -6274,6 +6274,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 12),
             ],
+            if (isApprovedTrip || _isCancellableStatusForUi(booking)) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showRescheduleTripDialog(booking);
+                  },
+                  icon: const Icon(Icons.event_repeat_rounded, size: 18, color: Color(0xFFE5A93C)),
+                  label: const Text('Reschedule Trip Dates (Keep Deposit)'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE5A93C),
+                    side: const BorderSide(color: Color(0xFFE5A93C)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (isApprovedTrip)
               SizedBox(
                 width: double.infinity,
@@ -8782,39 +8804,325 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return timeInfo['canCancel'] as bool;
   }
 
+  Future<void> _showRescheduleTripDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    DateTime? currentStart = booking['startDateObj'] as DateTime? ??
+        (booking['start_at'] != null ? DateTime.tryParse(booking['start_at']) : null);
+    DateTime? currentEnd = booking['endDateObj'] as DateTime? ??
+        (booking['end_at'] != null ? DateTime.tryParse(booking['end_at']) : null);
+
+    final durationDays = (currentStart != null && currentEnd != null)
+        ? currentEnd.difference(currentStart).inDays.clamp(1, 30)
+        : 1;
+
+    DateTime selectedStartDate = DateTime.now().add(const Duration(days: 2));
+    DateTime selectedEndDate = selectedStartDate.add(Duration(days: durationDays));
+    final reasonController = TextEditingController(text: 'Change of schedule');
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: AppColors.darkBgSecondary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5A93C).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.event_repeat_rounded,
+                      color: Color(0xFFE5A93C),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Reschedule Trip',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '100% of your ₱1,000 deposit is transferred',
+                          style: TextStyle(
+                            color: Color(0xFF10B981),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.borderColor),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            booking['carName']?.toString() ?? 'Selected Vehicle',
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Current Dates: ${booking['startDate'] ?? 'N/A'} - ${booking['endDate'] ?? 'N/A'}',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Select New Trip Dates',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // New Start Date Picker Button
+                    ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      tileColor: AppColors.darkBg,
+                      leading: const Icon(
+                        Icons.calendar_today_rounded,
+                        color: Color(0xFFE5A93C),
+                        size: 20,
+                      ),
+                      title: const Text(
+                        'New Pickup Date',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                      subtitle: Text(
+                        DateFormat('EEE, MMM d, yyyy').format(selectedStartDate),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
+                      onTap: isSubmitting
+                          ? null
+                          : () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedStartDate,
+                                firstDate: DateTime.now().add(const Duration(days: 1)),
+                                lastDate: DateTime.now().add(const Duration(days: 90)),
+                              );
+                              if (picked != null) {
+                                setModalState(() {
+                                  selectedStartDate = DateTime(
+                                    picked.year,
+                                    picked.month,
+                                    picked.day,
+                                    currentStart?.hour ?? 9,
+                                    currentStart?.minute ?? 0,
+                                  );
+                                  selectedEndDate = selectedStartDate.add(Duration(days: durationDays));
+                                });
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                    // New End Date Picker Button
+                    ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: AppColors.borderColor),
+                      ),
+                      tileColor: AppColors.darkBg,
+                      leading: const Icon(
+                        Icons.flag_rounded,
+                        color: Color(0xFF10B981),
+                        size: 20,
+                      ),
+                      title: const Text(
+                        'New Return Date',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                      subtitle: Text(
+                        DateFormat('EEE, MMM d, yyyy').format(selectedEndDate),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
+                      onTap: isSubmitting
+                          ? null
+                          : () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedEndDate,
+                                firstDate: selectedStartDate.add(const Duration(days: 1)),
+                                lastDate: selectedStartDate.add(const Duration(days: 60)),
+                              );
+                              if (picked != null) {
+                                setModalState(() {
+                                  selectedEndDate = DateTime(
+                                    picked.year,
+                                    picked.month,
+                                    picked.day,
+                                    currentEnd?.hour ?? 18,
+                                    currentEnd?.minute ?? 0,
+                                  );
+                                });
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: reasonController,
+                      maxLines: 2,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'Reason for Date Change',
+                        labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        filled: true,
+                        fillColor: AppColors.darkBg,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppColors.borderColor),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          setModalState(() => isSubmitting = true);
+                          try {
+                            await BookingService().rescheduleBooking(
+                              bookingId: bookingId,
+                              newStartAt: selectedStartDate.toUtc(),
+                              newEndAt: selectedEndDate.toUtc(),
+                              reason: reasonController.text.trim(),
+                            );
+                            if (mounted) {
+                              Navigator.pop(dialogContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Trip rescheduled successfully! 100% of your ₱1,000 deposit has been transferred.',
+                                  ),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                              await _loadBookings();
+                            }
+                          } catch (e) {
+                            setModalState(() => isSubmitting = false);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Reschedule error: $e'),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  icon: isSubmitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        )
+                      : const Icon(Icons.check_circle_rounded, size: 16),
+                  label: Text(
+                    isSubmitting ? 'Rescheduling...' : 'Confirm Reschedule',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE5A93C),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _handleBookingCancellation(Map<String, dynamic> booking) async {
-    final bookingService = BookingService();
-    final canCancel = _canCancelBooking(booking);
     final reasonController = TextEditingController();
 
-    if (!canCancel) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cancellation window has passed (24 hours limit)'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      reasonController.dispose();
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
+    final actionChoice = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.darkBgSecondary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: AppColors.error),
+            Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 24),
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Cancel Request',
+                'Cancel or Reschedule Trip',
                 style: TextStyle(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w800,
+                  fontSize: 17,
                 ),
               ),
             ),
@@ -8825,137 +9133,220 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // STRICT NON-REFUNDABLE NOTICE BANNER
               Container(
-                width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.darkBg,
+                  color: const Color(0xFFE53935).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.borderColor),
+                  border: Border.all(
+                    color: const Color(0xFFE53935).withValues(alpha: 0.4),
+                  ),
                 ),
-                child: Column(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      booking['carName']?.toString() ?? 'Selected vehicle',
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
+                    const Icon(Icons.info_outline, color: Color(0xFFE53935), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Deposit Policy Notice',
+                            style: TextStyle(
+                              color: Color(0xFFE53935),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Per platform policy, the ₱1,000 security deposit / reservation fee is NON-REFUNDABLE upon cancellation. However, you can Reschedule your trip to new dates and keep 100% of your deposit!',
+                            style: TextStyle(
+                              color: Colors.grey.shade300,
+                              fontSize: 11,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${booking['startDate'] ?? 'Start'} - ${booking['endDate'] ?? 'End'}',
-                      style: const TextStyle(color: AppColors.textSecondary),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'Tell us why you are cancelling. This helps the operator and partner review the request.',
-                style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+              Text(
+                'Vehicle: ${booking['carName'] ?? 'Selected vehicle'}',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonController,
-                minLines: 3,
-                maxLines: 5,
-                maxLength: 180,
-                style: const TextStyle(color: AppColors.textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Cancellation reason',
-                  hintStyle: const TextStyle(color: AppColors.textTertiary),
-                  filled: true,
-                  fillColor: AppColors.darkBg,
-                  counterStyle: const TextStyle(color: AppColors.textTertiary),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.borderColor),
+              const SizedBox(height: 2),
+              Text(
+                'Scheduled: ${booking['startDate'] ?? ''} - ${booking['endDate'] ?? ''}',
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              // OPTION 1 (RECOMMENDED): RESCHEDULE TRIP
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, 'reschedule'),
+                  icon: const Icon(Icons.event_repeat_rounded, size: 18),
+                  label: const Text(
+                    'Reschedule Trip (Keep ₱1,000 Deposit)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.primary),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE5A93C),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // OPTION 2: OUTRIGHT CANCELLATION (FORFEIT DEPOSIT)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, 'cancel_forfeit'),
+                  icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.redAccent),
+                  label: const Text(
+                    'Proceed to Cancel & Forfeit Deposit',
+                    style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.redAccent),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
         ),
-        actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.textSecondary,
-              side: const BorderSide(color: AppColors.borderColor),
-            ),
-            child: const Text('Keep Booking'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (reasonController.text.trim().length < 5) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please add a cancellation reason.'),
-                    backgroundColor: AppColors.warning,
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(context, true);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cancel Request'),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'keep'),
+            child: const Text('Keep Booking', style: TextStyle(color: AppColors.textSecondary)),
           ),
         ],
       ),
     );
 
-    if (confirmed != true || !mounted) {
-      reasonController.dispose();
+    if (actionChoice == 'reschedule') {
+      await _showRescheduleTripDialog(booking);
       return;
     }
-    final cancellationReason = reasonController.text.trim();
-    reasonController.dispose();
 
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Cancelling booking...'),
-        duration: Duration(seconds: 1),
+    if (actionChoice != 'cancel_forfeit') {
+      return;
+    }
+
+    // Prompt for cancellation reason before forfeiting
+    final reasonConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.darkBgSecondary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Confirm Cancellation & Deposit Forfeiture',
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please provide a reason for cancelling. Note that the ₱1,000 deposit is retained per non-refundable policy.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              maxLength: 160,
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'Cancellation reason',
+                hintStyle: const TextStyle(color: AppColors.textTertiary),
+                filled: true,
+                fillColor: AppColors.darkBg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppColors.borderColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Go Back', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please provide a cancellation reason.'),
+                    backgroundColor: AppColors.warning,
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Confirm Cancel'),
+          ),
+        ],
       ),
     );
 
-    try {
-      await bookingService.updateBookingStatus(booking['id'], 'cancelled');
-      await Supabase.instance.client
-          .from('bookings')
-          .update({
-            'cancellation_reason': cancellationReason,
-            'cancelled_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', booking['id']);
+    if (reasonConfirmed != true || !mounted) {
+      reasonController.dispose();
+      return;
+    }
 
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Booking cancelled successfully'),
-          backgroundColor: AppColors.success,
-        ),
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+
+    try {
+      await BookingService().cancelBookingWithDepositForfeit(
+        bookingId: booking['id'].toString(),
+        cancellationReason: reason,
       );
-      await _loadBookings();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Booking cancelled. Deposit retained per policy.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        await _loadBookings();
+      }
     } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Error cancelling booking: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error cancelling booking: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 

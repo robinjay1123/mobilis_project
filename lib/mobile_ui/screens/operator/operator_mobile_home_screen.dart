@@ -1883,33 +1883,38 @@ class _BookingCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 8),
-                    SizedBox(
+                    Container(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(
-                          Icons.check_circle_outline,
-                          size: 15,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.35),
                         ),
-                        label: const Text(
-                          'Confirm Refund Disbursed',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.cancel_outlined,
+                            size: 14,
+                            color: Colors.redAccent,
                           ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Cancelled by Renter • ₱1,000 Deposit Forfeited (Non-Refundable)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.redAccent,
+                              ),
+                            ),
                           ),
-                        ),
-                        onPressed: () => _showRefundDisbursedDialog(
-                          context,
-                          booking,
-                          onRefresh,
-                        ),
+                        ],
                       ),
                     ),
                   ],
@@ -1959,208 +1964,6 @@ class _BookingCard extends StatelessWidget {
     );
   }
 
-  void _showRefundDisbursedDialog(
-    BuildContext context,
-    Map<String, dynamic> booking,
-    VoidCallback? onRefresh,
-  ) {
-    final bookingId = booking['id']?.toString() ?? '';
-    final renter = booking['users'] as Map? ?? {};
-    final renterName = renter['full_name']?.toString().trim() ?? 'Renter';
-    final renterPhone =
-        booking['reservation_payment_sender_phone']?.toString().trim() ??
-        booking['refund_phone']?.toString().trim() ??
-        renter['phone']?.toString().trim() ??
-        '';
-    final originalRef =
-        booking['reservation_payment_reference']?.toString().trim() ?? '';
-    final amount = (booking['reservation_payment_amount'] as num?)?.toDouble() ??
-        (booking['reservation_fee'] as num?)?.toDouble() ??
-        (booking['total_amount'] as num?)?.toDouble() ??
-        0.0;
-
-    final refController = TextEditingController();
-    final notesController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool isSubmitting = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (bottomSheetContext) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.currency_exchange,
-                          color: AppColors.success,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Confirm Refund Disbursed',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? Colors.white
-                                : AppColors.lightTextPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkBgSecondary
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Recipient: $renterName',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                          if (renterPhone.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'GCash Number: $renterPhone',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                          if (originalRef.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Original Payment Ref: $originalRef',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                          if (amount > 0) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Amount to Refund: PHP ${amount.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.success,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: refController,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'GCash / Bank Refund Reference # *',
-                        hintText: 'e.g. 1002345678901',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) {
-                          return 'Please enter the transaction reference number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: notesController,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Notes (Optional)',
-                        hintText: 'e.g. Sent via GCash Express Send',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: isSubmitting
-                            ? null
-                            : () async {
-                                if (!formKey.currentState!.validate()) return;
-                                setModalState(() => isSubmitting = true);
-                                try {
-                                  final operatorId =
-                                      AuthService().currentUser?.id;
-                                  final res = await BookingService()
-                                      .processRefundDisbursement(
-                                    bookingId: bookingId,
-                                    refundReference: refController.text.trim(),
-                                    refundAmount: amount > 0 ? amount : null,
-                                    notes: notesController.text.trim(),
-                                    operatorId: operatorId,
-                                  );
-                                  if (res['success'] != true) {
-                                    throw Exception(
-                                      res['error'] ?? 'Refund failed',
-                                    );
-                                  }
-                                  if (context.mounted) {
-                                    Navigator.pop(bottomSheetContext);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Refund marked as disbursed. Renter notified!',
-                                        ),
-                                        backgroundColor: AppColors.success,
-                                      ),
-                                    );
-                                  }
-                                  onRefresh?.call();
-                                } catch (e) {
-                                  setModalState(() => isSubmitting = false);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Error: $e'),
-                                        backgroundColor: AppColors.error,
-                                      ),
                                     );
                                   }
                                 }

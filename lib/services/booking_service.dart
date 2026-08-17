@@ -521,7 +521,6 @@ class BookingService {
           reservationPaymentSenderPhone.trim().isNotEmpty) {
         final cleanSenderPhone = reservationPaymentSenderPhone.trim();
         bookingPayload['reservation_payment_sender_phone'] = cleanSenderPhone;
-        bookingPayload['refund_phone'] = cleanSenderPhone;
       }
 
       if (rentalTermsAcceptedAt != null) {
@@ -3582,6 +3581,100 @@ class BookingService {
         'success': false,
         'error': e.toString(),
       };
+    }
+  }
+
+  /// Reschedules an active/pending booking to new dates, retaining 100% of the deposit.
+  Future<void> rescheduleBooking({
+    required String bookingId,
+    required DateTime newStartAt,
+    required DateTime newEndAt,
+    String? reason,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        throw Exception('Booking not found');
+      }
+
+      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      final currentRescheduleCount = (booking['reschedule_count'] as num?)?.toInt() ?? 0;
+      final originalStart = booking['original_start_at'] ?? booking['start_at'];
+      final originalEnd = booking['original_end_at'] ?? booking['end_at'];
+
+      // Check vehicle availability on requested dates
+      if (vehicleId.isNotEmpty) {
+        final conflicts = await supabase
+            .from('bookings')
+            .select('id, start_at, end_at, status')
+            .eq('vehicle_id', vehicleId)
+            .neq('id', bookingId)
+            .inFilter('status', ['pending', 'approved', 'ongoing'])
+            .lte('start_at', newEndAt.toIso8601String())
+            .gte('end_at', newStartAt.toIso8601String());
+
+        if (conflicts.isNotEmpty) {
+          throw Exception('The selected vehicle is not available for these new dates. Please pick different dates.');
+        }
+      }
+
+      // Update booking dates and reschedule tracking
+      await supabase.from('bookings').update({
+        'start_at': newStartAt.toIso8601String(),
+        'end_at': newEndAt.toIso8601String(),
+        'original_start_at': originalStart,
+        'original_end_at': originalEnd,
+        'rescheduled_at': DateTime.now().toIso8601String(),
+        'reschedule_count': currentRescheduleCount + 1,
+        'reschedule_reason': reason ?? 'Renter requested date change',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', bookingId);
+
+      // Notify operator & partner
+      try {
+        final vehicleTitle = booking['vehicles'] != null
+            ? '${booking['vehicles']['brand'] ?? ''} ${booking['vehicles']['model'] ?? ''}'
+            : 'vehicle';
+        await NotificationService().createNotification(
+          userId: booking['vehicles']?['owner_id'] ?? booking['operator_id'] ?? '',
+          title: 'Booking Rescheduled',
+          message: 'Booking for $vehicleTitle was rescheduled to new dates.',
+          type: 'booking_rescheduled',
+          data: {
+            'booking_id': bookingId,
+            'new_start': newStartAt.toIso8601String(),
+            'new_end': newEndAt.toIso8601String(),
+          },
+        );
+      } catch (e) {
+        debugPrint('Notification dispatch note: $e');
+      }
+    } catch (e) {
+      debugPrint('Error rescheduling booking: $e');
+      rethrow;
+    }
+  }
+
+  /// Cancels booking under strict non-refundable policy (deposit is retained & forfeited)
+  Future<void> cancelBookingWithDepositForfeit({
+    required String bookingId,
+    required String cancellationReason,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      final depositAmount = (booking?['reservation_fee_amount'] as num?)?.toDouble() ?? 1000.0;
+
+      await updateBookingStatus(bookingId, 'cancelled');
+      await supabase.from('bookings').update({
+        'cancellation_reason': cancellationReason,
+        'cancelled_at': DateTime.now().toIso8601String(),
+        'deposit_forfeited': true,
+        'cancellation_fee_retained': depositAmount,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', bookingId);
+    } catch (e) {
+      debugPrint('Error cancelling booking with deposit forfeit: $e');
+      rethrow;
     }
   }
 

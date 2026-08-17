@@ -2644,6 +2644,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     XFile? receiptFile;
     bool isUploading = false;
     bool payFullAmount = false;
+    String selectedPaymentChannel = 'qr'; // 'qr' or 'desk'
     String? errorText;
 
     try {
@@ -2682,7 +2683,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               }
 
               Future<void> confirmPayment() async {
-                final reference = referenceController.text.trim();
                 final senderPhone = (isCustomNumber
                         ? senderPhoneController.text.trim()
                         : (selectedSavedNumber ??
@@ -2691,17 +2691,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 final payableAmount = payFullAmount
                     ? rentalTotal + partnerCommission
                     : reservationOnlyAmount;
-                if (settings.qrUrl.trim().isEmpty) {
-                  setDialogState(() {
-                    errorText =
-                        'Payment QR is not configured yet. Please contact support.';
-                  });
-                  return;
-                }
+
                 if (senderPhone.isEmpty) {
                   setDialogState(() {
                     errorText =
-                        'Please enter the GCash / mobile number used to send payment.';
+                        'Please enter your mobile phone number for operator verification.';
                   });
                   return;
                 }
@@ -2710,6 +2704,35 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   setDialogState(() {
                     errorText =
                         'Please enter a valid Philippine mobile number (e.g. 09171234567).';
+                  });
+                  return;
+                }
+
+                // PSDC Desk / Over-the-counter payment
+                if (selectedPaymentChannel == 'desk') {
+                  Navigator.pop(
+                    dialogContext,
+                    ReservationPaymentProof(
+                      amount: payableAmount,
+                      method: 'psdc_desk_counter',
+                      paymentType: payFullAmount
+                          ? 'full_payment'
+                          : 'reservation_only',
+                      referenceNumber: 'DESK_COUNTER_PAYMENT',
+                      proofUrl: null,
+                      proofStoragePath: null,
+                      senderPhone: senderPhone,
+                    ),
+                  );
+                  return;
+                }
+
+                // Online QR Payment validation
+                final reference = referenceController.text.trim();
+                if (settings.qrUrl.trim().isEmpty) {
+                  setDialogState(() {
+                    errorText =
+                        'Payment QR is not configured yet. Please contact support or choose PSDC Desk payment.';
                   });
                   return;
                 }
@@ -2763,28 +2786,132 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               return AlertDialog(
                 backgroundColor: AppColors.darkBgSecondary,
                 title: const Text(
-                  'Reservation Payment',
-                  style: TextStyle(color: AppColors.textPrimary),
+                  'Reservation Payment & Channel',
+                  style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold),
                 ),
                 content: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // PAYMENT CHANNEL SELECTOR (QR vs PSDC Desk)
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.borderColor),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: isUploading
+                                    ? null
+                                    : () {
+                                        setDialogState(() {
+                                          selectedPaymentChannel = 'qr';
+                                          errorText = null;
+                                        });
+                                      },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: selectedPaymentChannel == 'qr'
+                                        ? AppColors.primary
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.qr_code_scanner_rounded,
+                                        size: 16,
+                                        color: selectedPaymentChannel == 'qr'
+                                            ? Colors.black
+                                            : AppColors.textSecondary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'Online via QR',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: selectedPaymentChannel == 'qr'
+                                              ? Colors.black
+                                              : AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: isUploading
+                                    ? null
+                                    : () {
+                                        setDialogState(() {
+                                          selectedPaymentChannel = 'desk';
+                                          errorText = null;
+                                        });
+                                      },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: selectedPaymentChannel == 'desk'
+                                        ? AppColors.primary
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.storefront_rounded,
+                                        size: 16,
+                                        color: selectedPaymentChannel == 'desk'
+                                            ? Colors.black
+                                            : AppColors.textSecondary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'PSDC Desk Counter',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: selectedPaymentChannel == 'desk'
+                                              ? Colors.black
+                                              : AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       Text(
                         payFullAmount
                             ? 'Pay full rental amount now'
                             : _requiresLongBookingReservation
                             ? 'Pay 20% reservation fee'
-                            : 'Pay refundable reservation fee',
+                            : 'Pay security deposit / reservation fee',
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Text(
-                        'PHP ${formatAmount(payableAmount, decimalDigits: 0)} to ${settings.accountName}',
+                        'PHP ${formatAmount(payableAmount, decimalDigits: 0)} ${selectedPaymentChannel == 'qr' ? 'to ${settings.accountName}' : 'at PSDC Cashier Desk'}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontSize: 18,
@@ -2853,7 +2980,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                   ? 'Payable now (Full payment)'
                                   : _requiresLongBookingReservation
                                   ? 'Payable now (20% Reservation)'
-                                  : 'Payable now (Refundable Reservation)',
+                                  : 'Payable now (Security Deposit)',
                               payableAmount,
                               isTotal: true,
                             ),
@@ -2873,27 +3000,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                                 : 0.0)) -
                                         payableAmount)
                                     .clamp(0.0, double.infinity),
-                              ),
-                            ],
-                            if (isPartnerVehicle) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                payFullAmount
-                                    ? 'Partner vehicle: 10% commission is included in full payment.'
-                                    : 'Partner vehicle: 10% commission will be included in the final rental settlement.',
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ] else ...[
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Company-owned vehicle: no extra commission added.',
-                                style: TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
-                                ),
                               ),
                             ],
                           ],
@@ -2951,84 +3057,137 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Text(
-                        payFullAmount
-                            ? '${settings.instructions}\n\nYou selected full payment, so your proof should match the total payable shown above.'
-                            : settings.instructions,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkBg,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.borderColor),
-                        ),
-                        child: settings.qrUrl.isEmpty
-                            ? const Column(
-                                children: [
-                                  Icon(
-                                    Icons.qr_code_2,
-                                    color: AppColors.textTertiary,
-                                    size: 72,
-                                  ),
-                                  SizedBox(height: 8),
-                                  Text(
-                                    'Payment QR is not configured yet. Please contact support.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Column(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: OptimizedNetworkImage(
-                                      imageUrl: settings.qrUrl,
-                                      height: 220,
-                                      fit: BoxFit.contain,
-                                      isThumbnail: false,
-                                      errorWidget: const Icon(
-                                        Icons.broken_image_outlined,
-                                        color: AppColors.error,
-                                        size: 72,
+                      const SizedBox(height: 12),
+
+                      if (selectedPaymentChannel == 'desk') ...[
+                        // PSDC DESK COUNTER INSTRUCTIONS BANNER
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.storefront_rounded,
+                                color: Color(0xFFE5A93C),
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Over-the-Counter Settlement',
+                                      style: TextStyle(
+                                        color: Color(0xFFE5A93C),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextButton.icon(
-                                    onPressed: isUploading
-                                        ? null
-                                        : () => _downloadReservationQr(
-                                            settings.qrUrl,
-                                          ),
-                                    icon: const Icon(Icons.download),
-                                    label: const Text('Download QR'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppColors.primary,
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'You can settle your payment in Cash or POS at the PSDC branch counter. Please verify your contact mobile number below so the cashier and operator can verify your reservation.',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade300,
+                                        fontSize: 11,
+                                        height: 1.35,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text(
-                                    'Screenshot or scan this QR, then upload your payment proof below.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                      ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        // ONLINE QR PAYMENT SECTION
+                        Text(
+                          payFullAmount
+                              ? '${settings.instructions}\n\nYou selected full payment, so your proof should match the total payable shown above.'
+                              : settings.instructions,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.darkBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderColor),
+                          ),
+                          child: settings.qrUrl.isEmpty
+                              ? const Column(
+                                  children: [
+                                    Icon(
+                                      Icons.qr_code_2,
+                                      color: AppColors.textTertiary,
+                                      size: 72,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Payment QR is not configured yet. Please contact support.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: OptimizedNetworkImage(
+                                        imageUrl: settings.qrUrl,
+                                        height: 220,
+                                        fit: BoxFit.contain,
+                                        isThumbnail: false,
+                                        errorWidget: const Icon(
+                                          Icons.broken_image_outlined,
+                                          color: AppColors.error,
+                                          size: 72,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextButton.icon(
+                                      onPressed: isUploading
+                                          ? null
+                                          : () => _downloadReservationQr(
+                                              settings.qrUrl,
+                                            ),
+                                      icon: const Icon(Icons.download),
+                                      label: const Text('Download QR'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Screenshot or scan this QR, then upload your payment proof below.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppColors.textSecondary,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ],
+
+                      // SENDER / CONTACT MOBILE PHONE INPUT (ALWAYS RETAINED FOR OPERATOR VERIFICATION)
                       if (savedNumbers.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
@@ -3039,9 +3198,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             fontSize: 14,
                           ),
                           decoration: InputDecoration(
-                            labelText: 'GCash / Sender Mobile Number',
+                            labelText: 'Renter Contact / Verification Mobile Number',
                             helperText:
-                                'Used to send payment & for automatic refunds if needed',
+                                'Used by operator for payment verification & booking coordination',
                             helperStyle: const TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 11,
@@ -3056,7 +3215,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             ...savedNumbers.map(
                               (phoneItem) => DropdownMenuItem(
                                 value: phoneItem,
-                                child: Text('📱 $phoneItem (Saved GCash)'),
+                                child: Text('📱 $phoneItem (Saved Phone)'),
                               ),
                             ),
                             const DropdownMenuItem(
@@ -3094,11 +3253,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           style: const TextStyle(color: AppColors.textPrimary),
                           decoration: InputDecoration(
                             labelText:
-                                'GCash / Sender Mobile Number (for refund)',
+                                'Contact / Verification Mobile Number',
                             hintText: 'e.g. 09171234567',
                             counterText: '',
                             helperText:
-                                'Number used to send money / where refunds will be returned',
+                                'Operator will use this to verify payment and coordinate release',
                             helperStyle: const TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 11,
@@ -3116,57 +3275,61 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 14),
-                      TextField(
-                        controller: referenceController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 13,
-                        enabled: !isUploading,
-                        onChanged: (_) => setDialogState(() {}),
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        decoration: InputDecoration(
-                          labelText: 'Reference number (6 to 13 digits)',
-                          counterText: '',
-                          labelStyle: const TextStyle(
-                            color: AppColors.textSecondary,
+
+                      if (selectedPaymentChannel == 'qr') ...[
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: referenceController,
+                          keyboardType: TextInputType.number,
+                          maxLength: 13,
+                          enabled: !isUploading,
+                          onChanged: (_) => setDialogState(() {}),
+                          style: const TextStyle(color: AppColors.textPrimary),
+                          decoration: InputDecoration(
+                            labelText: 'Reference number (6 to 13 digits)',
+                            counterText: '',
+                            labelStyle: const TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
+                            filled: true,
+                            fillColor: AppColors.darkBg,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                           ),
-                          filled: true,
-                          fillColor: AppColors.darkBg,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: isUploading ? null : pickReceipt,
+                          icon: const Icon(Icons.upload_file),
+                          label: Text(
+                            receiptFile == null
+                                ? 'Upload payment screenshot'
+                                : 'Receipt selected',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: isUploading ? null : pickReceipt,
-                        icon: const Icon(Icons.upload_file),
-                        label: Text(
-                          receiptFile == null
-                              ? 'Upload payment screenshot'
-                              : 'Receipt selected',
+                        const SizedBox(height: 10),
+                        DialogStatusIndicator(
+                          compact: true,
+                          isComplete:
+                              settings.qrUrl.trim().isNotEmpty &&
+                              receiptFile != null &&
+                              RegExp(
+                                r'^\d{6,13}$',
+                              ).hasMatch(referenceController.text.trim()),
+                          completeLabel: 'Payment proof complete',
+                          incompleteLabel: 'Payment proof incomplete',
+                          completeDetail:
+                              'QR setup, receipt, and reference number are ready.',
+                          incompleteDetail:
+                              'Add the receipt and a valid 6 to 13-digit reference number.',
                         ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          side: const BorderSide(color: AppColors.primary),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DialogStatusIndicator(
-                        compact: true,
-                        isComplete:
-                            settings.qrUrl.trim().isNotEmpty &&
-                            receiptFile != null &&
-                            RegExp(
-                              r'^\d{6,13}$',
-                            ).hasMatch(referenceController.text.trim()),
-                        completeLabel: 'Payment proof complete',
-                        incompleteLabel: 'Payment proof incomplete',
-                        completeDetail:
-                            'QR setup, receipt, and reference number are ready.',
-                        incompleteDetail:
-                            'Add the receipt and a valid 6 to 13-digit reference number.',
-                      ),
+                      ],
+
                       if (errorText != null) ...[
                         const SizedBox(height: 10),
                         Text(
@@ -3193,7 +3356,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.check_circle_outline),
-                    label: Text(isUploading ? 'Uploading...' : 'Confirm'),
+                    label: Text(
+                      isUploading
+                          ? 'Uploading...'
+                          : selectedPaymentChannel == 'desk'
+                              ? 'Confirm PSDC Desk Payment'
+                              : 'Confirm Online Payment',
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
