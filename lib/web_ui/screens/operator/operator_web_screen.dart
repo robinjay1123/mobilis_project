@@ -18606,7 +18606,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
-  void _showEditVehicleDialog(Map<String, dynamic> vehicle, bool isDark) {
+  Future<void> _showEditVehicleDialog(
+    Map<String, dynamic> vehicle,
+    bool isDark,
+  ) async {
     final formKey = GlobalKey<FormState>();
     final isPartnerVehicle =
         vehicle['_source'] == 'partner' ||
@@ -18634,6 +18637,40 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? vehicle['longitude'].toString()
         : '';
     _descriptionController.text = vehicle['description']?.toString() ?? '';
+
+    // Reset and preload GPS Tracker info for this vehicle
+    _gpsDeviceIdController.clear();
+    _gpsPasswordController.clear();
+    _isGpsVerified = null;
+    _gpsTestMessage = null;
+
+    final targetVehicleId =
+        (vehicle['id'] ?? vehicle['partner_vehicle_id'])?.toString() ?? '';
+    if (targetVehicleId.isNotEmpty) {
+      try {
+        final existingTracker =
+            await GpsService().getTrackerForVehicle(targetVehicleId);
+        if (existingTracker != null) {
+          final rawPass = GpsService().decryptSecret(
+            existingTracker.encryptedPassword ?? '',
+          );
+          _gpsDeviceIdController.text = existingTracker.deviceIdentifier;
+          _gpsPasswordController.text = rawPass.isNotEmpty
+              ? rawPass
+              : (existingTracker.encryptedPassword ?? '');
+          _isGpsVerified = existingTracker.connectionStatus !=
+              GpsConnectionStatus.disconnected;
+          if (_isGpsVerified == true) {
+            _gpsTestMessage =
+                '● Connected: AIKA168 tracker active (${existingTracker.deviceIdentifier})';
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading vehicle tracker: $e');
+      }
+    }
+
+    if (!mounted) return;
 
     var category = (vehicle['category']?.toString().trim().isNotEmpty == true)
         ? vehicle['category'].toString().trim()
@@ -19257,10 +19294,61 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           }
                                         }
 
+                                        // Connect or update GPS Tracker credentials
+                                        final trimmedDeviceId =
+                                            _gpsDeviceIdController.text.trim();
+                                        final trimmedPassword =
+                                            _gpsPasswordController.text.trim();
+                                        final targetVehicleId =
+                                            (vehicle['id'] ?? partnerVehicleId)
+                                                ?.toString() ??
+                                            '';
+
+                                        if (targetVehicleId.isNotEmpty) {
+                                          if (trimmedDeviceId.isNotEmpty) {
+                                            try {
+                                              await GpsService()
+                                                  .verifyAndConnectTracker(
+                                                vehicleId: isPartnerVehicle
+                                                    ? null
+                                                    : targetVehicleId,
+                                                partnerVehicleId:
+                                                    isPartnerVehicle
+                                                        ? targetVehicleId
+                                                        : null,
+                                                provider: 'aika168',
+                                                deviceIdentifier:
+                                                    trimmedDeviceId,
+                                                password:
+                                                    trimmedPassword.isEmpty
+                                                        ? '123456'
+                                                        : trimmedPassword,
+                                              );
+                                            } catch (trackerErr) {
+                                              debugPrint(
+                                                'GPS Tracker pairing note during vehicle edit: $trackerErr',
+                                              );
+                                            }
+                                          } else {
+                                            // User cleared the GPS field -> disconnect tracker
+                                            try {
+                                              await GpsService()
+                                                  .disconnectTracker(
+                                                targetVehicleId,
+                                              );
+                                            } catch (e) {
+                                              debugPrint(
+                                                'GPS Tracker disconnect note: $e',
+                                              );
+                                            }
+                                          }
+                                        }
+
                                         if (dialogContext.mounted) {
                                           Navigator.pop(dialogContext);
                                         }
                                         await _loadVehicles();
+                                        await _loadTrackingLocations();
                                         if (mounted) {
                                           ScaffoldMessenger.of(
                                             context,
