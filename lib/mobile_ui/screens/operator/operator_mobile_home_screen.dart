@@ -1964,35 +1964,6 @@ class _BookingCard extends StatelessWidget {
     );
   }
 
-                                    );
-                                  }
-                                }
-                              },
-                        child: isSubmitting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'Confirm & Notify Client',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   Future<void> _showApproveDialog(
     BuildContext context,
     String? bookingId,

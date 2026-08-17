@@ -2719,7 +2719,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           ? 'full_payment'
                           : 'reservation_only',
                       referenceNumber: 'DESK_COUNTER_PAYMENT',
-                      proofUrl: null,
+                      proofUrl: '',
                       proofStoragePath: null,
                       senderPhone: senderPhone,
                     ),
