@@ -42,6 +42,7 @@ import '../profile/trip_rating_flow_screen.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../profile/unified_profile_screen.dart';
 import '../tracking/trip_navigation_screen.dart';
+import '../../widgets/trip_route_history_dialog.dart';
 import '../../../utils/booking_status.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/notification_target.dart';
@@ -6237,6 +6238,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final bookingId = booking['id']?.toString() ?? '';
+                    if (bookingId.isNotEmpty) {
+                      TripRouteHistoryDialog.show(
+                        context: context,
+                        bookingId: bookingId,
+                        vehicleName: booking['vehicleName']?.toString(),
+                        plateNumber: booking['plateNumber']?.toString(),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.route_rounded, size: 18, color: AppColors.primary),
+                  label: const Text('View Traveled Route & Destination Audit'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),

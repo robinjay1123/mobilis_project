@@ -983,6 +983,44 @@ class TrackingService {
               },
               onConflict: 'booking_id,tracked_user_id',
             );
+
+            // Append GPS movement trail log for historical route playback and auditing
+            try {
+              await supabase.from('tracking_location_logs').insert({
+                'booking_id': bookingId,
+                'vehicle_id': targetVid,
+                'tracked_user_id':
+                    trackedUserId.isEmpty ? targetVid : trackedUserId,
+                'latitude': position.latitude,
+                'longitude': position.longitude,
+                'accuracy_meters': 10.0,
+                'speed_mps': position.speedKph / 3.6,
+                'heading_degrees': 0.0,
+                'source': 'gps_tracker',
+                'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                    DateTime.now().toUtc().toIso8601String(),
+              });
+
+              final posObj = Position(
+                latitude: position.latitude,
+                longitude: position.longitude,
+                timestamp: position.gpsTime ?? DateTime.now(),
+                accuracy: 10.0,
+                altitude: 0.0,
+                altitudeAccuracy: 0.0,
+                heading: 0.0,
+                headingAccuracy: 0.0,
+                speed: position.speedKph / 3.6,
+                speedAccuracy: 0.0,
+              );
+              await _evaluateSafetySignals(
+                bookingId: bookingId,
+                vehicleId: targetVid,
+                position: posObj,
+              );
+            } catch (logErr) {
+              debugPrint('GPS movement trail logging note: $logErr');
+            }
           }
         } catch (e) {
           debugPrint('Error polling tracker: $e');
@@ -994,7 +1032,7 @@ class TrackingService {
   }
 
   /// Polls the GPS hardware tracker for a specific booking and upserts the
-  /// location into [tracking_locations].
+  /// location into [tracking_locations] and [tracking_location_logs].
   Future<void> pollGpsTrackerForBooking(String bookingId) async {
     if (bookingId.isEmpty) return;
     try {
@@ -1043,8 +1081,213 @@ class TrackingService {
         },
         onConflict: 'booking_id,tracked_user_id',
       );
+
+      // Append GPS movement trail log
+      try {
+        await supabase.from('tracking_location_logs').insert({
+          'booking_id': bookingId,
+          'vehicle_id': vehicleId,
+          'tracked_user_id':
+              trackedUserId.isEmpty ? vehicleId : trackedUserId,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'accuracy_meters': 10.0,
+          'speed_mps': position.speedKph / 3.6,
+          'heading_degrees': 0.0,
+          'source': 'gps_tracker',
+          'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+              DateTime.now().toUtc().toIso8601String(),
+        });
+
+        final posObj = Position(
+          latitude: position.latitude,
+          longitude: position.longitude,
+          timestamp: position.gpsTime ?? DateTime.now(),
+          accuracy: 10.0,
+          altitude: 0.0,
+          altitudeAccuracy: 0.0,
+          heading: 0.0,
+          headingAccuracy: 0.0,
+          speed: position.speedKph / 3.6,
+          speedAccuracy: 0.0,
+        );
+        await _evaluateSafetySignals(
+          bookingId: bookingId,
+          vehicleId: vehicleId,
+          position: posObj,
+        );
+      } catch (logErr) {
+        debugPrint('GPS movement trail logging note: $logErr');
+      }
     } catch (e) {
       debugPrint('Error polling GPS tracker for booking $bookingId: $e');
+    }
+  }
+
+  /// Fetches complete chronological GPS route trail for a booking
+  Future<List<Map<String, dynamic>>> getTripRouteHistory(String bookingId) async {
+    if (bookingId.isEmpty) return [];
+    try {
+      final rows = await supabase
+          .from('tracking_location_logs')
+          .select('*')
+          .eq('booking_id', bookingId)
+          .order('recorded_at', ascending: true);
+      return List<Map<String, dynamic>>.from(rows);
+    } catch (e) {
+      debugPrint('Error fetching trip route history for booking $bookingId: $e');
+      return [];
+    }
+  }
+
+  /// Evaluates whether the vehicle went outside the agreed destination and computes penalties
+  Future<Map<String, dynamic>> evaluateTripDestinationCompliance(
+    String bookingId,
+  ) async {
+    if (bookingId.isEmpty) {
+      return {
+        'isCompliant': true,
+        'maxDeviationKm': 0.0,
+        'penaltyAmount': 0.0,
+        'violationCount': 0,
+        'pointsCount': 0,
+        'totalDistanceKm': 0.0,
+        'topSpeedKph': 0.0,
+        'safetyEvents': <Map<String, dynamic>>[],
+        'routePoints': <Map<String, dynamic>>[],
+      };
+    }
+
+    try {
+      final bookingResponse = await supabase
+          .from('bookings')
+          .select('''
+            id,
+            status,
+            pickup_location,
+            dropoff_location,
+            pickup_latitude,
+            pickup_longitude,
+            dropoff_latitude,
+            dropoff_longitude,
+            start_at,
+            end_at,
+            vehicles:vehicle_id (id, brand, model, vehicle_name, plate_number)
+          ''')
+          .eq('id', bookingId)
+          .maybeSingle();
+
+      final booking = bookingResponse != null
+          ? Map<String, dynamic>.from(bookingResponse)
+          : <String, dynamic>{};
+      final points = await getTripRouteHistory(bookingId);
+
+      final pickupLat = _asDouble(booking['pickup_latitude']);
+      final pickupLng = _asDouble(booking['pickup_longitude']);
+      final dropoffLat = _asDouble(booking['dropoff_latitude']) ?? pickupLat;
+      final dropoffLng = _asDouble(booking['dropoff_longitude']) ?? pickupLng;
+
+      double totalDistanceMeters = 0.0;
+      double topSpeedMps = 0.0;
+      double maxDeviationFromDestinationMeters = 0.0;
+      int violationPoints = 0;
+
+      for (int i = 0; i < points.length; i++) {
+        final p = points[i];
+        final lat = _asDouble(p['latitude']) ?? 0.0;
+        final lng = _asDouble(p['longitude']) ?? 0.0;
+        final speed = _asDouble(p['speed_mps']) ?? 0.0;
+        if (speed > topSpeedMps) topSpeedMps = speed;
+
+        if (i > 0) {
+          final prevLat = _asDouble(points[i - 1]['latitude']) ?? 0.0;
+          final prevLng = _asDouble(points[i - 1]['longitude']) ?? 0.0;
+          if (lat != 0.0 && lng != 0.0 && prevLat != 0.0 && prevLng != 0.0) {
+            totalDistanceMeters += Geolocator.distanceBetween(
+              prevLat,
+              prevLng,
+              lat,
+              lng,
+            );
+          }
+        }
+
+        if (dropoffLat != null && dropoffLng != null && lat != 0.0 && lng != 0.0) {
+          final distFromDest = Geolocator.distanceBetween(
+            dropoffLat,
+            dropoffLng,
+            lat,
+            lng,
+          );
+          if (distFromDest > maxDeviationFromDestinationMeters) {
+            maxDeviationFromDestinationMeters = distFromDest;
+          }
+          // If car is > 30km away from destination and > 30km from pickup
+          if (distFromDest > 30000) {
+            final distFromPickup = (pickupLat != null && pickupLng != null)
+                ? Geolocator.distanceBetween(pickupLat, pickupLng, lat, lng)
+                : distFromDest;
+            if (distFromPickup > 30000) {
+              violationPoints++;
+            }
+          }
+        }
+      }
+
+      // Fetch any safety events for this booking
+      final eventRows = await supabase
+          .from('trip_safety_events')
+          .select('*')
+          .eq('booking_id', bookingId)
+          .order('created_at', ascending: false);
+      final safetyEvents = List<Map<String, dynamic>>.from(eventRows);
+
+      final hasDestinationViolationEvent = safetyEvents.any(
+        (e) =>
+            e['event_type']?.toString().contains('geofence') == true ||
+            e['event_type']?.toString().contains('destination') == true,
+      );
+
+      final isCompliant = violationPoints == 0 && !hasDestinationViolationEvent;
+      final maxDeviationKm = maxDeviationFromDestinationMeters / 1000.0;
+
+      // Recommended destination penalty calculation:
+      // Base penalty ₱1,000 for destination violation + ₱50 per km beyond 25km deviation
+      double recommendedPenalty = 0.0;
+      if (!isCompliant) {
+        final excessKm = (maxDeviationKm - 25.0).clamp(0.0, 500.0);
+        recommendedPenalty = 1000.0 + (excessKm * 50.0);
+      }
+
+      return {
+        'isCompliant': isCompliant,
+        'maxDeviationKm': maxDeviationKm,
+        'penaltyAmount': recommendedPenalty,
+        'violationCount': violationPoints,
+        'pointsCount': points.length,
+        'totalDistanceKm': totalDistanceMeters / 1000.0,
+        'topSpeedKph': topSpeedMps * 3.6,
+        'booking': booking,
+        'safetyEvents': safetyEvents,
+        'routePoints': points,
+        'dropoffLocation':
+            booking['dropoff_location']?.toString() ?? 'Stated Destination',
+        'pickupLocation':
+            booking['pickup_location']?.toString() ?? 'Origin Pickup',
+      };
+    } catch (e) {
+      debugPrint('Error evaluating destination compliance: $e');
+      return {
+        'isCompliant': true,
+        'maxDeviationKm': 0.0,
+        'penaltyAmount': 0.0,
+        'violationCount': 0,
+        'pointsCount': 0,
+        'totalDistanceKm': 0.0,
+        'topSpeedKph': 0.0,
+        'safetyEvents': <Map<String, dynamic>>[],
+        'routePoints': <Map<String, dynamic>>[],
+      };
     }
   }
 }

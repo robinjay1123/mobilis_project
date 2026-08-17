@@ -34,6 +34,7 @@ import '../../../mobile_ui/widgets/relative_time_text.dart';
 import '../../../mobile_ui/widgets/booking_return_countdown.dart';
 import '../../../mobile_ui/widgets/vehicle_inspection_checklist_fields.dart';
 import '../../../mobile_ui/widgets/vehicle_inspection_record_view.dart';
+import '../../../mobile_ui/widgets/trip_route_history_dialog.dart';
 import '../../../mobile_ui/widgets/restriction_ui.dart';
 import '../../../services/booking_inspection_service.dart';
 import '../../../services/booking_service.dart';
@@ -6459,6 +6460,41 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ],
                 ),
+                if (hasActiveBooking && booking?['id'] != null) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: booking!['id'].toString(),
+                          vehicleName: vehicleName,
+                          plateNumber: vehicle?['plate_number']?.toString(),
+                          renterName: renter?['full_name']?.toString(),
+                        );
+                      },
+                      icon: const Icon(Icons.route_rounded, size: 16),
+                      label: const Text(
+                        'Audit Traveled Route & Destination Deviation',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _operatorGold,
+                        side: BorderSide(
+                          color: _operatorGold.withValues(alpha: 0.7),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -9253,6 +9289,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 _buildOperatorSafetyLine(
                   'Total Final Trip Cost',
                   'PHP ${((booking['total_price'] as num?)?.toDouble() ?? (booking['total_cost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final bId = booking['id']?.toString() ?? '';
+                      if (bId.isNotEmpty) {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: bId,
+                          vehicleName: booking['vehicles']?['brand'] != null
+                              ? '${booking['vehicles']['brand']} ${booking['vehicles']['model'] ?? ''}'
+                              : null,
+                          plateNumber:
+                              booking['vehicles']?['plate_number']?.toString(),
+                          renterName: booking['renter']?['full_name']?.toString(),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.route_rounded, size: 16),
+                    label: const Text(
+                      'Audit Traveled GPS Route & Destination Compliance',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _operatorGold,
+                      side: BorderSide(
+                        color: _operatorGold.withValues(alpha: 0.8),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
                 () {
                   final finalReceiptUrl =

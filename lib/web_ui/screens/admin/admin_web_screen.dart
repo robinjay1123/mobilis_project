@@ -33,6 +33,7 @@ import '../../../services/support_faq_service.dart';
 import '../../../mobile_ui/screens/admin/message_review_screen.dart';
 import '../../../mobile_ui/screens/profile/settings_screen.dart';
 import '../../../mobile_ui/screens/profile/ratings_reviews_screen.dart';
+import '../../../mobile_ui/widgets/trip_route_history_dialog.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
@@ -9506,6 +9507,41 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                   ],
                 ),
+                if (hasActiveBooking && booking?['id'] != null) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        TripRouteHistoryDialog.show(
+                          context: context,
+                          bookingId: booking!['id'].toString(),
+                          vehicleName: vehicleName,
+                          plateNumber: vehicle?['plate_number']?.toString(),
+                          renterName: renter?['full_name']?.toString(),
+                        );
+                      },
+                      icon: const Icon(Icons.route_rounded, size: 16),
+                      label: const Text(
+                        'Audit Traveled Route & Destination Deviation',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        side: BorderSide(
+                          color: AppColors.primary.withValues(alpha: 0.7),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
