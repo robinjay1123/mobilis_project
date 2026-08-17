@@ -189,19 +189,18 @@ class GpsService {
         return VehicleTracker.fromJson(response);
       }
 
-      // Check if vehicles table links to a partner_vehicle_id or vice versa
+      // Check if this vehicle is associated with a partner vehicle or application
       try {
-        final veh = await _supabase
-            .from('vehicles')
-            .select('id, partner_vehicle_id')
+        final pv = await _supabase
+            .from('partner_vehicles')
+            .select('id')
             .eq('id', vehicleId)
             .maybeSingle();
-        final pVehId = veh?['partner_vehicle_id']?.toString();
-        if (pVehId != null && pVehId.isNotEmpty) {
+        if (pv != null) {
           final pTracker = await _supabase
               .from('vehicle_trackers')
               .select()
-              .or('vehicle_id.eq.$pVehId,partner_vehicle_id.eq.$pVehId')
+              .eq('partner_vehicle_id', vehicleId)
               .neq('connection_status', 'disconnected')
               .maybeSingle();
           if (pTracker != null) {
