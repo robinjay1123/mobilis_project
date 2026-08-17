@@ -17587,8 +17587,57 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ),
             field(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'AIKA168 Real-Time Sync',
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _operatorGold.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: _operatorGold.withOpacity(0.4),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.verified_rounded,
+                          size: 12,
+                          color: _operatorGold,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'v2.4.0 (Live Proxy)',
+                          style: TextStyle(
+                            color: _operatorGold,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              fullWidth: true,
+            ),
+            field(
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 4),
                 child: SizedBox(
                   height: 46,
                   width: double.infinity,
