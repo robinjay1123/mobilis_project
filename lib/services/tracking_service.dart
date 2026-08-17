@@ -639,12 +639,118 @@ class TrackingService {
         'return_pending_inspection',
       };
 
-      return List<Map<String, dynamic>>.from(response).where((location) {
-        final booking = location['bookings'] as Map<String, dynamic>?;
+      final activeList = <Map<String, dynamic>>[];
+      final vehiclesWithActiveTracking = <String>{};
+
+      for (final loc in List<Map<String, dynamic>>.from(response)) {
+        final booking = loc['bookings'] as Map<String, dynamic>?;
         final status = booking?['status']?.toString().toLowerCase() ?? '';
-        return activeStatuses.contains(status) &&
-            _canViewTracking(access, booking);
-      }).toList();
+        if (activeStatuses.contains(status) &&
+            _canViewTracking(access, booking)) {
+          final enriched = Map<String, dynamic>.from(loc);
+          enriched['has_active_booking'] = true;
+          enriched['is_active_booking'] = true;
+          activeList.add(enriched);
+
+          final vid = loc['vehicle_id']?.toString() ??
+              booking?['vehicles']?['id']?.toString() ??
+              '';
+          if (vid.isNotEmpty) {
+            vehiclesWithActiveTracking.add(vid);
+          }
+        }
+      }
+
+      // 2. Fetch all connected trackers for idle / available vehicles
+      try {
+        final trackerRows = await supabase
+            .from('vehicle_trackers')
+            .select('''
+              id,
+              vehicle_id,
+              partner_vehicle_id,
+              vehicle_application_id,
+              provider,
+              device_identifier,
+              connection_status,
+              last_latitude,
+              last_longitude,
+              last_speed_kph,
+              last_battery_percent,
+              last_ignition_on,
+              last_sync_at
+            ''')
+            .neq('connection_status', 'disconnected');
+
+        final trackers = List<Map<String, dynamic>>.from(trackerRows);
+
+        // Fetch vehicle details for all tracked vehicles
+        final vehicleIds = trackers
+            .map((t) => t['vehicle_id']?.toString())
+            .whereType<String>()
+            .where(
+              (id) =>
+                  id.isNotEmpty && !vehiclesWithActiveTracking.contains(id),
+            )
+            .toSet()
+            .toList();
+
+        final vehiclesMap = <String, Map<String, dynamic>>{};
+        if (vehicleIds.isNotEmpty) {
+          final vehRows = await supabase
+              .from('vehicles')
+              .select('id, brand, model, plate_number, owner_id, status')
+              .inFilter('id', vehicleIds);
+          for (final v in List<Map<String, dynamic>>.from(vehRows)) {
+            vehiclesMap[v['id'].toString()] = v;
+          }
+        }
+
+        // Add idle tracked vehicles to the result list
+        for (final t in trackers) {
+          final vid = t['vehicle_id']?.toString() ?? '';
+          if (vid.isNotEmpty && vehiclesWithActiveTracking.contains(vid)) {
+            continue; // Already included as active booking
+          }
+
+          final lat = (t['last_latitude'] as num?)?.toDouble();
+          final lng = (t['last_longitude'] as num?)?.toDouble();
+          if (lat == null || lng == null || (lat == 0.0 && lng == 0.0)) {
+            continue;
+          }
+
+          final veh = vehiclesMap[vid] ?? {
+            'id': vid,
+            'brand': 'GPS Tracked',
+            'model': 'Vehicle',
+            'plate_number': t['device_identifier']?.toString() ?? '',
+          };
+
+          activeList.add({
+            'id': 'idle_tracker_${t['id']}',
+            'vehicle_id': vid,
+            'latitude': lat,
+            'longitude': lng,
+            'speed_mps': ((t['last_speed_kph'] as num?) ?? 0) / 3.6,
+            'heading_degrees': 0.0,
+            'source': 'gps_tracker',
+            'recorded_at':
+                t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
+            'updated_at':
+                t['last_sync_at'] ?? DateTime.now().toUtc().toIso8601String(),
+            'has_active_booking': false,
+            'is_active_booking': false,
+            'bookings': null,
+            'vehicle': veh,
+            'tracker': t,
+            'status': 'Idle / Available',
+          });
+        }
+      } catch (e) {
+        debugPrint('Error fetching idle vehicle trackers: $e');
+      }
+
+      return activeList;
     } catch (e) {
       debugPrint('Error loading tracking locations: $e');
       return [];
@@ -780,13 +886,38 @@ class TrackingService {
     }
   }
 
-  /// Polls all connected GPS hardware trackers linked to active bookings
-  /// and upserts their latest position into [tracking_locations] so the
-  /// admin Live Tracking page can display real-time IMEI GPS tracker data.
+  /// Polls all connected GPS hardware trackers (both active bookings and idle vehicles)
+  /// and updates both vehicle_trackers table and tracking_locations.
   Future<void> pollGpsTrackersForActiveBookings() async {
     try {
-      // 1. Find all active/ongoing bookings that have a connected GPS tracker
-      final bookings = await supabase
+      final gpsService = GpsService();
+
+      // 1. Fetch all connected trackers from database
+      final trackerRows = await supabase
+          .from('vehicle_trackers')
+          .select('''
+            id,
+            vehicle_id,
+            partner_vehicle_id,
+            vehicle_application_id,
+            provider,
+            device_identifier,
+            encrypted_password,
+            connection_status,
+            last_latitude,
+            last_longitude,
+            last_speed_kph,
+            last_battery_percent,
+            last_ignition_on,
+            last_sync_at
+          ''')
+          .neq('connection_status', 'disconnected');
+
+      final activeTrackers = List<Map<String, dynamic>>.from(trackerRows);
+      if (activeTrackers.isEmpty) return;
+
+      // 2. Fetch active bookings to associate if on a trip
+      final activeBookingsRows = await supabase
           .from('bookings')
           .select('''
             id,
@@ -805,26 +936,20 @@ class TrackingService {
             'assigned',
             'return_pending_inspection',
           ]);
+      final activeBookings = List<Map<String, dynamic>>.from(activeBookingsRows);
+      final bookingByVehicleId = <String, Map<String, dynamic>>{};
+      for (final b in activeBookings) {
+        final vid = b['vehicle_id']?.toString() ?? '';
+        if (vid.isNotEmpty) {
+          bookingByVehicleId[vid] = b;
+        }
+      }
 
-      final activeBookings = List<Map<String, dynamic>>.from(bookings);
-      if (activeBookings.isEmpty) return;
-
-      final gpsService = GpsService();
-
-      for (final booking in activeBookings) {
-        final vehicleId = booking['vehicle_id']?.toString() ?? '';
-        if (vehicleId.isEmpty) continue;
-
+      for (final tMap in activeTrackers) {
         try {
-          // 2. Check if this vehicle has a registered GPS tracker
-          final tracker = await gpsService.getTrackerForVehicle(vehicleId);
-          if (tracker == null ||
-              tracker.connectionStatus == GpsConnectionStatus.disconnected ||
-              tracker.deviceIdentifier.trim().isEmpty) {
-            continue;
-          }
+          final tracker = VehicleTracker.fromJson(tMap);
+          if (tracker.deviceIdentifier.trim().isEmpty) continue;
 
-          // 3. Poll the GPS tracker for its latest position
           final position = await gpsService.fetchLatestLocation(
             tracker: tracker,
           );
@@ -833,38 +958,44 @@ class TrackingService {
             continue;
           }
 
-          // 4. Upsert into tracking_locations so the Live Tracking map shows it
-          final bookingId = booking['id']?.toString() ?? '';
-          final trackedUserId = booking['driver_id']?.toString() ??
-              booking['renter_id']?.toString() ??
+          final targetVid = tracker.vehicleId ??
+              tracker.partnerVehicleId ??
+              tracker.vehicleApplicationId ??
               '';
+          if (targetVid.isEmpty) continue;
 
-          await supabase.from('tracking_locations').upsert(
-            {
-              'booking_id': bookingId,
-              'vehicle_id': vehicleId,
-              'tracked_user_id':
-                  trackedUserId.isEmpty ? vehicleId : trackedUserId,
-              'latitude': position.latitude,
-              'longitude': position.longitude,
-              'accuracy_meters': 10.0,
-              'speed_mps': position.speedKph / 3.6,
-              'heading_degrees': 0.0,
-              'source': 'gps_tracker',
-              'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
-                  DateTime.now().toUtc().toIso8601String(),
-              'updated_at': DateTime.now().toUtc().toIso8601String(),
-            },
-            onConflict: 'booking_id,tracked_user_id',
-          );
+          final booking = bookingByVehicleId[targetVid];
+          if (booking != null) {
+            final bookingId = booking['id']?.toString() ?? '';
+            final trackedUserId = booking['driver_id']?.toString() ??
+                booking['renter_id']?.toString() ??
+                '';
+
+            await supabase.from('tracking_locations').upsert(
+              {
+                'booking_id': bookingId,
+                'vehicle_id': targetVid,
+                'tracked_user_id':
+                    trackedUserId.isEmpty ? targetVid : trackedUserId,
+                'latitude': position.latitude,
+                'longitude': position.longitude,
+                'accuracy_meters': 10.0,
+                'speed_mps': position.speedKph / 3.6,
+                'heading_degrees': 0.0,
+                'source': 'gps_tracker',
+                'recorded_at': position.gpsTime?.toUtc().toIso8601String() ??
+                    DateTime.now().toUtc().toIso8601String(),
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              },
+              onConflict: 'booking_id,tracked_user_id',
+            );
+          }
         } catch (e) {
-          debugPrint(
-            'GPS tracker poll failed for vehicle $vehicleId: $e',
-          );
+          debugPrint('Error polling tracker: $e');
         }
       }
     } catch (e) {
-      debugPrint('Error polling GPS trackers for active bookings: $e');
+      debugPrint('Error in pollGpsTrackersForActiveBookings: $e');
     }
   }
 

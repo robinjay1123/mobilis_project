@@ -2142,7 +2142,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
     return _trackingLocations.where((location) {
       final booking = location['bookings'] as Map<String, dynamic>?;
-      return booking?['id']?.toString() == _focusedTrackingBookingId;
+      final bookingId = booking?['id']?.toString();
+      final rowId = location['id']?.toString();
+      return bookingId == _focusedTrackingBookingId ||
+          rowId == _focusedTrackingBookingId ||
+          location['vehicle_id']?.toString() == _focusedTrackingBookingId;
     }).toList();
   }
 
@@ -8791,31 +8795,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     MobilisMapPoint? pickupPoint;
     MobilisMapPoint? destPoint;
     double? remainingDistanceKm;
+    bool focusedHasActiveBooking = false;
 
     if (isFocused && visibleLocations.isNotEmpty) {
       focusedLocation = visibleLocations.first;
-      final fBooking = focusedLocation['bookings'] as Map<String, dynamic>?;
-      pickupPoint = _resolveTrackingLocationPoint(
-        fBooking?['pickup_latitude'],
-        fBooking?['pickup_longitude'],
-        fBooking?['pickup_location']?.toString() ?? '',
-      );
-      destPoint = _resolveTrackingLocationPoint(
-        fBooking?['dropoff_latitude'],
-        fBooking?['dropoff_longitude'],
-        fBooking?['dropoff_location']?.toString() ?? '',
-      );
+      focusedHasActiveBooking = focusedLocation['has_active_booking'] == true &&
+          focusedLocation['bookings'] != null;
 
-      final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
-      final carLng = (focusedLocation['longitude'] as num?)?.toDouble();
-      if (carLat != null && carLng != null && destPoint != null) {
-        remainingDistanceKm = Geolocator.distanceBetween(
-              carLat,
-              carLng,
-              destPoint.latitude,
-              destPoint.longitude,
-            ) /
-            1000;
+      if (focusedHasActiveBooking) {
+        final fBooking = focusedLocation['bookings'] as Map<String, dynamic>?;
+        pickupPoint = _resolveTrackingLocationPoint(
+          fBooking?['pickup_latitude'],
+          fBooking?['pickup_longitude'],
+          fBooking?['pickup_location']?.toString() ?? '',
+        );
+        destPoint = _resolveTrackingLocationPoint(
+          fBooking?['dropoff_latitude'],
+          fBooking?['dropoff_longitude'],
+          fBooking?['dropoff_location']?.toString() ?? '',
+        );
+
+        final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
+        final carLng = (focusedLocation['longitude'] as num?)?.toDouble();
+        if (carLat != null && carLng != null && destPoint != null) {
+          remainingDistanceKm = Geolocator.distanceBetween(
+                carLat,
+                carLng,
+                destPoint.latitude,
+                destPoint.longitude,
+              ) /
+              1000;
+        }
       }
     }
 
@@ -8824,10 +8834,21 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     List<MobilisMapPoint> routePoints = const [];
 
     if (isFocused && focusedLocation != null) {
+      final fBooking = focusedLocation['bookings'] as Map<String, dynamic>?;
+      final fVehicle = (fBooking?['vehicles'] ?? focusedLocation['vehicle'])
+          as Map<String, dynamic>?;
+      final vehicleName = [
+        fVehicle?['brand'],
+        fVehicle?['model'],
+        fVehicle?['plate_number'] == null
+            ? null
+            : '(${fVehicle?['plate_number']})',
+      ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+
       final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
       final carLng = (focusedLocation['longitude'] as num?)?.toDouble();
 
-      if (pickupPoint != null) {
+      if (focusedHasActiveBooking && pickupPoint != null) {
         mapMarkers.add(
           MobilisMapMarker(
             latitude: pickupPoint.latitude,
@@ -8835,6 +8856,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             icon: Icons.trip_origin_rounded,
             color: Colors.greenAccent.shade700,
             size: 36,
+            tooltip: 'Pickup Location',
           ),
         );
       }
@@ -8848,14 +8870,20 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             icon: Icons.directions_car_filled_rounded,
             color: AppColors.primary,
             size: 46,
+            tooltip: vehicleName.isNotEmpty
+                ? '$vehicleName • ${focusedHasActiveBooking ? 'On Trip' : 'Available (Idle)'}'
+                : 'Tracked Vehicle',
+            label: vehicleName.isNotEmpty ? vehicleName : null,
           ),
         );
 
-        // Fetch real road routing pathway
-        routePoints = _getTrackingRoutePoints(carPoint, destPoint);
+        // Fetch real road routing pathway only when there is an active destination
+        if (focusedHasActiveBooking && destPoint != null) {
+          routePoints = _getTrackingRoutePoints(carPoint, destPoint);
+        }
       }
 
-      if (destPoint != null) {
+      if (focusedHasActiveBooking && destPoint != null) {
         mapMarkers.add(
           MobilisMapMarker(
             latitude: destPoint.latitude,
@@ -8863,14 +8891,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             icon: Icons.flag_rounded,
             color: Colors.redAccent,
             size: 44,
+            tooltip: 'Declared Destination',
           ),
         );
       }
     } else {
-      // Show all car markers
+      // Show all car markers with hover tooltip and name label
       for (final loc in visibleLocations) {
         final lat = (loc['latitude'] as num?)?.toDouble();
         final lng = (loc['longitude'] as num?)?.toDouble();
+        final booking = loc['bookings'] as Map<String, dynamic>?;
+        final vehicle = (booking?['vehicles'] ?? loc['vehicle'])
+            as Map<String, dynamic>?;
+        final vehicleName = [
+          vehicle?['brand'],
+          vehicle?['model'],
+          vehicle?['plate_number'] == null
+              ? null
+              : '(${vehicle?['plate_number']})',
+        ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
+
+        final locId =
+            booking?['id']?.toString() ?? loc['id']?.toString() ?? '';
+        final hasBooking = loc['has_active_booking'] == true;
+
         if (lat != null && lng != null) {
           mapMarkers.add(
             MobilisMapMarker(
@@ -8879,6 +8923,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               icon: Icons.directions_car_filled_rounded,
               color: AppColors.primary,
               size: 40,
+              tooltip: vehicleName.isNotEmpty
+                  ? '$vehicleName • ${hasBooking ? 'On Trip' : 'Available (Idle)'}'
+                  : 'Tracked Vehicle',
+              label: vehicleName.isNotEmpty ? vehicleName : null,
+              onTap: () {
+                if (locId.isNotEmpty) {
+                  setState(() => _focusedTrackingBookingId = locId);
+                }
+              },
             ),
           );
         }
@@ -8892,8 +8945,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         children: [
           _buildCard(
             isFocused
-                ? 'Live Tracking (Focused Trip)'
-                : 'Live Tracking (${visibleLocations.length})',
+                ? 'Live Tracking (Focused Vehicle / Trip)'
+                : 'Live Tracking (${visibleLocations.length} Vehicles)',
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -8931,8 +8984,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     Expanded(
                       child: Text(
                         isFocused
-                            ? '🎯 Focused on vehicle & declared destination road route. Click "Show All Vehicles" to reset.'
-                            : '💡 Click any booking card below to focus on the vehicle and view its declared destination route.',
+                            ? (focusedHasActiveBooking
+                                ? '🎯 Focused on trip with declared destination route. Click "Show All Vehicles" to reset.'
+                                : '🎯 Focused on available vehicle live GPS position. Click "Show All Vehicles" to reset.')
+                            : '💡 Hover over any car icon to view its name, or click any card below to focus on its position.',
                         style: TextStyle(
                           color: isDark ? Colors.grey[400] : Colors.grey[700],
                           fontSize: 13,
@@ -8941,7 +8996,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                   ],
                 ),
-                if (isFocused && focusedLocation != null) ...[
+                if (isFocused &&
+                    focusedLocation != null &&
+                    focusedHasActiveBooking) ...[
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -9041,7 +9098,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                             child: Text(
                               _focusedTrackingBookingId == null
                                   ? 'No active tracking locations yet'
-                                  : 'No live location yet for this booking',
+                                  : 'No live location yet for this vehicle',
                               style: TextStyle(
                                 color: isDark
                                     ? Colors.grey[400]
@@ -9070,15 +9127,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (_trackingLocations.isEmpty)
+                if (visibleLocations.isEmpty)
                   Text(
-                    'No vehicles currently have active or ongoing trips.',
+                    'No tracked vehicles or active trips found.',
                     style: TextStyle(
                       color: isDark ? Colors.grey[400] : Colors.grey[700],
                     ),
                   )
                 else
-                  ..._trackingLocations.map(
+                  ...visibleLocations.map(
                     (location) => _buildTrackingRow(location, isDark),
                   ),
               ],
@@ -9091,12 +9148,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildTrackingRow(Map<String, dynamic> location, bool isDark) {
+    final hasActiveBooking = location['has_active_booking'] == true &&
+        location['bookings'] != null;
     final booking = location['bookings'] as Map<String, dynamic>?;
-    final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+    final vehicle = (booking?['vehicles'] ?? location['vehicle'])
+        as Map<String, dynamic>?;
+    final tracker = location['tracker'] as Map<String, dynamic>?;
     final driver = booking?['drivers'] as Map<String, dynamic>?;
     final driverUser = driver?['users'] as Map<String, dynamic>?;
     final renter = booking?['renter'] as Map<String, dynamic>?;
-    final bookingId = booking?['id']?.toString() ?? 'N/A';
+    final rowId = booking?['id']?.toString() ??
+        location['id']?.toString() ??
+        'vehicle_${location['vehicle_id']}';
     final pickup = booking?['pickup_location']?.toString().trim() ?? '';
     final dropoff = booking?['dropoff_location']?.toString().trim() ?? '';
     final vehicleName = [
@@ -9108,24 +9171,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     ].where((part) => part != null && part.toString().isNotEmpty).join(' ');
     final lat = (location['latitude'] as num?)?.toDouble();
     final lng = (location['longitude'] as num?)?.toDouble();
+    final speedKph = (((location['speed_mps'] as num?) ?? 0) * 3.6).round();
 
-    final isFocused = _focusedTrackingBookingId == bookingId;
+    final isFocused = _focusedTrackingBookingId == rowId;
 
-    // Resolve destination coordinates to compute live distance
-    final destPoint = _resolveTrackingLocationPoint(
-      booking?['dropoff_latitude'],
-      booking?['dropoff_longitude'],
-      dropoff,
-    );
+    // Resolve destination coordinates to compute live distance (for active trips only)
+    MobilisMapPoint? destPoint;
     double? distanceToDestinationKm;
-    if (lat != null && lng != null && destPoint != null) {
-      distanceToDestinationKm = Geolocator.distanceBetween(
-            lat,
-            lng,
-            destPoint.latitude,
-            destPoint.longitude,
-          ) /
-          1000;
+    if (hasActiveBooking) {
+      destPoint = _resolveTrackingLocationPoint(
+        booking?['dropoff_latitude'],
+        booking?['dropoff_longitude'],
+        dropoff,
+      );
+      if (lat != null && lng != null && destPoint != null) {
+        distanceToDestinationKm = Geolocator.distanceBetween(
+              lat,
+              lng,
+              destPoint.latitude,
+              destPoint.longitude,
+            ) /
+            1000;
+      }
     }
 
     return Container(
@@ -9157,7 +9224,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           borderRadius: BorderRadius.circular(14),
           onTap: () {
             setState(() {
-              _focusedTrackingBookingId = isFocused ? null : bookingId;
+              _focusedTrackingBookingId = isFocused ? null : rowId;
             });
           },
           child: Padding(
@@ -9172,12 +9239,18 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       decoration: BoxDecoration(
                         color: isFocused
                             ? AppColors.primary
-                            : AppColors.primary.withValues(alpha: 0.15),
+                            : (hasActiveBooking
+                                ? AppColors.primary.withValues(alpha: 0.15)
+                                : Colors.teal.withValues(alpha: 0.15)),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
                         Icons.directions_car_filled_rounded,
-                        color: isFocused ? Colors.black : AppColors.primary,
+                        color: isFocused
+                            ? Colors.black
+                            : (hasActiveBooking
+                                ? AppColors.primary
+                                : Colors.teal),
                         size: 22,
                       ),
                     ),
@@ -9186,19 +9259,58 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            vehicleName.isEmpty
-                                ? 'Tracked booking'
-                                : vehicleName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                vehicleName.isEmpty
+                                    ? (hasActiveBooking
+                                        ? 'Tracked Trip'
+                                        : 'Tracked Vehicle')
+                                    : vehicleName,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: hasActiveBooking
+                                      ? AppColors.primary.withValues(alpha: 0.15)
+                                      : Colors.green.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: hasActiveBooking
+                                        ? AppColors.primary.withValues(alpha: 0.5)
+                                        : Colors.green.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                                child: Text(
+                                  hasActiveBooking
+                                      ? 'ON TRIP'
+                                      : 'AVAILABLE • IDLE',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.4,
+                                    color: hasActiveBooking
+                                        ? AppColors.primary
+                                        : Colors.green,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Booking: $bookingId | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'}',
+                            hasActiveBooking
+                                ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'}'
+                                : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Status: Available / Idle • Speed: $speedKph km/h',
                             style: TextStyle(
                               color: isDark
                                   ? Colors.grey[400]
@@ -9212,8 +9324,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     OutlinedButton.icon(
                       onPressed: () {
                         setState(() {
-                          _focusedTrackingBookingId =
-                              isFocused ? null : bookingId;
+                          _focusedTrackingBookingId = isFocused ? null : rowId;
                         });
                       },
                       icon: Icon(
@@ -9223,7 +9334,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                         size: 16,
                       ),
                       label: Text(
-                        isFocused ? 'Unfocus' : 'Focus Trip',
+                        isFocused
+                            ? 'Unfocus'
+                            : (hasActiveBooking
+                                ? 'Focus Trip'
+                                : 'Focus Vehicle'),
                         style: const TextStyle(fontSize: 12),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -9243,144 +9358,145 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                // Declared Destination & Route Compliance Box
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.black.withValues(alpha: 0.3)
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
+                if (hasActiveBooking) ...[
+                  const SizedBox(height: 12),
+                  // Declared Destination & Route Compliance Box (Only for active trips)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
                       color: isDark
-                          ? Colors.white10
-                          : Colors.grey.shade200,
+                          ? Colors.black.withValues(alpha: 0.3)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isDark ? Colors.white10 : Colors.grey.shade200,
+                      ),
                     ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.trip_origin_rounded,
-                            color: Colors.green,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Pickup: ${pickup.isEmpty ? 'N/A' : pickup}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey[300]
-                                    : Colors.grey[800],
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.flag_rounded,
-                            color: Colors.redAccent,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Declared Destination: ${dropoff.isEmpty ? 'N/A' : dropoff}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (distanceToDestinationKm != null) ...[
-                        const SizedBox(height: 8),
-                        Divider(
-                          height: 1,
-                          color: isDark ? Colors.white10 : Colors.grey.shade200,
-                        ),
-                        const SizedBox(height: 8),
+                    child: Column(
+                      children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  distanceToDestinationKm <= 5.0
-                                      ? Icons.check_circle_rounded
-                                      : (distanceToDestinationKm > 75.0
-                                          ? Icons.warning_amber_rounded
-                                          : Icons.navigation_rounded),
-                                  size: 14,
-                                  color: distanceToDestinationKm <= 5.0
-                                      ? Colors.green
-                                      : (distanceToDestinationKm > 75.0
-                                          ? Colors.orange
-                                          : AppColors.primary),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  distanceToDestinationKm <= 5.0
-                                      ? 'Within Destination Area (< 5 km)'
-                                      : (distanceToDestinationKm > 75.0
-                                          ? 'Destination Route Warning (> 75 km)'
-                                          : 'En Route to Destination'),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: distanceToDestinationKm <= 5.0
-                                        ? Colors.green
-                                        : (distanceToDestinationKm > 75.0
-                                            ? Colors.orange
-                                            : (isDark
-                                                ? Colors.white70
-                                                : Colors.black87)),
-                                  ),
-                                ),
-                              ],
+                            const Icon(
+                              Icons.trip_origin_rounded,
+                              color: Colors.green,
+                              size: 16,
                             ),
-                            Text(
-                              '${distanceToDestinationKm.toStringAsFixed(1)} km away',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: isDark ? Colors.white : Colors.black87,
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Pickup: ${pickup.isEmpty ? 'N/A' : pickup}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.grey[300]
+                                      : Colors.grey[800],
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.flag_rounded,
+                              color: Colors.redAccent,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Declared Destination: ${dropoff.isEmpty ? 'N/A' : dropoff}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (distanceToDestinationKm != null) ...[
+                          const SizedBox(height: 8),
+                          Divider(
+                            height: 1,
+                            color:
+                                isDark ? Colors.white10 : Colors.grey.shade200,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    distanceToDestinationKm <= 5.0
+                                        ? Icons.check_circle_rounded
+                                        : (distanceToDestinationKm > 75.0
+                                            ? Icons.warning_amber_rounded
+                                            : Icons.navigation_rounded),
+                                    size: 14,
+                                    color: distanceToDestinationKm <= 5.0
+                                        ? Colors.green
+                                        : (distanceToDestinationKm > 75.0
+                                            ? Colors.orange
+                                            : AppColors.primary),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    distanceToDestinationKm <= 5.0
+                                        ? 'Within Destination Area (< 5 km)'
+                                        : (distanceToDestinationKm > 75.0
+                                            ? 'Destination Route Warning (> 75 km)'
+                                            : 'En Route to Destination'),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: distanceToDestinationKm <= 5.0
+                                          ? Colors.green
+                                          : (distanceToDestinationKm > 75.0
+                                              ? Colors.orange
+                                              : (isDark
+                                                  ? Colors.white70
+                                                  : Colors.black87)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                '${distanceToDestinationKm.toStringAsFixed(1)} km away',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Live Lat/Lng: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'}',
+                      'Live Coordinates: ${lat?.toStringAsFixed(5) ?? 'N/A'}, ${lng?.toStringAsFixed(5) ?? 'N/A'}',
                       style: TextStyle(
                         fontSize: 11,
                         color: isDark ? Colors.grey[500] : Colors.grey[600],
                       ),
                     ),
                     Text(
-                      'Updated: ${location['recorded_at'] ?? 'N/A'}',
+                      'Last Sync: ${location['recorded_at'] ?? 'N/A'}',
                       style: TextStyle(
                         fontSize: 11,
                         color: isDark ? Colors.grey[500] : Colors.grey[600],

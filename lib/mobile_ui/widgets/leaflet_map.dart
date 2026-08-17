@@ -21,6 +21,9 @@ class MobilisMapMarker {
   final IconData icon;
   final Color color;
   final double size;
+  final String? tooltip;
+  final String? label;
+  final VoidCallback? onTap;
 
   const MobilisMapMarker({
     required this.latitude,
@@ -28,6 +31,9 @@ class MobilisMapMarker {
     this.icon = Icons.location_pin,
     this.color = AppColors.primary,
     this.size = 44,
+    this.tooltip,
+    this.label,
+    this.onTap,
   });
 
   LatLng get point => LatLng(latitude, longitude);
@@ -170,15 +176,83 @@ class MobilisLeafletMap extends StatelessWidget {
                   .map(
                     (marker) => Marker(
                       point: marker.point,
-                      width: marker.size + 10,
-                      height: marker.size + 10,
-                      child: Icon(
-                        marker.icon,
-                        size: marker.size,
-                        color: marker.color,
-                        shadows: const [
-                          Shadow(color: Colors.black54, blurRadius: 8),
-                        ],
+                      width: marker.label != null ? 140 : marker.size + 14,
+                      height: marker.label != null
+                          ? marker.size + 30
+                          : marker.size + 14,
+                      child: GestureDetector(
+                        onTap: marker.onTap,
+                        child: Tooltip(
+                          message: marker.tooltip ?? marker.label ?? '',
+                          waitDuration: const Duration(milliseconds: 100),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF071D31),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: marker.color,
+                              width: 1.2,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 8,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          textStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            letterSpacing: 0.3,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (marker.label != null &&
+                                  marker.label!.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  margin: const EdgeInsets.only(bottom: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                      0xFF071D31,
+                                    ).withValues(alpha: 0.92),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: marker.color.withValues(alpha: 0.8),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    marker.label!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              Icon(
+                                marker.icon,
+                                size: marker.size,
+                                color: marker.color,
+                                shadows: const [
+                                  Shadow(color: Colors.black87, blurRadius: 8),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   )
