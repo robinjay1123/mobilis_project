@@ -584,42 +584,77 @@ class BookingService {
       bookingPayload['co_traveler_selfie_url'] = coTravelerSelfieUrl.trim();
 
       Map<String, dynamic> response;
-      try {
-        response = await supabase
-            .from('bookings')
-            .insert(bookingPayload)
-            .select()
-            .single();
-      } on PostgrestException catch (e) {
-        if (e.code == 'PGRST204' ||
-            e.message.toLowerCase().contains('column') ||
-            e.message.toLowerCase().contains('applied_voucher') ||
-            e.message.toLowerCase().contains('discount_amount')) {
-          debugPrint(
-            'Schema column mismatch when inserting booking ($e). Retrying after stripping unsupported fields...',
-          );
-          final retryPayload = Map<String, dynamic>.from(bookingPayload);
-          retryPayload.remove('applied_voucher');
-          retryPayload.remove('discount_amount');
+      var currentPayload = Map<String, dynamic>.from(bookingPayload);
+      int retryCount = 0;
 
-          if (appliedVoucher != null && appliedVoucher.isNotEmpty) {
-            final voucherNote =
-                '[Voucher: $appliedVoucher, Discount: ₱${discountAmount ?? 0}]';
-            final existingNotes = retryPayload['notes']?.toString() ?? '';
-            retryPayload['notes'] = existingNotes.isNotEmpty
-                ? '$existingNotes | $voucherNote'
-                : voucherNote;
-          }
-
+      while (true) {
+        try {
           response = await supabase
               .from('bookings')
-              .insert(retryPayload)
+              .insert(currentPayload)
               .select()
               .single();
-        } else if (e.message.toLowerCase().contains('unavailable')) {
-          throw Exception('Selected dates are unavailable for bookings');
-        } else {
-          rethrow;
+          break;
+        } on PostgrestException catch (e) {
+          if (e.code == 'PGRST204' ||
+              e.message.toLowerCase().contains('column') ||
+              e.message.toLowerCase().contains('schema cache')) {
+            retryCount++;
+            if (retryCount > 8) {
+              rethrow;
+            }
+
+            debugPrint(
+              'Schema column mismatch when inserting booking ($e). Dynamically stripping missing column and retrying...',
+            );
+
+            // Extract the missing column name from the error message
+            final match = RegExp(r"'(?:public\.)?(?:bookings\.)?([a-zA-Z0-9_]+)'\s*column|column\s*'(?:public\.)?(?:bookings\.)?([a-zA-Z0-9_]+)'|find the '([a-zA-Z0-9_]+)' column", caseSensitive: false).firstMatch(e.message);
+            final missingCol = match?.group(1) ?? match?.group(2) ?? match?.group(3);
+
+            if (missingCol != null && currentPayload.containsKey(missingCol)) {
+              final val = currentPayload.remove(missingCol);
+              debugPrint('Stripped missing column: $missingCol (value: $val)');
+              if (val != null && val.toString().isNotEmpty) {
+                final note = '[$missingCol: $val]';
+                final existingNotes = currentPayload['notes']?.toString() ?? '';
+                currentPayload['notes'] = existingNotes.isNotEmpty
+                    ? '$existingNotes | $note'
+                    : note;
+              }
+            } else {
+              // Fallback stripping of newer optional columns
+              final optionalCols = [
+                'reservation_payment_sender_phone',
+                'reservation_payment_type',
+                'reservation_payment_covers_total',
+                'reservation_payment_reference',
+                'reservation_payment_proof_url',
+                'reservation_payment_method',
+                'reservation_payment_status',
+                'reservation_payment_submitted_at',
+                'applied_voucher',
+                'discount_amount',
+                'rental_terms_snapshot',
+                'refund_phone',
+              ];
+              bool removedAny = false;
+              for (final col in optionalCols) {
+                if (currentPayload.containsKey(col)) {
+                  currentPayload.remove(col);
+                  removedAny = true;
+                  break;
+                }
+              }
+              if (!removedAny) {
+                rethrow;
+              }
+            }
+          } else if (e.message.toLowerCase().contains('unavailable')) {
+            throw Exception('Selected dates are unavailable for bookings');
+          } else {
+            rethrow;
+          }
         }
       }
 
