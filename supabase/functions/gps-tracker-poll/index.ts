@@ -55,73 +55,122 @@ async function aikaLogin(
   deviceIdentifier: string,
   password: string,
 ): Promise<{ success: boolean; deviceId?: string; model?: string; cookie?: string; serverUsed?: string }> {
-  const loginEndpoints = ["/Login", "/Login.aspx", "/Ajax/Login.ashx", "/login.aspx"];
+  const loginEndpoints = ["/Login", "/Login.aspx", "/Ajax/Login.ashx", "/login.aspx", "/Ajax/login.ashx"];
   const passwordsToTry = [password, "123456", "000000"].filter(
     (p, idx, arr) => Boolean(p) && arr.indexOf(p) === idx
   );
 
-  for (const pass of passwordsToTry) {
-    const payload = new URLSearchParams({
-      Name: deviceIdentifier,
-      Pass: pass,
-      LoginType: "1",
-      LoginAPP: "AKSH",
-      GMT: "8:00",
-      Key: AIKA_APP_KEY,
-    });
+  const raw = deviceIdentifier.trim();
+  const last5 = raw.slice(-5);
+  const nameCandidates = [
+    raw,
+    `AK-${last5}`,
+    `AK-${raw}`,
+    raw.replace(/^AK-?/i, ""),
+    `0${raw}`,
+  ].filter((v, idx, arr) => Boolean(v) && arr.indexOf(v) === idx);
 
-    for (const endpoint of loginEndpoints) {
-      try {
-        const loginUrl = `${apiServer}${endpoint}`;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 6000);
-        const resp = await fetch(loginUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: payload.toString(),
-          signal: controller.signal,
+  for (const name of nameCandidates) {
+    for (const pass of passwordsToTry) {
+      for (const loginType of ["1", "2"]) {
+        // App payload
+        const payload = new URLSearchParams({
+          Name: name,
+          Pass: pass,
+          LoginType: loginType,
+          LoginAPP: "AKSH",
+          GMT: "8:00",
+          Key: AIKA_APP_KEY,
         });
-        clearTimeout(timeout);
 
-        const text = await resp.text();
-        let data: any;
+        for (const endpoint of loginEndpoints) {
+          try {
+            const loginUrl = `${apiServer}${endpoint}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 6000);
+            const resp = await fetch(loginUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: payload.toString(),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+
+            const cookie = resp.headers.get("set-cookie") ?? "";
+            const text = await resp.text();
+            let data: any = null;
+            try {
+              data = JSON.parse(text);
+            } catch {
+              // Not JSON, check if redirect or cookie is set for Monitor.aspx
+              if (resp.status === 200 || resp.status === 302) {
+                if (cookie && (cookie.includes("ASP.NET_SessionId") || cookie.includes("Token") || cookie.includes("user"))) {
+                  return {
+                    success: true,
+                    deviceId: name,
+                    model: "AK",
+                    cookie,
+                    serverUsed: apiServer,
+                  };
+                }
+              }
+            }
+
+            if (data && data.deviceInfo) {
+              return {
+                success: true,
+                deviceId:
+                  data.deviceInfo.ID?.toString() ??
+                  data.deviceInfo.id?.toString() ??
+                  name,
+                model:
+                  data.deviceInfo.Model?.toString() ??
+                  data.deviceInfo.model?.toString() ??
+                  "AK",
+                cookie,
+                serverUsed: apiServer,
+              };
+            }
+
+            if (data && (data.Result === 0 || data.result === 0 || data.code === 0 || data.success === true)) {
+              return {
+                success: true,
+                deviceId:
+                  data.DeviceID?.toString() ??
+                  data.deviceID?.toString() ??
+                  data.id?.toString() ??
+                  name,
+                model: data.Model?.toString() ?? "AK",
+                cookie,
+                serverUsed: apiServer,
+              };
+            }
+          } catch {
+            // Continue
+          }
+        }
+
+        // Also try web query format: /Ajax/Login.ashx?action=login&username=...&password=...
         try {
-          data = JSON.parse(text);
-        } catch {
-          continue;
-        }
-
-        if (data && data.deviceInfo) {
+          const webLoginUrl = `${apiServer}/Ajax/Login.ashx?action=login&username=${encodeURIComponent(name)}&password=${encodeURIComponent(pass)}&loginType=${loginType}`;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 6000);
+          const resp = await fetch(webLoginUrl, { signal: controller.signal });
+          clearTimeout(timeout);
           const cookie = resp.headers.get("set-cookie") ?? "";
-          return {
-            success: true,
-            deviceId:
-              data.deviceInfo.ID?.toString() ??
-              data.deviceInfo.id?.toString() ??
-              deviceIdentifier,
-            model:
-              data.deviceInfo.Model?.toString() ??
-              data.deviceInfo.model?.toString() ??
-              "",
-            cookie,
-            serverUsed: apiServer,
-          };
+          const text = await resp.text();
+          if (resp.ok && (text.includes("true") || text.includes("1") || text.includes("success") || cookie.length > 5)) {
+            return {
+              success: true,
+              deviceId: name,
+              model: "AK",
+              cookie,
+              serverUsed: apiServer,
+            };
+          }
+        } catch {
+          // Continue
         }
-
-        if (data && (data.Result === 0 || data.result === 0 || data.code === 0)) {
-          return {
-            success: true,
-            deviceId:
-              data.DeviceID?.toString() ??
-              data.deviceID?.toString() ??
-              deviceIdentifier,
-            model: data.Model?.toString() ?? "",
-            cookie: resp.headers.get("set-cookie") ?? "",
-            serverUsed: apiServer,
-          };
-        }
-      } catch (e) {
-        // Continue to next endpoint
       }
     }
   }
@@ -138,18 +187,25 @@ async function aikaGetLocation(
   const endpoints = [
     "/GetLocation",
     "/Ajax/GetLocation.ashx",
+    "/Ajax/GetMonitor.ashx",
+    "/Ajax/GetDeviceList.ashx",
+    "/Ajax/Devices.ashx",
     "/Location",
     "/getlocation.aspx",
     "/GetLocation.aspx",
+    "/Monitor.aspx",
   ];
 
   const params = new URLSearchParams({
     DeviceID: deviceId,
-    Model: model || "",
+    Model: model || "AK",
+    action: "getlocation",
+    id: deviceId,
   });
 
   const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   };
   if (cookie) {
     headers["Cookie"] = cookie;
@@ -160,10 +216,11 @@ async function aikaGetLocation(
       const url = `${apiServer}${endpoint}`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
+      const isGet = endpoint.endsWith(".aspx") || endpoint.includes("Monitor");
       const resp = await fetch(url, {
-        method: "POST",
+        method: isGet ? "GET" : "POST",
         headers,
-        body: params.toString(),
+        body: isGet ? undefined : params.toString(),
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -171,29 +228,58 @@ async function aikaGetLocation(
       if (!resp.ok) continue;
 
       const text = await resp.text();
-      let data: any;
+      let data: any = null;
       try {
         data = JSON.parse(text);
       } catch {
-        continue;
+        // Parse from HTML table (like Monitor.aspx)
+        const latMatch = text.match(/Latitude[^0-9]*([0-9]+\.[0-9]+)/i) ||
+          text.match(/([0-9]{2}\.[0-9]{4,8})[\s,]+([0-9]{3}\.[0-9]{4,8})/);
+        const lngMatch = text.match(/Longitude[^0-9]*([0-9]+\.[0-9]+)/i);
+
+        if (latMatch && lngMatch) {
+          const lat = parseFloat(latMatch[1]);
+          const lng = parseFloat(lngMatch[1]);
+          if (lat > 0 && lng > 0) {
+            return {
+              latitude: lat,
+              longitude: lng,
+              speed_kph: 0.0,
+              ignition: !text.includes("ACC OFF"),
+              online: !text.includes("Offline"),
+              gps_time: new Date().toISOString(),
+              battery: 100,
+              status_text: "Online via AIKA Monitor",
+            };
+          }
+        }
       }
 
-      const lat = parseFloat(data.lat ?? data.Lat ?? data.latitude ?? data.Latitude ?? "0");
-      const lng = parseFloat(data.lng ?? data.Lng ?? data.longitude ?? data.Longitude ?? "0");
+      if (data) {
+        if (Array.isArray(data) && data.length > 0) {
+          data = data[0];
+        }
+        if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+          data = data.data[0];
+        }
 
-      if (lat !== 0 || lng !== 0) {
-        return {
-          latitude: lat,
-          longitude: lng,
-          speed_kph: parseFloat(data.speed ?? data.Speed ?? data.spd ?? "0"),
-          ignition: data.work === 1 || data.Work === 1 || data.ignition === true || data.ACC === 1,
-          online: data.ofl !== 1 && data.Ofl !== 1,
-          gps_time: data.positiontime ?? data.PositionTime ?? data.gps_time ?? null,
-          battery: parseFloat(data.battery ?? data.Battery ?? "0"),
-          status_text: data.state ?? data.State ?? data.status ?? "GPS Online",
-        };
+        const lat = parseFloat(data.lat ?? data.Lat ?? data.latitude ?? data.Latitude ?? data.B_Lat ?? "0");
+        const lng = parseFloat(data.lng ?? data.Lng ?? data.longitude ?? data.Longitude ?? data.B_Lng ?? "0");
+
+        if (lat !== 0 || lng !== 0) {
+          return {
+            latitude: lat,
+            longitude: lng,
+            speed_kph: parseFloat(data.speed ?? data.Speed ?? data.spd ?? "0"),
+            ignition: data.work === 1 || data.Work === 1 || data.ignition === true || data.ACC === 1 || data.acc === "ON",
+            online: data.ofl !== 1 && data.Ofl !== 1 && data.online !== false,
+            gps_time: data.positiontime ?? data.PositionTime ?? data.gps_time ?? data.time ?? null,
+            battery: parseFloat(data.battery ?? data.Battery ?? "100"),
+            status_text: data.state ?? data.State ?? data.status ?? "GPS Online",
+          };
+        }
       }
-    } catch (e) {
+    } catch {
       // Continue to next endpoint
     }
   }
@@ -218,7 +304,7 @@ async function pollAika(
       const location = await aikaGetLocation(
         apiServer,
         login.deviceId!,
-        login.model ?? "",
+        login.model ?? "AK",
         login.cookie,
       );
 
@@ -229,7 +315,7 @@ async function pollAika(
           diagnostics: { server: apiServer, deviceId: login.deviceId },
         };
       }
-    } catch (err) {
+    } catch {
       // Try next server
     }
   }
