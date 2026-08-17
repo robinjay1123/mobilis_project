@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:image_picker/image_picker.dart';
@@ -24,7 +23,7 @@ class BookingEvidenceService {
         : 'jpg';
     final objectPath =
         '$userId/${evidenceType}_${DateTime.now().millisecondsSinceEpoch}.$extension';
-    final originalBytes = await File(file.path).readAsBytes();
+    final originalBytes = await file.readAsBytes();
     final bytes = await ImageOptimizationService.optimizeForUpload(
       originalBytes,
       fileName: objectPath,
