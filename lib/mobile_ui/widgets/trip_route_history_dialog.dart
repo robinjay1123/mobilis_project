@@ -1,9 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
 
-import '../../mobile_ui/theme/app_colors.dart';
 import '../../services/tracking_service.dart';
 
 class TripRouteHistoryDialog extends StatefulWidget {
@@ -50,10 +50,25 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
   bool _isLoading = true;
   Map<String, dynamic>? _auditData;
 
+  // Video Playback Simulation State
+  bool _isPlaying = false;
+  double _playbackSpeed = 1.0; // 0.5x, 1x, 2x, 5x, 10x, 20x, 50x
+  int _currentPlaybackIndex = 0;
+  Timer? _playbackTimer;
+  bool _autoFollowCar = true;
+
+  final List<double> _availableSpeeds = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0];
+
   @override
   void initState() {
     super.initState();
     _loadRouteData();
+  }
+
+  @override
+  void dispose() {
+    _playbackTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadRouteData() async {
@@ -66,6 +81,8 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
         setState(() {
           _auditData = data;
           _isLoading = false;
+          final pts = (data['routePoints'] as List<dynamic>? ?? []);
+          _currentPlaybackIndex = pts.isNotEmpty ? pts.length - 1 : 0;
         });
       }
     } catch (e) {
@@ -73,6 +90,85 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  List<Map<String, dynamic>> _getPoints() {
+    final raw = _auditData?['routePoints'] as List<dynamic>? ?? [];
+    return raw.map((p) => p as Map<String, dynamic>).toList();
+  }
+
+  void _startPlayback() {
+    final points = _getPoints();
+    if (points.isEmpty) return;
+
+    if (_currentPlaybackIndex >= points.length - 1) {
+      _currentPlaybackIndex = 0;
+    }
+
+    _playbackTimer?.cancel();
+    setState(() => _isPlaying = true);
+
+    // Calculate dynamic timer interval based on playback speed (base: 600ms per point / speed)
+    final intervalMs = (600 / _playbackSpeed).clamp(25.0, 1200.0).round();
+
+    _playbackTimer = Timer.periodic(Duration(milliseconds: intervalMs), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_currentPlaybackIndex < points.length - 1) {
+        setState(() {
+          _currentPlaybackIndex++;
+        });
+
+        if (_autoFollowCar) {
+          final pt = points[_currentPlaybackIndex];
+          final lat = (pt['latitude'] as num?)?.toDouble();
+          final lng = (pt['longitude'] as num?)?.toDouble();
+          if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+            _mapController.move(LatLng(lat, lng), _mapController.camera.zoom);
+          }
+        }
+      } else {
+        timer.cancel();
+        setState(() => _isPlaying = false);
+      }
+    });
+  }
+
+  void _pausePlayback() {
+    _playbackTimer?.cancel();
+    setState(() => _isPlaying = false);
+  }
+
+  void _seekTo(int index) {
+    final points = _getPoints();
+    if (points.isEmpty) return;
+    final clamped = index.clamp(0, points.length - 1);
+    setState(() {
+      _currentPlaybackIndex = clamped;
+    });
+
+    if (_autoFollowCar) {
+      final pt = points[clamped];
+      final lat = (pt['latitude'] as num?)?.toDouble();
+      final lng = (pt['longitude'] as num?)?.toDouble();
+      if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+        _mapController.move(LatLng(lat, lng), _mapController.camera.zoom);
+      }
+    }
+
+    if (_isPlaying) {
+      _startPlayback(); // restart timer with current position
+    }
+  }
+
+  void _setPlaybackSpeed(double speed) {
+    setState(() => _playbackSpeed = speed);
+    if (_isPlaying) {
+      _startPlayback(); // restart timer with new interval
     }
   }
 
@@ -86,13 +182,13 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: EdgeInsets.symmetric(
-        horizontal: isCompact ? 16 : 32,
-        vertical: isCompact ? 24 : 32,
+        horizontal: isCompact ? 14 : 32,
+        vertical: isCompact ? 20 : 32,
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 950,
-          maxHeight: size.height * 0.88,
+          maxWidth: 980,
+          maxHeight: size.height * 0.90,
         ),
         child: Container(
           decoration: BoxDecoration(
@@ -100,9 +196,9 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: const [
               BoxShadow(
-                color: Colors.black45,
-                blurRadius: 28,
-                offset: Offset(0, 14),
+                color: Colors.black54,
+                blurRadius: 32,
+                offset: Offset(0, 16),
               ),
             ],
           ),
@@ -130,7 +226,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
 
   Widget _buildHeader(bool isDark) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 20, 20, 18),
+      padding: const EdgeInsets.fromLTRB(22, 18, 16, 16),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF0D141E) : const Color(0xFF0F1B2B),
         border: Border(
@@ -144,11 +240,11 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
+              color: const Color(0xFFE5A93C).withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(
-              Icons.route_rounded,
+              Icons.play_circle_filled_rounded,
               color: Color(0xFFE5A93C),
               size: 22,
             ),
@@ -158,13 +254,37 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Trip Route History & Destination Audit',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    const Text(
+                      'Trip Playback & Destination Audit',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE5A93C).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: const Color(0xFFE5A93C).withValues(alpha: 0.6),
+                        ),
+                      ),
+                      child: const Text(
+                        'VIDEO REPLAY',
+                        style: TextStyle(
+                          color: Color(0xFFE5A93C),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -196,21 +316,28 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     final maxDeviationKm = (data['maxDeviationKm'] as num?)?.toDouble() ?? 0.0;
     final totalDistanceKm = (data['totalDistanceKm'] as num?)?.toDouble() ?? 0.0;
     final topSpeedKph = (data['topSpeedKph'] as num?)?.toDouble() ?? 0.0;
-    final pointsCount = (data['pointsCount'] as num?)?.toInt() ?? 0;
-    final dropoffLocation = data['dropoffLocation']?.toString() ?? 'Agreed Destination';
-    final pickupLocation = data['pickupLocation']?.toString() ?? 'Pickup Origin';
+    final points = _getPoints();
+    final pointsCount = points.length;
+    final dropoffLocation =
+        data['dropoffLocation']?.toString() ?? 'Agreed Destination';
     final booking = (data['booking'] as Map<String, dynamic>?) ?? {};
 
-    final routePoints = (data['routePoints'] as List<dynamic>? ?? [])
-        .map((p) => p as Map<String, dynamic>)
-        .toList();
-
-    final List<LatLng> polylineCoordinates = [];
-    for (final p in routePoints) {
+    // All polyline coordinates
+    final List<LatLng> fullPolyline = [];
+    for (final p in points) {
       final lat = (p['latitude'] as num?)?.toDouble();
       final lng = (p['longitude'] as num?)?.toDouble();
       if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
-        polylineCoordinates.add(LatLng(lat, lng));
+        fullPolyline.add(LatLng(lat, lng));
+      }
+    }
+
+    // Coordinates up to current playback index
+    final List<LatLng> traveledPolyline = [];
+    final activeIndex = _currentPlaybackIndex.clamp(0, fullPolyline.isNotEmpty ? fullPolyline.length - 1 : 0);
+    if (fullPolyline.isNotEmpty) {
+      for (int i = 0; i <= activeIndex && i < fullPolyline.length; i++) {
+        traveledPolyline.add(fullPolyline[i]);
       }
     }
 
@@ -219,9 +346,34 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     final dropoffLat = (booking['dropoff_latitude'] as num?)?.toDouble();
     final dropoffLng = (booking['dropoff_longitude'] as num?)?.toDouble();
 
-    LatLng initialCenter = const LatLng(14.5995, 120.9842); // Manila default
-    if (polylineCoordinates.isNotEmpty) {
-      initialCenter = polylineCoordinates.first;
+    LatLng? currentCarPos;
+    double currentSpeedKph = 0.0;
+    String currentTimestamp = '';
+
+    if (points.isNotEmpty && activeIndex < points.length) {
+      final curPt = points[activeIndex];
+      final lat = (curPt['latitude'] as num?)?.toDouble();
+      final lng = (curPt['longitude'] as num?)?.toDouble();
+      if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+        currentCarPos = LatLng(lat, lng);
+      }
+      currentSpeedKph = (((curPt['speed_mps'] as num?) ?? 0) * 3.6).toDouble();
+      final recAt = curPt['recorded_at']?.toString();
+      if (recAt != null && recAt.isNotEmpty) {
+        try {
+          final dt = DateTime.parse(recAt).toLocal();
+          currentTimestamp = DateFormat('hh:mm:ss a • MMM d').format(dt);
+        } catch (_) {
+          currentTimestamp = recAt;
+        }
+      }
+    }
+
+    LatLng initialCenter = const LatLng(14.5995, 120.9842);
+    if (currentCarPos != null) {
+      initialCenter = currentCarPos;
+    } else if (fullPolyline.isNotEmpty) {
+      initialCenter = fullPolyline.first;
     } else if (pickupLat != null && pickupLng != null) {
       initialCenter = LatLng(pickupLat, pickupLng);
     }
@@ -230,17 +382,17 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
       children: [
         // Top Stats & Alert Banner
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           color: isDark ? const Color(0xFF16202E) : const Color(0xFFF7FAFC),
           child: Column(
             children: [
               if (!isCompliant)
                 Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xFFE53935).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: const Color(0xFFE53935).withValues(alpha: 0.4),
                       width: 1.2,
@@ -249,39 +401,26 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE53935).withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
                           Icons.warning_amber_rounded,
                           color: Color(0xFFE53935),
-                          size: 22,
+                          size: 18,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Destination Violation / Route Deviation Detected',
-                              style: TextStyle(
-                                color: Color(0xFFE53935),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Vehicle operated ${maxDeviationKm.toStringAsFixed(1)} km outside the agreed destination ($dropoffLocation). Recommended Destination Penalty: ₱${NumberFormat('#,##0.00').format(penaltyAmount)}',
-                              style: TextStyle(
-                                color: isDark ? Colors.white70 : Colors.black87,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          'Destination Deviation: Vehicle traveled ${maxDeviationKm.toStringAsFixed(1)} km outside stated dropoff ($dropoffLocation). Recommended Penalty: ₱${NumberFormat('#,##0.00').format(penaltyAmount)}',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFFB71C1C),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -289,11 +428,11 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                 )
               else
                 Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: const Color(0xFF178A5B).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: const Color(0xFF178A5B).withValues(alpha: 0.35),
                       width: 1.2,
@@ -304,35 +443,35 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                       const Icon(
                         Icons.check_circle_outline,
                         color: Color(0xFF178A5B),
-                        size: 20,
+                        size: 18,
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Destination Compliant: The vehicle stayed within the agreed destination corridor ($dropoffLocation). No destination penalty required.',
+                          'Destination Compliant: Stayed within declared destination corridor ($dropoffLocation). No penalty required.',
                           style: TextStyle(
                             color: isDark ? Colors.white70 : const Color(0xFF0F5132),
                             fontWeight: FontWeight.w600,
-                            fontSize: 12,
+                            fontSize: 11,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              // Stats cards
+              // Compact 4-stat bar
               Row(
                 children: [
                   Expanded(
                     child: _statCard(
-                      label: 'Distance Traveled',
+                      label: 'Total Distance',
                       value: '${totalDistanceKm.toStringAsFixed(1)} km',
                       icon: Icons.alt_route_rounded,
                       color: const Color(0xFF3B82F6),
                       isDark: isDark,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _statCard(
                       label: 'Top Speed',
@@ -342,11 +481,21 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                       isDark: isDark,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _statCard(
-                      label: 'GPS Trail Points',
-                      value: '$pointsCount logs',
+                      label: 'Current Speed',
+                      value: '${currentSpeedKph.toStringAsFixed(0)} km/h',
+                      icon: Icons.electric_meter_rounded,
+                      color: const Color(0xFF8B5CF6),
+                      isDark: isDark,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _statCard(
+                      label: 'Trail Logs',
+                      value: '${activeIndex + 1} / $pointsCount',
                       icon: Icons.gps_fixed_rounded,
                       color: const Color(0xFF10B981),
                       isDark: isDark,
@@ -358,7 +507,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
           ),
         ),
 
-        // Interactive Map
+        // Interactive Leaflet Map + Video Playback Controls Overlay
         Expanded(
           child: Stack(
             children: [
@@ -366,7 +515,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                 mapController: _mapController,
                 options: MapOptions(
                   initialCenter: initialCenter,
-                  initialZoom: polylineCoordinates.isNotEmpty ? 13.5 : 12.0,
+                  initialZoom: fullPolyline.isNotEmpty ? 13.5 : 12.0,
                 ),
                 children: [
                   TileLayer(
@@ -374,12 +523,26 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.psdc.mobilis',
                   ),
-                  if (polylineCoordinates.length > 1)
+                  // Background remaining route (translucent dashed/light blue)
+                  if (fullPolyline.length > 1)
                     PolylineLayer(
                       polylines: [
                         Polyline(
-                          points: polylineCoordinates,
-                          strokeWidth: 5.0,
+                          points: fullPolyline,
+                          strokeWidth: 4.0,
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.25)
+                              : Colors.blueGrey.withValues(alpha: 0.35),
+                        ),
+                      ],
+                    ),
+                  // Active traveled polyline up to current playback frame (bold neon blue)
+                  if (traveledPolyline.length > 1)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: traveledPolyline,
+                          strokeWidth: 5.5,
                           color: const Color(0xFF0077FF),
                         ),
                       ],
@@ -408,28 +571,29 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                             size: 38,
                           ),
                         ),
-                      if (polylineCoordinates.isNotEmpty)
+                      // Animated moving car marker
+                      if (currentCarPos != null)
                         Marker(
-                          point: polylineCoordinates.last,
-                          width: 44,
-                          height: 44,
+                          point: currentCarPos,
+                          width: 48,
+                          height: 48,
                           child: Container(
                             decoration: BoxDecoration(
                               color: const Color(0xFF0077FF),
                               shape: BoxShape.circle,
-                              boxShadow: const [
+                              boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black38,
-                                  blurRadius: 8,
-                                  offset: Offset(0, 3),
+                                  color: const Color(0xFF0077FF).withValues(alpha: 0.6),
+                                  blurRadius: 16,
+                                  spreadRadius: 3,
                                 ),
                               ],
-                              border: Border.all(color: Colors.white, width: 2.5),
+                              border: Border.all(color: Colors.white, width: 2.8),
                             ),
                             child: const Icon(
                               Icons.directions_car_filled,
                               color: Colors.white,
-                              size: 22,
+                              size: 24,
                             ),
                           ),
                         ),
@@ -437,33 +601,313 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                   ),
                 ],
               ),
-              // Map overlay legend
+
+              // Map legend badge (top left)
               Positioned(
-                bottom: 16,
-                left: 16,
+                top: 14,
+                left: 14,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: isDark
                         ? const Color(0xFF0D141E).withValues(alpha: 0.92)
                         : Colors.white.withValues(alpha: 0.94),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     boxShadow: const [
                       BoxShadow(
                         color: Colors.black26,
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
+                        blurRadius: 8,
+                        offset: Offset(0, 3),
                       ),
                     ],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _legendDot(const Color(0xFF178A5B), 'Pickup Origin'),
-                      const SizedBox(width: 14),
-                      _legendDot(const Color(0xFFD97706), 'Agreed Destination'),
-                      const SizedBox(width: 14),
-                      _legendDot(const Color(0xFF0077FF), 'Traveled GPS Trail'),
+                      _legendDot(const Color(0xFF178A5B), 'Pickup'),
+                      const SizedBox(width: 10),
+                      _legendDot(const Color(0xFFD97706), 'Destination'),
+                      const SizedBox(width: 10),
+                      _legendDot(const Color(0xFF0077FF), 'Traveled Trail'),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Current Timestamp & Speed HUD overlay (top right)
+              if (currentTimestamp.isNotEmpty)
+                Positioned(
+                  top: 14,
+                  right: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF0D141E).withValues(alpha: 0.92)
+                          : Colors.white.withValues(alpha: 0.94),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.access_time_filled_rounded,
+                          color: Color(0xFFE5A93C),
+                          size: 15,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          currentTimestamp,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // VIDEO-LIKE PLAYBACK CONTROLLER DOCK (Bottom center)
+              Positioned(
+                bottom: 14,
+                left: 14,
+                right: 14,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF090E17).withValues(alpha: 0.96)
+                        : const Color(0xFF1E293B).withValues(alpha: 0.96),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black54,
+                        blurRadius: 20,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Timeline Scrubber Slider + Progress Percent
+                      Row(
+                        children: [
+                          Text(
+                            pointsCount > 0 ? '${activeIndex + 1}' : '0',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 4.0,
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 7.0,
+                                ),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 14.0,
+                                ),
+                                activeTrackColor: const Color(0xFFE5A93C),
+                                inactiveTrackColor: Colors.white24,
+                                thumbColor: const Color(0xFFE5A93C),
+                                overlayColor:
+                                    const Color(0xFFE5A93C).withValues(alpha: 0.2),
+                              ),
+                              child: Slider(
+                                value: pointsCount > 1
+                                    ? activeIndex.toDouble()
+                                    : 0.0,
+                                min: 0.0,
+                                max: pointsCount > 1
+                                    ? (pointsCount - 1).toDouble()
+                                    : 1.0,
+                                onChanged: pointsCount > 1
+                                    ? (val) => _seekTo(val.round())
+                                    : null,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '$pointsCount',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      // Controls Toolbar: Play/Pause, Rewind, Follow Camera, Speed Chips
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Left: Playback buttons
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Restart / Rewind
+                              IconButton(
+                                onPressed: points.isNotEmpty
+                                    ? () => _seekTo(0)
+                                    : null,
+                                icon: const Icon(
+                                  Icons.replay_rounded,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                tooltip: 'Restart Trip',
+                              ),
+                              // Step Back 5 pts
+                              IconButton(
+                                onPressed: points.isNotEmpty
+                                    ? () => _seekTo(activeIndex - 5)
+                                    : null,
+                                icon: const Icon(
+                                  Icons.fast_rewind_rounded,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                tooltip: 'Step Back',
+                              ),
+                              // Play / Pause Button (Large Hero)
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(30),
+                                  onTap: points.isEmpty
+                                      ? null
+                                      : () {
+                                          if (_isPlaying) {
+                                            _pausePlayback();
+                                          } else {
+                                            _startPlayback();
+                                          }
+                                        },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE5A93C),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFE5A93C)
+                                              .withValues(alpha: 0.45),
+                                          blurRadius: 12,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Icon(
+                                      _isPlaying
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
+                                      color: Colors.black,
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Step Forward 5 pts
+                              IconButton(
+                                onPressed: points.isNotEmpty
+                                    ? () => _seekTo(activeIndex + 5)
+                                    : null,
+                                icon: const Icon(
+                                  Icons.fast_forward_rounded,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                tooltip: 'Step Forward',
+                              ),
+                              // Camera Auto-Follow Toggle
+                              IconButton(
+                                onPressed: () {
+                                  setState(() => _autoFollowCar = !_autoFollowCar);
+                                },
+                                icon: Icon(
+                                  _autoFollowCar
+                                      ? Icons.videocam_rounded
+                                      : Icons.videocam_off_rounded,
+                                  color: _autoFollowCar
+                                      ? const Color(0xFFE5A93C)
+                                      : Colors.white38,
+                                  size: 20,
+                                ),
+                                tooltip: _autoFollowCar
+                                    ? 'Camera Locked on Car'
+                                    : 'Manual Pan Mode',
+                              ),
+                            ],
+                          ),
+
+                          // Right: Speed Multiplier Selector
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Speed: ',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              ..._availableSpeeds.map((spd) {
+                                final isSelected = _playbackSpeed == spd;
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(6),
+                                    onTap: () => _setPlaybackSpeed(spd),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSelected
+                                            ? const Color(0xFFE5A93C)
+                                            : Colors.white12,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        '${spd == 0.5 ? '0.5' : spd.toStringAsFixed(0)}x',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: isSelected
+                                              ? Colors.black
+                                              : Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -480,11 +924,11 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 10,
-          height: 10,
+          width: 9,
+          height: 9,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 5),
         Text(
           label,
           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
@@ -501,18 +945,18 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     required bool isDark,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1A2634) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: isDark ? Colors.white12 : Colors.grey.shade200,
         ),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 8),
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -521,7 +965,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                   label,
                   style: TextStyle(
                     color: isDark ? Colors.white54 : Colors.grey.shade600,
-                    fontSize: 10,
+                    fontSize: 9,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
@@ -532,7 +976,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                   value,
                   style: TextStyle(
                     color: isDark ? Colors.white : Colors.black87,
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
                   maxLines: 1,
@@ -548,7 +992,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
 
   Widget _buildFooter(bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF0D141E) : const Color(0xFFF7FAFC),
         border: Border(
@@ -561,7 +1005,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            'GPS Tracked Live Coordinates recorded automatically',
+            'Interactive video-style playback with variable speeds & live GPS trail',
             style: TextStyle(
               color: isDark ? Colors.white38 : Colors.grey.shade600,
               fontSize: 11,
@@ -572,9 +1016,9 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFE5A93C),
               foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
             ),
             child: const Text(
