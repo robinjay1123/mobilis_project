@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Supabase Edge Function: gps-tracker-poll
 // Server-side proxy to poll GPS tracker providers (AIKA168, Traccar)
-// Avoids CORS issues when calling from Flutter web.
+// Avoids CORS issues and uses authentic AIKA Web Forms + ASMX reverse-engineered protocol.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,14 +10,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// AIKA168 reverse-engineered constants (from nyxnyx/gps_obd2_tracker)
-const AIKA_APP_KEY = "7DU2DJFDR8321";
 const AIKA_SERVERS = [
   "http://en.aika168.com",
   "http://www.aika168.com",
   "http://app.aika168.com",
   "https://en.aika168.com",
-  "https://www.aika168.com",
 ];
 
 function jsonResponse(body: unknown, status = 200) {
@@ -28,260 +25,220 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 // ---------------------------------------------------------------------------
-// AIKA168 Provider
+// AIKA168 Web Forms & ASMX Provider
 // ---------------------------------------------------------------------------
 
-async function aikaDiscoverApiServer(baseServer: string): Promise<string> {
-  const discoveryUrl = `${baseServer}/getapp.aspx`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const resp = await fetch(discoveryUrl, { redirect: "follow", signal: controller.signal });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      const text = (await resp.text()).trim();
-      if (text && text.startsWith("http")) {
-        return text.replace(/\/$/, "");
-      }
-    }
-  } catch (e) {
-    // Discovery endpoint failed, fallback
-  }
-  return baseServer.replace(/\/$/, "");
+interface AikaSession {
+  success: boolean;
+  cookie: string;
+  server: string;
+  internalDeviceId?: number;
+  error?: string;
 }
 
-async function aikaLogin(
-  apiServer: string,
-  deviceIdentifier: string,
+async function aikaLoginWebForms(
+  baseServer: string,
+  identifier: string,
   password: string,
-): Promise<{ success: boolean; deviceId?: string; model?: string; cookie?: string; serverUsed?: string }> {
-  const loginEndpoints = ["/Login", "/Login.aspx", "/Ajax/Login.ashx", "/login.aspx", "/Ajax/login.ashx"];
-  const passwordsToTry = [password, "123456", "000000"].filter(
-    (p, idx, arr) => Boolean(p) && arr.indexOf(p) === idx
-  );
+): Promise<AikaSession> {
+  const cleanId = identifier.trim();
+  const cleanPass = password.trim();
 
-  const raw = deviceIdentifier.trim();
-  const last5 = raw.slice(-5);
-  const nameCandidates = [
-    raw,
-    `AK-${last5}`,
-    `AK-${raw}`,
-    raw.replace(/^AK-?/i, ""),
-    `0${raw}`,
-  ].filter((v, idx, arr) => Boolean(v) && arr.indexOf(v) === idx);
-
-  for (const name of nameCandidates) {
-    for (const pass of passwordsToTry) {
-      for (const loginType of ["1", "2"]) {
-        // App payload
-        const payload = new URLSearchParams({
-          Name: name,
-          Pass: pass,
-          LoginType: loginType,
-          LoginAPP: "AKSH",
-          GMT: "8:00",
-          Key: AIKA_APP_KEY,
-        });
-
-        for (const endpoint of loginEndpoints) {
-          try {
-            const loginUrl = `${apiServer}${endpoint}`;
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 6000);
-            const resp = await fetch(loginUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: payload.toString(),
-              signal: controller.signal,
-            });
-            clearTimeout(timeout);
-
-            const cookie = resp.headers.get("set-cookie") ?? "";
-            const text = await resp.text();
-            let data: any = null;
-            try {
-              data = JSON.parse(text);
-            } catch {
-              // Not JSON, check if redirect or cookie is set for Monitor.aspx
-              if (resp.status === 200 || resp.status === 302) {
-                if (cookie && (cookie.includes("ASP.NET_SessionId") || cookie.includes("Token") || cookie.includes("user"))) {
-                  return {
-                    success: true,
-                    deviceId: name,
-                    model: "AK",
-                    cookie,
-                    serverUsed: apiServer,
-                  };
-                }
-              }
-            }
-
-            if (data && data.deviceInfo) {
-              return {
-                success: true,
-                deviceId:
-                  data.deviceInfo.ID?.toString() ??
-                  data.deviceInfo.id?.toString() ??
-                  name,
-                model:
-                  data.deviceInfo.Model?.toString() ??
-                  data.deviceInfo.model?.toString() ??
-                  "AK",
-                cookie,
-                serverUsed: apiServer,
-              };
-            }
-
-            if (data && (data.Result === 0 || data.result === 0 || data.code === 0 || data.success === true)) {
-              return {
-                success: true,
-                deviceId:
-                  data.DeviceID?.toString() ??
-                  data.deviceID?.toString() ??
-                  data.id?.toString() ??
-                  name,
-                model: data.Model?.toString() ?? "AK",
-                cookie,
-                serverUsed: apiServer,
-              };
-            }
-          } catch {
-            // Continue
-          }
-        }
-
-        // Also try web query format: /Ajax/Login.ashx?action=login&username=...&password=...
-        try {
-          const webLoginUrl = `${apiServer}/Ajax/Login.ashx?action=login&username=${encodeURIComponent(name)}&password=${encodeURIComponent(pass)}&loginType=${loginType}`;
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 6000);
-          const resp = await fetch(webLoginUrl, { signal: controller.signal });
-          clearTimeout(timeout);
-          const cookie = resp.headers.get("set-cookie") ?? "";
-          const text = await resp.text();
-          if (resp.ok && (text.includes("true") || text.includes("1") || text.includes("success") || cookie.length > 5)) {
-            return {
-              success: true,
-              deviceId: name,
-              model: "AK",
-              cookie,
-              serverUsed: apiServer,
-            };
-          }
-        } catch {
-          // Continue
-        }
-      }
-    }
-  }
-
-  return { success: false };
-}
-
-async function aikaGetLocation(
-  apiServer: string,
-  deviceId: string,
-  model: string,
-  cookie?: string,
-): Promise<any | null> {
-  const endpoints = [
-    "/GetLocation",
-    "/Ajax/GetLocation.ashx",
-    "/Ajax/GetMonitor.ashx",
-    "/Ajax/GetDeviceList.ashx",
-    "/Ajax/Devices.ashx",
-    "/Location",
-    "/getlocation.aspx",
-    "/GetLocation.aspx",
-    "/Monitor.aspx",
+  // Try both IMEI format (e.g. 9210186615) and Account format (e.g. AK-86615)
+  const last5 = cleanId.slice(-5);
+  const candidates = [
+    { type: "imei", id: cleanId.replace(/^AK-?/i, "") },
+    { type: "imei", id: cleanId },
+    { type: "account", id: cleanId.startsWith("AK-") ? cleanId : `AK-${last5}` },
+    { type: "account", id: cleanId },
   ];
 
-  const params = new URLSearchParams({
-    DeviceID: deviceId,
-    Model: model || "AK",
-    action: "getlocation",
-    id: deviceId,
-  });
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/x-www-form-urlencoded",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-  };
-  if (cookie) {
-    headers["Cookie"] = cookie;
-  }
-
-  for (const endpoint of endpoints) {
+  for (const cand of candidates) {
     try {
-      const url = `${apiServer}${endpoint}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6000);
-      const isGet = endpoint.endsWith(".aspx") || endpoint.includes("Monitor");
-      const resp = await fetch(url, {
-        method: isGet ? "GET" : "POST",
-        headers,
-        body: isGet ? undefined : params.toString(),
-        signal: controller.signal,
+      // 1. Initial GET to obtain session cookie & ASP.NET state
+      const initUrl = `${baseServer}/Login.aspx`;
+      const initResp = await fetch(initUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
       });
-      clearTimeout(timeout);
 
-      if (!resp.ok) continue;
+      if (!initResp.ok) continue;
 
-      const text = await resp.text();
-      let data: any = null;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // Parse from HTML table (like Monitor.aspx)
-        const latMatch = text.match(/Latitude[^0-9]*([0-9]+\.[0-9]+)/i) ||
-          text.match(/([0-9]{2}\.[0-9]{4,8})[\s,]+([0-9]{3}\.[0-9]{4,8})/);
-        const lngMatch = text.match(/Longitude[^0-9]*([0-9]+\.[0-9]+)/i);
+      const initCookieHeader = initResp.headers.get("set-cookie") ?? "";
+      const cookieMatch = initCookieHeader.match(/ASP\.NET_SessionId=[^;]+/i);
+      const sessionCookie = cookieMatch ? cookieMatch[0] : "";
+      const initHtml = await initResp.text();
 
-        if (latMatch && lngMatch) {
-          const lat = parseFloat(latMatch[1]);
-          const lng = parseFloat(lngMatch[1]);
-          if (lat > 0 && lng > 0) {
-            return {
-              latitude: lat,
-              longitude: lng,
-              speed_kph: 0.0,
-              ignition: !text.includes("ACC OFF"),
-              online: !text.includes("Offline"),
-              gps_time: new Date().toISOString(),
-              battery: 100,
-              status_text: "Online via AIKA Monitor",
-            };
+      const vsMatch = initHtml.match(/id="__VIEWSTATE"\s+value="([^"]+)"/i);
+      const evMatch = initHtml.match(/id="__EVENTVALIDATION"\s+value="([^"]+)"/i);
+
+      if (!vsMatch) continue;
+
+      // 2. Submit Login Form
+      const postParams = new URLSearchParams();
+      postParams.append("__VIEWSTATE", vsMatch[1]);
+      if (evMatch) {
+        postParams.append("__EVENTVALIDATION", evMatch[1]);
+      }
+
+      if (cand.type === "account") {
+        postParams.append("txtUserName", cand.id);
+        postParams.append("txtAccountPassword", cleanPass);
+        postParams.append("btnLoginAccount", "");
+      } else {
+        postParams.append("txtImeiNo", cand.id);
+        postParams.append("txtImeiPassword", cleanPass);
+        postParams.append("btnLoginImei", "");
+      }
+
+      const loginResp = await fetch(initUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: sessionCookie,
+          Referer: initUrl,
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        body: postParams.toString(),
+      });
+
+      const loginHtml = await loginResp.text();
+
+      // Successful login outputs: parent.location.href='/Monitor.aspx' or doesn't have loginFaild()
+      const isSuccess =
+        loginHtml.includes("Monitor.aspx") ||
+        (!loginHtml.includes("loginFaild()") && !loginHtml.includes("loginFaild2()"));
+
+      if (isSuccess && !loginHtml.includes("loginFaild()")) {
+        // Fetch Monitor.aspx to resolve internal device ID
+        const monitorResp = await fetch(`${baseServer}/Monitor.aspx`, {
+          headers: {
+            Cookie: sessionCookie,
+            Referer: initUrl,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        });
+
+        let internalDeviceId: number | undefined;
+
+        if (monitorResp.ok) {
+          const monitorHtml = await monitorResp.text();
+          const mapSrcMatch = monitorHtml.match(/src="(map\.aspx\?[^"]+)"/i);
+
+          if (mapSrcMatch) {
+            const mapPath = "/" + mapSrcMatch[1].replace(/&amp;/g, "&");
+            const mapResp = await fetch(`${baseServer}${mapPath}`, {
+              headers: {
+                Cookie: sessionCookie,
+                Referer: `${baseServer}/Monitor.aspx`,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              },
+            });
+
+            if (mapResp.ok) {
+              const mapHtml = await mapResp.text();
+              const devIdMatch = mapHtml.match(/id="hidDeviceID"\s+value="([^"]+)"/i) || mapPath.match(/deviceID=([0-9]+)/);
+              if (devIdMatch) {
+                internalDeviceId = parseInt(devIdMatch[1]);
+              }
+            }
           }
         }
-      }
 
-      if (data) {
-        if (Array.isArray(data) && data.length > 0) {
-          data = data[0];
-        }
-        if (data.data && Array.isArray(data.data) && data.data.length > 0) {
-          data = data.data[0];
-        }
-
-        const lat = parseFloat(data.lat ?? data.Lat ?? data.latitude ?? data.Latitude ?? data.B_Lat ?? "0");
-        const lng = parseFloat(data.lng ?? data.Lng ?? data.longitude ?? data.Longitude ?? data.B_Lng ?? "0");
-
-        if (lat !== 0 || lng !== 0) {
-          return {
-            latitude: lat,
-            longitude: lng,
-            speed_kph: parseFloat(data.speed ?? data.Speed ?? data.spd ?? "0"),
-            ignition: data.work === 1 || data.Work === 1 || data.ignition === true || data.ACC === 1 || data.acc === "ON",
-            online: data.ofl !== 1 && data.Ofl !== 1 && data.online !== false,
-            gps_time: data.positiontime ?? data.PositionTime ?? data.gps_time ?? data.time ?? null,
-            battery: parseFloat(data.battery ?? data.Battery ?? "100"),
-            status_text: data.state ?? data.State ?? data.status ?? "GPS Online",
-          };
-        }
+        return {
+          success: true,
+          cookie: sessionCookie,
+          server: baseServer,
+          internalDeviceId,
+        };
       }
     } catch {
-      // Continue to next endpoint
+      // Continue to next candidate / server
     }
+  }
+
+  return {
+    success: false,
+    cookie: "",
+    server: baseServer,
+    error: "Invalid Device ID or Password on AIKA168.",
+  };
+}
+
+async function aikaGetTrackingTelemetry(
+  session: AikaSession,
+): Promise<any | null> {
+  if (!session.internalDeviceId) return null;
+
+  try {
+    const payload = JSON.stringify({
+      DeviceID: session.internalDeviceId,
+      TimeZone: "China Standard Time",
+    });
+
+    const resp = await fetch(`${session.server}/Ajax/DevicesAjax.asmx/GetTracking`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Cookie: session.cookie,
+        Referer: `${session.server}/Tracking.aspx`,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      body: payload,
+    });
+
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    if (!data || !data.d) return null;
+
+    // data.d is a JS object string: e.g. "{locationID:1,latitude:\"15.974202\",...}"
+    let jsonStr = data.d.trim();
+    // Quote unquoted keys for standard JSON parsing
+    jsonStr = jsonStr.replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      // Regex extraction fallback
+      const latM = data.d.match(/latitude\s*:\s*["']?([0-9.]+)["']?/i);
+      const lngM = data.d.match(/longitude\s*:\s*["']?([0-9.]+)["']?/i);
+      const spdM = data.d.match(/speed\s*:\s*["']?([0-9.]+)["']?/i);
+      const timeM = data.d.match(/deviceUtcDate\s*:\s*["']?([^"',]+)["']?/i);
+      const statusM = data.d.match(/status\s*:\s*["']?([^"',]+)["']?/i);
+
+      if (latM && lngM) {
+        parsed = {
+          latitude: latM[1],
+          longitude: lngM[1],
+          speed: spdM ? spdM[1] : "0",
+          deviceUtcDate: timeM ? timeM[1] : null,
+          status: statusM ? statusM[1] : "Online",
+        };
+      }
+    }
+
+    if (parsed) {
+      const lat = parseFloat(parsed.latitude ?? "0");
+      const lng = parseFloat(parsed.longitude ?? "0");
+
+      if (lat !== 0 || lng !== 0) {
+        return {
+          latitude: lat,
+          longitude: lng,
+          speed_kph: parseFloat(parsed.speed ?? "0"),
+          ignition: parsed.isStop !== 1 && parsed.work !== "OFF",
+          online: parsed.status !== "Offline",
+          gps_time: parsed.deviceUtcDate ?? parsed.serverUtcDate ?? new Date().toISOString(),
+          battery: 100,
+          status_text: parsed.status ?? "Online",
+        };
+      }
+    }
+  } catch (err) {
+    console.error("Error in aikaGetTrackingTelemetry:", err);
   }
 
   return null;
@@ -291,39 +248,23 @@ async function pollAika(
   deviceIdentifier: string,
   password: string,
 ): Promise<{ success: boolean; position?: any; error?: string; diagnostics?: any }> {
-  const triedServers: string[] = [];
-
   for (const baseServer of AIKA_SERVERS) {
-    try {
-      const apiServer = await aikaDiscoverApiServer(baseServer);
-      triedServers.push(apiServer);
-
-      const login = await aikaLogin(apiServer, deviceIdentifier, password);
-      if (!login.success) continue;
-
-      const location = await aikaGetLocation(
-        apiServer,
-        login.deviceId!,
-        login.model ?? "AK",
-        login.cookie,
-      );
-
-      if (location) {
+    const session = await aikaLoginWebForms(baseServer, deviceIdentifier, password);
+    if (session.success) {
+      const position = await aikaGetTrackingTelemetry(session);
+      if (position) {
         return {
           success: true,
-          position: location,
-          diagnostics: { server: apiServer, deviceId: login.deviceId },
+          position,
+          diagnostics: { server: baseServer, deviceId: session.internalDeviceId },
         };
       }
-    } catch {
-      // Try next server
     }
   }
 
   return {
     success: false,
     error: `Could not retrieve live coordinates for device ${deviceIdentifier} from AIKA servers.`,
-    diagnostics: { triedServers },
   };
 }
 
@@ -358,15 +299,18 @@ Deno.serve(async (request) => {
     if (providerName === "aika168") {
       if (requestAction === "verify") {
         for (const baseServer of AIKA_SERVERS) {
-          const apiServer = await aikaDiscoverApiServer(baseServer);
-          const login = await aikaLogin(apiServer, device_identifier, cleanPassword);
-          if (login.success) {
-            return jsonResponse({ success: true, server: apiServer });
+          const session = await aikaLoginWebForms(baseServer, device_identifier, cleanPassword);
+          if (session.success) {
+            return jsonResponse({
+              success: true,
+              server: baseServer,
+              deviceId: session.internalDeviceId,
+            });
           }
         }
         return jsonResponse({
           success: false,
-          error: "Authentication failed with AIKA server. Please check IMEI.",
+          error: "Authentication failed with AIKA server. Please check Device ID/IMEI and Password.",
         });
       }
 
