@@ -44,6 +44,7 @@ import '../../../services/notification_service.dart';
 import '../../../services/tracking_service.dart';
 import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
+import '../../../services/booking_viewed_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -158,6 +159,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   // Database-backed badge counts
   int _pendingBookingsCount = 0;
+  int _unviewedBookingsCount = 0;
+  Set<String> _viewedBookingIds = {};
   int _unreadMessagesCount = 0;
 
   bool _isPendingBookingForCurrentOperator(Map<String, dynamic> booking) {
@@ -178,11 +181,69 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return bookingOperatorId == operatorId || vehicleOperatorId == operatorId;
   }
 
-  void _recalculatePendingBookings() {
-    final count =
-        _recentBookings.where(_isPendingBookingForCurrentOperator).length;
-    if (mounted && _pendingBookingsCount != count) {
-      setState(() => _pendingBookingsCount = count);
+  Future<void> _recalculatePendingBookings() async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    final viewedIds = await BookingViewedService().getViewedBookingIds(
+      role: 'operator',
+      userId: operatorId,
+    );
+    _viewedBookingIds = viewedIds;
+
+    final pendingList =
+        _recentBookings.where(_isPendingBookingForCurrentOperator).toList();
+    final count = pendingList.length;
+
+    // If currently viewing Bookings tab (index 1), immediately mark them as viewed
+    if (_selectedIndex == 1) {
+      final idsToMark = pendingList
+          .map((b) => b['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (idsToMark.isNotEmpty) {
+        await BookingViewedService().markAllBookingsAsViewed(
+          idsToMark,
+          role: 'operator',
+          userId: operatorId,
+        );
+        _viewedBookingIds.addAll(idsToMark);
+      }
+      if (mounted) {
+        setState(() {
+          _pendingBookingsCount = count;
+          _unviewedBookingsCount = 0;
+        });
+      }
+      return;
+    }
+
+    final unviewedCount = pendingList
+        .where((b) => !_viewedBookingIds.contains(b['id']?.toString()))
+        .length;
+
+    if (mounted) {
+      setState(() {
+        _pendingBookingsCount = count;
+        _unviewedBookingsCount = unviewedCount;
+      });
+    }
+  }
+
+  Future<void> _markAllVisibleBookingsAsViewed() async {
+    final operatorId = _supabase.auth.currentUser?.id;
+    final allIds = _recentBookings
+        .map((b) => b['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (allIds.isNotEmpty) {
+      await BookingViewedService().markAllBookingsAsViewed(
+        allIds,
+        role: 'operator',
+        userId: operatorId,
+      );
+      _viewedBookingIds.addAll(allIds);
+    }
+    if (mounted && _unviewedBookingsCount != 0) {
+      setState(() => _unviewedBookingsCount = 0);
     }
   }
 
@@ -3734,7 +3795,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   'Bookings',
                   isDark,
                   badge:
-                      _pendingBookingsCount > 0 ? _pendingBookingsCount : null,
+                      _unviewedBookingsCount > 0 ? _unviewedBookingsCount : null,
                 ),
                 _buildNavItem(
                   2,
@@ -3920,6 +3981,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void _selectNavigationIndex(int index) {
     if (_selectedIndex != index) {
       setState(() => _selectedIndex = index);
+    }
+    if (index == 1) {
+      _markAllVisibleBookingsAsViewed();
     }
     if (index == 2) {
       _loadConversations();
@@ -6698,13 +6762,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       child: Row(
         children: [
           cell(
-            Text(
-              '#$shortId',
-              style: TextStyle(
-                color: foreground,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '#$shortId',
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
+                  const SizedBox(width: 5),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'NEW',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             2,
           ),

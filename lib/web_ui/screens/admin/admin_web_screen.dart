@@ -37,6 +37,7 @@ import '../../../mobile_ui/widgets/trip_route_history_dialog.dart';
 import '../../../utils/web_html.dart' as html;
 import '../../theme/web_portal_theme.dart';
 import '../../../utils/booking_status.dart';
+import '../../../services/booking_viewed_service.dart';
 
 class AdminWebScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -339,6 +340,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   int _pendingVerifications = 0;
   int _pendingBookingsCount = 0;
+  int _unviewedBookingsCount = 0;
+  Set<String> _viewedBookingIds = {};
   int _pendingApplicationsCount = 0;
   int _unreadNotificationsCount = 0;
   int _activeBookings = 0;
@@ -1914,9 +1917,64 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           .order('created_at', ascending: false);
 
       _allBookings = List<Map<String, dynamic>>.from(response);
+      await _recalculateUnviewedBookings();
     } catch (e) {
       debugPrint('Error loading bookings: $e');
       _allBookings = [];
+    }
+  }
+
+  Future<void> _recalculateUnviewedBookings() async {
+    final adminId = _supabase.auth.currentUser?.id;
+    final viewedIds = await BookingViewedService().getViewedBookingIds(
+      role: 'admin',
+      userId: adminId,
+    );
+    _viewedBookingIds = viewedIds;
+
+    if (_selectedIndex == 3) {
+      final allIds = _allBookings
+          .map((b) => b['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (allIds.isNotEmpty) {
+        await BookingViewedService().markAllBookingsAsViewed(
+          allIds,
+          role: 'admin',
+          userId: adminId,
+        );
+        _viewedBookingIds.addAll(allIds);
+      }
+      if (mounted && _unviewedBookingsCount != 0) {
+        setState(() => _unviewedBookingsCount = 0);
+      }
+      return;
+    }
+
+    final unviewed = _allBookings
+        .where((b) => !_viewedBookingIds.contains(b['id']?.toString()))
+        .length;
+    if (mounted && _unviewedBookingsCount != unviewed) {
+      setState(() => _unviewedBookingsCount = unviewed);
+    }
+  }
+
+  Future<void> _markAllBookingsAsViewed() async {
+    final adminId = _supabase.auth.currentUser?.id;
+    final allIds = _allBookings
+        .map((b) => b['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (allIds.isNotEmpty) {
+      await BookingViewedService().markAllBookingsAsViewed(
+        allIds,
+        role: 'admin',
+        userId: adminId,
+      );
+      _viewedBookingIds.addAll(allIds);
+    }
+    if (mounted && _unviewedBookingsCount != 0) {
+      setState(() => _unviewedBookingsCount = 0);
     }
   }
 
@@ -4019,7 +4077,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             Icons.book_rounded,
             'Bookings',
             isDark,
-            badge: _pendingBookingsCount > 0 ? _pendingBookingsCount : null,
+            badge: _unviewedBookingsCount > 0 ? _unviewedBookingsCount : null,
           ),
           _buildNavItem(
             4,
@@ -4129,7 +4187,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         onTap: () {
           setState(() {
             _selectedIndex = index;
-            if (index == 12) {
+            if (index == 3) {
+              _markAllBookingsAsViewed();
+            } else if (index == 12) {
               _unreadActionLogsCount = 0;
               _saveLastSeenActionLogCount(_actionLogs.length);
             } else if (index == 7) {
@@ -4940,13 +5000,36 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                       return DataRow(
                         cells: [
                           DataCell(
-                            Text(
-                              vehicleTitle.isNotEmpty
-                                  ? vehicleTitle
-                                  : 'Unknown Vehicle',
-                              style: TextStyle(
-                                color: isDark ? Colors.white70 : Colors.black87,
-                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  vehicleTitle.isNotEmpty
+                                      ? vehicleTitle
+                                      : 'Unknown Vehicle',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white70 : Colors.black87,
+                                  ),
+                                ),
+                                if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'NEW',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                           DataCell(

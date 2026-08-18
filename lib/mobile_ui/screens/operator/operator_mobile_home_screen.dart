@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
 import 'package:mobilis_by_psdc_app/services/auth_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
+import 'package:mobilis_by_psdc_app/services/booking_viewed_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -162,7 +163,37 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
     setState(() {
       _selectedTab = index;
     });
-    _loadPendingBookingBadge();
+    if (index == 1) {
+      _markPendingBookingsAsViewed();
+    } else {
+      _loadPendingBookingBadge();
+    }
+  }
+
+  Future<void> _markPendingBookingsAsViewed() async {
+    final operatorId = _operatorId;
+    if (operatorId == null || operatorId.isEmpty) return;
+    try {
+      final pending = await BookingService().getOperatorPendingApproval(
+        operatorId,
+      );
+      final pendingIds = pending
+          .map((b) => b['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (pendingIds.isNotEmpty) {
+        await BookingViewedService().markAllBookingsAsViewed(
+          pendingIds,
+          role: 'operator',
+          userId: operatorId,
+        );
+      }
+      if (mounted && _pendingBookingBadgeCount != 0) {
+        setState(() => _pendingBookingBadgeCount = 0);
+      }
+    } catch (e) {
+      debugPrint('Error marking pending bookings as viewed: $e');
+    }
   }
 
   Widget _buildPendingTabIcon(IconData icon) {
@@ -206,9 +237,35 @@ class _OperatorMobileHomeScreenState extends State<OperatorMobileHomeScreen> {
         operatorId,
       );
       if (!mounted) return;
-      final nextCount = pending.length;
-      if (_pendingBookingBadgeCount != nextCount) {
-        setState(() => _pendingBookingBadgeCount = nextCount);
+
+      final pendingIds = pending
+          .map((b) => b['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (_selectedTab == 1) {
+        if (pendingIds.isNotEmpty) {
+          await BookingViewedService().markAllBookingsAsViewed(
+            pendingIds,
+            role: 'operator',
+            userId: operatorId,
+          );
+        }
+        if (mounted && _pendingBookingBadgeCount != 0) {
+          setState(() => _pendingBookingBadgeCount = 0);
+        }
+        return;
+      }
+
+      final viewedIds = await BookingViewedService().getViewedBookingIds(
+        role: 'operator',
+        userId: operatorId,
+      );
+      final unviewedCount =
+          pendingIds.where((id) => !viewedIds.contains(id)).length;
+
+      if (mounted && _pendingBookingBadgeCount != unviewedCount) {
+        setState(() => _pendingBookingBadgeCount = unviewedCount);
       }
     } catch (e) {
       debugPrint('Error loading operator pending booking badge: $e');

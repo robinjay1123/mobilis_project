@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/custom_button.dart';
+import '../../../services/booking_viewed_service.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   final Function(bool)? onThemeToggle;
@@ -37,6 +38,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   int _pendingVerifications = 0;
   int _activeBookings = 0;
   int _totalBookings = 0;
+  int _unviewedBookingsCount = 0;
+  Set<String> _viewedBookingIds = {};
   double _totalRevenue = 0;
 
   // Lists
@@ -152,9 +155,64 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           .order('created_at', ascending: false);
 
       _allBookings = List<Map<String, dynamic>>.from(response);
+      await _recalculateUnviewedBookings();
     } catch (e) {
       debugPrint('Error loading bookings: $e');
       _allBookings = [];
+    }
+  }
+
+  Future<void> _recalculateUnviewedBookings() async {
+    final adminId = _supabase.auth.currentUser?.id;
+    final viewedIds = await BookingViewedService().getViewedBookingIds(
+      role: 'admin',
+      userId: adminId,
+    );
+    _viewedBookingIds = viewedIds;
+
+    if (_currentIndex == 3) {
+      final allIds = _allBookings
+          .map((b) => b['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (allIds.isNotEmpty) {
+        await BookingViewedService().markAllBookingsAsViewed(
+          allIds,
+          role: 'admin',
+          userId: adminId,
+        );
+        _viewedBookingIds.addAll(allIds);
+      }
+      if (mounted && _unviewedBookingsCount != 0) {
+        setState(() => _unviewedBookingsCount = 0);
+      }
+      return;
+    }
+
+    final unviewed = _allBookings
+        .where((b) => !_viewedBookingIds.contains(b['id']?.toString()))
+        .length;
+    if (mounted && _unviewedBookingsCount != unviewed) {
+      setState(() => _unviewedBookingsCount = unviewed);
+    }
+  }
+
+  Future<void> _markAllBookingsAsViewed() async {
+    final adminId = _supabase.auth.currentUser?.id;
+    final allIds = _allBookings
+        .map((b) => b['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (allIds.isNotEmpty) {
+      await BookingViewedService().markAllBookingsAsViewed(
+        allIds,
+        role: 'admin',
+        userId: adminId,
+      );
+      _viewedBookingIds.addAll(allIds);
+    }
+    if (mounted && _unviewedBookingsCount != 0) {
+      setState(() => _unviewedBookingsCount = 0);
     }
   }
 
@@ -360,40 +418,77 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ),
       child: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: (index) {
+          setState(() => _currentIndex = index);
+          if (index == 3) {
+            _markAllBookingsAsViewed();
+          }
+        },
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.transparent,
         selectedItemColor: Colors.red,
         unselectedItemColor: isDark ? Colors.grey : Colors.grey.shade600,
         elevation: 0,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_outlined),
             activeIcon: Icon(Icons.dashboard),
             label: 'Overview',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.people_outlined),
             activeIcon: Icon(Icons.people),
             label: 'Users',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.directions_car_outlined),
             activeIcon: Icon(Icons.directions_car),
             label: 'Vehicles',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.book_outlined),
-            activeIcon: Icon(Icons.book),
+            icon: _buildNavBadgeIcon(Icons.book_outlined),
+            activeIcon: _buildNavBadgeIcon(Icons.book),
             label: 'Bookings',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.admin_panel_settings_outlined),
             activeIcon: Icon(Icons.admin_panel_settings),
             label: 'System',
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildNavBadgeIcon(IconData icon) {
+    final count = _unviewedBookingsCount;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon),
+        if (count > 0)
+          Positioned(
+            right: -8,
+            top: -6,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                count > 99 ? '99+' : '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1527,14 +1622,38 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      vehicle != null
-                          ? '${vehicle['brand']} ${vehicle['model']}'
-                          : 'Unknown Vehicle',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            vehicle != null
+                                ? '${vehicle['brand']} ${vehicle['model']}'
+                                : 'Unknown Vehicle',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                        if (!_viewedBookingIds.contains(booking['id']?.toString())) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'NEW',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
