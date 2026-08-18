@@ -4328,6 +4328,19 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     } catch (_) {}
   }
 
+  Future<void> _refreshCurrentSection() async {
+    if (_selectedIndex == 10) {
+      await _refreshTrackingLocations();
+      if (mounted) setState(() {});
+      return;
+    }
+    if (_selectedIndex == 7) {
+      await _loadSupportInbox();
+      return;
+    }
+    await _loadDashboardData();
+  }
+
   Widget _buildTopBar(bool isDark) {
     final adminNavyDeep = _adminNavyDeep;
     final adminGold = _adminGold;
@@ -4430,7 +4443,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           Tooltip(
             message: 'Refresh dashboard metrics and system data',
             child: IconButton(
-              onPressed: _loadDashboardData,
+              onPressed: _refreshCurrentSection,
               icon: Icon(
                 Icons.refresh_rounded,
                 color: isDark ? Colors.white70 : _adminInk,
@@ -9135,19 +9148,6 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
               children: [
                 Row(
                   children: [
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        await _loadTrackingLocations();
-                        if (mounted) setState(() {});
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Refresh'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     if (isFocused) ...[
                       ElevatedButton.icon(
                         onPressed: () {

@@ -4020,6 +4020,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }
 
   Future<void> _refreshCurrentSection() async {
+    if (_selectedIndex == 5) {
+      await _refreshTrackingLocations();
+      if (mounted) setState(() {});
+      return;
+    }
     if (_selectedIndex == 2) {
       await _loadConversations();
       return;
@@ -5984,19 +5989,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           children: [
             Row(
               children: [
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await _loadTrackingLocations();
-                    if (mounted) setState(() {});
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                  ),
-                ),
-                const SizedBox(width: 12),
                 if (isFocused) ...[
                   ElevatedButton.icon(
                     onPressed: () {
@@ -15201,7 +15193,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Total Vehicles',
                       allVehicles.length,
                       Icons.directions_car_outlined,
-                      _operatorNavy,
+                      const Color(0xFF0284C7),
                       isDark,
                     ),
                   ),
@@ -15211,7 +15203,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Available',
                       available,
                       Icons.route_outlined,
-                      const Color(0xFF2E7D32),
+                      const Color(0xFF10B981),
                       isDark,
                     ),
                   ),
@@ -15221,7 +15213,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Unavailable',
                       unavailable,
                       Icons.build_outlined,
-                      const Color(0xFFC62828),
+                      const Color(0xFFEF4444),
                       isDark,
                     ),
                   ),
@@ -15231,7 +15223,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Posted',
                       posted,
                       Icons.verified_outlined,
-                      const Color(0xFF886A00),
+                      const Color(0xFFF59E0B),
                       isDark,
                     ),
                   ),
@@ -15345,14 +15337,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Color accent,
     bool isDark,
   ) {
-    return Container(
+    final effectiveAccent = isDark &&
+            (accent == _operatorNavy || accent.computeLuminance() < 0.22)
+        ? const Color(0xFF38BDF8)
+        : accent;
+
+    final cardWidget = Container(
       constraints: const BoxConstraints(minHeight: 125),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          color: isDark
+              ? effectiveAccent.withOpacity(0.25)
+              : Colors.grey.shade200,
         ),
       ),
       child: Row(
@@ -15361,10 +15360,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: accent.withOpacity(0.1),
+              color: effectiveAccent.withOpacity(isDark ? 0.22 : 0.1),
               borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: effectiveAccent.withOpacity(isDark ? 0.45 : 0.2),
+                width: 1,
+              ),
             ),
-            child: Icon(icon, color: accent, size: 22),
+            child: Icon(icon, color: effectiveAccent, size: 22),
           ),
           const SizedBox(width: 15),
           Expanded(
@@ -15383,7 +15386,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 Text(
                   label.toUpperCase(),
                   style: TextStyle(
-                    color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    color: isDark
+                        ? const Color(0xFF94A3B8)
+                        : Colors.grey.shade600,
                     fontSize: 9,
                     letterSpacing: 0.6,
                     fontWeight: FontWeight.w800,
@@ -15394,6 +15399,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ],
       ),
+    );
+
+    return Tooltip(
+      message: 'View $label statistics',
+      waitDuration: const Duration(milliseconds: 400),
+      child: cardWidget,
     );
   }
 
