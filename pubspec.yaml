@@ -22,7 +22,7 @@ dependencies:
   flutter_map: ^8.3.1
   latlong2: ^0.10.1
   connectivity_plus: ^6.0.0
-  shared_preferences: ^2.2.0
+  shared_preferences: ^2.5.4
   crypto: ^3.0.7
   url_launcher: ^6.2.0
   video_player: ^2.9.2
@@ -43,6 +43,10 @@ dev_dependencies:
     sdk: flutter
   flutter_launcher_icons: ^0.13.1
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  video_player_android: 2.7.15
+  shared_preferences_android: 2.2.4
 
 flutter_launcher_icons:
   android: true
