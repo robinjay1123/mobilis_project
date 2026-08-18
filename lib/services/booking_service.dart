@@ -617,8 +617,8 @@ class BookingService {
               debugPrint('Stripped missing column: $missingCol (value: $val)');
               if (val != null && val.toString().isNotEmpty) {
                 final note = '[$missingCol: $val]';
-                final existingNotes = currentPayload['notes']?.toString() ?? '';
-                currentPayload['notes'] = existingNotes.isNotEmpty
+                final existingNotes = currentPayload['operator_notes']?.toString() ?? '';
+                currentPayload['operator_notes'] = existingNotes.isNotEmpty
                     ? '$existingNotes | $note'
                     : note;
               }
