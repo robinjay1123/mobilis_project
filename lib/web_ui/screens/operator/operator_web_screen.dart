@@ -574,6 +574,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void initState() {
     super.initState();
     _loadColorTheme();
+    _restoreSavedTab();
     _loadUnreadMessagesCount();
     _loadDashboardData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -853,10 +854,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadVehicles(),
         _loadRecentBookings(),
         _loadOperatorRevenueBookings(),
-        _loadTrackingLocations(),
+        _loadTrackingLocationsFast(),
       ]);
-      await _repairOperatorRevenueSettlements();
       await _loadOperatorSettlements();
+      _repairOperatorRevenueSettlements();
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
     } finally {
@@ -939,6 +940,22 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     } catch (e) {
       debugPrint('Error loading notifications: $e');
       _notifications = [];
+    }
+  }
+
+  Future<void> _loadTrackingLocationsFast() async {
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error loading tracking locations: $e');
     }
   }
 
@@ -1418,40 +1435,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _loadStats() async {
     try {
-      final usersResponse = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'renter');
-      _totalUsers = (usersResponse as List).length;
+      final results = await Future.wait([
+        _supabase.from('users').select('id').eq('role', 'renter'),
+        _supabase.from('users').select('id').eq('role', 'partner'),
+        _supabase.from('vehicles').select('id').eq('status', 'active'),
+        _supabase
+            .from('vehicle_applications')
+            .select('id')
+            .eq('status', 'pending'),
+        _supabase
+            .from('bookings')
+            .select('id')
+            .inFilter('status', ['active', 'approved', 'confirmed']),
+        _supabase.from('bookings').select('id'),
+      ]);
 
-      final partnersResponse = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'partner');
-      _totalPartners = (partnersResponse as List).length;
-
-      final vehiclesResponse = await _supabase
-          .from('vehicles')
-          .select('id')
-          .eq('status', 'active');
-      _totalVehicles = (vehiclesResponse as List).length;
-
-      final pendingResponse = await _supabase
-          .from('vehicle_applications')
-          .select('id')
-          .eq('status', 'pending');
-      _pendingVerifications = (pendingResponse as List).length;
-
-      final activeBookingsResponse = await _supabase
-          .from('bookings')
-          .select('id')
-          .inFilter('status', ['active', 'approved', 'confirmed']);
-      _activeBookings = (activeBookingsResponse as List).length;
-
-      final totalBookingsResponse = await _supabase
-          .from('bookings')
-          .select('id');
-      _totalBookings = (totalBookingsResponse as List).length;
+      _totalUsers = (results[0] as List).length;
+      _totalPartners = (results[1] as List).length;
+      _totalVehicles = (results[2] as List).length;
+      _pendingVerifications = (results[3] as List).length;
+      _activeBookings = (results[4] as List).length;
+      _totalBookings = (results[5] as List).length;
     } catch (e) {
       debugPrint('Error loading stats: $e');
     }
@@ -3896,100 +3900,85 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final expanded =
         _sidebarExpanded && MediaQuery.of(context).size.width >= 980;
 
-    final navTooltip = switch (label.toLowerCase()) {
-      'dashboard' => 'Dashboard — Overview of daily operational metrics and fleet status',
-      'bookings' => 'Bookings — Review and manage vehicle bookings, approvals, and queue',
-      'messages' => 'Messages — Direct communications with renters and drivers',
-      'notifications' => 'Notifications — View operational alerts and system updates',
-      'vehicles' => 'Vehicles — Vehicle fleet catalog, availability, and inspections',
-      'live tracking' => 'Live Tracking — Real-time GPS map tracking of active vehicles',
-      'revenue' => 'Revenue — Earnings summaries, rental income, and payment records',
-      'settings' => 'Settings — Operations desk preferences and account configuration',
-      _ => label,
-    };
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Tooltip(
-        message: navTooltip,
-        child: InkWell(
-          onTap: () => _selectNavigationIndex(index),
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            height: 48,
-            padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0),
-            decoration: BoxDecoration(
-              color: isSelected ? _operatorGold : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisAlignment: expanded
-                  ? MainAxisAlignment.start
-                  : MainAxisAlignment.center,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(
-                      icon,
-                      color: isSelected
-                          ? _operatorNavyDeep
-                          : const Color(0xFF9CB0C2),
-                      size: 21,
-                    ),
-                    if (badge != null && !expanded)
-                      Positioned(
-                        right: -3,
-                        top: -3,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                if (expanded) ...[
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: isSelected
-                            ? _operatorNavyDeep
-                            : const Color(0xFFC4D0DB),
-                        fontWeight: isSelected
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        fontSize: 14,
-                      ),
-                    ),
+      child: InkWell(
+        onTap: () => _selectNavigationIndex(index),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 48,
+          padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0),
+          decoration: BoxDecoration(
+            color: isSelected ? _operatorGold : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: expanded
+                ? MainAxisAlignment.start
+                : MainAxisAlignment.center,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icon,
+                    color: isSelected
+                        ? _operatorNavyDeep
+                        : const Color(0xFF9CB0C2),
+                    size: 21,
                   ),
-                  if (badge != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        badge.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+                  if (badge != null && !expanded)
+                    Positioned(
+                      right: -3,
+                      top: -3,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
                         ),
                       ),
                     ),
                 ],
+              ),
+              if (expanded) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: isSelected
+                          ? _operatorNavyDeep
+                          : const Color(0xFFC4D0DB),
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      badge.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -3999,6 +3988,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   void _selectNavigationIndex(int index) {
     if (_selectedIndex != index) {
       setState(() => _selectedIndex = index);
+      _persistSelectedTab(index);
     }
     if (index == 1) {
       _markAllVisibleBookingsAsViewed();
@@ -4007,6 +3997,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _loadConversations();
       _loadUnreadMessagesCount();
     }
+  }
+
+  Future<void> _persistSelectedTab(int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('mobilis_operator_web_tab', index);
+    } catch (_) {}
+  }
+
+  Future<void> _restoreSavedTab() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIndex = prefs.getInt('mobilis_operator_web_tab');
+      if (savedIndex != null &&
+          savedIndex >= 0 &&
+          savedIndex <= 7 &&
+          mounted) {
+        setState(() => _selectedIndex = savedIndex);
+      }
+    } catch (_) {}
   }
 
   Future<void> _refreshCurrentSection() async {
@@ -4695,7 +4705,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   }) {
     final parsedNum = num.tryParse(rawValue);
     final value = parsedNum != null ? _formatNumber(parsedNum) : rawValue;
-    final isActiveTripCard = title == 'Active Trips';
     final borderRadius = BorderRadius.circular(18);
 
     final effectiveColor = isDark
@@ -4706,7 +4715,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ? const Color(0xFF0284C7)
             : color);
 
-    return Semantics(
+    final cardWidget = Semantics(
       button: onTap != null,
       label: onTap == null ? null : 'Open $title',
       child: Material(
@@ -4720,141 +4729,73 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           borderRadius: borderRadius,
           hoverColor: _operatorGold.withOpacity(0.08),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 132),
-            padding: const EdgeInsets.all(22),
+            constraints: const BoxConstraints(minHeight: 110),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
             decoration: BoxDecoration(
               borderRadius: borderRadius,
               border: Border.all(
                 color: isDark
-                    ? effectiveColor.withOpacity(0.3)
+                    ? effectiveColor.withOpacity(0.25)
                     : Colors.grey.shade200,
               ),
-              boxShadow: [
-                if (isActiveTripCard)
-                  BoxShadow(
-                    color: effectiveColor.withOpacity(isDark ? 0.25 : 0.12),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-              ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                if (isActiveTripCard) ...[
-                  Container(
-                    width: double.infinity,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: effectiveColor,
-                      borderRadius: BorderRadius.circular(2),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: effectiveColor.withOpacity(isDark ? 0.22 : 0.14),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: effectiveColor.withOpacity(isDark ? 0.45 : 0.25),
+                      width: 1,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                ],
-                Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: effectiveColor.withOpacity(isDark ? 0.22 : 0.14),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: effectiveColor.withOpacity(isDark ? 0.45 : 0.25),
-                          width: 1,
+                  child: Icon(icon, color: effectiveColor, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : _operatorInk,
                         ),
                       ),
-                      child: Icon(icon, color: effectiveColor, size: 24),
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            value,
-                            style: TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.w800,
-                              color: isDark ? Colors.white : _operatorInk,
-                            ),
-                          ),
-                          Text(
-                            title.toUpperCase(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              letterSpacing: 0.6,
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? const Color(0xFF94A3B8)
-                                  : Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (onTap != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: effectiveColor.withOpacity(isDark ? 0.22 : 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: effectiveColor.withOpacity(isDark ? 0.45 : 0.25),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isActiveTripCard)
-                              Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(right: 5),
-                                decoration: BoxDecoration(
-                                  color: effectiveColor,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: effectiveColor.withOpacity(0.6),
-                                      blurRadius: 4,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            Text(
-                              isActiveTripCard ? 'Live' : 'View',
-                              style: TextStyle(
-                                color: effectiveColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 3),
-                            Icon(
-                              Icons.arrow_forward_rounded,
-                              size: 13,
-                              color: effectiveColor,
-                            ),
-                          ],
+                      const SizedBox(height: 2),
+                      Text(
+                        title.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 0.6,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? const Color(0xFF94A3B8)
+                              : Colors.grey.shade600,
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ),
       ),
+    );
+
+    return Tooltip(
+      message: 'Click to view $title details',
+      waitDuration: const Duration(milliseconds: 400),
+      child: cardWidget,
     );
   }
 

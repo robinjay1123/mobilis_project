@@ -501,6 +501,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   void initState() {
     super.initState();
     _loadColorTheme();
+    _restoreSavedTab();
     _loadLastSeenCounts().then((_) {
       _loadDashboardData();
       _loadActionLogs(showLoading: false);
@@ -717,12 +718,11 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _loadAllUsers();
       await Future.wait([
-        _loadStats(),
+        _loadAllUsers(),
         _loadAllBookings(),
         _loadAllVehicles(),
-        _loadTrackingLocations(),
+        _loadTrackingLocationsFast(),
         _loadAnnouncements(),
         _loadSupportInbox(),
         _loadPendingVerifications(),
@@ -731,6 +731,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         _loadNotifications(showLoading: false),
         _loadActionLogs(showLoading: false),
       ]);
+      await _loadStats();
       if (mounted) {
         setState(() {
           _pendingApplicationsCount =
@@ -2154,6 +2155,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       });
     }
     return grouped;
+  }
+
+  Future<void> _loadTrackingLocationsFast() async {
+    try {
+      final locations = await TrackingService().getActiveTrackingLocations();
+      if (mounted) setState(() => _trackingLocations = locations);
+      TrackingService().pollGpsTrackersForActiveBookings().then((_) async {
+        if (!mounted) return;
+        final updated = await TrackingService().getActiveTrackingLocations();
+        if (mounted) setState(() => _trackingLocations = updated);
+      }).catchError((e) {
+        debugPrint('Admin background GPS poll error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error loading tracking locations: $e');
+    }
   }
 
   Future<void> _loadTrackingLocations() async {
@@ -4184,59 +4201,42 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final adminGold = _adminGold;
     final adminNavyDeep = _adminNavyDeep;
 
-    final navTooltip = switch (label.toLowerCase()) {
-      'overview' => 'Overview — High-level platform KPIs, revenue summary, and system health',
-      'users' => 'Users — User accounts, role assignments, driver verifications, and approvals',
-      'vehicles' => 'Vehicles — Full fleet registry for PSDC and partner vehicle listings',
-      'bookings' => 'Bookings — Reservation records, payment history, and dispute handling',
-      'analytics' => 'Analytics — Platform metrics, revenue trends, and operational growth charts',
-      'live tracking' => 'Live Tracking — Real-time GPS vehicle tracking of active on-road trips',
-      'drivers' => 'Drivers — Assigned drivers, performance tracking, and trip dispatches',
-      'support' => 'Support — Customer inquiries, helpdesk tickets, and user dispute chats',
-      'partners' => 'Partners — Partner vehicle fleet owners and verification applications',
-      'announcements' => 'Announcements — Platform-wide news and notification broadcasts',
-      'settings' => 'Settings — Admin portal configurations and system preferences',
-      'action logs' => 'Action Logs — Comprehensive audit trail of administrator and operator events',
-      _ => label,
-    };
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Tooltip(
-        message: navTooltip,
-        child: InkWell(
-          onTap: () {
-            setState(() {
-              _selectedIndex = index;
-              if (index == 3) {
-                _markAllBookingsAsViewed();
-              } else if (index == 12) {
-                _unreadActionLogsCount = 0;
-                _saveLastSeenActionLogCount(_actionLogs.length);
-              } else if (index == 7) {
-                _unreadSupportCount = 0;
-                _saveLastSeenSupportCount(_supportConversations.length);
-              }
-            });
-          },
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            height: 46,
-            padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
-            decoration: BoxDecoration(
-              color: isSelected ? adminGold : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: isSelected
-                  ? [
-                      BoxShadow(
-                        color: adminGold.withOpacity(0.25),
-                        blurRadius: 12,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedIndex = index;
+            if (index == 3) {
+              _markAllBookingsAsViewed();
+            } else if (index == 12) {
+              _unreadActionLogsCount = 0;
+              _saveLastSeenActionLogCount(_actionLogs.length);
+            } else if (index == 7) {
+              _unreadSupportCount = 0;
+              _saveLastSeenSupportCount(_supportConversations.length);
+            }
+          });
+          _persistSelectedTab(index);
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 46,
+          padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
+          decoration: BoxDecoration(
+            color: isSelected ? adminGold : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: adminGold.withOpacity(0.25),
+                      blurRadius: 12,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
             mainAxisAlignment: _sidebarExpanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
@@ -4305,9 +4305,28 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Future<void> _persistSelectedTab(int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('mobilis_admin_web_tab', index);
+    } catch (_) {}
+  }
+
+  Future<void> _restoreSavedTab() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIndex = prefs.getInt('mobilis_admin_web_tab');
+      if (savedIndex != null &&
+          savedIndex >= 0 &&
+          savedIndex <= 12 &&
+          mounted) {
+        setState(() => _selectedIndex = savedIndex);
+      }
+    } catch (_) {}
+  }
 
   Widget _buildTopBar(bool isDark) {
     final adminNavyDeep = _adminNavyDeep;

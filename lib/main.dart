@@ -524,17 +524,19 @@ class _AuthWrapperState extends State<AuthWrapper> {
         return;
       }
 
-      if ((state.event == AuthChangeEvent.signedIn ||
-              state.event == AuthChangeEvent.initialSession ||
-              state.event == AuthChangeEvent.tokenRefreshed) &&
+      if (state.event == AuthChangeEvent.signedIn &&
           state.session?.user != null) {
-        debugPrint('✅ SignedIn event triggered - will sync route in 500ms');
-        await Future.delayed(
-          Duration(milliseconds: 500),
-        ); // Small delay to ensure DB is updated
+        debugPrint('✅ SignedIn event triggered - will sync route');
         await NotificationPermissionService().ensurePrompted();
         await PushNotificationService().syncTokenForCurrentUser();
         await _syncRouteForCurrentUser(force: true);
+        _setupUserProfileListener();
+      } else if ((state.event == AuthChangeEvent.initialSession ||
+              state.event == AuthChangeEvent.tokenRefreshed) &&
+          state.session?.user != null) {
+        debugPrint('ℹ️ Auth session active (${state.event})');
+        NotificationPermissionService().ensurePrompted();
+        PushNotificationService().syncTokenForCurrentUser();
         _setupUserProfileListener();
       }
 
