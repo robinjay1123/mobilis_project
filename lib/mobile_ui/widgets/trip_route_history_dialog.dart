@@ -358,13 +358,28 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
         currentCarPos = LatLng(lat, lng);
       }
       currentSpeedKph = (((curPt['speed_mps'] as num?) ?? 0) * 3.6).toDouble();
-      final recAt = curPt['recorded_at']?.toString();
+      final recAt = curPt['recorded_at']?.toString() ?? curPt['created_at']?.toString();
       if (recAt != null && recAt.isNotEmpty) {
         try {
-          final dt = DateTime.parse(recAt).toLocal();
+          final cleanStr = recAt.trim();
+          DateTime dt;
+          if (cleanStr.endsWith('Z') ||
+              cleanStr.contains('+') ||
+              (cleanStr.length > 10 && cleanStr.substring(10).contains('-'))) {
+            dt = DateTime.parse(cleanStr).toLocal();
+          } else {
+            // Timestamp without timezone offset from DB/GPS is in UTC - append Z then convert to local
+            final iso = cleanStr.replaceAll(' ', 'T');
+            dt = DateTime.parse('${iso}Z').toLocal();
+          }
           currentTimestamp = DateFormat('hh:mm:ss a • MMM d').format(dt);
         } catch (_) {
-          currentTimestamp = recAt;
+          try {
+            final dt = DateTime.parse(recAt).toLocal();
+            currentTimestamp = DateFormat('hh:mm:ss a • MMM d').format(dt);
+          } catch (_) {
+            currentTimestamp = recAt;
+          }
         }
       }
     }

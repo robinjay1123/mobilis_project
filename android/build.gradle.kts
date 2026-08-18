@@ -1,13 +1,3 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
-    }
-}
-
 allprojects {
     repositories {
         google()
@@ -27,15 +17,6 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
-}
-
-subprojects {
-    tasks.matching { it.name == "compileDebugJavaWithJavac" }.configureEach {
-        dependsOn(project.tasks.matching { it.name == "compileDebugKotlin" })
-    }
-    tasks.matching { it.name == "compileReleaseJavaWithJavac" }.configureEach {
-        dependsOn(project.tasks.matching { it.name == "compileReleaseKotlin" })
-    }
 }
 
 tasks.register<Delete>("clean") {

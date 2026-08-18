@@ -1091,9 +1091,15 @@ class _BookingsTabState extends State<_BookingsTab> {
                             isDark: isDark,
                             showActions: widget.filter == 'pending',
                             onRefresh: _load,
-                            onAssignDriver:
-                                widget.filter == 'pending' &&
-                                    _bookingNeedsDriver(booking['with_driver'])
+                            onAssignDriver: _bookingNeedsDriver(booking['with_driver']) &&
+                                    !{
+                                      'cancelled',
+                                      'rejected',
+                                      'completed',
+                                      'expired',
+                                    }.contains(
+                                      (booking['status'] ?? '').toString().toLowerCase().trim(),
+                                    )
                                 ? () => _showDriverAssignmentDialog(
                                     context,
                                     booking,
@@ -1677,6 +1683,40 @@ class _BookingCard extends StatelessWidget {
                       onRefresh?.call();
                     }
                   },
+                ),
+              ),
+            ],
+            if (_status != 'pending' &&
+                _needsDriver &&
+                onAssignDriver != null &&
+                !{
+                  'cancelled',
+                  'rejected',
+                  'completed',
+                  'expired',
+                }.contains(_status)) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.person_add_alt_1, size: 16),
+                  label: Text(
+                    _driverStatus == 'Driver needed' ||
+                            _driverStatus.startsWith('Driver declined')
+                        ? 'Assign Driver'
+                        : 'Change Assigned Driver',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.warning,
+                    side: BorderSide(
+                      color: AppColors.warning.withValues(alpha: 0.7),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: onAssignDriver,
                 ),
               ),
             ],

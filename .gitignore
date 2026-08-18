@@ -54,6 +54,27 @@ supabase/.env.local
 
  
 .cxx/
+.pub-cache/
+.pub/
+#/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Supabase local secrets
+supabase/.env.local
+
+ 
+.cxx/
 *.ninja
 CMakeCache.txt
 CMakeFiles/
@@ -69,3 +90,9 @@ build/macos/
 /android/app/debug/
 /android/app/profile/
 /android/app/release/
+.gradle/
+android/.gradle/
+**/android/.gradle/
+**/android/local.properties
+android/local.properties
+*.lock

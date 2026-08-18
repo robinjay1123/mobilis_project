@@ -46,7 +46,8 @@ dev_dependencies:
 
 dependency_overrides:
   video_player_android: 2.7.15
-  shared_preferences_android: 2.2.4
+  shared_preferences_android: 2.3.3
+
 
 flutter_launcher_icons:
   android: true
