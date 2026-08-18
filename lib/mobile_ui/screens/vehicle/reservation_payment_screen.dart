@@ -52,10 +52,8 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   final ReservationPaymentService _paymentService = ReservationPaymentService();
   bool _isLoadingSettings = true;
   ReservationPaymentSettings _settings = const ReservationPaymentSettings(
-    enabled: false,
     amount: 1000.0,
     qrUrl: '',
-    qrStoragePath: null,
     accountName: 'PSDC Mobilis',
     instructions: 'Scan QR and submit receipt proof.',
   );

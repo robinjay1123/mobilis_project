@@ -2623,6 +2623,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Future<ReservationPaymentProof?> _showReservationPaymentDialog({
     required String userId,
   }) async {
+    final pickupSummary = _pickupFreetextController.text.trim().isNotEmpty
+        ? _pickupFreetextController.text.trim()
+        : [_pickupBarangay, _pickupCity, _pickupProvince]
+            .where((e) => e != null && e.isNotEmpty)
+            .join(', ');
+    final dropoffSummary = _dropoffFreetextController.text.trim().isNotEmpty
+        ? _dropoffFreetextController.text.trim()
+        : [_dropoffBarangay, _dropoffCity, _dropoffProvince]
+            .where((e) => e != null && e.isNotEmpty)
+            .join(', ');
+
     return Navigator.push<ReservationPaymentProof>(
       context,
       MaterialPageRoute(
@@ -2635,10 +2646,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           discountAmount: _discountAmount,
           reservationFeeAmount: _reservationFeeAmount,
           requiresLongBookingReservation: _requiresLongBookingReservation,
-          startDate: _startDate,
-          endDate: _endDate,
-          pickupLocation: _pickupLocation,
-          dropoffLocation: _dropoffLocation,
+          startDate: _selectedStartDate,
+          endDate: _selectedEndDate,
+          pickupLocation: pickupSummary.isEmpty ? null : pickupSummary,
+          dropoffLocation: dropoffSummary.isEmpty ? null : dropoffSummary,
         ),
       ),
     );
