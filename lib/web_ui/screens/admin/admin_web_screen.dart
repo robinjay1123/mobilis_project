@@ -4143,24 +4143,27 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           _buildNavItem(9, Icons.campaign_rounded, 'Announcements', isDark),
           _buildNavItem(11, Icons.settings_rounded, 'Settings', isDark),
           Divider(color: Colors.white.withOpacity(0.08), height: 1),
-          InkWell(
-            onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
-            child: SizedBox(
-              height: 46,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: _sidebarExpanded
-                      ? MainAxisAlignment.end
-                      : MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _sidebarExpanded
-                          ? Icons.chevron_left_rounded
-                          : Icons.chevron_right_rounded,
-                      color: Colors.white38,
-                    ),
-                  ],
+          Tooltip(
+            message: _sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar',
+            child: InkWell(
+              onTap: () => setState(() => _sidebarExpanded = !_sidebarExpanded),
+              child: SizedBox(
+                height: 46,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    mainAxisAlignment: _sidebarExpanded
+                        ? MainAxisAlignment.end
+                        : MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _sidebarExpanded
+                            ? Icons.chevron_left_rounded
+                            : Icons.chevron_right_rounded,
+                        color: Colors.white38,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -4181,41 +4184,59 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final adminGold = _adminGold;
     final adminNavyDeep = _adminNavyDeep;
 
+    final navTooltip = switch (label.toLowerCase()) {
+      'overview' => 'Overview — High-level platform KPIs, revenue summary, and system health',
+      'users' => 'Users — User accounts, role assignments, driver verifications, and approvals',
+      'vehicles' => 'Vehicles — Full fleet registry for PSDC and partner vehicle listings',
+      'bookings' => 'Bookings — Reservation records, payment history, and dispute handling',
+      'analytics' => 'Analytics — Platform metrics, revenue trends, and operational growth charts',
+      'live tracking' => 'Live Tracking — Real-time GPS vehicle tracking of active on-road trips',
+      'drivers' => 'Drivers — Assigned drivers, performance tracking, and trip dispatches',
+      'support' => 'Support — Customer inquiries, helpdesk tickets, and user dispute chats',
+      'partners' => 'Partners — Partner vehicle fleet owners and verification applications',
+      'announcements' => 'Announcements — Platform-wide news and notification broadcasts',
+      'settings' => 'Settings — Admin portal configurations and system preferences',
+      'action logs' => 'Action Logs — Comprehensive audit trail of administrator and operator events',
+      _ => label,
+    };
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _selectedIndex = index;
-            if (index == 3) {
-              _markAllBookingsAsViewed();
-            } else if (index == 12) {
-              _unreadActionLogsCount = 0;
-              _saveLastSeenActionLogCount(_actionLogs.length);
-            } else if (index == 7) {
-              _unreadSupportCount = 0;
-              _saveLastSeenSupportCount(_supportConversations.length);
-            }
-          });
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          height: 46,
-          padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
-          decoration: BoxDecoration(
-            color: isSelected ? adminGold : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: adminGold.withOpacity(0.25),
-                      blurRadius: 12,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
+      child: Tooltip(
+        message: navTooltip,
+        child: InkWell(
+          onTap: () {
+            setState(() {
+              _selectedIndex = index;
+              if (index == 3) {
+                _markAllBookingsAsViewed();
+              } else if (index == 12) {
+                _unreadActionLogsCount = 0;
+                _saveLastSeenActionLogCount(_actionLogs.length);
+              } else if (index == 7) {
+                _unreadSupportCount = 0;
+                _saveLastSeenSupportCount(_supportConversations.length);
+              }
+            });
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 46,
+            padding: EdgeInsets.symmetric(horizontal: _sidebarExpanded ? 16 : 0),
+            decoration: BoxDecoration(
+              color: isSelected ? adminGold : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: adminGold.withOpacity(0.25),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
             mainAxisAlignment: _sidebarExpanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
@@ -4284,8 +4305,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTopBar(bool isDark) {
     final adminNavyDeep = _adminNavyDeep;
@@ -4387,7 +4409,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             ),
           ),
           Tooltip(
-            message: 'Refresh',
+            message: 'Refresh dashboard metrics and system data',
             child: IconButton(
               onPressed: _loadDashboardData,
               icon: Icon(
@@ -4398,6 +4420,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
           const SizedBox(width: 12),
           PopupMenuButton<String>(
+            tooltip: 'Administrator Account & Settings',
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
             },
@@ -4476,26 +4499,29 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     Color color,
     VoidCallback onTap,
   ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 46),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(color: color, fontWeight: FontWeight.w600),
-            ),
-          ],
+    return Tooltip(
+      message: 'Export current system report to CSV',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 46),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(color: color, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -4760,14 +4786,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
+    return Tooltip(
+      message: 'Click to view $title details ($subtitle)',
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
-        hoverColor: color.withValues(alpha: 0.08),
-        splashColor: color.withValues(alpha: 0.12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          hoverColor: color.withValues(alpha: 0.08),
+          splashColor: color.withValues(alpha: 0.12),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -4866,8 +4894,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildCard(String title, Widget content, bool isDark) {
     return Container(
@@ -5114,19 +5143,32 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Widget _buildStatusBadge(String status) {
     final group = bookingStatusGroup(status);
     final color = bookingStatusColor(group);
+    final label = bookingStatusLabel(group);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        bookingStatusLabel(group).toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: color,
+    final statusDescription = switch (group) {
+      BookingStatusGroup.pending => 'Pending: Reservation is waiting for operator/admin review',
+      BookingStatusGroup.approved => 'Approved: Confirmed and awaiting vehicle handover',
+      BookingStatusGroup.ongoing => 'Ongoing: Vehicle currently on trip with customer',
+      BookingStatusGroup.completed => 'Completed: Rental concluded and successfully settled',
+      BookingStatusGroup.cancelled => 'Cancelled: Booking was declined or cancelled',
+      _ => 'Status: $label',
+    };
+
+    return Tooltip(
+      message: statusDescription,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ),
     );
@@ -5969,10 +6011,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     VoidCallback? onTap,
     bool isSelected = false,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
+    return Tooltip(
+      message: 'Filter user table by $title ($value total accounts)',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -6024,8 +6068,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   String _getUserAvatarUrl(Map<String, dynamic> user) {
     final direct =
@@ -6158,28 +6203,31 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   Widget _buildRoleBadge(String role, {bool isPsdcDriver = false}) {
     if (isPsdcDriver) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: const Color(0xFFD97706).withOpacity(0.18),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.badge_rounded, size: 13, color: Color(0xFFF59E0B)),
-            SizedBox(width: 4),
-            Text(
-              'PSDC DRIVER',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFFF59E0B),
-                letterSpacing: 0.5,
+      return Tooltip(
+        message: 'PSDC Dedicated In-House Fleet Driver',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFD97706).withOpacity(0.18),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.badge_rounded, size: 13, color: Color(0xFFF59E0B)),
+              SizedBox(width: 4),
+              Text(
+                'PSDC DRIVER',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFF59E0B),
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
@@ -6202,18 +6250,30 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         color = Colors.green;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        role.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: color,
+    final roleDescription = switch (role.toLowerCase()) {
+      'partner' => 'Partner: Vehicle fleet owner registered on platform',
+      'operator' => 'Operator: Operations desk managing bookings and fleet',
+      'admin' => 'Administrator: Full system privileges and settings',
+      'driver' => 'Driver: Assigned trip driver for chauffeur bookings',
+      'renter' => 'Renter: Customer booking and renting vehicles',
+      _ => 'Role: ${role.toUpperCase()}',
+    };
+
+    return Tooltip(
+      message: roleDescription,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          role.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ),
     );
@@ -6758,10 +6818,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     final isSelected = _vehicleTabFilter == key;
     final activeColor = accentColor ?? AppColors.primary;
 
-    return InkWell(
-      onTap: () => setState(() => _vehicleTabFilter = key),
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
+    return Tooltip(
+      message: 'Filter vehicles by $label ($count total)',
+      child: InkWell(
+        onTap: () => setState(() => _vehicleTabFilter = key),
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
@@ -6820,8 +6882,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildAdminVehicleCard(Map<String, dynamic> vehicle, bool isDark) {
     final owner = vehicle['owner'] as Map<String, dynamic>?;
@@ -7617,40 +7680,55 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Widget _buildSourceBadge(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: AppColors.primary,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
+    final isPartner = label.trim().toUpperCase() == 'PARTNER';
+    final tooltip = isPartner
+        ? 'Vehicle supplied and managed by a verified Partner'
+        : 'In-House PSDC Company-owned Fleet';
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.primary,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildPostedBadge(bool posted, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: posted
-            ? Colors.green.withOpacity(0.15)
-            : Colors.grey.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        posted ? 'POSTED' : 'NOT POSTED',
-        style: TextStyle(
+    final tooltip = posted
+        ? 'Vehicle is published and visible in the public rental catalog'
+        : 'Vehicle is currently unpublished / hidden from public catalog';
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
           color: posted
-              ? Colors.green
-              : (isDark ? Colors.grey[400] : Colors.grey),
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
+              ? Colors.green.withOpacity(0.15)
+              : Colors.grey.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          posted ? 'POSTED' : 'NOT POSTED',
+          style: TextStyle(
+            color: posted
+                ? Colors.green
+                : (isDark ? Colors.white70 : Colors.grey.shade700),
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
     );

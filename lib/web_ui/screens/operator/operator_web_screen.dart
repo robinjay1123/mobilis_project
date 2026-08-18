@@ -3856,24 +3856,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ],
             ),
           ),
-          InkWell(
-            onTap: isCompact
-                ? null
-                : () => setState(() => _sidebarExpanded = !_sidebarExpanded),
-            child: Container(
-              height: isCompact ? 12 : 44,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                mainAxisAlignment: expanded
-                    ? MainAxisAlignment.end
-                    : MainAxisAlignment.center,
-                children: [
-                  if (!isCompact)
-                    Icon(
-                      expanded ? Icons.chevron_left : Icons.chevron_right,
-                      color: const Color(0xFF8CA0B2),
-                    ),
-                ],
+          Tooltip(
+            message: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+            child: InkWell(
+              onTap: isCompact
+                  ? null
+                  : () => setState(() => _sidebarExpanded = !_sidebarExpanded),
+              child: Container(
+                height: isCompact ? 12 : 44,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: expanded
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.center,
+                  children: [
+                    if (!isCompact)
+                      Icon(
+                        expanded ? Icons.chevron_left : Icons.chevron_right,
+                        color: const Color(0xFF8CA0B2),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -3893,85 +3896,100 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final expanded =
         _sidebarExpanded && MediaQuery.of(context).size.width >= 980;
 
+    final navTooltip = switch (label.toLowerCase()) {
+      'dashboard' => 'Dashboard — Overview of daily operational metrics and fleet status',
+      'bookings' => 'Bookings — Review and manage vehicle bookings, approvals, and queue',
+      'messages' => 'Messages — Direct communications with renters and drivers',
+      'notifications' => 'Notifications — View operational alerts and system updates',
+      'vehicles' => 'Vehicles — Vehicle fleet catalog, availability, and inspections',
+      'live tracking' => 'Live Tracking — Real-time GPS map tracking of active vehicles',
+      'revenue' => 'Revenue — Earnings summaries, rental income, and payment records',
+      'settings' => 'Settings — Operations desk preferences and account configuration',
+      _ => label,
+    };
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: InkWell(
-        onTap: () => _selectNavigationIndex(index),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          height: 48,
-          padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0),
-          decoration: BoxDecoration(
-            color: isSelected ? _operatorGold : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: expanded
-                ? MainAxisAlignment.start
-                : MainAxisAlignment.center,
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Icon(
-                    icon,
-                    color: isSelected
-                        ? _operatorNavyDeep
-                        : const Color(0xFF9CB0C2),
-                    size: 21,
+      child: Tooltip(
+        message: navTooltip,
+        child: InkWell(
+          onTap: () => _selectNavigationIndex(index),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 48,
+            padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0),
+            decoration: BoxDecoration(
+              color: isSelected ? _operatorGold : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: expanded
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.center,
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      icon,
+                      color: isSelected
+                          ? _operatorNavyDeep
+                          : const Color(0xFF9CB0C2),
+                      size: 21,
+                    ),
+                    if (badge != null && !expanded)
+                      Positioned(
+                        right: -3,
+                        top: -3,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (expanded) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: isSelected
+                            ? _operatorNavyDeep
+                            : const Color(0xFFC4D0DB),
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
-                  if (badge != null && !expanded)
-                    Positioned(
-                      right: -3,
-                      top: -3,
-                      child: Container(
-                        width: 9,
-                        height: 9,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
+                  if (badge != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        badge.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
                 ],
-              ),
-              if (expanded) ...[
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: isSelected
-                          ? _operatorNavyDeep
-                          : const Color(0xFFC4D0DB),
-                      fontWeight: isSelected
-                          ? FontWeight.w700
-                          : FontWeight.w500,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                if (badge != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      badge.toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -4070,6 +4088,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(width: 6),
           IconButton(
+            tooltip: 'Refresh current view and data',
             onPressed: _refreshCurrentSection,
             icon: Icon(
               Icons.refresh,
@@ -4084,6 +4103,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(width: 18),
           PopupMenuButton<String>(
+            tooltip: 'Account options (Operator)',
             onSelected: (value) {
               if (value == 'logout') _handleLogout();
             },
@@ -4300,7 +4320,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Active Trips',
                       _activeBookings.toString(),
                       Icons.route_outlined,
-                      _operatorNavy,
+                      const Color(0xFF0284C7),
                       isDark,
                       onTap: () => _openDashboardSection(
                         selectedIndex: 1,
@@ -4321,7 +4341,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           .length
                           .toString(),
                       Icons.assignment_late_outlined,
-                      const Color(0xFFC62828),
+                      const Color(0xFFEF4444),
                       isDark,
                       onTap: () => _openDashboardSection(
                         selectedIndex: 1,
@@ -4335,7 +4355,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Vehicles',
                       _totalVehicles.toString(),
                       Icons.directions_car_outlined,
-                      const Color(0xFF2E7D32),
+                      const Color(0xFF10B981),
                       isDark,
                       onTap: () => _openDashboardSection(selectedIndex: 4),
                     ),
@@ -4346,7 +4366,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       'Total Bookings',
                       _totalBookings.toString(),
                       Icons.fact_check_outlined,
-                      const Color(0xFF886A00),
+                      const Color(0xFFF59E0B),
                       isDark,
                       onTap: () => _openDashboardSection(
                         selectedIndex: 1,
@@ -4677,6 +4697,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final value = parsedNum != null ? _formatNumber(parsedNum) : rawValue;
     final isActiveTripCard = title == 'Active Trips';
     final borderRadius = BorderRadius.circular(18);
+
+    final effectiveColor = isDark
+        ? (color == _operatorNavy || color.computeLuminance() < 0.22
+            ? const Color(0xFF38BDF8)
+            : color)
+        : (color == _operatorNavy
+            ? const Color(0xFF0284C7)
+            : color);
+
     return Semantics(
       button: onTap != null,
       label: onTap == null ? null : 'Open $title',
@@ -4696,12 +4725,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             decoration: BoxDecoration(
               borderRadius: borderRadius,
               border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                color: isDark
+                    ? effectiveColor.withOpacity(0.3)
+                    : Colors.grey.shade200,
               ),
               boxShadow: [
                 if (isActiveTripCard)
                   BoxShadow(
-                    color: color.withOpacity(isDark ? 0.18 : 0.1),
+                    color: effectiveColor.withOpacity(isDark ? 0.25 : 0.12),
                     blurRadius: 18,
                     offset: const Offset(0, 6),
                   ),
@@ -4711,7 +4742,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (isActiveTripCard) ...[
-                  Container(width: double.infinity, height: 4, color: color),
+                  Container(
+                    width: double.infinity,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: effectiveColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                   const SizedBox(height: 14),
                 ],
                 Row(
@@ -4720,10 +4758,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: color.withOpacity(0.14),
+                        color: effectiveColor.withOpacity(isDark ? 0.22 : 0.14),
                         borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: effectiveColor.withOpacity(isDark ? 0.45 : 0.25),
+                          width: 1,
+                        ),
                       ),
-                      child: Icon(icon, color: color, size: 24),
+                      child: Icon(icon, color: effectiveColor, size: 24),
                     ),
                     const SizedBox(width: 18),
                     Expanded(
@@ -4748,7 +4790,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               letterSpacing: 0.6,
                               fontWeight: FontWeight.w700,
                               color: isDark
-                                  ? Colors.grey
+                                  ? const Color(0xFF94A3B8)
                                   : Colors.grey.shade600,
                             ),
                           ),
@@ -4762,8 +4804,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: color.withOpacity(0.12),
+                          color: effectiveColor.withOpacity(isDark ? 0.22 : 0.12),
                           borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: effectiveColor.withOpacity(isDark ? 0.45 : 0.25),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -4774,14 +4820,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 height: 6,
                                 margin: const EdgeInsets.only(right: 5),
                                 decoration: BoxDecoration(
-                                  color: color,
+                                  color: effectiveColor,
                                   shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: effectiveColor.withOpacity(0.6),
+                                      blurRadius: 4,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
                                 ),
                               ),
                             Text(
                               isActiveTripCard ? 'Live' : 'View',
                               style: TextStyle(
-                                color: color,
+                                color: effectiveColor,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -4790,7 +4843,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             Icon(
                               Icons.arrow_forward_rounded,
                               size: 13,
-                              color: color,
+                              color: effectiveColor,
                             ),
                           ],
                         ),
@@ -5111,7 +5164,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       managed.length.toString(),
                       'Bookings assisted by you',
                       Icons.assignment_turned_in_outlined,
-                      _operatorNavy,
+                      const Color(0xFF0284C7),
                       isDark,
                     ),
                   ),
@@ -5122,7 +5175,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       active.toString(),
                       'Approved or ongoing',
                       Icons.route_outlined,
-                      const Color(0xFF1976D2),
+                      const Color(0xFF0284C7),
                       isDark,
                     ),
                   ),
@@ -5135,7 +5188,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           ? 'No paid completed trips yet'
                           : '$paidCompletedCount paid completed trips',
                       Icons.account_balance_wallet_outlined,
-                      const Color(0xFF2E7D32),
+                      const Color(0xFF10B981),
                       isDark,
                     ),
                   ),
@@ -5149,8 +5202,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       paidCompletedCount == 0
                           ? 'Completed bookings only'
                           : 'Company vehicle value handled by this operator',
-                      Icons.insights_outlined,
-                      const Color(0xFF886A00),
+                      Icons.trending_up_rounded,
+                      const Color(0xFFF59E0B),
                       isDark,
                     ),
                   ),
@@ -5531,6 +5584,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     Color accent,
     bool isDark,
   ) {
+    final effectiveAccent = isDark && (accent.computeLuminance() < 0.22)
+        ? const Color(0xFF38BDF8)
+        : accent;
+
     return Container(
       constraints: const BoxConstraints(minHeight: 150),
       padding: const EdgeInsets.all(20),
@@ -5538,7 +5595,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+          color: isDark
+              ? effectiveAccent.withOpacity(0.25)
+              : Colors.grey.shade200,
         ),
       ),
       child: Column(
@@ -5550,16 +5609,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: accent.withOpacity(0.1),
+                  color: effectiveAccent.withOpacity(isDark ? 0.2 : 0.1),
                   borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                    color: effectiveAccent.withOpacity(isDark ? 0.4 : 0.2),
+                    width: 1,
+                  ),
                 ),
-                child: Icon(icon, color: accent, size: 20),
+                child: Icon(icon, color: effectiveAccent, size: 20),
               ),
               const Spacer(),
               Text(
                 label.toUpperCase(),
                 style: TextStyle(
-                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                  color: isDark ? const Color(0xFF94A3B8) : Colors.grey.shade600,
                   fontSize: 9,
                   letterSpacing: 0.6,
                   fontWeight: FontWeight.w800,
@@ -7042,23 +7105,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   Widget _buildStatusBadge(String status) {
     final group = bookingStatusGroup(status);
     final color = bookingStatusColor(group);
+    final label = bookingStatusLabel(group);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.24)),
-      ),
-      child: Text(
-        bookingStatusLabel(group).toUpperCase(),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 10,
-          height: 1,
-          fontWeight: FontWeight.w800,
-          color: color,
+    final statusDescription = switch (group) {
+      BookingStatusGroup.pending => 'Pending: Reservation is waiting for operator approval',
+      BookingStatusGroup.approved => 'Approved: Booking is confirmed and ready for key handover',
+      BookingStatusGroup.ongoing => 'Ongoing: Vehicle is currently active on trip with customer',
+      BookingStatusGroup.completed => 'Completed: Trip successfully ended and finalized',
+      BookingStatusGroup.cancelled => 'Cancelled: Booking was cancelled or declined',
+      _ => 'Status: $label',
+    };
+
+    return Tooltip(
+      message: statusDescription,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.24)),
+        ),
+        child: Text(
+          label.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 10,
+            height: 1,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
         ),
       ),
     );
@@ -8344,8 +8420,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final effectiveBackground = enabled
         ? (backgroundColor ?? Colors.transparent)
         : Colors.grey.shade700.withOpacity(0.45);
+
+    final actionDescription = switch (label.toLowerCase()) {
+      'details' || 'view details' => 'View full booking details and customer info',
+      'approve' => 'Approve this reservation and confirm booking',
+      'awaiting' => 'Awaiting driver acceptance before approving',
+      'reject' => 'Decline or cancel this booking request',
+      'message' => 'Chat directly with the renter or driver',
+      'track' => 'Track live GPS location on map',
+      _ => label,
+    };
+
     return Tooltip(
-      message: label,
+      message: actionDescription,
       child: Material(
         color: effectiveBackground,
         borderRadius: BorderRadius.circular(10),
