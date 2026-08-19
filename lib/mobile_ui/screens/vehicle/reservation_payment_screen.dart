@@ -1419,7 +1419,16 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                             dialogError = null;
                           });
 
-                          final result = await MpinService().verifyOperatorMpin(pin);
+                          final vehicleTitle = widget.vehicleData['vehicle_name']?.toString() ??
+                              '${widget.vehicleData['brand'] ?? ''} ${widget.vehicleData['model'] ?? ''}'.trim();
+                          final vehicleId = widget.vehicleData['id']?.toString();
+
+                          final result = await MpinService().verifyOperatorMpin(
+                            pin,
+                            amount: payableAmount,
+                            contextDescription: 'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
+                            bookingId: vehicleId,
+                          );
                           if (!result.success) {
                             setDialogState(() {
                               isVerifying = false;
@@ -1471,6 +1480,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     if (authorized == null || !authorized.success || !mounted) return;
 
     final operatorName = authorized.operatorName ?? 'Desk Operator';
+    final operatorId = authorized.operatorId ?? '';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('PSDC Desk settlement authorized by $operatorName.'),
@@ -1484,7 +1494,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         amount: payableAmount,
         method: 'psdc_desk_counter',
         paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
-        referenceNumber: 'DESK_AUTH_${operatorName.replaceAll(' ', '_')}',
+        referenceNumber: 'DESK_${operatorName.replaceAll(' ', '_').toUpperCase()}${operatorId.isNotEmpty ? "_${operatorId.substring(0, operatorId.length > 6 ? 6 : operatorId.length).toUpperCase()}" : ""}',
         proofUrl: '',
         proofStoragePath: null,
         senderPhone: senderPhone,

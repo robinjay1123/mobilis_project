@@ -15386,6 +15386,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
       if (category == 'all') return true;
       final logCat = log['category']?.toString() ?? '';
+      if (category == 'desk_payments') {
+        return logCat == 'DESK PAYMENT MPIN' || logCat == 'OPERATOR MPIN';
+      }
+      if (category == 'extensions') {
+        return logCat == 'TRIP EXTENSION';
+      }
       if (category == 'approvals') {
         return logCat == 'BOOKING APPROVAL' || logCat == 'PARTNER APPROVAL';
       }
@@ -15491,7 +15497,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Audit trail of all booking approvals, driver assignments, renter requests, partner actions, inspections, and payment confirmations.',
+                            'Audit trail of all operator desk MPIN approvals, trip extensions, booking confirmations, driver assignments, and vehicle inspections.',
                             style: TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 13,
@@ -15516,7 +15522,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                     fontSize: 13,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Search by Booking ID, Actor, Renter, Driver...',
+                    hintText: 'Search by Booking ID, Operator, Actor, Renter, Driver...',
                     hintStyle: TextStyle(
                       color: isDark ? Colors.white38 : Colors.grey.shade500,
                       fontSize: 13,
@@ -15548,6 +15554,16 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                   runSpacing: 10,
                   children: [
                     _buildActionLogCategoryChip('all', 'All Activity', isDark),
+                    _buildActionLogCategoryChip(
+                      'desk_payments',
+                      'Desk MPIN Payments',
+                      isDark,
+                    ),
+                    _buildActionLogCategoryChip(
+                      'extensions',
+                      'Trip Extensions',
+                      isDark,
+                    ),
                     _buildActionLogCategoryChip(
                       'approvals',
                       'Approvals',
@@ -15675,7 +15691,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     Color badgeBg = AppColors.primary.withValues(alpha: 0.15);
     Color badgeText = AppColors.primary;
 
-    if (category == 'BOOKING APPROVAL') {
+    if (category == 'DESK PAYMENT MPIN') {
+      iconColor = const Color(0xFFD97706);
+      iconData = Icons.pin_outlined;
+      badgeBg = const Color(0xFFF59E0B).withValues(alpha: 0.18);
+      badgeText = const Color(0xFFD97706);
+    } else if (category == 'OPERATOR MPIN') {
+      iconColor = const Color(0xFFF59E0B);
+      iconData = Icons.shield_outlined;
+      badgeBg = const Color(0xFFF59E0B).withValues(alpha: 0.18);
+      badgeText = const Color(0xFFF59E0B);
+    } else if (category == 'TRIP EXTENSION') {
+      iconColor = const Color(0xFF0284C7);
+      iconData = Icons.update_rounded;
+      badgeBg = const Color(0xFF0284C7).withValues(alpha: 0.18);
+      badgeText = const Color(0xFF0284C7);
+    } else if (category == 'BOOKING APPROVAL') {
       iconColor = Colors.green;
       iconData = Icons.check_circle_rounded;
       badgeBg = Colors.green.withValues(alpha: 0.15);

@@ -1103,7 +1103,13 @@ class AdminService {
               : <String, dynamic>{};
 
           String category = 'SYSTEM';
-          if (action.contains('approved') || action.contains('confirm')) {
+          if (action.contains('desk_payment') || action == 'desk_payment_authorized') {
+            category = 'DESK PAYMENT MPIN';
+          } else if (action.contains('operator_mpin') || action.contains('mpin')) {
+            category = 'OPERATOR MPIN';
+          } else if (action.contains('extension')) {
+            category = 'TRIP EXTENSION';
+          } else if (action.contains('approved') || action.contains('confirm')) {
             category = 'BOOKING APPROVAL';
           } else if (action.contains('driver') || action.contains('assign')) {
             category = 'DRIVER ASSIGNMENT';
@@ -1157,6 +1163,18 @@ class AdminService {
               operator_id,
               renter_id,
               vehicle_id,
+              extension_status,
+              extension_requested_at,
+              extension_requested_end_at,
+              extension_requested_destination,
+              extension_additional_price,
+              extension_payment_status,
+              extension_payment_submitted_at,
+              extension_payment_verified_at,
+              extension_finalized_at,
+              extension_finalized_by,
+              extension_payment_method,
+              extension_payment_reference,
               renter:users!renter_id(full_name, email, role),
               vehicle:vehicles!vehicle_id(brand, model, vehicle_name, owner_id),
               driver_user:users!driver_id(full_name),
@@ -1267,7 +1285,73 @@ class AdminService {
             }
           }
 
-          // Log D: Final Payment Confirmed
+          // Log D: Trip Extension Requests
+          final extRequestedAt = booking['extension_requested_at']?.toString();
+          if (extRequestedAt != null && extRequestedAt.isNotEmpty) {
+            final key = 'ext-req-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              final dest = booking['extension_requested_destination']?.toString();
+              final extPrice = (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+              logs.add({
+                'id': key,
+                'timestamp': extRequestedAt,
+                'category': 'TRIP EXTENSION',
+                'action_type': 'trip_extension_requested',
+                'entity_type': 'booking_extension',
+                'actor_name': renterName,
+                'actor_role': 'renter',
+                'notes': '$renterName requested Trip Extension for $shortId ($vehicleDisplay) (+PHP ${extPrice.toStringAsFixed(2)})${dest != null && dest.isNotEmpty ? " to $dest" : ""}',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'vehicle': vehicleDisplay, 'amount': extPrice},
+              });
+            }
+          }
+
+          final extPaymentAt = booking['extension_payment_submitted_at']?.toString();
+          if (extPaymentAt != null && extPaymentAt.isNotEmpty) {
+            final key = 'ext-pay-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              final method = booking['extension_payment_method']?.toString() ?? 'E-Wallet';
+              final ref = booking['extension_payment_reference']?.toString() ?? 'N/A';
+              logs.add({
+                'id': key,
+                'timestamp': extPaymentAt,
+                'category': 'TRIP EXTENSION',
+                'action_type': 'extension_payment_submitted',
+                'entity_type': 'booking_extension',
+                'actor_name': renterName,
+                'actor_role': 'renter',
+                'notes': '$renterName submitted extension fee payment for $shortId ($method - Ref: $ref)',
+                'booking_id': bookingId,
+                'metadata': {'renter_name': renterName, 'method': method, 'reference': ref},
+              });
+            }
+          }
+
+          final extFinalizedAt = booking['extension_finalized_at']?.toString();
+          final extStatus = (booking['extension_status'] ?? '').toString().toLowerCase();
+          if (extStatus == 'finalized' && extFinalizedAt != null && extFinalizedAt.isNotEmpty) {
+            final key = 'ext-done-$bookingId';
+            if (!seenKeys.contains(key)) {
+              seenKeys.add(key);
+              logs.add({
+                'id': key,
+                'timestamp': extFinalizedAt,
+                'category': 'TRIP EXTENSION',
+                'action_type': 'trip_extension_finalized',
+                'entity_type': 'booking_extension',
+                'actor_name': operatorName,
+                'actor_role': 'operator',
+                'notes': '$operatorName finalized and committed Trip Extension schedule for $shortId ($vehicleDisplay)',
+                'booking_id': bookingId,
+                'metadata': {'operator_name': operatorName, 'vehicle': vehicleDisplay},
+              });
+            }
+          }
+
+          // Log E: Final Payment Confirmed
           final paymentStatus = booking['final_payment_status']?.toString().toLowerCase();
           final paymentConfirmedAt = booking['final_payment_confirmed_at']?.toString();
           if (paymentStatus == 'paid' && paymentConfirmedAt != null && paymentConfirmedAt.isNotEmpty) {
@@ -1289,7 +1373,7 @@ class AdminService {
             }
           }
 
-          // Log E: Trip Completed
+          // Log F: Trip Completed
           final completedAt = booking['completed_at']?.toString();
           if (status == 'completed' && completedAt != null && completedAt.isNotEmpty) {
             final key = 'complete-$bookingId';
