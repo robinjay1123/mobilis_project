@@ -2045,6 +2045,19 @@ class BookingService {
               return false;
             }
 
+            // Must be verified and have completed driver/user application
+            final isVerifiedOrDone =
+                user['id_verified'] == true ||
+                _isVerifiedDriverStatus(userVer) ||
+                _isVerifiedDriverStatus(driverVer) ||
+                userAppStatus == 'approved' ||
+                userAppStatus == 'verified' ||
+                userAppStatus == 'basic' ||
+                userAppStatus == 'completed' ||
+                driver['license_verified'] == true;
+
+            if (!isVerifiedOrDone) return false;
+
             return true;
           })
           .map((driver) {
