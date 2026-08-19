@@ -8378,8 +8378,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'approve' => 'Approve this reservation and confirm booking',
       'awaiting' => 'Awaiting driver acceptance before approving',
       'extension' || 'review extension' => 'Review and re-approve trip extension request',
-      _ => label,
-    };
       'reject' => 'Decline or cancel this booking request',
       'message' => 'Chat directly with the renter or driver',
       'track' => 'Track live GPS location on map',
