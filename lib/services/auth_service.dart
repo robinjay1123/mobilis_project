@@ -186,16 +186,11 @@ class AuthService {
   }
 
   Future<void> _ensureRenterProfileExists(String userId) async {
-    try {
-      await supabase.from('renters').upsert({
-        'user_id': userId,
-      }, onConflict: 'user_id');
-    } on PostgrestException catch (e) {
-      // Keep auth/profile flow working even if renters table is not present yet.
-      debugPrint('Renter profile provisioning skipped: ${e.message}');
-    } catch (e) {
-      debugPrint('Unexpected renter profile provisioning error: $e');
-    }
+    // public.renters is the verified-renters registry.
+    // A row is only created here after admin approval (verification_service.dart).
+    // We deliberately do NOT pre-create a row on signup so unverified users
+    // are not treated as verified renters.
+    debugPrint('_ensureRenterProfileExists: renter row will be created after verification approval.');
   }
 
   Future<void> _ensureOperatorProfileExists(String userId) async {
@@ -276,24 +271,11 @@ class AuthService {
   }
 
   Future<void> _ensureDriverProfileExists(String userId) async {
-    try {
-      await supabase.from('drivers').upsert({
-        'user_id': userId,
-        'license_number': _placeholderLicenseNumber(userId),
-        'license_expiry': _placeholderLicenseExpiry,
-        'license_verified': false,
-        'nbi_verified': false,
-        'verification_status': 'pending',
-        'driver_tier': 'standard',
-        'rating': 0.0,
-        'total_trips': 0,
-      }, onConflict: 'user_id');
-    } on PostgrestException catch (e) {
-      // Keep role switching working even when driver provisioning fails.
-      debugPrint('Driver profile provisioning skipped: ${e.message}');
-    } catch (e) {
-      debugPrint('Unexpected driver profile provisioning error: $e');
-    }
+    // public.drivers is the verified-drivers registry.
+    // A row is only created here after admin approval (verification_service.dart).
+    // We deliberately do NOT pre-create a row on signup so unverified users
+    // are not treated as verified/certified drivers.
+    debugPrint('_ensureDriverProfileExists: driver row will be created after verification approval.');
   }
 
   Future<void> _ensureRoleProfileExists({

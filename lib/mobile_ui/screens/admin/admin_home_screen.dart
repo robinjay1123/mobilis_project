@@ -267,30 +267,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             .maybeSingle();
 
         if (renterRow == null) {
-          await _supabase.from('renters').insert({'user_id': userId});
+          // public.renters row is ONLY created after admin verification approval.
+          debugPrint('Role set to renter — awaiting verification before creating renters row.');
         }
       }
 
       if (newRole == 'driver') {
-        final driverRow = await _supabase
-            .from('drivers')
-            .select('id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (driverRow == null) {
-          await _supabase.from('drivers').insert({
-            'user_id': userId,
-            'license_number': _placeholderLicenseNumber(userId),
-            'license_expiry': _placeholderLicenseExpiry,
-            'license_verified': false,
-            'nbi_verified': false,
-            'verification_status': 'pending',
-            'driver_tier': 'standard',
-            'rating': 0.0,
-            'total_trips': 0,
-          });
-        }
+        // public.drivers row is ONLY created after admin verification approval.
+        // Changing role to 'driver' here just marks the user as a driver applicant
+        // in public.users — no row is inserted into public.drivers yet.
+        debugPrint('Role set to driver — awaiting verification before creating drivers row.');
       }
 
       ScaffoldMessenger.of(context).showSnackBar(

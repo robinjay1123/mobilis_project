@@ -1707,7 +1707,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     try {
       List<dynamic> response = [];
 
-      // 1. Fetch approved verification user IDs from user_verifications, renter_profiles, and drivers
+      // 1. Fetch approved verification user IDs from user_verifications, renters, and drivers
       final approvedUserIds = <String>{};
 
       // user_verifications
@@ -1730,23 +1730,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         debugPrint('user_verifications lookup note: $verErr');
       }
 
-      // renter_profiles
+      // renters (verified renters registry)
       try {
         final renters = await _supabase
-            .from('renter_profiles')
-            .select('user_id, verification_status, is_verified');
+            .from('renters')
+            .select('user_id, is_verified');
         for (final r in List<Map<String, dynamic>>.from(renters)) {
           final uid = r['user_id']?.toString() ?? '';
-          final statusStr =
-              r['verification_status']?.toString().trim().toLowerCase() ?? '';
           final isVer = r['is_verified'] == true;
-          if (uid.isNotEmpty &&
-              (isVer || statusStr == 'approved' || statusStr == 'verified')) {
-            approvedUserIds.add(uid);
+          // A row in public.renters means they are verified (the table only
+          // holds approved renters after the verification flow).
+          if (uid.isNotEmpty) {
+            if (isVer) approvedUserIds.add(uid);
           }
         }
       } catch (renterErr) {
-        debugPrint('renter_profiles lookup note: $renterErr');
+        debugPrint('renters lookup note: $renterErr');
       }
 
       // 2. Try detailed select with fallback
@@ -3177,30 +3176,37 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             .maybeSingle();
 
         if (renterRow == null) {
-          await _supabase.from('renters').insert({'user_id': userId});
+          // Pull user details so we can satisfy any NOT NULL columns
+          final userDetails = await _supabase
+              .from('users')
+              .select('full_name, phone, location')
+              .eq('id', userId)
+              .maybeSingle();
+          try {
+            await _supabase.from('renters').insert({
+              'id': userId,
+              'user_id': userId,
+              if (userDetails?['full_name'] != null)
+                'full_name': userDetails!['full_name'],
+              if (userDetails?['phone'] != null)
+                'phone': userDetails!['phone'],
+              if (userDetails?['location'] != null)
+                'address': userDetails!['location'],
+              'rating': 5.0,
+              'rating_count': 0,
+              'created_at': DateTime.now().toIso8601String(),
+            });
+          } catch (renterInsertErr) {
+            debugPrint('Renter insert note: $renterInsertErr');
+          }
         }
       }
 
       if (newRole == 'driver') {
-        final driverRow = await _supabase
-            .from('drivers')
-            .select('id')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        if (driverRow == null) {
-          await _supabase.from('drivers').insert({
-            'user_id': userId,
-            'license_number': _placeholderLicenseNumber(userId),
-            'license_expiry': _placeholderLicenseExpiry,
-            'license_verified': false,
-            'nbi_verified': false,
-            'verification_status': 'pending',
-            'driver_tier': 'standard',
-            'rating': 0.0,
-            'total_trips': 0,
-          });
-        }
+        // public.drivers row is ONLY created after admin verification approval.
+        // Changing role to 'driver' here just marks the user as a driver applicant
+        // in public.users — no row is inserted into public.drivers yet.
+        debugPrint('Role set to driver — awaiting verification before creating drivers row.');
       }
 
       ScaffoldMessenger.of(context).showSnackBar(

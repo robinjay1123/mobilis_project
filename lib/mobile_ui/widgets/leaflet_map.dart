@@ -24,6 +24,8 @@ class MobilisMapMarker {
   final String? tooltip;
   final String? label;
   final VoidCallback? onTap;
+  /// When set, this widget is rendered instead of the default [icon].
+  final Widget? customChild;
 
   const MobilisMapMarker({
     required this.latitude,
@@ -34,10 +36,12 @@ class MobilisMapMarker {
     this.tooltip,
     this.label,
     this.onTap,
+    this.customChild,
   });
 
   LatLng get point => LatLng(latitude, longitude);
 }
+
 
 class MobilisMapPoint {
   final double latitude;
@@ -242,6 +246,7 @@ class MobilisLeafletMap extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                              marker.customChild ??
                               Icon(
                                 marker.icon,
                                 size: marker.size,

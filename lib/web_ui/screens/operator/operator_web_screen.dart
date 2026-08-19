@@ -3103,6 +3103,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       context: context,
       builder: (context) {
         String? selectedDriverId;
+        final listScrollController = ScrollController();
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -3272,6 +3273,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     );
                                   }
                                   return ListView.separated(
+                                    controller: listScrollController,
                                     padding: const EdgeInsets.all(24),
                                     itemCount: drivers.length + 1,
                                     separatorBuilder: (_, __) =>
@@ -3284,6 +3286,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           partnerVehicle: partnerVehicle,
                                           drivers: drivers,
                                           mapTargets: mapTargets,
+                                          selectedDriverId: selectedDriverId,
+                                          onDriverMarkerTap: (driverId, driverIndex) {
+                                            setDialogState(() {
+                                              selectedDriverId = driverId;
+                                            });
+                                            // Scroll to the driver card (+1 for the map header item)
+                                            final targetIndex = driverIndex + 1;
+                                            if (listScrollController.hasClients) {
+                                              listScrollController.animateTo(
+                                                targetIndex * 90.0,
+                                                duration: const Duration(milliseconds: 350),
+                                                curve: Curves.easeOut,
+                                              );
+                                            }
+                                          },
                                         );
                                       }
                                       final driver = drivers[index - 1];
@@ -3344,31 +3361,58 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           ),
                                           child: Row(
                                             children: [
-                                              Container(
-                                                width: 48,
-                                                height: 48,
-                                                alignment: Alignment.center,
-                                                decoration: BoxDecoration(
-                                                  color: selected
-                                                      ? _operatorNavy
-                                                      : (isPsdcDriver
-                                                            ? const Color(
-                                                                0xFFD97706,
-                                                              )
-                                                            : const Color(
-                                                                0xFF0284C7,
-                                                              )),
-                                                  borderRadius:
-                                                      BorderRadius.circular(14),
-                                                ),
-                                                child: Text(
-                                                  name.isEmpty
-                                                      ? '?'
-                                                      : name[0].toUpperCase(),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w900,
-                                                  ),
+                                              // Driver avatar: person icon + steering wheel badge
+                                              SizedBox(
+                                                width: 52,
+                                                height: 52,
+                                                child: Stack(
+                                                  children: [
+                                                    Container(
+                                                      width: 44,
+                                                      height: 44,
+                                                      alignment: Alignment.center,
+                                                      decoration: BoxDecoration(
+                                                        color: selected
+                                                            ? _operatorNavy
+                                                            : (isPsdcDriver
+                                                                  ? const Color(0xFFD97706)
+                                                                  : const Color(0xFF0284C7)),
+                                                        borderRadius: BorderRadius.circular(14),
+                                                      ),
+                                                      child: Icon(
+                                                        Icons.person_rounded,
+                                                        color: Colors.white,
+                                                        size: 26,
+                                                      ),
+                                                    ),
+                                                    Positioned(
+                                                      right: 0,
+                                                      bottom: 0,
+                                                      child: Container(
+                                                        width: 20,
+                                                        height: 20,
+                                                        decoration: BoxDecoration(
+                                                          color: selected
+                                                              ? _operatorNavyDeep
+                                                              : (isPsdcDriver
+                                                                  ? const Color(0xFFF59E0B)
+                                                                  : const Color(0xFF0EA5E9)),
+                                                          shape: BoxShape.circle,
+                                                          border: Border.all(
+                                                            color: selected
+                                                                ? _operatorGold
+                                                                : _operatorNavyDeep,
+                                                            width: 1.5,
+                                                          ),
+                                                        ),
+                                                        child: Icon(
+                                                          Icons.sports_motorsports_rounded,
+                                                          color: Colors.white,
+                                                          size: 12,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
                                               const SizedBox(width: 14),
@@ -3550,12 +3594,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  /// Builds the interactive map summary showing the car location and driver locations.
+  /// Tapping a driver marker on the map triggers [onDriverMarkerTap] which
+  /// simultaneously selects that driver in the list.
   Widget _buildDriverCoverageSummary({
     required Map<String, dynamic> booking,
     required Map<String, dynamic> vehicle,
     required bool partnerVehicle,
     required List<Map<String, dynamic>> drivers,
     required List<Map<String, double>> mapTargets,
+    String? selectedDriverId,
+    void Function(String driverId, int driverIndex)? onDriverMarkerTap,
   }) {
     final pickup = booking['pickup_location']?.toString().trim();
     final vehicleLocation = vehicle['location']?.toString().trim();
@@ -3564,7 +3613,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : vehicleLocation?.isNotEmpty == true
         ? vehicleLocation!
         : 'Location coordinates are not yet available';
+
+    // Unit name for the car marker label
+    final unitName = _vehicleTitle(vehicle);
+
     final mapMarkers = <MobilisMapMarker>[
+      // ── Car / vehicle location markers ──
       ...mapTargets.map(
         (target) => MobilisMapMarker(
           latitude: target['latitude']!,
@@ -3572,26 +3626,120 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           icon: Icons.directions_car_filled_rounded,
           color: _operatorGold,
           size: 40,
+          label: unitName.isNotEmpty ? unitName : 'Vehicle',
+          tooltip: unitName.isNotEmpty ? unitName : 'Booked vehicle',
         ),
       ),
-      ...drivers.take(8).expand((driver) {
+
+      // ── Driver markers (person icon + steering-wheel badge) ──
+      ...drivers.take(8).toList().asMap().entries.expand((entry) {
+        final driverIndex = entry.key;
+        final driver = entry.value;
         final user = driver['users'] as Map<String, dynamic>? ?? {};
         final latitude = _coordinateValue(user['latitude']);
         final longitude = _coordinateValue(user['longitude']);
-        if (latitude == null || longitude == null) {
-          return const <MobilisMapMarker>[];
-        }
+        if (latitude == null || longitude == null) return const <MobilisMapMarker>[];
+
+        final driverId = driver['id']?.toString() ?? '';
+        final driverName = (user['full_name']?.toString().trim().isNotEmpty == true)
+            ? user['full_name'].toString().trim()
+            : (user['email']?.toString().split('@').first ?? 'Driver');
+        final isSelected = selectedDriverId == driverId;
+        final isPsdcDriver =
+            driver['is_psdc_driver'] == true ||
+            user['is_psdc_driver'] == true ||
+            driver['driver_tier']?.toString().toLowerCase() == 'psdc';
+
+        final markerColor = isSelected
+            ? _operatorGold
+            : isPsdcDriver
+                ? const Color(0xFFD97706)
+                : AppColors.success;
+
+        // Custom composite widget: person silhouette + steering-wheel badge
+        final driverWidget = SizedBox(
+          width: 42,
+          height: 42,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Person circle
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: markerColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: markerColor.withValues(alpha: 0.5),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white,
+                    width: isSelected ? 2.5 : 1.5,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              // Steering-wheel badge (bottom-right)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? _operatorNavyDeep
+                        : isPsdcDriver
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF0EA5E9),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black38,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.sports_motorsports_rounded,
+                    color: Colors.white,
+                    size: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
         return [
           MobilisMapMarker(
             latitude: latitude,
             longitude: longitude,
-            icon: Icons.person_pin_circle_rounded,
-            color: AppColors.success,
-            size: 34,
+            icon: Icons.person_pin_circle_rounded, // fallback
+            color: markerColor,
+            size: 36,
+            label: driverName,
+            tooltip: driverName,
+            customChild: driverWidget,
+            onTap: onDriverMarkerTap == null
+                ? null
+                : () => onDriverMarkerTap(driverId, driverIndex),
           ),
         ];
       }),
     ];
+
     return Container(
       height: 220,
       clipBehavior: Clip.antiAlias,
@@ -3617,12 +3765,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   )
                 : MobilisLeafletMap(
                     key: ValueKey(
-                      mapMarkers
-                          .map(
+                      // Re-key when selection changes so selected marker redraws
+                      '${selectedDriverId ?? ''}|${mapMarkers.map(
                             (m) =>
                                 '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}',
-                          )
-                          .join('|'),
+                          ).join('|')}',
                     ),
                     markers: mapMarkers,
                     initialZoom: mapMarkers.length > 1 ? 10 : 14,
@@ -3672,6 +3819,20 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      // Legend: car
+                      Icon(Icons.directions_car_filled_rounded, color: _operatorGold, size: 14),
+                      const SizedBox(width: 4),
+                      Text(
+                        unitName.isNotEmpty ? unitName : 'Vehicle',
+                        style: TextStyle(color: _operatorGold, fontSize: 10, fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
                   Text(
                     '${drivers.length} eligible  |  '
                     '${partnerVehicle && mapTargets.isNotEmpty ? 'Nearest first' : 'Availability verified'}',
@@ -3679,6 +3840,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       color: _operatorGold,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Tap a driver pin on the map to select',
+                    style: TextStyle(
+                      color: Color(0xFF6B8EA8),
+                      fontSize: 10,
                     ),
                   ),
                 ],

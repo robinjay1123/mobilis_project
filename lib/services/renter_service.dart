@@ -39,8 +39,10 @@ class RenterService {
     try {
       debugPrint('Creating renter profile for user: $userId');
       final response = await supabase.from('renters').insert({
+        'id': userId,
         'user_id': userId,
-        'verification_status': 'pending',
+        'rating': 5.0,
+        'rating_count': 0,
         'created_at': DateTime.now().toIso8601String(),
       }).select();
 
