@@ -1961,52 +1961,23 @@ class BookingService {
 
       List<Map<String, dynamic>> rawDriverRows = [];
 
-      // 1. Query drivers from drivers table with joined user profiles
-      final Set<String> processedUserIds = {};
+      // 1. Query verified & approved drivers directly from public.drivers joined with public.users
       try {
         final response = await supabase
             .from('drivers')
             .select(
               'id, user_id, verification_status, driver_tier, rating, total_trips, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
-            );
+            )
+            .or('verification_status.eq.approved,verification_status.eq.verified');
         for (final row in List<Map<String, dynamic>>.from(response)) {
           final u = row['users'] as Map<String, dynamic>?;
           final uId = row['user_id']?.toString() ?? u?['id']?.toString();
-          if (u != null && uId != null && uId.isNotEmpty) {
+          if (u != null && uId != null && uId.isNotEmpty && u['is_active'] != false) {
             rawDriverRows.add(row);
-            processedUserIds.add(uId);
           }
         }
       } catch (joinErr) {
-        debugPrint('Direct drivers join note: $joinErr');
-      }
-
-      // 2. Always fetch all users with role 'driver' to include ALL freelance, partner, and certified drivers
-      try {
-        final usersList = await supabase
-            .from('users')
-            .select(
-              'id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active',
-            )
-            .eq('role', 'driver');
-
-        for (final u in List<Map<String, dynamic>>.from(usersList)) {
-          final uId = u['id'].toString();
-          if (!processedUserIds.contains(uId)) {
-            rawDriverRows.add({
-              'id': uId,
-              'user_id': uId,
-              'verification_status': u['verification_status'] ?? 'approved',
-              'driver_tier': 'standard',
-              'rating': 5.0,
-              'total_trips': 0,
-              'users': u,
-            });
-            processedUserIds.add(uId);
-          }
-        }
-      } catch (usersErr) {
-        debugPrint('Users table drivers query note: $usersErr');
+        debugPrint('Direct drivers table query note: $joinErr');
       }
 
       final drivers = rawDriverRows

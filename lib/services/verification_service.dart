@@ -309,6 +309,11 @@ class VerificationService {
             userId: userId,
             status: 'verified',
           );
+        } else if (role == 'renter' || role.isEmpty) {
+          await _syncRenterProfileFromVerification(
+            userId: userId,
+            status: 'verified',
+          );
         }
       }
 
@@ -538,7 +543,6 @@ class VerificationService {
       if ((existingDriver['license_number']?.toString().trim() ?? '').isEmpty) {
         updatePayload['license_number'] = _placeholderLicenseNumber(userId);
       }
-
       await supabase
           .from('drivers')
           .update(updatePayload)
@@ -546,8 +550,41 @@ class VerificationService {
     }
   }
 
+  static Future<void> _syncRenterProfileFromVerification({
+    required String userId,
+    required String status,
+  }) async {
+    final renterStatus = _profileStatusFromVerificationStatus(status);
+    try {
+      final existingRenter = await supabase
+          .from('renters')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      final payload = <String, dynamic>{
+        'user_id': userId,
+        'verification_status': renterStatus,
+      };
+
+      if (existingRenter == null) {
+        await supabase.from('renters').insert({
+          ...payload,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } else {
+        await supabase
+            .from('renters')
+            .update(payload)
+            .eq('id', existingRenter['id']);
+      }
+    } catch (e) {
+      debugPrint('Error syncing renter profile from verification: $e');
+    }
+  }
+
   static String _profileStatusFromVerificationStatus(String status) {
-    // user_verifications accepts "verified"; partners/drivers accept "approved".
+    // user_verifications accepts "verified"; partners/drivers/renters accept "approved".
     return status == 'verified' ? 'approved' : status;
   }
 
