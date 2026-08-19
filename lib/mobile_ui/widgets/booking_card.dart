@@ -334,10 +334,10 @@ class BookingCard extends StatelessWidget {
                 width: double.infinity,
                 child: isAlreadyRated
                     ? OutlinedButton.icon(
-                        onPressed: null,
+                        onPressed: onRateTrip,
                         icon: const Icon(Icons.star_rounded, color: AppColors.ratingGold, size: 18),
                         label: Text(
-                          'Rating Submitted',
+                          'Rating Submitted • View / Edit',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: secondaryText,

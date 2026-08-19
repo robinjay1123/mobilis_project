@@ -76,95 +76,90 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     final operatorFallbackUserId = cleanReviewerRole == 'operator'
         ? reviewerId
         : null;
+
     final targets = await _tripRatingService.buildTargetsForBooking(
       bookingId: widget.bookingId,
       reviewerUserId: reviewerId,
       reviewerRole: widget.reviewerRole,
       operatorFallbackUserId: operatorFallbackUserId,
-      includePreviouslySubmittedForRecovery: false,
+      includePreviouslySubmittedForRecovery: true,
     );
 
-    var completionRecovered = false;
-    var emptyTitle = 'Ratings Already Completed';
-    var emptyMessage =
-        'You have already submitted all your reviews for this trip. Thank you!';
-    var emptyIcon = Icons.check_circle_outline_rounded;
-    var emptyIconColor = AppColors.success;
+    for (final target in targets) {
+      try {
+        final existing = await Supabase.instance.client
+            .from('trip_ratings')
+            .select()
+            .eq('booking_id', widget.bookingId)
+            .eq('reviewer_user_id', reviewerId)
+            .eq('target_user_id', target['userId'].toString())
+            .eq('target_role', target['role'].toString())
+            .maybeSingle();
+        if (existing != null) {
+          target['existingRating'] = existing;
+          target['alreadyRated'] = true;
+        }
+      } catch (_) {}
+    }
+
+    var emptyTitle = 'No Rating Targets';
+    var emptyMessage = 'No rating targets available for this booking.';
+    var emptyIcon = Icons.hourglass_bottom_rounded;
+    var emptyIconColor = AppColors.warning;
 
     if (targets.isEmpty) {
-      // Check if this reviewer has already submitted any ratings for this booking
-      var hasAlreadySubmitted = false;
-      try {
-        final existingRatings = await Supabase.instance.client
-            .from('trip_ratings')
-            .select('id')
-            .eq('booking_id', widget.bookingId)
-            .eq('reviewer_user_id', reviewerId);
-        hasAlreadySubmitted = (existingRatings as List).isNotEmpty;
-      } catch (_) {}
-
       final bookingContext = await _tripRatingService.getBookingContext(
         widget.bookingId,
       );
       final status =
           bookingContext?['status']?.toString().trim().toLowerCase() ?? '';
-
-      if (hasAlreadySubmitted) {
-        completionRecovered = await _tripRatingService.reconcileCompletedBooking(
-          widget.bookingId,
-          operatorFallbackUserId: operatorFallbackUserId,
-        );
-        emptyTitle = 'Ratings Already Completed';
-        emptyMessage = completionRecovered
-            ? 'This trip is completed and its revenue and ratings are finalized.'
-            : 'You have already submitted all your reviews for this trip. Thank you!';
-        emptyIcon = Icons.check_circle_outline_rounded;
-        emptyIconColor = AppColors.success;
+      if (status == 'cancelled') {
+        emptyTitle = 'Booking Cancelled';
+        emptyMessage =
+            'This booking was cancelled and is not eligible for trip reviews.';
+        emptyIcon = Icons.cancel_outlined;
+        emptyIconColor = AppColors.error;
       } else {
-        // Reviewer has NOT rated yet. Try to load targets for recovery / direct rating
-        final retryTargets = await _tripRatingService.buildTargetsForBooking(
-          bookingId: widget.bookingId,
-          reviewerUserId: reviewerId,
-          reviewerRole: widget.reviewerRole,
-          operatorFallbackUserId: operatorFallbackUserId,
-          includePreviouslySubmittedForRecovery: true,
-        );
-
-        if (retryTargets.isNotEmpty) {
-          if (!mounted) return;
-          setState(() {
-            _targets = retryTargets;
-            _isLoading = false;
-          });
-          return;
-        }
-
-        if (status == 'cancelled') {
-          emptyTitle = 'Booking Cancelled';
-          emptyMessage =
-              'This booking was cancelled and is not eligible for trip reviews.';
-          emptyIcon = Icons.cancel_outlined;
-          emptyIconColor = AppColors.error;
-        } else {
-          emptyTitle = 'Rating Not Ready Yet';
-          emptyMessage =
-              'Vehicle return and inspection must be completed before trip ratings can begin.';
-          emptyIcon = Icons.hourglass_bottom_rounded;
-          emptyIconColor = AppColors.warning;
-        }
+        emptyTitle = 'Rating Not Ready Yet';
+        emptyMessage =
+            'Vehicle return and inspection must be completed before trip ratings can begin.';
+        emptyIcon = Icons.hourglass_bottom_rounded;
+        emptyIconColor = AppColors.warning;
       }
     }
 
     if (!mounted) return;
     setState(() {
       _targets = targets;
-      _completionRecovered = completionRecovered;
       _emptyTitle = emptyTitle;
       _emptyMessage = emptyMessage;
       _emptyIcon = emptyIcon;
       _emptyIconColor = emptyIconColor;
       _isLoading = false;
+      _populateFieldsForCurrentTarget();
     });
+  }
+
+  void _populateFieldsForCurrentTarget() {
+    final target = _currentTarget;
+    if (target != null && target['existingRating'] is Map<String, dynamic>) {
+      final existing = target['existingRating'] as Map<String, dynamic>;
+      _selectedRating = (existing['rating'] as num?)?.toDouble() ?? 0.0;
+      _commentController.text = existing['comment']?.toString() ?? '';
+      final rawTags = existing['tags'];
+      if (rawTags is List) {
+        _selectedTags.clear();
+        _selectedTags.addAll(rawTags.map((e) => e.toString()));
+      } else {
+        _selectedTags.clear();
+      }
+      _selectedImages.clear();
+    } else {
+      _selectedRating = 0.0;
+      _commentController.clear();
+      _selectedTags.clear();
+      _selectedImages.clear();
+    }
   }
 
   Map<String, dynamic>? get _currentTarget {
@@ -232,12 +227,10 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
     setState(() {
       _currentIndex++;
-      _selectedRating = 0;
-      _commentController.clear();
-      _selectedImages.clear();
-      _selectedTags.clear();
       _isSubmitting = false;
+      _populateFieldsForCurrentTarget();
     });
+  }
   }
 
   @override
@@ -419,7 +412,11 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                         ),
                       ),
                       child: Text(
-                        _isSubmitting ? 'Submitting...' : 'Submit Rating',
+                        _isSubmitting
+                            ? 'Submitting...'
+                            : (_currentTarget?['alreadyRated'] == true
+                                ? 'Update Rating'
+                                : 'Submit Rating'),
                       ),
                     ),
                   ),

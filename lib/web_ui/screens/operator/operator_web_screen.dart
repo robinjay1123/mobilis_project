@@ -1394,59 +1394,45 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return;
       }
 
-      // Check if there are any pending targets for operator to rate
-      final pendingTargets = await TripRatingService().buildTargetsForBooking(
-        bookingId: bookingId,
-        reviewerUserId: actorId,
-        reviewerRole: 'operator',
-        includePreviouslySubmittedForRecovery: false,
-        operatorFallbackUserId: actorId,
-      );
+      if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
+        try {
+          await _supabase
+              .from('bookings')
+              .update({
+                'operator_id': actorId,
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              })
+              .eq('id', bookingId);
+        } catch (_) {}
+      }
 
-      final operatorHasNotConfirmed =
-          latestBooking['operator_trip_confirmed_at'] == null;
-
-      // IF OPERATOR STILL HAS PENDING RATINGS TO SUBMIT OR HAS NOT CONFIRMED:
-      if (pendingTargets.isNotEmpty || operatorHasNotConfirmed) {
-        final now = DateTime.now().toUtc().toIso8601String();
-        final ratingStageUpdate = <String, dynamic>{
-          'completion_stage': 'operator_rating',
-          'updated_at': now,
-        };
-        if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
-          ratingStageUpdate['operator_id'] = actorId;
-        }
-        await _supabase
-            .from('bookings')
-            .update(ratingStageUpdate)
-            .eq('id', bookingId);
-
-        if (!mounted) return;
-        final submitted = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 48,
-              vertical: 32,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: TripRatingFlowScreen(
-                  bookingId: bookingId,
-                  reviewerRole: 'operator',
-                  title: 'Rate Renter',
-                  subtitle:
-                      'Rate the renter before this trip moves to final completion.',
-                ),
+      if (!mounted) return;
+      final submitted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 48,
+            vertical: 32,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: TripRatingFlowScreen(
+                bookingId: bookingId,
+                reviewerRole: 'operator',
+                title: 'Rate Renter',
+                subtitle:
+                    'Rate the renter before this trip moves to final completion.',
               ),
             ),
           ),
-        );
-        if (submitted != true) return;
+        ),
+      );
+
+      if (submitted == true) {
         final reconciled = await TripRatingService().reconcileCompletedBooking(
           bookingId,
           operatorFallbackUserId: actorId,
@@ -1468,31 +1454,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        return;
       }
-
-      // IF OPERATOR HAS ALREADY SUBMITTED RATING FOR THIS BOOKING:
-      final reconciled = await TripRatingService().reconcileCompletedBooking(
-        bookingId,
-        operatorFallbackUserId: actorId,
-      );
-      await Future.wait([
-        _loadRecentBookings(),
-        _loadOperatorRevenueBookings(),
-        _loadOperatorSettlements(),
-      ]);
-      if (!mounted) return;
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            reconciled
-                ? 'Trip is already completed and revenue updated.'
-                : 'Your rating for this trip has already been submitted.',
-          ),
-          backgroundColor: reconciled ? Colors.green : Colors.blue,
-        ),
-      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
