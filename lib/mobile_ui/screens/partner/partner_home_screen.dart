@@ -4571,6 +4571,27 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     }
   }
 
+  String _formatDateShort(String? raw) {
+    if (raw == null || raw.isEmpty) return 'N/A';
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return raw;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
   Map<String, dynamic>? _trackingForBooking(Map<String, dynamic> booking) {
     final bookingId = booking['id']?.toString();
     if (bookingId == null || bookingId.isEmpty) return null;

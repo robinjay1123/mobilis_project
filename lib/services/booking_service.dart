@@ -3405,9 +3405,13 @@ class BookingService {
   /// Accept an extension request (Partner for partner vehicle, Operator for operator vehicle).
   Future<void> acceptTripExtension({
     required String bookingId,
-    required String reviewerId,
+    String? reviewerId,
+    String? operatorId,
     String? reviewerRole,
   }) async {
+    final effectiveReviewerId = reviewerId ?? operatorId ?? '';
+    final effectiveRole = reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
+
     try {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
@@ -3415,7 +3419,7 @@ class BookingService {
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
       final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
 
-      if (isPartnerVehicle && reviewerRole == 'operator') {
+      if (isPartnerVehicle && effectiveRole == 'operator') {
         throw Exception(
           'Operator cannot accept extension for a Partner-owned vehicle. Only the Partner can accept.',
         );
@@ -3441,7 +3445,7 @@ class BookingService {
         if (conversationId != null) {
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: reviewerId,
+            senderId: effectiveReviewerId,
             content:
                 'Trip Extension Accepted: Your extension request was accepted! Please pay the extension fee of PHP ${addPrice.toStringAsFixed(2)} in the app to proceed.',
           );
@@ -3453,21 +3457,42 @@ class BookingService {
     }
   }
 
+  /// Backward compatible alias for accepting trip extensions
+  Future<void> approveTripExtension({
+    required String bookingId,
+    String? operatorId,
+    String? reviewerId,
+    String reviewerRole = 'operator',
+  }) async {
+    return acceptTripExtension(
+      bookingId: bookingId,
+      reviewerId: reviewerId ?? operatorId,
+      reviewerRole: reviewerRole,
+    );
+  }
+
   /// Submit payment for an extension request (by Renter).
   Future<void> submitExtensionPayment({
     required String bookingId,
-    required String renterId,
-    required String method,
-    required String reference,
-    required String proofUrl,
+    String? renterId,
+    String? method,
+    String? reference,
+    String? paymentMethod,
+    String? paymentReference,
+    String? proofUrl,
   }) async {
+    final effectiveMethod = method ?? paymentMethod ?? 'E-Wallet';
+    final effectiveReference = reference ?? paymentReference ?? 'N/A';
+    final effectiveRenterId = renterId ?? supabase.auth.currentUser?.id ?? '';
+    final effectiveProofUrl = proofUrl ?? '';
+
     try {
       await supabase
           .from('bookings')
           .update({
-            'extension_payment_method': method.trim(),
-            'extension_payment_reference': reference.trim(),
-            'extension_payment_proof_url': proofUrl.trim(),
+            'extension_payment_method': effectiveMethod.trim(),
+            'extension_payment_reference': effectiveReference.trim(),
+            'extension_payment_proof_url': effectiveProofUrl.trim(),
             'extension_payment_submitted_at': DateTime.now().toIso8601String(),
             'extension_payment_status': 'pending_review',
             'extension_status': 'payment_completed',
@@ -3483,9 +3508,9 @@ class BookingService {
         if (conversationId != null) {
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: renterId,
+            senderId: effectiveRenterId,
             content:
-                'Extension Payment Submitted: Renter submitted extension fee payment ($method - Ref: $reference). Awaiting verification.',
+                'Extension Payment Submitted: Renter submitted extension fee payment ($effectiveMethod - Ref: $effectiveReference). Awaiting verification.',
           );
         }
       }
@@ -3564,67 +3589,36 @@ class BookingService {
         );
       }
 
-      final newEndRaw = booking['extension_requested_end_at']?.toString();
-      if (newEndRaw == null || newEndRaw.isEmpty) {
-        throw Exception('No pending extension request found for this booking.');
+      final newEndAtRaw = booking['extension_requested_end_at']?.toString();
+      if (newEndAtRaw == null) {
+        throw Exception('No requested extension return date found on this booking.');
       }
-
-      final newEndAt = DateTime.parse(newEndRaw).toLocal();
-      final currentEndRaw =
-          booking['end_at']?.toString() ?? booking['end_date']?.toString();
-      final currentEndAt = currentEndRaw != null
-          ? DateTime.tryParse(currentEndRaw)?.toLocal()
-          : null;
-
-      final vehicleId = booking['vehicle_id']?.toString() ?? '';
-      final overlappingBookings = await supabase
-          .from('bookings')
-          .select('id,start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
-          .neq('id', bookingId)
-          .inFilter('status', _bookingBlockingStatuses);
-
-      final extensionStart = currentEndAt ?? DateTime.now();
-      for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
-        final status = b['status']?.toString();
-        if (!_isBlockingStatus(status)) continue;
-        final interval = _bookingInterval(b);
-        if (interval == null) continue;
-        final (existingStart, existingEnd) = interval;
-        if (extensionStart.isBefore(existingEnd) && newEndAt.isAfter(existingStart)) {
-          final startFormatted = '${existingStart.month}/${existingStart.day}/${existingStart.year}';
-          final endFormatted = '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
-          throw Exception(
-            'Cannot finalize extension: Vehicle has another active reservation ($startFormatted - $endFormatted).',
-          );
-        }
-      }
-
-      final additionalPrice =
+      final newEndAt = DateTime.parse(newEndAtRaw);
+      final addPrice =
           (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
-      final currentTotal = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
-      final newTotal = currentTotal + additionalPrice;
-      final currentSubtotal =
-          (booking['rental_subtotal'] as num?)?.toDouble() ?? currentTotal;
-      final newSubtotal = currentSubtotal + additionalPrice;
+      final currentTotal =
+          (booking['total_price'] as num?)?.toDouble() ??
+          (booking['totalCost'] as num?)?.toDouble() ??
+          0.0;
+      final newTotal = currentTotal + addPrice;
       final requestedDest =
-          booking['extension_requested_destination']?.toString().trim();
+          booking['extension_requested_destination']?.toString();
+
+      final currentDays = (booking['days'] as num?)?.toInt() ?? 1;
+      final extDays = (booking['extension_days'] as num?)?.toInt() ?? 1;
+      final totalDays = currentDays + extDays;
 
       await supabase
           .from('bookings')
           .update({
             'end_at': newEndAt.toIso8601String(),
-            'end_date': DateTime(
-              newEndAt.year,
-              newEndAt.month,
-              newEndAt.day,
-            ).toIso8601String(),
-            if (requestedDest != null && requestedDest.isNotEmpty)
-              'dropoff_location': requestedDest,
+            'end_date': newEndAt.toIso8601String(),
             'total_price': newTotal,
-            'rental_subtotal': newSubtotal,
+            'totalCost': newTotal,
+            'days': totalDays,
+            if (requestedDest != null && requestedDest.trim().isNotEmpty)
+              'dropoff_location': requestedDest.trim(),
             'extension_status': 'finalized',
-            'extension_payment_status': 'paid',
             'extension_finalized_at': DateTime.now().toIso8601String(),
             'extension_finalized_by': finalizerId,
             'updated_at': DateTime.now().toIso8601String(),
@@ -3654,10 +3648,14 @@ class BookingService {
   /// Reject trip extension request.
   Future<void> rejectTripExtension({
     required String bookingId,
-    required String reviewerId,
+    String? reviewerId,
+    String? operatorId,
     String? reviewerRole,
     String? reason,
   }) async {
+    final effectiveReviewerId = reviewerId ?? operatorId ?? '';
+    final effectiveRole = reviewerRole ?? (operatorId != null ? 'operator' : 'partner');
+
     try {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
@@ -3665,7 +3663,7 @@ class BookingService {
       final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
       final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
 
-      if (isPartnerVehicle && reviewerRole == 'operator') {
+      if (isPartnerVehicle && effectiveRole == 'operator') {
         throw Exception(
           'Operator cannot reject extension for a Partner-owned vehicle. Only the Partner can reject.',
         );
@@ -3689,7 +3687,7 @@ class BookingService {
         if (conversationId != null) {
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: reviewerId,
+            senderId: effectiveReviewerId,
             content:
                 'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}. Please return the vehicle by your original schedule.',
           );
