@@ -231,7 +231,6 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       _populateFieldsForCurrentTarget();
     });
   }
-  }
 
   @override
   Widget build(BuildContext context) {
