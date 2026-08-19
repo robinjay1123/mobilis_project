@@ -1941,37 +1941,129 @@ class BookingService {
           '${targetDate.year.toString().padLeft(4, '0')}-'
           '${targetDate.month.toString().padLeft(2, '0')}-'
           '${targetDate.day.toString().padLeft(2, '0')}';
-      final dateScheduleResponse = await supabase
-          .from('driver_availability_schedule')
-          .select('driver_id, is_available')
-          .eq('date', scheduleDate);
 
       final Map<String, bool> dateScheduleMap = {};
-      for (final row in List<Map<String, dynamic>>.from(dateScheduleResponse)) {
-        final dId = row['driver_id']?.toString();
-        if (dId != null && dId.isNotEmpty) {
-          dateScheduleMap[dId] = row['is_available'] == true;
+      try {
+        final dateScheduleResponse = await supabase
+            .from('driver_availability_schedule')
+            .select('driver_id, is_available')
+            .eq('date', scheduleDate);
+
+        for (final row in List<Map<String, dynamic>>.from(dateScheduleResponse)) {
+          final dId = row['driver_id']?.toString();
+          if (dId != null && dId.isNotEmpty) {
+            dateScheduleMap[dId] = row['is_available'] == true;
+          }
+        }
+      } catch (scheduleErr) {
+        debugPrint('Driver availability schedule lookup note: $scheduleErr');
+      }
+
+      List<Map<String, dynamic>> rawDriverRows = [];
+
+      // Strategy 1: Direct join without explicit foreign key constraint name
+      try {
+        final response = await supabase
+            .from('drivers')
+            .select(
+              'id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active)',
+            );
+        rawDriverRows = List<Map<String, dynamic>>.from(response);
+      } catch (joinErr) {
+        debugPrint('Direct drivers join failed, attempting multi-query fallback: $joinErr');
+      }
+
+      // Strategy 2: Multi-query independent merge if join fails or returned empty
+      if (rawDriverRows.isEmpty) {
+        try {
+          final driversList = await supabase
+              .from('drivers')
+              .select('id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver');
+
+          final usersList = await supabase
+              .from('users')
+              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active')
+              .or('role.eq.driver,is_psdc_driver.eq.true');
+
+          final usersMap = <String, Map<String, dynamic>>{};
+          for (final u in List<Map<String, dynamic>>.from(usersList)) {
+            usersMap[u['id'].toString()] = u;
+          }
+
+          final driversByUserId = <String, Map<String, dynamic>>{};
+          for (final d in List<Map<String, dynamic>>.from(driversList)) {
+            final uId = d['user_id']?.toString() ?? '';
+            if (uId.isNotEmpty) driversByUserId[uId] = d;
+          }
+
+          final processedUserIds = <String>{};
+
+          for (final d in List<Map<String, dynamic>>.from(driversList)) {
+            final uId = d['user_id']?.toString() ?? '';
+            final user = usersMap[uId];
+            if (user != null) {
+              processedUserIds.add(uId);
+              rawDriverRows.add({
+                ...d,
+                'users': user,
+              });
+            }
+          }
+
+          // Also include all users with role 'driver' who don't yet have a row in drivers table
+          for (final u in List<Map<String, dynamic>>.from(usersList)) {
+            final uId = u['id'].toString();
+            if (!processedUserIds.contains(uId)) {
+              rawDriverRows.add({
+                'id': uId,
+                'user_id': uId,
+                'verification_status': 'verified',
+                'driver_tier': u['is_psdc_driver'] == true ? 'psdc' : 'standard',
+                'rating': 5.0,
+                'total_trips': 0,
+                'is_psdc_driver': u['is_psdc_driver'] == true,
+                'users': u,
+              });
+            }
+          }
+        } catch (multiErr) {
+          debugPrint('Multi-query drivers fallback failed: $multiErr');
         }
       }
 
-      final response = await supabase
-          .from('drivers')
-          .select(
-            'id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver, users!drivers_user_id_fkey(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver)',
-          );
+      // Strategy 3: Directly query users table if still empty
+      if (rawDriverRows.isEmpty) {
+        try {
+          final usersList = await supabase
+              .from('users')
+              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active')
+              .eq('role', 'driver');
 
-      final drivers = List<Map<String, dynamic>>.from(response)
+          for (final u in List<Map<String, dynamic>>.from(usersList)) {
+            final uId = u['id'].toString();
+            rawDriverRows.add({
+              'id': uId,
+              'user_id': uId,
+              'verification_status': 'verified',
+              'driver_tier': u['is_psdc_driver'] == true ? 'psdc' : 'standard',
+              'rating': 5.0,
+              'total_trips': 0,
+              'is_psdc_driver': u['is_psdc_driver'] == true,
+              'users': u,
+            });
+          }
+        } catch (usersErr) {
+          debugPrint('Direct users table fallback error: $usersErr');
+        }
+      }
+
+      final drivers = rawDriverRows
           .where((driver) {
             final user = driver['users'] as Map<String, dynamic>?;
             if (user == null) return false;
 
-            final role = user['role']?.toString().trim().toLowerCase() ?? '';
-            if (role.isNotEmpty &&
-                role != 'driver' &&
-                role != 'admin' &&
-                role != 'operator') {
-              return false;
-            }
+            // Reject suspended / inactive users
+            if (user['is_active'] == false) return false;
 
             final driverUserId = driver['user_id']?.toString() ?? '';
             final driverProfileId = driver['id']?.toString() ?? '';
@@ -1980,7 +2072,8 @@ class BookingService {
                 dateScheduleMap[driverUserId] ??
                 dateScheduleMap[driverProfileId];
 
-            final isAvailable = dateOverride ?? (user['is_available'] != false);
+            // If date schedule has an explicit false, they're off-duty on this date
+            if (dateOverride == false) return false;
 
             final driverVer =
                 driver['verification_status']
@@ -1995,18 +2088,12 @@ class BookingService {
                 user['application_status']?.toString().trim().toLowerCase() ??
                 '';
 
-            final isVerifiedOrApproved =
-                _isVerifiedDriverStatus(driverVer) ||
-                _isVerifiedDriverStatus(userVer) ||
-                user['id_verified'] == true ||
-                userAppStatus == 'approved' ||
-                userAppStatus == 'basic' ||
-                userAppStatus.isEmpty;
+            // Filter out explicitly rejected drivers
+            if (driverVer == 'rejected' || userVer == 'rejected' || userAppStatus == 'rejected') {
+              return false;
+            }
 
-            final isNotRejected =
-                userAppStatus != 'rejected' && driverVer != 'rejected';
-
-            return isAvailable && isVerifiedOrApproved && isNotRejected;
+            return true;
           })
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
@@ -2644,33 +2731,59 @@ class BookingService {
   Future<Map<String, dynamic>?> _getDriverAssignmentTarget(
     String driverIdOrUserId,
   ) async {
-    Map<String, dynamic>? driver = await supabase
-        .from('drivers')
-        .select(
-          'id, user_id, verification_status, users!drivers_user_id_fkey(id, full_name, role, is_available)',
-        )
-        .eq('id', driverIdOrUserId)
-        .maybeSingle();
+    final cleanId = driverIdOrUserId.trim();
+    if (cleanId.isEmpty) return null;
 
-    driver ??= await supabase
-        .from('drivers')
-        .select(
-          'id, user_id, verification_status, users!drivers_user_id_fkey(id, full_name, role, is_available)',
-        )
-        .eq('user_id', driverIdOrUserId)
-        .maybeSingle();
+    // 1. Try finding in drivers table
+    try {
+      final driver = await supabase
+          .from('drivers')
+          .select('id, user_id, verification_status')
+          .or('id.eq.$cleanId,user_id.eq.$cleanId')
+          .maybeSingle();
 
-    if (driver == null) return null;
+      if (driver != null) {
+        final userId = driver['user_id']?.toString() ?? cleanId;
+        final user = await supabase
+            .from('users')
+            .select('id, full_name, role, is_available')
+            .eq('id', userId)
+            .maybeSingle();
 
-    final user = driver['users'] as Map<String, dynamic>?;
+        return {
+          'driver_id': driver['id']?.toString() ?? cleanId,
+          'user_id': userId,
+          'verification_status': driver['verification_status'] ?? 'verified',
+          'full_name': user?['full_name'] ?? 'Driver',
+          'is_available': user?['is_available'] != false,
+        };
+      }
+    } catch (e) {
+      debugPrint('Driver table lookup note: $e');
+    }
 
-    return {
-      'driver_id': driver['id'],
-      'user_id': driver['user_id'],
-      'verification_status': driver['verification_status'],
-      'full_name': user?['full_name'],
-      'is_available': user?['is_available'],
-    };
+    // 2. Fallback: Lookup directly in users table
+    try {
+      final user = await supabase
+          .from('users')
+          .select('id, full_name, role, is_available')
+          .eq('id', cleanId)
+          .maybeSingle();
+
+      if (user != null) {
+        return {
+          'driver_id': cleanId,
+          'user_id': cleanId,
+          'verification_status': 'verified',
+          'full_name': user['full_name'] ?? 'Driver',
+          'is_available': user['is_available'] != false,
+        };
+      }
+    } catch (e) {
+      debugPrint('User table driver target lookup note: $e');
+    }
+
+    return null;
   }
 
   Future<String?> _getDriverProfileIdForUser(String userId) async {

@@ -3207,10 +3207,66 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   }
                                   final drivers = snapshot.data ?? [];
                                   if (drivers.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        'No available certified drivers found',
-                                        style: TextStyle(color: Colors.white70),
+                                    return Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(32),
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(16),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(0.06),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.person_search_rounded,
+                                                color: Color(0xFFF59E0B),
+                                                size: 40,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            const Text(
+                                              'No Available Certified Drivers Found',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            const Text(
+                                              'All certified drivers may currently be assigned to ongoing trips or off duty.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                color: Color(0xFF87A0B7),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            OutlinedButton.icon(
+                                              onPressed: () {
+                                                setDialogState(() {
+                                                  driversFuture = BookingService().getAvailableVerifiedDrivers(
+                                                    bookingDate: bookingDate,
+                                                    proximityTargets: proximityTargets,
+                                                    prioritizeProximity: partnerVehicle,
+                                                    prioritizePsdc: !partnerVehicle,
+                                                  );
+                                                });
+                                              },
+                                              icon: const Icon(Icons.refresh_rounded, size: 16),
+                                              label: const Text('Refresh Drivers'),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: _operatorGold,
+                                                side: BorderSide(color: _operatorGold.withOpacity(0.5)),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     );
                                   }
