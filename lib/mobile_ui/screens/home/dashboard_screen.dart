@@ -8428,17 +8428,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final days = (booking['days'] as num?)?.toInt() ?? 1;
     final dailyRate = explicitDailyRate ?? (totalCost / (days > 0 ? days : 1));
 
-    final initialFirstDate = DateTime(
-      currentEndAt.year,
-      currentEndAt.month,
-      currentEndAt.day,
-    ).add(const Duration(days: 1));
+    // Extension must strictly start contiguous from the current booking's last day
+    final currentEndDay = DateTime(currentEndAt.year, currentEndAt.month, currentEndAt.day);
+    final initialFirstDate = currentEndDay.add(const Duration(days: 1));
+
+    // Calculate maximum contiguous extension date before any subsequent reservation starts
+    DateTime maxLastDate = initialFirstDate.add(const Duration(days: 30));
+    final upcomingBlocked = unavailableDates
+        .where((d) => d.isAfter(currentEndDay))
+        .toList()
+      ..sort((a, b) => a.compareTo(b));
+
+    if (upcomingBlocked.isNotEmpty) {
+      final nextBookingStart = upcomingBlocked.first;
+      final nextBookingDay = DateTime(
+        nextBookingStart.year,
+        nextBookingStart.month,
+        nextBookingStart.day,
+      );
+      final contiguousMax = nextBookingDay.subtract(const Duration(days: 1));
+
+      if (contiguousMax.isBefore(initialFirstDate)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'This vehicle cannot be extended because another customer has reserved it starting ${_formatDateShort(nextBookingStart.toIso8601String())}.',
+            ),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
+      if (contiguousMax.isBefore(maxLastDate)) {
+        maxLastDate = contiguousMax;
+      }
+    }
 
     final pickedDate = await showDatePicker(
       context: context,
       initialDate: initialFirstDate,
       firstDate: initialFirstDate,
-      lastDate: initialFirstDate.add(const Duration(days: 30)),
+      lastDate: maxLastDate,
       selectableDayPredicate: (day) {
         return !unavailableDates.any(
           (d) => d.year == day.year && d.month == day.month && d.day == day.day,
@@ -8483,38 +8514,144 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.darkCard,
-        title: const Text(
-          'Confirm Trip Extension',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: AppColors.borderColor),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.update_rounded,
+                color: AppColors.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Confirm Trip Extension',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+          ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Current End Date: ${_formatDateShort(currentEndAt.toIso8601String())}',
-              style: const TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'New End Date: ${_formatDateShort(selectedNewEndAt.toIso8601String())}',
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Extension Start (Locked):',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                      Text(
+                        _formatDateShort(currentEndAt.toIso8601String()),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'New Extended Return:',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                      Text(
+                        _formatDateShort(selectedNewEndAt.toIso8601String()),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Extension Duration:',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                      Text(
+                        '+$extensionDays day${extensionDays == 1 ? '' : 's'}',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Daily Unit Rate:',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      ),
+                      Text(
+                        'PHP ${formatAmount(dailyRate, decimalDigits: 0)} / day',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 16, color: Colors.white12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Additional Price Due:',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      Text(
+                        '+PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Extended Days: $extensionDays day(s)',
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Additional Cost: +PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B), size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This extension request will be sent to the PSDC operator for re-approval.',
+                      style: TextStyle(color: Color(0xFFF59E0B), fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -8525,12 +8662,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text(
-              'Submit Request',
+              'Submit for Re-Approval',
               style: TextStyle(
-                color: Colors.black,
                 fontWeight: FontWeight.bold,
               ),
             ),

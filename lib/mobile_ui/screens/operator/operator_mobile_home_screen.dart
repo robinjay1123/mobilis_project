@@ -760,19 +760,8 @@ class _BookingsTabState extends State<_BookingsTab> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 10, bottom: 8),
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -781,21 +770,21 @@ class _BookingsTabState extends State<_BookingsTab> {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
+                              horizontal: 10,
+                              vertical: 4,
                             ),
                             decoration: BoxDecoration(
                               color: partnerVehicle
                                   ? AppColors.primary.withValues(alpha: 0.15)
                                   : AppColors.warning.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
                               partnerVehicle
                                   ? 'PARTNER VEHICLE'
-                                  : 'PSDC VEHICLE',
+                                  : 'PSDC OFFICIAL',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w800,
                                 color: partnerVehicle
                                     ? AppColors.primary
@@ -824,8 +813,8 @@ class _BookingsTabState extends State<_BookingsTab> {
                       const SizedBox(height: 2),
                       Text(
                         partnerVehicle
-                            ? 'Drivers near the partner vehicle & renter are ranked first. All available verified drivers are listed below.'
-                            : 'Official PSDC-flagged drivers are prioritized for this vehicle.',
+                            ? 'Drivers near the partner vehicle & renter are ranked first.'
+                            : 'Official PSDC-flagged drivers are prioritized.',
                         style: TextStyle(
                           fontSize: 12,
                           color: textSecondary,
@@ -836,190 +825,145 @@ class _BookingsTabState extends State<_BookingsTab> {
                 ),
                 const Divider(height: 1),
                 Expanded(
-                  child: drivers.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.person_off_outlined,
-                                  size: 44,
-                                  color: textSecondary,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    itemCount: drivers.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, index) {
+                      final driver = drivers[index];
+                      final user =
+                          driver['users'] as Map<String, dynamic>? ?? {};
+                      final name =
+                          user['full_name']?.toString().trim() ??
+                              'Unknown Driver';
+                      final isPsdcDriver =
+                          driver['is_psdc_driver'] == true;
+                      final rating =
+                          (driver['rating'] as num?)?.toDouble() ?? 0.0;
+                      final trips =
+                          (driver['total_trips'] as num?)?.toInt() ?? 0;
+                      final distance =
+                          (driver['distance_km'] as num?)?.toDouble();
+
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        leading: CircleAvatar(
+                          backgroundColor: isPsdcDriver
+                              ? AppColors.warning.withValues(alpha: 0.2)
+                              : AppColors.primary.withValues(alpha: 0.15),
+                          child: Text(
+                            name.isNotEmpty
+                                ? name[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isPsdcDriver
+                                  ? AppColors.warning
+                                  : AppColors.primary,
+                            ),
+                          ),
+                        ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: textPrimary,
                                 ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'No available verified drivers found',
+                              ),
+                            ),
+                            if (isPsdcDriver)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.warning,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'PSDC',
                                   style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              if (rating > 0) ...[
+                                const Icon(
+                                  Icons.star,
+                                  size: 13,
+                                  color: Colors.amber,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  rating.toStringAsFixed(1),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
                                     color: textPrimary,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'No drivers are active or eligible for this date.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: textSecondary,
-                                  ),
-                                ),
+                                const SizedBox(width: 8),
                               ],
-                            ),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          itemCount: drivers.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
-                          itemBuilder: (_, index) {
-                            final driver = drivers[index];
-                            final user =
-                                driver['users'] as Map<String, dynamic>? ?? {};
-                            final name =
-                                user['full_name']?.toString().trim() ??
-                                    'Unknown Driver';
-                            final isPsdcDriver =
-                                driver['is_psdc_driver'] == true;
-                            final rating =
-                                (driver['rating'] as num?)?.toDouble() ?? 0.0;
-                            final trips =
-                                (driver['total_trips'] as num?)?.toInt() ?? 0;
-                            final distance =
-                                (driver['distance_km'] as num?)?.toDouble();
-
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              leading: CircleAvatar(
-                                backgroundColor: isPsdcDriver
-                                    ? AppColors.warning.withValues(alpha: 0.2)
-                                    : AppColors.primary.withValues(alpha: 0.15),
-                                child: Text(
-                                  name.isNotEmpty
-                                      ? name[0].toUpperCase()
-                                      : '?',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: isPsdcDriver
-                                        ? AppColors.warning
-                                        : AppColors.primary,
-                                  ),
+                              Text(
+                                '$trips trips',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: textSecondary,
                                 ),
                               ),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      name,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: textPrimary,
-                                      ),
+                              const Spacer(),
+                              if (distance != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: index == 0 && partnerVehicle
+                                        ? AppColors.success
+                                            .withValues(alpha: 0.15)
+                                        : Colors.grey
+                                            .withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${distance.toStringAsFixed(1)} km away',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: index == 0 && partnerVehicle
+                                          ? AppColors.success
+                                          : textSecondary,
                                     ),
                                   ),
-                                  if (isPsdcDriver)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.warning,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'PSDC DRIVER',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w900,
-                                          color: Colors.black,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              subtitle: Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  children: [
-                                    if (rating > 0) ...[
-                                      const Icon(
-                                        Icons.star,
-                                        size: 13,
-                                        color: Colors.amber,
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        rating.toStringAsFixed(1),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: textPrimary,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    Text(
-                                      '$trips trips',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: textSecondary,
-                                      ),
-                                    ),
-                                    const Spacer(),
-                                    if (distance != null)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: index == 0 && partnerVehicle
-                                              ? AppColors.success
-                                                  .withValues(alpha: 0.15)
-                                              : Colors.grey
-                                                  .withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          '${distance.toStringAsFixed(1)} km away${index == 0 && partnerVehicle ? ' (Nearest)' : ''}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                            color: index == 0 && partnerVehicle
-                                                ? AppColors.success
-                                                : textSecondary,
-                                          ),
-                                        ),
-                                      )
-                                    else
-                                      Text(
-                                        'Available',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.success,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              onTap: () =>
-                                  Navigator.pop(dialogContext, driver),
-                            );
-                          },
+                                )
+                            ],
+                          ),
                         ),
+                        onTap: () =>
+                            Navigator.pop(dialogContext, driver),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -1091,13 +1035,18 @@ class _BookingsTabState extends State<_BookingsTab> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snapshot) {
-        final bookings = _filter(snapshot.data ?? []);
+        final rawList = snapshot.data ?? [];
+        final bookings = _filter(rawList);
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        final totalExtensions = rawList.where((b) {
+          final ext = b['extension_status']?.toString().toLowerCase().trim();
+          return ext == 'pending_operator' || ext == 'pending';
+        }).length;
 
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: TextField(
                 controller: _searchController,
                 onChanged: (v) => setState(() => _searchQuery = v),
@@ -1123,6 +1072,55 @@ class _BookingsTabState extends State<_BookingsTab> {
                   ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  FilterChip(
+                    selected: !_onlyExtensionRequests,
+                    label: const Text('All'),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() => _onlyExtensionRequests = false);
+                      }
+                    },
+                    selectedColor: AppColors.primary.withValues(alpha: 0.2),
+                    checkmarkColor: AppColors.primary,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          !_onlyExtensionRequests ? FontWeight.w700 : FontWeight.w500,
+                      color:
+                          !_onlyExtensionRequests ? AppColors.primary : textSecondary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    selected: _onlyExtensionRequests,
+                    label: Text(
+                      totalExtensions > 0
+                          ? 'Extension Requests ($totalExtensions)'
+                          : 'Extension Requests',
+                    ),
+                    onSelected: (selected) {
+                      setState(() => _onlyExtensionRequests = selected);
+                    },
+                    selectedColor: const Color(0xFFFFD740).withValues(alpha: 0.2),
+                    checkmarkColor: const Color(0xFFFFD740),
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          _onlyExtensionRequests ? FontWeight.w700 : FontWeight.w500,
+                      color: _onlyExtensionRequests
+                          ? (isDark
+                              ? const Color(0xFFFFD740)
+                              : Colors.orange.shade800)
+                          : textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(

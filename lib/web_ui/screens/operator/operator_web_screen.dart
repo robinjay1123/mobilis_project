@@ -7293,6 +7293,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 children: [
                   _buildBookingFilterTab('all', 'All Bookings', isDark),
                   _buildBookingFilterTab('pending', 'Pending', isDark),
+                  _buildBookingFilterTab('extension_requests', 'Extension Requests', isDark),
                   _buildBookingFilterTab('approved', 'Approved', isDark),
                   _buildBookingFilterTab('ongoing', 'Ongoing', isDark),
                   _buildBookingFilterTab('completed', 'Completed', isDark),
@@ -7363,6 +7364,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   bool _bookingFilterMatches(Map<String, dynamic> booking, String filter) {
     if (filter == 'all') return true;
+    if (filter == 'extension_requests' || filter == 'extension') {
+      final extStatus =
+          booking['extension_status']?.toString().toLowerCase().trim();
+      return extStatus == 'pending_operator' || extStatus == 'pending';
+    }
     final group = bookingStatusGroup(booking['status']);
     return switch (filter) {
       'pending' => group == BookingStatusGroup.pending,
@@ -8312,6 +8318,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       );
     }
 
+    if (booking['extension_status'] == 'pending_operator') {
+      buttons.add(
+        _buildOperatorBookingActionButton(
+          onPressed: () => _showExtensionApprovalDialog(booking),
+          icon: Icons.update_rounded,
+          label: compact ? 'Extension' : 'Review Extension',
+          foregroundColor: Colors.black,
+          backgroundColor: const Color(0xFFFFD740),
+          compact: compact,
+        ),
+      );
+    }
+
     if (compact) {
       return FittedBox(
         fit: BoxFit.scaleDown,
@@ -8358,6 +8377,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       'details' || 'view details' => 'View full booking details and customer info',
       'approve' => 'Approve this reservation and confirm booking',
       'awaiting' => 'Awaiting driver acceptance before approving',
+      'extension' || 'review extension' => 'Review and re-approve trip extension request',
+      _ => label,
+    };
       'reject' => 'Decline or cancel this booking request',
       'message' => 'Chat directly with the renter or driver',
       'track' => 'Track live GPS location on map',
@@ -8793,6 +8815,24 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.payments_outlined, size: 17),
                           label: const Text('Confirm Full Payment'),
                         ),
+                      if (booking['extension_status'] == 'pending_operator')
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            _showExtensionApprovalDialog(booking);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFFD740),
+                            foregroundColor: Colors.black,
+                            minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                          ),
+                          icon: const Icon(Icons.update_rounded, size: 17),
+                          label: const Text(
+                            'Review Extension',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       if (statusLower == 'active' ||
                           statusLower == 'ongoing' ||
                           statusLower == 'return_pending_inspection' ||
@@ -8821,6 +8861,283 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _showExtensionApprovalDialog(Map<String, dynamic> booking) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final currentEndRaw = (booking['end_at'] ?? booking['end_date'])?.toString();
+    final requestedEndRaw = booking['extension_requested_end_at']?.toString();
+    final additionalPrice = (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+    final extensionDays = (booking['extension_days'] as num?)?.toInt() ?? 1;
+
+    final currentEnd = DateTime.tryParse(currentEndRaw ?? '');
+    final requestedEnd = DateTime.tryParse(requestedEndRaw ?? '');
+
+    bool isProcessing = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                ),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD740).withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.update_rounded,
+                      color: Color(0xFFFFD740),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Trip Extension Request',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : _operatorInk,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Renter ${_operatorUserName(renter)} has requested to extend their rental period for ${_vehicleTitle(vehicle)}.',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[300] : Colors.grey.shade700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark ? Colors.white10 : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Current Return Date:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                currentEnd != null
+                                    ? _formatBookingDateTime(currentEnd)
+                                    : 'N/A',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : _operatorInk,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Requested Return Date:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                requestedEnd != null
+                                    ? _formatBookingDateTime(requestedEnd)
+                                    : 'N/A',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Extension Duration:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                                ),
+                              ),
+                              Text(
+                                '+$extensionDays day${extensionDays == 1 ? '' : 's'}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : _operatorInk,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Divider(height: 1),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Additional Amount Due:',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? Colors.white : _operatorInk,
+                                ),
+                              ),
+                              Text(
+                                '+PHP ${additionalPrice.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isProcessing ? null : () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: isProcessing
+                      ? null
+                      : () async {
+                          setDialogState(() => isProcessing = true);
+                          try {
+                            final operatorId = AuthService().currentUser?.id ?? '';
+                            await BookingService().rejectTripExtension(
+                              bookingId: bookingId,
+                              operatorId: operatorId,
+                            );
+                            if (dialogContext.mounted) Navigator.pop(dialogContext);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Trip extension request was declined.'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                              _loadDashboardData();
+                            }
+                          } catch (e) {
+                            setDialogState(() => isProcessing = false);
+                            _showErrorSnackBar('Error declining extension: $e');
+                          }
+                        },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade400,
+                    side: BorderSide(color: Colors.red.shade400),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Decline Request'),
+                ),
+                FilledButton(
+                  onPressed: isProcessing
+                      ? null
+                      : () async {
+                          setDialogState(() => isProcessing = true);
+                          try {
+                            final operatorId = AuthService().currentUser?.id ?? '';
+                            await BookingService().approveTripExtension(
+                              bookingId: bookingId,
+                              operatorId: operatorId,
+                            );
+                            if (dialogContext.mounted) Navigator.pop(dialogContext);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Trip extension approved successfully!'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                              _loadDashboardData();
+                            }
+                          } catch (e) {
+                            setDialogState(() => isProcessing = false);
+                            _showErrorSnackBar('Error approving extension: $e');
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFD740),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: isProcessing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text(
+                          'Approve Extension',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
