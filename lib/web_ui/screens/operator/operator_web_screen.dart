@@ -46,6 +46,7 @@ import '../../../services/tracking_service.dart';
 import '../../../services/image_optimization_service.dart';
 import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_viewed_service.dart';
+import '../../../services/mpin_service.dart';
 
 bool _bookingNeedsDriver(dynamic value) {
   if (value is bool) return value;
@@ -578,6 +579,355 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showOperatorMpinSetupDialog(bool isDark) async {
+    final mpinService = MpinService();
+    final isConfigured = mpinService.currentState().isConfigured;
+    final currentPinController = TextEditingController();
+    final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool isSaving = false;
+    bool obscurePins = true;
+    String? dialogError;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !isSaving,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final surface = isDark ? const Color(0xFF172235) : Colors.white;
+          final foreground = isDark ? Colors.white : _operatorInk;
+          final muted = isDark ? Colors.grey[400] : Colors.grey.shade600;
+
+          return Dialog(
+            backgroundColor: surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Container(
+              width: 460,
+              padding: const EdgeInsets.all(28),
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: _operatorGold.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.pin_outlined,
+                            color: _operatorGold,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isConfigured
+                                    ? 'Change Desk Authorization MPIN'
+                                    : 'Setup Desk Authorization MPIN',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: foreground,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isConfigured
+                                    ? 'Update your 6-digit MPIN for cashier & desk payments'
+                                    : 'Create a 6-digit MPIN to authorize in-person payments',
+                                style: TextStyle(fontSize: 12, color: muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed:
+                              isSaving ? null : () => Navigator.pop(dialogCtx),
+                          icon: Icon(Icons.close_rounded, color: muted),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    if (isConfigured) ...[
+                      Text(
+                        'Current 6-Digit MPIN',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: currentPinController,
+                        obscureText: obscurePins,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        validator: (v) {
+                          if (v == null || v.trim().length != 6) {
+                            return 'Enter your current 6-digit MPIN.';
+                          }
+                          return null;
+                        },
+                        style: TextStyle(color: foreground),
+                        decoration: InputDecoration(
+                          hintText: '••••••',
+                          filled: true,
+                          fillColor: isDark
+                              ? Colors.white.withOpacity(0.05)
+                              : const Color(0xFFF4F6F8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.lock_outline_rounded,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    Text(
+                      isConfigured ? 'New 6-Digit MPIN' : '6-Digit MPIN',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: foreground,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: newPinController,
+                      obscureText: obscurePins,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      validator: (v) {
+                        if (v == null || v.trim().length != 6) {
+                          return 'Enter exactly 6 digits.';
+                        }
+                        return null;
+                      },
+                      style: TextStyle(color: foreground),
+                      decoration: InputDecoration(
+                        hintText: '••••••',
+                        filled: true,
+                        fillColor: isDark
+                            ? Colors.white.withOpacity(0.05)
+                            : const Color(0xFFF4F6F8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        prefixIcon: const Icon(Icons.pin_rounded, size: 20),
+                        suffixIcon: IconButton(
+                          onPressed: () => setDialogState(
+                            () => obscurePins = !obscurePins,
+                          ),
+                          icon: Icon(
+                            obscurePins
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Confirm New MPIN',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: foreground,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: confirmPinController,
+                      obscureText: obscurePins,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      validator: (v) {
+                        if (v == null ||
+                            v.trim() != newPinController.text.trim()) {
+                          return 'MPINs do not match.';
+                        }
+                        return null;
+                      },
+                      style: TextStyle(color: foreground),
+                      decoration: InputDecoration(
+                        hintText: '••••••',
+                        filled: true,
+                        fillColor: isDark
+                            ? Colors.white.withOpacity(0.05)
+                            : const Color(0xFFF4F6F8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.verified_user_outlined,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    if (dialogError != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.red.withOpacity(0.4),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                dialogError!,
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed:
+                              isSaving ? null : () => Navigator.pop(dialogCtx),
+                          child: Text('Cancel', style: TextStyle(color: muted)),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  if (!formKey.currentState!.validate()) return;
+                                  setDialogState(() {
+                                    isSaving = true;
+                                    dialogError = null;
+                                  });
+
+                                  try {
+                                    final currentPin = currentPinController.text
+                                        .trim();
+                                    final newPin = newPinController.text.trim();
+
+                                    if (isConfigured) {
+                                      if (!mpinService.verify(currentPin)) {
+                                        setDialogState(() {
+                                          dialogError =
+                                              'Current MPIN is incorrect.';
+                                          isSaving = false;
+                                        });
+                                        return;
+                                      }
+                                    }
+
+                                    await mpinService.configure(newPin);
+
+                                    if (!mounted) return;
+                                    Navigator.pop(dialogCtx);
+                                    setState(() {});
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          isConfigured
+                                              ? 'Desk Authorization MPIN updated successfully.'
+                                              : 'Desk Authorization MPIN set up successfully!',
+                                        ),
+                                        backgroundColor: Colors.green,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    setDialogState(() {
+                                      dialogError = 'Failed to save MPIN: $e';
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _operatorGold,
+                            foregroundColor: _operatorNavyDeep,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.black,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                ),
+                          label: Text(
+                            isSaving
+                                ? 'Saving...'
+                                : (isConfigured ? 'Update MPIN' : 'Save MPIN'),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -4167,6 +4517,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           const Spacer(),
           IconButton(
+            tooltip: MpinService().currentState().isConfigured
+                ? 'Desk Authorization MPIN (Configured)'
+                : 'Setup Desk Authorization MPIN (Required for Desk Payments)',
+            onPressed: () => _showOperatorMpinSetupDialog(isDark),
+            icon: Icon(
+              MpinService().currentState().isConfigured
+                  ? Icons.pin_outlined
+                  : Icons.pin_rounded,
+              color: MpinService().currentState().isConfigured
+                  ? _operatorGold
+                  : Colors.orangeAccent,
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
             tooltip: 'Customize Workspace Color Theme',
             onPressed: () => _showColorThemeDialog(isDark),
             icon: Icon(Icons.palette_rounded, color: _operatorGold),
@@ -4199,7 +4564,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           PopupMenuButton<String>(
             tooltip: 'Account options (Operator)',
             onSelected: (value) {
-              if (value == 'logout') _handleLogout();
+              if (value == 'mpin') {
+                _showOperatorMpinSetupDialog(isDark);
+              } else if (value == 'settings') {
+                setState(() => _selectedIndex = 5);
+              } else if (value == 'logout') {
+                _handleLogout();
+              }
             },
             child: Row(
               children: [
@@ -4236,12 +4607,37 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ],
             ),
-            itemBuilder: (context) => const [
+            itemBuilder: (context) => [
               PopupMenuItem(
+                value: 'mpin',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.pin_outlined,
+                      color: _operatorGold,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('Desk Authorization MPIN'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings_outlined, size: 20),
+                    SizedBox(width: 10),
+                    Text('Console Settings'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
                 value: 'logout',
                 child: Row(
                   children: [
-                    Icon(Icons.logout, color: Colors.red),
+                    Icon(Icons.logout, color: Colors.red, size: 20),
                     SizedBox(width: 10),
                     Text('Logout', style: TextStyle(color: Colors.red)),
                   ],
@@ -4396,6 +4792,90 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               ),
             ],
           ),
+          if (!MpinService().currentState().isConfigured) ...[
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF2A200B)
+                    : const Color(0xFFFFFBEB),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFFF59E0B).withValues(
+                    alpha: isDark ? 0.4 : 0.6,
+                  ),
+                  width: 1.2,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.shield_outlined,
+                      color: Color(0xFFD97706),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Desk Authorization MPIN Not Configured',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.white
+                                : const Color(0xFF92400E),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Renters paying via PSDC Desk Cash or Over-the-Counter POS require your 6-digit MPIN to authorize immediate payment approval.',
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.grey[300]
+                                : const Color(0xFFB45309),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  ElevatedButton.icon(
+                    onPressed: () => _showOperatorMpinSetupDialog(isDark),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF59E0B),
+                      foregroundColor: const Color(0xFF1E293B),
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.pin_rounded, size: 18),
+                    label: const Text(
+                      'Setup MPIN Now',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           _buildDashboardSnapshots(isDark),
           const SizedBox(height: 24),
@@ -7501,7 +7981,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   children: [
                     _buildBookingFilterTab('all', 'All Bookings', isDark),
                     _buildBookingFilterTab('pending', 'Pending', isDark),
-                    _buildBookingFilterTab('extension_requests', 'Extension Requests', isDark),
                     _buildBookingFilterTab('approved', 'Approved', isDark),
                     _buildBookingFilterTab('ongoing', 'Ongoing', isDark),
                     _buildBookingFilterTab('completed', 'Completed', isDark),
@@ -7510,53 +7989,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 18),
-          _buildBookingReportFilters(filteredBookings, isDark),
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkCard : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _bookingSearchController,
-                    onChanged: (value) => setState(() {
-                      _bookingSearchQuery = value.trim();
-                      _bookingPage = 0;
-                    }),
-                    decoration: InputDecoration(
-                      hintText: 'Search booking ID, renter, or vehicle',
-                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                      filled: true,
-                      fillColor: isDark
-                          ? Colors.white.withOpacity(0.05)
-                          : const Color(0xFFF2F4F6),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Text(
-                  '${filteredBookings.length} result${filteredBookings.length == 1 ? '' : 's'}',
-                  style: TextStyle(
-                    color: isDark ? Colors.grey[300] : Colors.grey.shade700,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 18),
           _buildBookingReportFilters(filteredBookings, isDark),
           const SizedBox(height: 18),
