@@ -3091,7 +3091,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? _driverProximityTargets(vehicle, renter)
         : const <Map<String, double>>[];
     final mapTargets = _driverProximityTargets(vehicle, renter);
-    final driversFuture = BookingService().getAvailableVerifiedDrivers(
+    Future<List<Map<String, dynamic>>> driversFuture =
+        BookingService().getAvailableVerifiedDrivers(
       bookingDate: bookingDate,
       proximityTargets: proximityTargets,
       prioritizeProximity: partnerVehicle,
