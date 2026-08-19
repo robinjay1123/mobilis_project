@@ -62,7 +62,7 @@ class SupportFaqService {
             key: 'price_change',
             question: 'How can I change my vehicle rental price?',
             answer:
-                'Partners cannot directly finalize a price change. Use Customer Service to request the new price. The admin will review it and pass the approved change to the operator.',
+                'Partners can submit a price change request through Customer Service. The request goes directly to the operator, who will review and approve the updated rental rates.',
           ),
           SupportFaq(
             key: 'availability_tracking',

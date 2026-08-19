@@ -292,6 +292,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   bool _isLoadingConversations = false;
   String? _conversationLoadError;
   List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _priceChangeRequests = [];
+  int _pendingPriceRequestsCount = 0;
+  String _priceRequestFilter = 'all';
+  String _priceRequestSearchQuery = '';
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
   Timer? _notificationsRefreshTimer;
@@ -591,6 +595,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     ) {
       if (mounted) {
         _loadNotifications();
+        _loadPriceChangeRequests();
         _loadUnreadMessagesCount();
       }
     });
@@ -851,6 +856,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         _loadOperatorProfile(),
         _loadStats(),
         _loadNotifications(),
+        _loadPriceChangeRequests(),
         _loadUnreadMessagesCount(),
         _loadVehicles(),
         _loadRecentBookings(),
@@ -941,6 +947,38 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     } catch (e) {
       debugPrint('Error loading notifications: $e');
       _notifications = [];
+    }
+  }
+
+  Future<void> _loadPriceChangeRequests() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      _priceChangeRequests = [];
+      _pendingPriceRequestsCount = 0;
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('notifications')
+          .select('id, user_id, title, message, type, data, is_read, created_at')
+          .eq('user_id', currentUserId)
+          .inFilter('type', ['price_change_request', 'price_change_request_forwarded'])
+          .order('created_at', ascending: false);
+      final list = List<Map<String, dynamic>>.from(response);
+      _priceChangeRequests = list;
+      _pendingPriceRequestsCount = list.where((r) {
+        final data = r['data'] is Map<String, dynamic>
+            ? Map<String, dynamic>.from(r['data'])
+            : <String, dynamic>{};
+        final status = (data['status'] ?? '').toString().toLowerCase();
+        final isApproved = data['approved'] == true || status == 'approved';
+        final isDeclined = data['declined'] == true || status == 'declined' || status == 'rejected';
+        return !isApproved && !isDeclined && r['is_read'] != true;
+      }).length;
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error loading price change requests: $e');
     }
   }
 
@@ -3828,6 +3866,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   isDark,
                 ),
                 _buildNavItem(
+                  9,
+                  Icons.price_change_outlined,
+                  'Price Requests',
+                  isDark,
+                  badge: _pendingPriceRequestsCount > 0
+                      ? _pendingPriceRequestsCount
+                      : null,
+                ),
+                _buildNavItem(
                   6,
                   Icons.location_on_outlined,
                   'Live Tracking',
@@ -3998,6 +4045,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _loadConversations();
       _loadUnreadMessagesCount();
     }
+    if (index == 9) {
+      _loadPriceChangeRequests();
+    }
   }
 
   Future<void> _persistSelectedTab(int index) async {
@@ -4013,7 +4063,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final savedIndex = prefs.getInt('mobilis_operator_web_tab');
       if (savedIndex != null &&
           savedIndex >= 0 &&
-          savedIndex <= 7 &&
+          savedIndex <= 9 &&
           mounted) {
         setState(() => _selectedIndex = savedIndex);
       }
@@ -4028,6 +4078,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
     if (_selectedIndex == 2) {
       await _loadConversations();
+      return;
+    }
+    if (_selectedIndex == 9) {
+      await _loadPriceChangeRequests();
       return;
     }
     await _loadDashboardData(showLoading: false);
@@ -4233,6 +4287,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return 'Revenue & Analytics';
       case 8:
         return 'Inspections & Handover';
+      case 9:
+        return 'Price Change Requests';
       default:
         return 'Dashboard';
     }
@@ -4264,6 +4320,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return _buildRevenueContent(isDark);
       case 8:
         return _buildInspectionsContent(isDark);
+      case 9:
+        return _buildPriceRequestsContent(isDark);
       default:
         return _buildDashboardContent(isDark);
     }
@@ -19837,8 +19895,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _showEditVehicleDialog(
     Map<String, dynamic> vehicle,
-    bool isDark,
-  ) async {
+    bool isDark, {
+    double? prefilledPricePerDay,
+    double? prefilledPricePerHour,
+    String? priceChangeRequestId,
+    String? partnerIdForNotification,
+    String? vehicleTitleForNotification,
+  }) async {
     final formKey = GlobalKey<FormState>();
     final isPartnerVehicle =
         vehicle['_source'] == 'partner' ||
@@ -19856,8 +19919,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     _colorController.text = vehicle['color']?.toString() ?? '';
     _vehicleNameController.text = vehicle['vehicle_name']?.toString() ?? '';
     _seatsController.text = (vehicle['seats'] ?? '5').toString();
-    _priceController.text = (vehicle['price_per_day'] ?? '').toString();
-    _pricePerHourController.text = (vehicle['price_per_hour'] ?? '').toString();
+    if (prefilledPricePerDay != null) {
+      _priceController.text = prefilledPricePerDay.toStringAsFixed(0);
+    } else {
+      _priceController.text = (vehicle['price_per_day'] ?? '').toString();
+    }
+    if (prefilledPricePerHour != null) {
+      _pricePerHourController.text =
+          prefilledPricePerHour.toStringAsFixed(0);
+    } else {
+      _pricePerHourController.text =
+          (vehicle['price_per_hour'] ?? '').toString();
+    }
     _locationController.text = vehicle['location']?.toString() ?? '';
     _latitudeController.text = vehicle['latitude'] != null
         ? vehicle['latitude'].toString()
@@ -20579,6 +20652,94 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         _loadDashboardData(showLoading: false);
                                         await _loadVehicles();
                                         await _loadTrackingLocations();
+
+                                        if (priceChangeRequestId != null &&
+                                            priceChangeRequestId.isNotEmpty) {
+                                          try {
+                                            final reqRow = _priceChangeRequests
+                                                .firstWhere(
+                                                  (r) =>
+                                                      r['id']?.toString() ==
+                                                      priceChangeRequestId,
+                                                  orElse: () =>
+                                                      <String, dynamic>{},
+                                                );
+                                            final rawData = reqRow['data'] is Map
+                                                ? Map<String, dynamic>.from(
+                                                    reqRow['data'],
+                                                  )
+                                                : <String, dynamic>{};
+                                            await _supabase
+                                                .from('notifications')
+                                                .update({
+                                                  'is_read': true,
+                                                  'data': {
+                                                    ...rawData,
+                                                    'status': 'approved',
+                                                    'approved': true,
+                                                    'approved_at':
+                                                        DateTime.now()
+                                                            .toIso8601String(),
+                                                    'updated_daily_price':
+                                                        double.tryParse(
+                                                          _priceController.text
+                                                              .trim(),
+                                                        ),
+                                                    'updated_hourly_price':
+                                                        double.tryParse(
+                                                          _pricePerHourController
+                                                              .text
+                                                              .trim(),
+                                                        ),
+                                                  },
+                                                })
+                                                .eq('id', priceChangeRequestId);
+
+                                            final pId =
+                                                partnerIdForNotification ??
+                                                rawData['partner_id']?.toString() ??
+                                                vehicle['partner_id']?.toString() ??
+                                                '';
+                                            final vTitle =
+                                                vehicleTitleForNotification ??
+                                                rawData['vehicle_title']?.toString() ??
+                                                '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+                                            if (pId.isNotEmpty) {
+                                              await NotificationService()
+                                                  .createNotification(
+                                                    userId: pId,
+                                                    title:
+                                                        'Price Change Approved',
+                                                    message:
+                                                        'Your price change request for $vTitle (PHP ${_priceController.text.trim()}/day) has been approved and updated by the operator.',
+                                                    type:
+                                                        'partner_price_change_approved',
+                                                    data: {
+                                                      'vehicle_id':
+                                                          vehicle['id'],
+                                                      'price_per_day':
+                                                          double.tryParse(
+                                                            _priceController
+                                                                .text
+                                                                .trim(),
+                                                          ),
+                                                      'price_per_hour':
+                                                          double.tryParse(
+                                                            _pricePerHourController
+                                                                .text
+                                                                .trim(),
+                                                          ),
+                                                    },
+                                                  );
+                                            }
+                                            await _loadPriceChangeRequests();
+                                          } catch (e) {
+                                            debugPrint(
+                                              'Error updating price change request: $e',
+                                            );
+                                          }
+                                        }
+
                                         if (mounted) {
                                           ScaffoldMessenger.of(
                                             context,
@@ -21836,6 +21997,844 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _findVehicleForPriceRequest(
+    Map<String, dynamic> data,
+  ) async {
+    final vehicleId = data['vehicle_id']?.toString() ?? '';
+    final partnerVehicleId = data['partner_vehicle_id']?.toString() ?? '';
+    final vehicleTitle = (data['vehicle_title'] ?? '').toString().toLowerCase().trim();
+
+    // 1. Search in cached _vehicles
+    for (final v in _vehicles) {
+      final vId = v['id']?.toString() ?? '';
+      final pId = (v['partner_vehicle_id'] ?? v['_partner_vehicle_id'])?.toString() ?? '';
+      if ((vehicleId.isNotEmpty && vId == vehicleId) ||
+          (partnerVehicleId.isNotEmpty && (pId == partnerVehicleId || vId == partnerVehicleId))) {
+        return Map<String, dynamic>.from(v);
+      }
+    }
+
+    if (vehicleTitle.isNotEmpty) {
+      for (final v in _vehicles) {
+        final title = '${v['brand'] ?? ''} ${v['model'] ?? ''}'.toLowerCase().trim();
+        final name = (v['vehicle_name'] ?? '').toString().toLowerCase().trim();
+        if (title == vehicleTitle || name == vehicleTitle) {
+          return Map<String, dynamic>.from(v);
+        }
+      }
+    }
+
+    // 2. Fetch directly from vehicles table in Supabase
+    if (vehicleId.isNotEmpty) {
+      try {
+        final res = await _supabase
+            .from('vehicles')
+            .select('*')
+            .eq('id', vehicleId)
+            .maybeSingle();
+        if (res != null) return Map<String, dynamic>.from(res);
+      } catch (_) {}
+    }
+
+    // 3. Fetch from partner_vehicles table in Supabase
+    if (partnerVehicleId.isNotEmpty) {
+      try {
+        final res = await _supabase
+            .from('partner_vehicles')
+            .select('*')
+            .eq('id', partnerVehicleId)
+            .maybeSingle();
+        if (res != null) {
+          final mapped = Map<String, dynamic>.from(res);
+          mapped['_source'] = 'partner';
+          mapped['is_partner_vehicle'] = true;
+          return mapped;
+        }
+      } catch (_) {}
+    }
+
+    // 4. Fallback object from payload data
+    return <String, dynamic>{
+      'id': vehicleId.isNotEmpty ? vehicleId : partnerVehicleId,
+      'partner_vehicle_id': partnerVehicleId,
+      'brand': vehicleTitle.split(' ').first,
+      'model': vehicleTitle.split(' ').skip(1).join(' '),
+      'price_per_day': data['current_price_per_day'] ?? 0,
+      'price_per_hour': data['current_price_per_hour'] ?? 0,
+      '_source': 'partner',
+      'is_partner_vehicle': true,
+      'partner_id': data['partner_id'],
+    };
+  }
+
+  Future<void> _handleApprovePriceRequest(
+    Map<String, dynamic> req,
+    bool isDark,
+  ) async {
+    final data = req['data'] is Map<String, dynamic>
+        ? Map<String, dynamic>.from(req['data'])
+        : (req['data'] is Map
+            ? Map<String, dynamic>.from(req['data'] as Map)
+            : <String, dynamic>{});
+
+    final vehicle = await _findVehicleForPriceRequest(data);
+    if (vehicle == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vehicle record could not be found for this request.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final reqDaily = (data['requested_price_per_day'] as num?)?.toDouble() ??
+        double.tryParse(data['requested_price_per_day']?.toString() ?? '');
+    final reqHourly = (data['requested_price_per_hour'] as num?)?.toDouble() ??
+        double.tryParse(data['requested_price_per_hour']?.toString() ?? '');
+
+    if (!mounted) return;
+    await _showEditVehicleDialog(
+      vehicle,
+      isDark,
+      prefilledPricePerDay: reqDaily,
+      prefilledPricePerHour: reqHourly,
+      priceChangeRequestId: req['id']?.toString(),
+      partnerIdForNotification: data['partner_id']?.toString(),
+      vehicleTitleForNotification: data['vehicle_title']?.toString(),
+    );
+  }
+
+  Future<void> _handleDeclinePriceRequest(
+    Map<String, dynamic> req,
+    bool isDark,
+  ) async {
+    final reasonController = TextEditingController(
+      text: 'Proposed price exceeds current market standards for this vehicle category.',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.cancel_outlined, color: Colors.red),
+            const SizedBox(width: 10),
+            Text(
+              'Decline Price Request',
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Please provide a reason to send to the fleet partner:',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[300] : Colors.grey[700],
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                decoration: InputDecoration(
+                  hintText: 'Reason for declining...',
+                  filled: true,
+                  fillColor: isDark
+                      ? Colors.white.withOpacity(0.05)
+                      : const Color(0xFFF7F8F9),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Decline Request', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final reqId = req['id']?.toString() ?? '';
+      final data = req['data'] is Map
+          ? Map<String, dynamic>.from(req['data'] as Map)
+          : <String, dynamic>{};
+      final reason = reasonController.text.trim();
+
+      await _supabase.from('notifications').update({
+        'is_read': true,
+        'data': {
+          ...data,
+          'status': 'declined',
+          'declined': true,
+          'declined_at': DateTime.now().toIso8601String(),
+          'decline_reason': reason,
+        },
+      }).eq('id', reqId);
+
+      final partnerId = data['partner_id']?.toString() ?? '';
+      final vehicleTitle = data['vehicle_title']?.toString() ?? 'your vehicle';
+      if (partnerId.isNotEmpty) {
+        await NotificationService().createNotification(
+          userId: partnerId,
+          title: 'Price Change Declined',
+          message: 'Your price change request for $vehicleTitle was declined. Note: $reason',
+          type: 'partner_price_change_declined',
+          data: {
+            'vehicle_id': data['vehicle_id'],
+            'partner_vehicle_id': data['partner_vehicle_id'],
+            'reason': reason,
+          },
+        );
+      }
+
+      await _loadPriceChangeRequests();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Price change request declined.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildPriceRequestsContent(bool isDark) {
+    // Filter and search price requests
+    final filtered = _priceChangeRequests.where((req) {
+      final data = req['data'] is Map
+          ? Map<String, dynamic>.from(req['data'] as Map)
+          : <String, dynamic>{};
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      final isApproved = data['approved'] == true || status == 'approved';
+      final isDeclined = data['declined'] == true || status == 'declined' || status == 'rejected';
+      final isPending = !isApproved && !isDeclined;
+
+      if (_priceRequestFilter == 'pending' && !isPending) return false;
+      if (_priceRequestFilter == 'approved' && !isApproved) return false;
+      if (_priceRequestFilter == 'declined' && !isDeclined) return false;
+
+      if (_priceRequestSearchQuery.isNotEmpty) {
+        final query = _priceRequestSearchQuery.toLowerCase();
+        final title = (data['vehicle_title'] ?? req['title'] ?? '').toString().toLowerCase();
+        final message = (req['message'] ?? '').toString().toLowerCase();
+        final note = (data['note'] ?? '').toString().toLowerCase();
+        if (!title.contains(query) && !message.contains(query) && !note.contains(query)) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Price Change Requests',
+                        style: TextStyle(
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.white : _operatorInk,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      if (_pendingPriceRequestsCount > 0) ...[
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$_pendingPriceRequestsCount New',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Direct requests from fleet partners to adjust daily and hourly rental rates. Review full vehicle details before approving.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _loadPriceChangeRequests(),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Refresh'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDark ? const Color(0xFF1E2A3A) : const Color(0xFFEAEFF5),
+                  foregroundColor: isDark ? Colors.white : _operatorInk,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Search and Filters Bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.darkCard : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
+              children: [
+                // Search Input
+                Expanded(
+                  child: TextField(
+                    onChanged: (val) => setState(() => _priceRequestSearchQuery = val.trim()),
+                    decoration: InputDecoration(
+                      hintText: 'Search by vehicle, note, or title...',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      filled: true,
+                      fillColor: isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : const Color(0xFFF7F8F9),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            // Filter Tabs
+            _buildPriceFilterPill('all', 'All (${_priceChangeRequests.length})', isDark),
+            const SizedBox(width: 8),
+            _buildPriceFilterPill(
+              'pending',
+              'Pending ($_pendingPriceRequestsCount)',
+              isDark,
+              isHighlight: _pendingPriceRequestsCount > 0,
+            ),
+            const SizedBox(width: 8),
+            _buildPriceFilterPill(
+              'approved',
+              'Approved (${_priceChangeRequests.where((r) {
+                final d = r['data'] is Map ? r['data'] as Map : {};
+                return d['approved'] == true || d['status'] == 'approved';
+              }).length})',
+              isDark,
+            ),
+            const SizedBox(width: 8),
+            _buildPriceFilterPill(
+              'declined',
+              'Declined (${_priceChangeRequests.where((r) {
+                final d = r['data'] is Map ? r['data'] as Map : {};
+                return d['declined'] == true || d['status'] == 'declined' || d['status'] == 'rejected';
+              }).length})',
+              isDark,
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 24),
+
+      // Request Cards List / Grid
+      if (filtered.isEmpty)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 60),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.darkCard : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                Icons.price_change_outlined,
+                size: 54,
+                color: isDark ? Colors.grey[600] : Colors.grey[400],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _priceRequestFilter == 'pending'
+                    ? 'No pending price change requests'
+                    : 'No price change requests found',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white70 : Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'When partners submit a rate update, it will appear directly here.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.grey[500] : Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        )
+      else
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: filtered.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 16),
+          itemBuilder: (ctx, idx) => _buildPriceRequestCard(filtered[idx], isDark),
+        ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildPriceFilterPill(
+    String key,
+    String label,
+    bool isDark, {
+    bool isHighlight = false,
+  }) {
+    final isSelected = _priceRequestFilter == key;
+    return InkWell(
+      onTap: () => setState(() => _priceRequestFilter = key),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isHighlight ? Colors.red : _operatorGold)
+              : (isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF1F4F8)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? (isHighlight ? Colors.red : _operatorGold)
+                : (isDark ? AppColors.borderColor : Colors.grey.shade300),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            color: isSelected
+                ? (isHighlight ? Colors.white : Colors.black)
+                : (isDark ? Colors.white70 : _operatorInk),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriceRequestCard(Map<String, dynamic> req, bool isDark) {
+    final data = req['data'] is Map
+        ? Map<String, dynamic>.from(req['data'] as Map)
+        : <String, dynamic>{};
+
+    final status = (data['status'] ?? '').toString().toLowerCase();
+    final isApproved = data['approved'] == true || status == 'approved';
+    final isDeclined = data['declined'] == true || status == 'declined' || status == 'rejected';
+    final isPending = !isApproved && !isDeclined;
+
+    final vehicleTitle = (data['vehicle_title'] ?? req['title'] ?? 'Vehicle Price Request').toString();
+    final currentDaily = (data['current_price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final reqDaily = (data['requested_price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final currentHourly = (data['current_price_per_hour'] as num?)?.toDouble() ?? 0.0;
+    final reqHourly = (data['requested_price_per_hour'] as num?)?.toDouble() ?? 0.0;
+    final note = (data['note'] ?? '').toString().trim();
+    final createdAt = req['created_at']?.toString() ?? '';
+    final formattedDate = createdAt.isNotEmpty
+        ? DateTime.tryParse(createdAt)?.toLocal().toString().split('.')[0] ?? createdAt
+        : 'Recently';
+
+    final dailyDiff = reqDaily - currentDaily;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isPending
+              ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+              : (isApproved
+                  ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                  : (isDark ? AppColors.borderColor : Colors.grey.shade200)),
+          width: isPending ? 1.5 : 1,
+        ),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Top row: Title, status chip, date
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF22304A) : const Color(0xFFEFF4FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.directions_car_filled_rounded,
+                  color: _operatorGold,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            vehicleTitle,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : _operatorInk,
+                            ),
+                          ),
+                        ),
+                        // Status Badge
+                        if (isPending)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF59E0B).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFF59E0B)),
+                            ),
+                            child: const Text(
+                              'Pending Review',
+                              style: TextStyle(
+                                color: Color(0xFFD97706),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        else if (isApproved)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFF10B981)),
+                            ),
+                            child: const Text(
+                              'Approved',
+                              style: TextStyle(
+                                color: Color(0xFF10B981),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.red),
+                            ),
+                            child: const Text(
+                              'Declined',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Requested on $formattedDate',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Price Comparison Cards Box
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withValues(alpha: 0.03) : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+              ),
+            ),
+            child: Row(
+              children: [
+                // Current Prices
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'CURRENT RATES',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'PHP ${_formatCurrency(currentDaily)} /day',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'PHP ${_formatCurrency(currentHourly)} /hr',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  color: isDark ? Colors.grey[500] : Colors.grey[400],
+                  size: 22,
+                ),
+                const SizedBox(width: 16),
+                // Requested Prices
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'REQUESTED RATES',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _operatorGold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            'PHP ${_formatCurrency(reqDaily)} /day',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: isDark ? Colors.white : _operatorInk,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: dailyDiff >= 0
+                                  ? const Color(0xFF10B981).withValues(alpha: 0.18)
+                                  : Colors.orange.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${dailyDiff >= 0 ? '+' : ''}PHP ${_formatCurrency(dailyDiff, decimals: 0)}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: dailyDiff >= 0 ? const Color(0xFF10B981) : Colors.orange[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'PHP ${_formatCurrency(reqHourly)} /hr',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.grey[300] : Colors.grey[700],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withValues(alpha: 0.02) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Partner Note: "$note"',
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  fontSize: 12,
+                  color: isDark ? Colors.grey[300] : Colors.grey[700],
+                ),
+              ),
+            ),
+          ],
+
+          if (data['decline_reason'] != null &&
+              data['decline_reason'].toString().trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Declined Reason: ${data['decline_reason']}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.red,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+          // Action Buttons Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (isPending) ...[
+                OutlinedButton(
+                  onPressed: () => _handleDeclinePriceRequest(req, isDark),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Decline'),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: () => _handleApprovePriceRequest(req, isDark),
+                  icon: const Icon(Icons.edit_note_rounded, size: 18, color: Colors.black),
+                  label: const Text(
+                    'Approve & Review Details',
+                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ] else ...[
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final v = await _findVehicleForPriceRequest(data);
+                    if (v != null && mounted) {
+                      _showEditVehicleDialog(v, isDark);
+                    }
+                  },
+                  icon: const Icon(Icons.visibility_outlined, size: 16),
+                  label: const Text('View Vehicle'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _operatorGold,
+                    side: BorderSide(color: _operatorGold),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
       ),
     );
   }

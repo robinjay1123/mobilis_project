@@ -620,26 +620,26 @@ class PartnerService {
     required double requestedPricePerHour,
     String? note,
   }) async {
-    final admins = await supabase
+    final operators = await supabase
         .from('users')
         .select('id')
-        .eq('role', 'admin');
+        .eq('role', 'operator');
 
-    final adminIds = List<Map<String, dynamic>>.from(admins)
+    final operatorIds = List<Map<String, dynamic>>.from(operators)
         .map((row) => row['id']?.toString().trim() ?? '')
         .where((id) => id.isNotEmpty)
         .toList();
 
-    if (adminIds.isEmpty) {
-      throw Exception('No admin account is available to receive this request');
+    if (operatorIds.isEmpty) {
+      throw Exception('No operator account is available to receive this request');
     }
 
-    for (final adminId in adminIds) {
+    for (final operatorId in operatorIds) {
       await NotificationService().createNotification(
-        userId: adminId,
+        userId: operatorId,
         title: 'Partner Price Change Request',
         message:
-            '$vehicleTitle needs admin review before an operator updates the price.',
+            '$vehicleTitle requested a price change to PHP ${requestedPricePerDay.toStringAsFixed(0)}/day (PHP ${requestedPricePerHour.toStringAsFixed(0)}/hr).',
         type: 'price_change_request',
         data: {
           'event': 'partner_price_change_request',
@@ -654,12 +654,13 @@ class PartnerService {
           'requested_price_per_day': requestedPricePerDay,
           'requested_price_per_hour': requestedPricePerHour,
           if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-          'forwarded_to_operator': false,
+          'status': 'pending',
+          'created_at': DateTime.now().toIso8601String(),
         },
       );
     }
 
-    return adminIds.length;
+    return operatorIds.length;
   }
 
   Future<void> notifyPaymentReleased({
