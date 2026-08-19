@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'booking_service.dart';
+import 'chat_service.dart';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 
