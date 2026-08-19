@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/loyalty_reward_service.dart';
 import '../../../services/terms_service.dart';
+import '../../../services/trip_rating_service.dart';
 import '../../../services/verification_service.dart';
 import '../../../utils/input_validation.dart';
 import '../../theme/app_colors.dart';
@@ -56,6 +57,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   Map<String, dynamic>? _profile;
   Map<String, dynamic>? _verification;
   LoyaltyRewardState? _loyaltyReward;
+  int? _totalTripsCount;
+  double? _userRatingAverage;
   bool _isLoading = true;
   bool _isRedeemingReward = false;
   late final ScrollController _scrollController;
@@ -114,11 +117,32 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     final profile = await AuthService().getCurrentUserProfile();
     Map<String, dynamic>? verification;
     LoyaltyRewardState? loyaltyReward;
+    int? totalTripsCount;
+    double? userRatingAverage;
     final userId = AuthService().currentUser?.id;
     if (userId != null) {
       verification = await VerificationService.getUserVerification(userId);
       if (_isRenter) {
         loyaltyReward = await LoyaltyRewardService().load(userId);
+        try {
+          final bookingsResp = await Supabase.instance.client
+              .from('bookings')
+              .select('id,status')
+              .eq('renter_id', userId);
+          final list = List<Map<String, dynamic>>.from(bookingsResp);
+          totalTripsCount = list.where((b) {
+            final s = b['status']?.toString().toLowerCase().trim() ?? '';
+            return s == 'completed' || s == 'returned' || s == 'settled';
+          }).length;
+        } catch (e) {
+          debugPrint('Error counting renter trips: $e');
+        }
+        try {
+          final ratingSummary = await TripRatingService().getRatingSummary(userId);
+          userRatingAverage = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
+        } catch (e) {
+          debugPrint('Error loading renter rating: $e');
+        }
       }
     }
     if (!mounted) return;
@@ -126,6 +150,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       _profile = profile;
       _verification = verification;
       _loyaltyReward = loyaltyReward;
+      _totalTripsCount = totalTripsCount;
+      _userRatingAverage = userRatingAverage;
       _isLoading = false;
     });
   }
@@ -157,13 +183,28 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     final userId = AuthService().currentUser?.id;
     if (!_isRenter || userId == null) return;
     LoyaltyRewardState? reward;
+    int? trips;
     try {
       reward = await LoyaltyRewardService().load(userId);
     } catch (error) {
       debugPrint('Error refreshing loyalty reward: $error');
     }
+    try {
+      final bookingsResp = await Supabase.instance.client
+          .from('bookings')
+          .select('id,status')
+          .eq('renter_id', userId);
+      final list = List<Map<String, dynamic>>.from(bookingsResp);
+      trips = list.where((b) {
+        final s = b['status']?.toString().toLowerCase().trim() ?? '';
+        return s == 'completed' || s == 'returned' || s == 'settled';
+      }).length;
+    } catch (_) {}
     if (!mounted) return;
-    if (reward != null) setState(() => _loyaltyReward = reward);
+    setState(() {
+      if (reward != null) _loyaltyReward = reward;
+      if (trips != null) _totalTripsCount = trips;
+    });
   }
 
   void _toggleProfilePhoto() {
@@ -942,13 +983,19 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
   Widget _stat(ProfileStatItem item) {
     final normalizedLabel = item.label.toLowerCase();
     final isLoyalty = normalizedLabel.contains('loyalty');
-    final fallbackAction = normalizedLabel.contains('rating')
+    final isTrips = normalizedLabel.contains('trip');
+    final isRating = normalizedLabel.contains('rating');
+    final fallbackAction = isRating
         ? _openRatings
         : isLoyalty
         ? _openLoyaltyRewards
         : null;
     final displayValue = isLoyalty && _loyaltyReward != null
         ? '${_loyaltyReward!.progressTrips}/18'
+        : isTrips && _isRenter
+        ? '${_totalTripsCount ?? _loyaltyReward?.successfulTrips ?? item.value}'
+        : isRating && _userRatingAverage != null && _userRatingAverage! > 0
+        ? _userRatingAverage!.toStringAsFixed(1)
         : item.value;
     return InkWell(
       onTap: item.onTap ?? fallbackAction,

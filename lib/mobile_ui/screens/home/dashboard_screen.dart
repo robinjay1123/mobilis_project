@@ -21,6 +21,7 @@ import '../../../services/notification_permission_service.dart';
 import '../../../services/push_notification_service.dart';
 import '../../../services/renter_marketing_notification_service.dart';
 import '../../../services/verification_service.dart';
+import '../../../services/trip_rating_service.dart';
 import '../../../services/booking_receipt_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/booking_card.dart';
@@ -76,6 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String userVerificationStatus = 'unverified';
   int _userCreatedYear = DateTime.now().year;
   int _totalTrips = 0;
+  double _userRating = 0.0;
 
   int selectedNavIndex = 0;
   int? selectedBookingIndex;
@@ -281,6 +283,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (!hasSavedLocation) {
           await _getDeviceLocation();
         }
+      }
+
+      try {
+        final bookingsResp = await Supabase.instance.client
+            .from('bookings')
+            .select('id,status')
+            .eq('renter_id', user.id);
+        final list = List<Map<String, dynamic>>.from(bookingsResp);
+        final completedCount = list.where((b) {
+          final s = b['status']?.toString().toLowerCase().trim() ?? '';
+          return s == 'completed' || s == 'returned' || s == 'settled';
+        }).length;
+        final ratingSummary = await TripRatingService().getRatingSummary(user.id);
+        final ratingAvg = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
+        if (mounted) {
+          setState(() {
+            _totalTrips = completedCount;
+            _userRating = ratingAvg;
+          });
+        }
+      } catch (e) {
+        debugPrint('Error fetching renter trips & ratings: $e');
       }
     } catch (e) {
       debugPrint('Error loading user data: $e');
@@ -788,10 +812,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return normalizedBooking;
       }).toList();
 
+      final completedCount = hydratedBookings.where((b) {
+        final s = b['status']?.toString().toLowerCase().trim() ?? '';
+        return s == 'completed' || s == 'returned' || s == 'settled';
+      }).length;
+
       if (mounted) {
         setState(() {
           _bookings = hydratedBookings;
           _ratedTargetKeys = ratedSet;
+          _totalTrips = completedCount;
         });
       }
     } catch (e) {
@@ -5598,7 +5628,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           label: 'Loyalty',
           value: userVerified ? 'Verified' : 'Basic',
         ),
-        const ProfileStatItem(label: 'Rating', value: '0.0'),
+        ProfileStatItem(
+          label: 'Rating',
+          value: _userRating > 0 ? _userRating.toStringAsFixed(1) : '0.0',
+          onTap: () {
+            final userId = AuthService().currentUser?.id;
+            if (userId == null) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => RatingsReviewsScreen(
+                  userId: userId,
+                  title: 'My Ratings & Reviews',
+                ),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
