@@ -1961,98 +1961,52 @@ class BookingService {
 
       List<Map<String, dynamic>> rawDriverRows = [];
 
-      // Strategy 1: Direct join without explicit foreign key constraint name
+      // 1. Query drivers from drivers table with joined user profiles
+      final Set<String> processedUserIds = {};
       try {
         final response = await supabase
             .from('drivers')
             .select(
               'id, user_id, verification_status, driver_tier, rating, total_trips, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
             );
-        rawDriverRows = List<Map<String, dynamic>>.from(response);
-      } catch (joinErr) {
-        debugPrint('Direct drivers join failed, attempting multi-query fallback: $joinErr');
-      }
-
-      // Strategy 2: Multi-query independent merge if join fails or returned empty
-      if (rawDriverRows.isEmpty) {
-        try {
-          final driversList = await supabase
-              .from('drivers')
-              .select('id, user_id, verification_status, driver_tier, rating, total_trips');
-
-          final usersList = await supabase
-              .from('users')
-              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active')
-              .eq('role', 'driver');
-
-          final usersMap = <String, Map<String, dynamic>>{};
-          for (final u in List<Map<String, dynamic>>.from(usersList)) {
-            usersMap[u['id'].toString()] = u;
+        for (final row in List<Map<String, dynamic>>.from(response)) {
+          final u = row['users'] as Map<String, dynamic>?;
+          final uId = row['user_id']?.toString() ?? u?['id']?.toString();
+          if (u != null && uId != null && uId.isNotEmpty) {
+            rawDriverRows.add(row);
+            processedUserIds.add(uId);
           }
-
-          final driversByUserId = <String, Map<String, dynamic>>{};
-          for (final d in List<Map<String, dynamic>>.from(driversList)) {
-            final uId = d['user_id']?.toString() ?? '';
-            if (uId.isNotEmpty) driversByUserId[uId] = d;
-          }
-
-          final processedUserIds = <String>{};
-
-          for (final d in List<Map<String, dynamic>>.from(driversList)) {
-            final uId = d['user_id']?.toString() ?? '';
-            final user = usersMap[uId];
-            if (user != null) {
-              processedUserIds.add(uId);
-              rawDriverRows.add({
-                ...d,
-                'users': user,
-              });
-            }
-          }
-
-          // Also include all users with role 'driver' who don't yet have a row in drivers table
-          for (final u in List<Map<String, dynamic>>.from(usersList)) {
-            final uId = u['id'].toString();
-            if (!processedUserIds.contains(uId)) {
-              rawDriverRows.add({
-                'id': uId,
-                'user_id': uId,
-                'verification_status': 'verified',
-                'driver_tier': 'standard',
-                'rating': 5.0,
-                'total_trips': 0,
-                'users': u,
-              });
-            }
-          }
-        } catch (multiErr) {
-          debugPrint('Multi-query drivers fallback failed: $multiErr');
         }
+      } catch (joinErr) {
+        debugPrint('Direct drivers join note: $joinErr');
       }
 
-      // Strategy 3: Directly query users table if still empty
-      if (rawDriverRows.isEmpty) {
-        try {
-          final usersList = await supabase
-              .from('users')
-              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active')
-              .eq('role', 'driver');
+      // 2. Always fetch all users with role 'driver' to include ALL freelance, partner, and certified drivers
+      try {
+        final usersList = await supabase
+            .from('users')
+            .select(
+              'id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active',
+            )
+            .eq('role', 'driver');
 
-          for (final u in List<Map<String, dynamic>>.from(usersList)) {
-            final uId = u['id'].toString();
+        for (final u in List<Map<String, dynamic>>.from(usersList)) {
+          final uId = u['id'].toString();
+          if (!processedUserIds.contains(uId)) {
             rawDriverRows.add({
               'id': uId,
               'user_id': uId,
-              'verification_status': 'verified',
+              'verification_status': u['verification_status'] ?? 'approved',
               'driver_tier': 'standard',
               'rating': 5.0,
               'total_trips': 0,
               'users': u,
             });
+            processedUserIds.add(uId);
           }
-        } catch (usersErr) {
-          debugPrint('Direct users table fallback error: $usersErr');
         }
+      } catch (usersErr) {
+        debugPrint('Users table drivers query note: $usersErr');
       }
 
       final drivers = rawDriverRows

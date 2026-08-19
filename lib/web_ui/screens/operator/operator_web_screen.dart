@@ -3292,9 +3292,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           driver['users']
                                               as Map<String, dynamic>? ??
                                           {};
-                                      final name =
-                                          user['full_name']?.toString() ??
-                                          'Unknown driver';
+                                      final name = (user['full_name']?.toString().trim().isNotEmpty == true)
+                                           ? user['full_name'].toString().trim()
+                                           : (user['email']?.toString().split('@').first.toUpperCase() ?? 'Professional Driver');
                                       final isPsdcDriver =
                                           driver['is_psdc_driver'] == true ||
                                           user['is_psdc_driver'] == true ||
@@ -3307,7 +3307,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       final rating =
                                           (driver['rating'] as num?)
                                               ?.toDouble() ??
-                                          0;
+                                          5.0;
                                       final trips =
                                           (driver['total_trips'] as num?)
                                               ?.toInt() ??
@@ -3356,7 +3356,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                                 0xFFD97706,
                                                               )
                                                             : const Color(
-                                                                0xFF173D5B,
+                                                                0xFF0284C7,
                                                               )),
                                                   borderRadius:
                                                       BorderRadius.circular(14),
@@ -3390,43 +3390,46 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                                                 FontWeight.w800,
                                                           ),
                                                         ),
-                                                        if (isPsdcDriver) ...[
-                                                          const SizedBox(
-                                                            width: 8,
-                                                          ),
-                                                          Container(
-                                                            padding:
-                                                                const EdgeInsets.symmetric(
-                                                                  horizontal: 8,
-                                                                  vertical: 3,
-                                                                ),
-                                                            decoration: BoxDecoration(
-                                                              color: selected
-                                                                  ? _operatorNavy
-                                                                  : const Color(
-                                                                      0xFFF59E0B,
-                                                                    ),
-                                                              borderRadius:
-                                                                  BorderRadius.circular(
-                                                                    12,
-                                                                  ),
-                                                            ),
-                                                            child: Text(
-                                                              'PSDC DRIVER',
-                                                              style: TextStyle(
-                                                                color: selected
-                                                                    ? Colors
-                                                                          .white
-                                                                    : Colors
-                                                                          .black,
-                                                                fontSize: 9,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w900,
+                                                        const SizedBox(width: 8),
+                                                        Container(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 3,
                                                               ),
+                                                          decoration: BoxDecoration(
+                                                            color: selected
+                                                                ? (isPsdcDriver
+                                                                      ? _operatorNavy
+                                                                      : _operatorNavy.withOpacity(0.3))
+                                                                : (isPsdcDriver
+                                                                      ? const Color(0xFFF59E0B)
+                                                                      : const Color(0xFF0284C7).withOpacity(0.2)),
+                                                            borderRadius:
+                                                                BorderRadius.circular(
+                                                                  12,
+                                                                ),
+                                                            border: isPsdcDriver
+                                                                ? null
+                                                                : Border.all(
+                                                                    color: const Color(0xFF0284C7).withOpacity(0.5),
+                                                                  ),
+                                                          ),
+                                                          child: Text(
+                                                            isPsdcDriver
+                                                                ? 'PSDC DRIVER'
+                                                                : 'VERIFIED DRIVER',
+                                                            style: TextStyle(
+                                                              color: selected
+                                                                  ? (isPsdcDriver ? Colors.white : _operatorNavyDeep)
+                                                                  : (isPsdcDriver ? Colors.black : const Color(0xFF38BDF8)),
+                                                              fontSize: 9,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w900,
                                                             ),
                                                           ),
-                                                        ],
+                                                        ),
                                                       ],
                                                     ),
                                                     const SizedBox(height: 5),
