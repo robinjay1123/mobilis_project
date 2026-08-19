@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12305,7 +12306,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         await BookingService().refundSecurityDeposit(
                                           bookingId: bookingId,
                                           refundAmount: netRefund,
-                                          deductionAmount: deduction,
+                                      deductionAmount: deduction,
                                           deductionNotes: deductionNotesController.text.trim(),
                                           refundMethod: selectedMethod,
                                           refundReference: ref,
@@ -12313,17 +12314,21 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           operatorId: currentUserId,
                                         );
 
-                                        if (!mounted) return;
-                                        Navigator.pop(dialogContext);
-                                        _loadAllData();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Security deposit of PHP ${netRefund.toStringAsFixed(0)} refunded to $renterName successfully.',
+                                        if (dialogContext.mounted) {
+                                          Navigator.pop(dialogContext);
+                                        }
+                                        _loadRecentBookings();
+                                        _loadDashboardData(showLoading: false);
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Security deposit of PHP ${netRefund.toStringAsFixed(0)} refunded to $renterName successfully.',
+                                              ),
+                                              backgroundColor: const Color(0xFF10B981),
                                             ),
-                                            backgroundColor: const Color(0xFF10B981),
-                                          ),
-                                        );
+                                          );
+                                        }
                                       } catch (e) {
                                         setDialogState(() => isSubmitting = false);
                                         ScaffoldMessenger.of(dialogContext).showSnackBar(
@@ -20568,9 +20573,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           }
                                         }
 
-                                        if (dialogContext.mounted) {
-                                          Navigator.pop(dialogContext);
-                                        }
+                                        if (!mounted) return;
+                                        Navigator.pop(dialogContext);
+                                        _loadRecentBookings();
+                                        _loadDashboardData(showLoading: false);
                                         await _loadVehicles();
                                         await _loadTrackingLocations();
                                         if (mounted) {
