@@ -554,8 +554,13 @@ class VerificationService {
     required String userId,
     required String status,
   }) async {
-    final renterStatus = _profileStatusFromVerificationStatus(status);
     try {
+      final userRecord = await supabase
+          .from('users')
+          .select('id, full_name, phone, location, avatar_url')
+          .eq('id', userId)
+          .maybeSingle();
+
       final existingRenter = await supabase
           .from('renters')
           .select('id')
@@ -563,13 +568,22 @@ class VerificationService {
           .maybeSingle();
 
       final payload = <String, dynamic>{
+        'id': userId,
         'user_id': userId,
-        'verification_status': renterStatus,
+        if (userRecord?['full_name'] != null)
+          'full_name': userRecord!['full_name'],
+        if (userRecord?['phone'] != null) 'phone': userRecord!['phone'],
+        if (userRecord?['location'] != null)
+          'address': userRecord!['location'],
+        if (userRecord?['avatar_url'] != null)
+          'avatar_url': userRecord!['avatar_url'],
       };
 
       if (existingRenter == null) {
         await supabase.from('renters').insert({
           ...payload,
+          'rating': 5.0,
+          'rating_count': 0,
           'created_at': DateTime.now().toIso8601String(),
         });
       } else {
