@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/input_validation.dart';
 import 'preferences_service.dart';
 import 'user_restriction_service.dart';
@@ -36,20 +38,21 @@ class AuthService {
 
   // Get user role from users table
   Future<String?> getUserRole() async {
-    try {
-      final user = currentUser;
-      if (user == null) {
-        debugPrint('❌ No user - role is null');
-        return null;
-      }
+    final user = currentUser;
+    if (user == null) {
+      debugPrint('❌ No user - role is null');
+      return null;
+    }
 
+    try {
       debugPrint('🔍 Fetching role for user: ${user.id}');
 
       final response = await supabase
           .from('users')
           .select('role')
           .eq('id', user.id)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 4));
 
       final role = response?['role'] as String?;
       final normalizedRole = role?.toLowerCase().trim();
@@ -58,19 +61,31 @@ class AuthService {
         '✅ User role fetched: "$role" → normalized: "$normalizedRole"',
       );
 
-      if (normalizedRole == null || normalizedRole.isEmpty) {
-        debugPrint('⚠️ WARNING: Role is null or empty!');
-        return null;
+      if (normalizedRole != null && normalizedRole.isNotEmpty) {
+        // Cache role locally for instant load and offline resilience
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('cached_user_role_${user.id}', normalizedRole);
+        } catch (_) {}
+        return normalizedRole;
       }
-
-      return normalizedRole;
     } on PostgrestException catch (e) {
       debugPrint('❌ Database error fetching user role: ${e.message}');
-      return null;
     } catch (e) {
       debugPrint('❌ Error fetching user role: $e');
-      return null;
     }
+
+    // Fallback to locally cached role
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cached_user_role_${user.id}');
+      if (cached != null && cached.isNotEmpty) {
+        debugPrint('💾 Using cached user role: $cached');
+        return cached;
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   // Get application status for partner/driver onboarding
@@ -517,19 +532,21 @@ class AuthService {
 
   // Check if partner/driver has been approved by admin
   Future<bool> isApplicationApproved() async {
-    try {
-      final user = currentUser;
-      if (user == null) return false;
+    final user = currentUser;
+    if (user == null) return false;
 
+    try {
       final verificationState =
-          await VerificationService.getUserVerificationState(user.id);
+          await VerificationService.getUserVerificationState(user.id)
+              .timeout(const Duration(seconds: 4), onTimeout: () => {});
       final isVerified = verificationState['is_verified'] == true;
 
       final response = await supabase
           .from('users')
           .select('role, application_status, id_verified')
           .eq('id', user.id)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 4));
 
       final role = response?['role']?.toString().trim().toLowerCase();
       final status = response?['application_status']
@@ -543,7 +560,8 @@ class AuthService {
         return true;
       }
 
-      return status == 'approved';
+      final approved = status == 'approved';
+      return approved;
     } on PostgrestException catch (e) {
       debugPrint('Database error checking application approval: ${e.message}');
       return false;

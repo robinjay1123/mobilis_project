@@ -18,9 +18,7 @@ import 'mobile_ui/screens/auth/forgot_password_screen.dart';
 import 'mobile_ui/screens/auth/reset_password_screen.dart';
 import 'mobile_ui/screens/auth/auth_processing_screen.dart';
 import 'mobile_ui/screens/home/dashboard_screen.dart';
-import 'mobile_ui/screens/profile/emergency_contact_screen.dart';
 import 'mobile_ui/screens/profile/legal_terms_privacy_screen.dart';
-import 'mobile_ui/screens/profile/payment_methods_screen.dart';
 import 'mobile_ui/screens/offline/no_internet_screen.dart';
 import 'mobile_ui/screens/partner/partner_home_screen.dart';
 import 'mobile_ui/screens/partner/apply_vehicle_screen.dart';
@@ -57,7 +55,12 @@ Future<void> main() async {
     debugPrint('Supabase initialization error: $e');
   }
 
-  await PushNotificationService().ensureInitialized();
+  // Non-blocking initialization so Firebase/notification checks never hang app startup
+  unawaited(
+    PushNotificationService().ensureInitialized().catchError((e) {
+      debugPrint('Push notification init error: $e');
+    }),
+  );
 
   runApp(const MyApp());
 }
@@ -527,17 +530,22 @@ class _AuthWrapperState extends State<AuthWrapper> {
       if (state.event == AuthChangeEvent.signedIn &&
           state.session?.user != null) {
         debugPrint('✅ SignedIn event triggered - will sync route');
-        await NotificationPermissionService().ensurePrompted();
-        await PushNotificationService().syncTokenForCurrentUser();
+        unawaited(NotificationPermissionService().ensurePrompted());
+        unawaited(PushNotificationService().syncTokenForCurrentUser());
         await _syncRouteForCurrentUser(force: true);
         _setupUserProfileListener();
       } else if ((state.event == AuthChangeEvent.initialSession ||
               state.event == AuthChangeEvent.tokenRefreshed) &&
           state.session?.user != null) {
         debugPrint('ℹ️ Auth session active (${state.event})');
-        NotificationPermissionService().ensurePrompted();
-        PushNotificationService().syncTokenForCurrentUser();
+        unawaited(NotificationPermissionService().ensurePrompted());
+        unawaited(PushNotificationService().syncTokenForCurrentUser());
         _setupUserProfileListener();
+
+        // On mobile, or when opening fresh without a synced route, navigate to the user dashboard
+        if (!kIsWeb || _lastSyncedRoute == null) {
+          _syncRouteForCurrentUser(force: false);
+        }
       }
 
       if (state.event == AuthChangeEvent.signedOut) {
@@ -602,10 +610,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
     if (role == null || role.isEmpty) {
       debugPrint('⚠️ Default route blocked: role is null');
-      Navigator.of(
-        context,
-        rootNavigator: true,
-      ).pushNamedAndRemoveUntil('/login', (route) => false);
+      if (mounted) {
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pushNamedAndRemoveUntil('/login', (route) => false);
+      }
       return;
     }
 
@@ -630,11 +640,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
     debugPrint('🚀 Navigating to: $targetRoute');
 
     try {
-      Navigator.of(
-        context,
-        rootNavigator: true,
-      ).pushNamedAndRemoveUntil(targetRoute, (route) => false);
-      debugPrint('✅ Navigation complete');
+      if (mounted) {
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pushNamedAndRemoveUntil(targetRoute, (route) => false);
+        debugPrint('✅ Navigation complete');
+      }
     } catch (e) {
       debugPrint('❌ Navigation error: $e');
       rethrow;
@@ -694,72 +706,96 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<Widget> _determineInitialScreen() async {
-    final authService = AuthService();
+    try {
+      final authService = AuthService();
 
-    // If user is already logged in, check role and go to appropriate dashboard
-    if (authService.isAuthenticated) {
-      final role = await authService.getUserRole();
-      debugPrint('🔐 Initial screen - User authenticated with role: $role');
-      if (role == null || role.isEmpty) {
+      // If user is already logged in, check role and go to appropriate dashboard
+      if (authService.isAuthenticated) {
+        final role = await authService.getUserRole().timeout(
+          const Duration(seconds: 4),
+          onTimeout: () => null,
+        );
+        debugPrint('🔐 Initial screen - User authenticated with role: $role');
+        if (role == null || role.isEmpty) {
+          return const ResponsiveLoginScreen();
+        }
+        final applicationApproved = role == 'partner' || role == 'driver'
+            ? await authService.isApplicationApproved().timeout(
+                const Duration(seconds: 4),
+                onTimeout: () => true,
+              )
+            : true;
+
+        if (role == 'admin') {
+          if (!kIsWeb) {
+            return const WebOnlyAccessScreen(role: 'Admin');
+          }
+          return AdminWebScreen(
+            onThemeToggle: widget.onThemeToggle,
+            isDarkMode: widget.isDarkMode,
+          );
+        }
+
+        if (role == 'operator') {
+          if (!kIsWeb) {
+            return OperatorMobileHomeScreen(
+              onThemeToggle: widget.onThemeToggle,
+              isDarkMode: widget.isDarkMode,
+            );
+          }
+          return OperatorWebScreen(
+            onThemeToggle: widget.onThemeToggle,
+            isDarkMode: widget.isDarkMode,
+          );
+        }
+
+        if (role == 'renter') {
+          return DashboardScreen(
+            onThemeToggle: widget.onThemeToggle,
+            isDarkMode: widget.isDarkMode,
+          );
+        }
+
+        if (role == 'partner') {
+          if (!applicationApproved) {
+            return const IdentityVerificationFormScreen(userRole: 'partner');
+          }
+          return PartnerHomeScreen(
+            onThemeToggle: widget.onThemeToggle,
+            isDarkMode: widget.isDarkMode,
+          );
+        }
+
+        if (role == 'driver') {
+          if (!applicationApproved) {
+            return const IdentityVerificationFormScreen(userRole: 'driver');
+          }
+          return DriverHomeScreen(
+            onThemeToggle: widget.onThemeToggle,
+            isDarkMode: widget.isDarkMode,
+          );
+        }
+
         return const ResponsiveLoginScreen();
       }
-      final applicationApproved = role == 'partner' || role == 'driver'
-          ? await authService.isApplicationApproved()
-          : true;
 
-      if (role == 'admin') {
-        return AdminWebScreen(
-          onThemeToggle: widget.onThemeToggle,
-          isDarkMode: widget.isDarkMode,
-        );
-      }
+      // Check if onboarding was already completed
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw TimeoutException('Prefs timeout'),
+      );
+      final onboardingCompleted =
+          prefs.getBool('onboarding_completed') ?? false;
 
-      if (role == 'operator') {
-        return OperatorWebScreen(
-          onThemeToggle: widget.onThemeToggle,
-          isDarkMode: widget.isDarkMode,
-        );
-      }
-
-      if (role == 'renter') {
-        return DashboardScreen(
-          onThemeToggle: widget.onThemeToggle,
-          isDarkMode: widget.isDarkMode,
-        );
-      }
-
-      if (role == 'partner') {
-        if (!applicationApproved) {
-          return const IdentityVerificationFormScreen(userRole: 'partner');
-        }
-        return PartnerHomeScreen(
-          onThemeToggle: widget.onThemeToggle,
-          isDarkMode: widget.isDarkMode,
-        );
-      }
-
-      if (role == 'driver') {
-        if (!applicationApproved) {
-          return const IdentityVerificationFormScreen(userRole: 'driver');
-        }
-        return DriverHomeScreen(
-          onThemeToggle: widget.onThemeToggle,
-          isDarkMode: widget.isDarkMode,
-        );
-      }
-
+      // If onboarding was completed, go to login screen
+      // Otherwise show welcome screen
+      return onboardingCompleted
+          ? const ResponsiveLoginScreen()
+          : const ResponsiveWelcomeScreen();
+    } catch (e) {
+      debugPrint('⚠️ Error determining initial screen: $e');
       return const ResponsiveLoginScreen();
     }
-
-    // Check if onboarding was already completed
-    final prefs = await SharedPreferences.getInstance();
-    final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
-
-    // If onboarding was completed, go to login screen
-    // Otherwise show welcome screen
-    return onboardingCompleted
-        ? const ResponsiveLoginScreen()
-        : const ResponsiveWelcomeScreen();
   }
 
   @override
@@ -769,6 +805,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           return snapshot.data!;
+        }
+        if (snapshot.hasError) {
+          debugPrint('⚠️ Initial screen FutureBuilder error: ${snapshot.error}');
+          return const ResponsiveLoginScreen();
         }
         // Show animated loading screen while determining initial screen
         return const AnimatedLoadingWidget(
