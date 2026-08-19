@@ -576,6 +576,7 @@ class _BookingsTabState extends State<_BookingsTab> {
   RealtimeChannel? _channel;
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _onlyExtensionRequests = false;
 
   @override
   void initState() {
@@ -645,9 +646,16 @@ class _BookingsTabState extends State<_BookingsTab> {
   }
 
   List<Map<String, dynamic>> _filter(List<Map<String, dynamic>> bookings) {
-    if (_searchQuery.isEmpty) return bookings;
+    var list = bookings;
+    if (_onlyExtensionRequests) {
+      list = list.where((b) {
+        final ext = b['extension_status']?.toString().toLowerCase().trim();
+        return ext == 'pending_operator' || ext == 'pending';
+      }).toList();
+    }
+    if (_searchQuery.isEmpty) return list;
     final q = _searchQuery.toLowerCase();
-    return bookings.where((b) {
+    return list.where((b) {
       final renter = b['users'] as Map? ?? {};
       final vehicle = b['vehicles'] as Map? ?? {};
       final renterName = renter['full_name']?.toString().toLowerCase() ?? '';

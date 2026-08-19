@@ -8875,6 +8875,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final currentEnd = DateTime.tryParse(currentEndRaw ?? '');
     final requestedEnd = DateTime.tryParse(requestedEndRaw ?? '');
 
+    final renterName = renter['full_name']?.toString().trim().isNotEmpty == true
+        ? renter['full_name'].toString().trim()
+        : (renter['email']?.toString().trim().isNotEmpty == true
+            ? renter['email'].toString().trim()
+            : 'Renter');
+    final vehicleBrand = vehicle['brand']?.toString().trim() ?? '';
+    final vehicleModel = vehicle['model']?.toString().trim() ?? '';
+    final vehicleTitle = '$vehicleBrand $vehicleModel'.trim().isNotEmpty
+        ? '$vehicleBrand $vehicleModel'.trim()
+        : 'Vehicle';
+
     bool isProcessing = false;
 
     await showDialog<void>(
@@ -8922,7 +8933,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Renter ${_operatorUserName(renter)} has requested to extend their rental period for ${_vehicleTitle(vehicle)}.',
+                      'Renter $renterName has requested to extend their rental period for $vehicleTitle.',
                       style: TextStyle(
                         color: isDark ? Colors.grey[300] : Colors.grey.shade700,
                         fontSize: 13,
@@ -9055,7 +9066,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       : () async {
                           setDialogState(() => isProcessing = true);
                           try {
-                            final operatorId = AuthService().currentUser?.id ?? '';
+                            final operatorId =
+                                Supabase.instance.client.auth.currentUser?.id ?? '';
                             await BookingService().rejectTripExtension(
                               bookingId: bookingId,
                               operatorId: operatorId,
@@ -9090,7 +9102,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       : () async {
                           setDialogState(() => isProcessing = true);
                           try {
-                            final operatorId = AuthService().currentUser?.id ?? '';
+                            final operatorId =
+                                Supabase.instance.client.auth.currentUser?.id ?? '';
                             await BookingService().approveTripExtension(
                               bookingId: bookingId,
                               operatorId: operatorId,
