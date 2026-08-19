@@ -3402,6 +3402,21 @@ class BookingService {
     }
   }
 
+  bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
+    final ownerRole = vehicle['owner_role']?.toString().toLowerCase().trim();
+    if (ownerRole == 'partner') return true;
+    final owner = vehicle['owner'] as Map<String, dynamic>?;
+    final role = owner?['role']?.toString().toLowerCase().trim();
+    if (role == 'partner') return true;
+    final partnerId = vehicle['partner_id']?.toString().trim();
+    if (partnerId != null && partnerId.isNotEmpty) return true;
+    final ownerId = vehicle['owner_id']?.toString().trim();
+    return ownerId != null &&
+        ownerId.isNotEmpty &&
+        ownerRole != 'operator' &&
+        ownerRole != 'admin';
+  }
+
   /// Accept an extension request (Partner for partner vehicle, Operator for operator vehicle).
   Future<void> acceptTripExtension({
     required String bookingId,
