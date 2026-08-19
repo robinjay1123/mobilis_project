@@ -9,6 +9,7 @@ import '../../theme/app_colors.dart';
 import '../../widgets/dialog_status_indicator.dart';
 import '../../widgets/optimized_network_image.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/mpin_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../utils/currency_formatter.dart';
 import '../../../utils/web_html.dart' as html;
@@ -188,20 +189,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
       return;
     }
 
-    // PSDC Desk / Over-the-counter payment
+    // PSDC Desk / Over-the-counter payment (Requires Operator MPIN Authorization)
     if (_selectedPaymentChannel == 'desk') {
-      Navigator.pop(
-        context,
-        ReservationPaymentProof(
-          amount: payableAmount,
-          method: 'psdc_desk_counter',
-          paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
-          referenceNumber: 'DESK_COUNTER_PAYMENT',
-          proofUrl: '',
-          proofStoragePath: null,
-          senderPhone: senderPhone,
-        ),
-      );
+      await _handleDeskPaymentWithOperatorMpin(payableAmount, senderPhone);
       return;
     }
 
@@ -680,6 +670,40 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     required double remainingBalance,
   }) {
     final rentalTotal = widget.rentalTotal;
+    final vehicle = widget.vehicleData;
+
+    final isHourly = vehicle['pricing_type']?.toString().toLowerCase() == 'hourly' ||
+        (vehicle['hourly_rate'] != null && widget.rentalSubtotal < (vehicle['daily_rate'] ?? 99999));
+
+    final dailyRate = ((vehicle['price_per_day'] ??
+            vehicle['daily_rate'] ??
+            vehicle['rental_rate'] ??
+            0) as num)
+        .toDouble();
+    final hourlyRate = ((vehicle['hourly_rate'] ??
+            vehicle['price_per_hour'] ??
+            0) as num)
+        .toDouble();
+    final unitRate = isHourly
+        ? (hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? dailyRate / 24 : widget.rentalSubtotal))
+        : (dailyRate > 0 ? dailyRate : widget.rentalSubtotal);
+
+    final duration = (widget.startDate != null && widget.endDate != null)
+        ? widget.endDate!.difference(widget.startDate!)
+        : null;
+    final durationDays = duration != null
+        ? (duration.inHours / 24).ceil().clamp(1, 999)
+        : 1;
+    final durationHours = duration != null ? duration.inHours.clamp(1, 9999) : 1;
+    final durationText = isHourly
+        ? '$durationHours ${durationHours == 1 ? 'Hour' : 'Hours'}'
+        : '$durationDays ${durationDays == 1 ? 'Day' : 'Days'}';
+    final rateLabel = isHourly
+        ? 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / hour'
+        : 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / day';
+    final depositAmount = widget.requiresLongBookingReservation
+        ? widget.reservationFeeAmount
+        : _settings.amount;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -715,7 +739,95 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _buildBreakdownRow('Rental subtotal', widget.rentalSubtotal, isDark: isDark),
+
+          // Unit Rate & Duration Banner
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Unit Rental Rate:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      rateLabel,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Booking Duration:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      durationText,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                if (widget.startDate != null && widget.endDate != null) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '${DateFormat('MMM dd, yyyy').format(widget.startDate!)} → ${DateFormat('MMM dd, yyyy').format(widget.endDate!)}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white54 : const Color(0xFF94A3B8),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Computation details
+          _buildBreakdownRow(
+            'Base unit rental ($rateLabel × $durationText)',
+            widget.rentalSubtotal,
+            isDark: isDark,
+          ),
+          const SizedBox(height: 8),
+          _buildBreakdownRow(
+            widget.requiresLongBookingReservation
+                ? 'Reservation fee (20% mandatory deposit)'
+                : 'Security deposit / reservation fee',
+            depositAmount,
+            isDark: isDark,
+          ),
           if (widget.deliveryFee > 0) ...[
             const SizedBox(height: 8),
             _buildBreakdownRow('Delivery fee', widget.deliveryFee, isDark: isDark),
@@ -946,7 +1058,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'You can settle your payment in Cash or POS at the PSDC branch cashier desk upon vehicle inspection and handover. Please ensure your contact mobile number is verified below so our team can coordinate with you.',
+                  'Settle your payment in Cash or POS at the PSDC branch cashier desk upon vehicle inspection and handover. The operator will enter their 6-digit MPIN upon payment confirmation to instantly authorize and approve your payment.',
                   style: TextStyle(
                     color: isDark ? Colors.white70 : const Color(0xFF334155),
                     fontSize: 12,
@@ -957,6 +1069,347 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _handleDeskPaymentWithOperatorMpin(
+    double payableAmount,
+    String senderPhone,
+  ) async {
+    final mpinController = TextEditingController();
+    bool isVerifying = false;
+    String? dialogError;
+    bool isApproved = false;
+    String? approvedOperatorName;
+
+    final authorized = await showDialog<MpinVerificationResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+
+            if (isApproved) {
+              return AlertDialog(
+                backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  side: BorderSide(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.4),
+                  ),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: Color(0xFF10B981),
+                        size: 54,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Payment Approved & Verified',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Authorized by ${approvedOperatorName ?? 'PSDC Desk Operator'}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Total: PHP ${formatAmount(payableAmount, decimalDigits: 0)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+                side: BorderSide(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                ),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.storefront_rounded,
+                      color: Color(0xFFE5A93C),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'PSDC Desk Authorization',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          'Operator MPIN required to confirm',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Amount to Settle:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                ),
+                              ),
+                              Text(
+                                'PHP ${formatAmount(payableAmount, decimalDigits: 0)}',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Settlement Type:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                ),
+                              ),
+                              Text(
+                                _payFullAmount ? 'Full Rental Payment' : 'Reservation Deposit',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Please have the PSDC Cashier / Desk Operator enter their 6-digit MPIN:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white70 : const Color(0xFF475569),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: mpinController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      obscureText: true,
+                      autofocus: true,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        letterSpacing: 10,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      textAlign: TextAlign.center,
+                      decoration: InputDecoration(
+                        hintText: '••••••',
+                        hintStyle: TextStyle(
+                          color: isDark ? Colors.white30 : Colors.black26,
+                          letterSpacing: 10,
+                        ),
+                        counterText: '',
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+                        ),
+                      ),
+                    ),
+                    if (dialogError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        dialogError!,
+                        style: const TextStyle(
+                          color: AppColors.error,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isVerifying ? null : () => Navigator.pop(dialogContext),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+                FilledButton(
+                  onPressed: isVerifying
+                      ? null
+                      : () async {
+                          final pin = mpinController.text.trim();
+                          if (pin.length != 6) {
+                            setDialogState(() {
+                              dialogError = 'Please enter a 6-digit MPIN.';
+                            });
+                            return;
+                          }
+                          setDialogState(() {
+                            isVerifying = true;
+                            dialogError = null;
+                          });
+
+                          final result = await MpinService().verifyOperatorMpin(pin);
+                          if (!result.success) {
+                            setDialogState(() {
+                              isVerifying = false;
+                              dialogError = result.errorMessage ?? 'Invalid Operator MPIN.';
+                            });
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isVerifying = false;
+                            isApproved = true;
+                            approvedOperatorName = result.operatorName;
+                          });
+
+                          await Future.delayed(const Duration(milliseconds: 900));
+                          if (context.mounted) {
+                            Navigator.pop(dialogContext, result);
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  ),
+                  child: isVerifying
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text(
+                          'Authorize Settlement',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (authorized == null || !authorized.success || !mounted) return;
+
+    final operatorName = authorized.operatorName ?? 'Desk Operator';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('PSDC Desk settlement authorized by $operatorName.'),
+        backgroundColor: const Color(0xFF10B981),
+      ),
+    );
+
+    Navigator.pop(
+      context,
+      ReservationPaymentProof(
+        amount: payableAmount,
+        method: 'psdc_desk_counter',
+        paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
+        referenceNumber: 'DESK_AUTH_${operatorName.replaceAll(' ', '_')}',
+        proofUrl: '',
+        proofStoragePath: null,
+        senderPhone: senderPhone,
       ),
     );
   }

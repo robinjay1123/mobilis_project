@@ -5042,21 +5042,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const SizedBox(height: 24),
                         ],
                         _SettingsSection(
-                          title: 'My Account',
+                          title: widget.operatorMode ? 'Operator Account' : 'My Account',
                           children: [
                             _SettingsMenuRow(
                               icon: Icons.shield_outlined,
-                              title: 'Account & Security',
-                              subtitle:
-                                  'Email, password, and account protection',
+                              title: widget.operatorMode
+                                  ? 'Account & Desk Authorization MPIN'
+                                  : 'Account & Security',
+                              subtitle: widget.operatorMode
+                                  ? 'Password & 6-digit Desk Payment Approval MPIN'
+                                  : 'Email, password, and account protection',
                               onTap: _openAccountSecurity,
                             ),
-                            _SettingsMenuRow(
-                              icon: Icons.location_on_outlined,
-                              title: 'My Addresses',
-                              subtitle: _addressSubtitle,
-                              onTap: _openAddresses,
-                            ),
+                            if (!widget.operatorMode)
+                              _SettingsMenuRow(
+                                icon: Icons.location_on_outlined,
+                                title: 'My Addresses',
+                                subtitle: _addressSubtitle,
+                                onTap: _openAddresses,
+                              ),
                           ],
                         ),
                         const SizedBox(height: 24),
@@ -5913,10 +5917,10 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
           const SizedBox(height: 12),
           _DetailCard(
             icon: Icons.pin_outlined,
-            title: 'MPIN',
+            title: 'Desk Authorization MPIN',
             subtitle: _hasMpin
-                ? 'A 6-digit MPIN protects sensitive account actions.'
-                : 'Set a 6-digit MPIN for additional account protection.',
+                ? '6-digit MPIN is active. Required to approve in-person PSDC counter payments from renters.'
+                : 'Set a 6-digit MPIN to authorize and confirm in-person PSDC desk counter payments.',
             action: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -5944,7 +5948,7 @@ class _AccountSecurityScreenState extends State<_AccountSecurityScreen> {
                           ),
                         )
                       : Text(
-                          _hasMpin ? 'Change MPIN' : 'Set MPIN',
+                          _hasMpin ? 'Change MPIN' : 'Set Desk MPIN',
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                 ),
