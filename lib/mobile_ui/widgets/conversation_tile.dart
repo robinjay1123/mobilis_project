@@ -24,15 +24,31 @@ class ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF2A3548),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.borderColor),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border, width: 1.2),
+          boxShadow: isDark
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
         child: Row(
           children: [
@@ -62,10 +78,10 @@ class ConversationTile extends StatelessWidget {
                 children: [
                   Text(
                     senderName,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
+                      color: primaryText,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -73,9 +89,9 @@ class ConversationTile extends StatelessWidget {
                     lastMessage,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: AppColors.textSecondary,
+                      color: secondaryText,
                     ),
                   ),
                 ],
@@ -87,16 +103,17 @@ class ConversationTile extends StatelessWidget {
               children: [
                 Text(
                   timestamp,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppColors.textTertiary,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: tertiaryText,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 if (unreadCount > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
+                      horizontal: 8,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
@@ -107,7 +124,7 @@ class ConversationTile extends StatelessWidget {
                       '$unreadCount',
                       style: const TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w800,
                         color: Colors.black,
                       ),
                     ),

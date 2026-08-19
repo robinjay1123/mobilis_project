@@ -27,6 +27,8 @@ class ReservationPaymentScreen extends StatefulWidget {
   final DateTime? endDate;
   final String? pickupLocation;
   final String? dropoffLocation;
+  final bool withDriver;
+  final double driverFee;
 
   const ReservationPaymentScreen({
     super.key,
@@ -42,6 +44,8 @@ class ReservationPaymentScreen extends StatefulWidget {
     this.endDate,
     this.pickupLocation,
     this.dropoffLocation,
+    this.withDriver = false,
+    this.driverFee = 0.0,
   });
 
   @override
@@ -269,16 +273,24 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
     final partnerCommission =
         isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
-    final reservationOnlyAmount = widget.requiresLongBookingReservation
+
+    final principalRentalSubtotal = (widget.rentalSubtotal +
+            widget.driverFee +
+            widget.deliveryFee +
+            partnerCommission -
+            widget.discountAmount)
+        .clamp(0.0, double.infinity);
+
+    final securityDeposit = widget.requiresLongBookingReservation
         ? widget.reservationFeeAmount
         : _settings.amount;
-    final payableAmount = _payFullAmount
-        ? widget.rentalTotal + partnerCommission
-        : reservationOnlyAmount;
 
-    final remainingBalance = ((widget.rentalTotal + partnerCommission) -
-            payableAmount)
-        .clamp(0.0, double.infinity);
+    final grandTotal = principalRentalSubtotal + securityDeposit;
+
+    final payableAmount = _payFullAmount ? grandTotal : securityDeposit;
+
+    final remainingBalance =
+        _payFullAmount ? 0.0 : principalRentalSubtotal;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
@@ -333,18 +345,21 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       _buildChannelSelector(isDark),
                       const SizedBox(height: 16),
 
+                      // FULL AMOUNT TOGGLE (placed ABOVE the breakdown)
+                      _buildFullAmountSwitchCard(isDark),
+                      const SizedBox(height: 16),
+
                       // COMPUTATION & TOTAL BREAKDOWN CARD
                       _buildBreakdownCard(
                         isDark: isDark,
                         isPartnerVehicle: isPartnerVehicle,
                         partnerCommission: partnerCommission,
+                        principalRentalSubtotal: principalRentalSubtotal,
+                        securityDeposit: securityDeposit,
+                        grandTotal: grandTotal,
                         payableAmount: payableAmount,
                         remainingBalance: remainingBalance,
                       ),
-                      const SizedBox(height: 16),
-
-                      // FULL AMOUNT TOGGLE
-                      _buildFullAmountSwitchCard(isDark),
                       const SizedBox(height: 16),
 
                       // CHANNEL SPECIFIC INSTRUCTIONS & INPUTS
@@ -666,10 +681,12 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     required bool isDark,
     required bool isPartnerVehicle,
     required double partnerCommission,
+    required double principalRentalSubtotal,
+    required double securityDeposit,
+    required double grandTotal,
     required double payableAmount,
     required double remainingBalance,
   }) {
-    final rentalTotal = widget.rentalTotal;
     final vehicle = widget.vehicleData;
 
     final isHourly = vehicle['pricing_type']?.toString().toLowerCase() == 'hourly' ||
@@ -701,9 +718,6 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final rateLabel = isHourly
         ? 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / hour'
         : 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / day';
-    final depositAmount = widget.requiresLongBookingReservation
-        ? widget.reservationFeeAmount
-        : _settings.amount;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -814,20 +828,20 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           ),
           const SizedBox(height: 14),
 
-          // Computation details
+          // Computation details: Principal Rental Charges
           _buildBreakdownRow(
             'Base unit rental ($rateLabel × $durationText)',
             widget.rentalSubtotal,
             isDark: isDark,
           ),
-          const SizedBox(height: 8),
-          _buildBreakdownRow(
-            widget.requiresLongBookingReservation
-                ? 'Reservation fee (20% mandatory deposit)'
-                : 'Security deposit / reservation fee',
-            depositAmount,
-            isDark: isDark,
-          ),
+          if (widget.withDriver && widget.driverFee > 0) ...[
+            const SizedBox(height: 8),
+            _buildBreakdownRow(
+              'PSDC Driver Fee (PHP 1,500/day × $durationDays Day${durationDays > 1 ? 's' : ''})',
+              widget.driverFee,
+              isDark: isDark,
+            ),
+          ],
           if (widget.deliveryFee > 0) ...[
             const SizedBox(height: 8),
             _buildBreakdownRow('Delivery fee', widget.deliveryFee, isDark: isDark),
@@ -841,16 +855,80 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             _buildBreakdownRow('Partner commission (10%)', partnerCommission, isDark: isDark),
           ],
           const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1),
+          ),
+          _buildBreakdownRow(
+            'Principal Rental Subtotal (PSDC Collected)',
+            principalRentalSubtotal,
+            isDark: isDark,
+            isBold: true,
+          ),
+          const SizedBox(height: 12),
+
+          // Security Deposit Card (Refundable)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF3B82F6)),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Security Deposit',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      'PHP ${formatAmount(securityDeposit, decimalDigits: 0)}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '• 100% Refundable upon vehicle return in good condition\n• Held separately (not consumed as rental payment)',
+                  style: TextStyle(
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: Divider(height: 1),
           ),
           _buildBreakdownRow(
-            'Total booking cost',
-            _payFullAmount && isPartnerVehicle ? (rentalTotal + partnerCommission) : rentalTotal,
+            'Grand Total (Rental + Refundable Deposit)',
+            grandTotal,
             isDark: isDark,
             isBold: true,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -866,10 +944,10 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                   children: [
                     Text(
                       _payFullAmount
-                          ? 'Payable Now (Full Payment)'
+                          ? 'Payable Now (Full Payment + Deposit)'
                           : widget.requiresLongBookingReservation
                               ? 'Payable Now (20% Reservation)'
-                              : 'Payable Now (Security Deposit)',
+                              : 'Payable Now (Security Deposit Only)',
                       style: const TextStyle(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w700,

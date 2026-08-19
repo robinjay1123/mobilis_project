@@ -46,21 +46,38 @@ class ApplicationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final imageBg = isDark ? AppColors.darkBgTertiary : const Color(0xFFE2E8F0);
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.borderColor),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border, width: 1.2),
+          boxShadow: isDark
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Main content
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -69,8 +86,8 @@ class ApplicationCard extends StatelessWidget {
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: AppColors.darkBgTertiary,
-                      borderRadius: BorderRadius.circular(10),
+                      color: imageBg,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Image.asset(
                       'assets/icon/logo1.png',
@@ -89,10 +106,10 @@ class ApplicationCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 vehicleName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  color: primaryText,
                                 ),
                               ),
                             ),
@@ -103,30 +120,32 @@ class ApplicationCard extends StatelessWidget {
                         Row(
                           children: [
                             Icon(
-                              Icons.calendar_today,
+                              Icons.calendar_today_rounded,
                               size: 12,
-                              color: AppColors.textTertiary,
+                              color: tertiaryText,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               year,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
+                                color: secondaryText,
                               ),
                             ),
                             const SizedBox(width: 12),
                             Icon(
                               Icons.confirmation_number_outlined,
                               size: 12,
-                              color: AppColors.textTertiary,
+                              color: tertiaryText,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               plateNumber,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
+                                color: secondaryText,
                               ),
                             ),
                           ],
@@ -139,24 +158,25 @@ class ApplicationCard extends StatelessWidget {
             ),
 
             // Divider
-            Container(height: 1, color: AppColors.borderColor),
+            Container(height: 1, color: border),
 
             // Footer with date and status indicator
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
                   Icon(
-                    Icons.access_time,
+                    Icons.access_time_rounded,
                     size: 14,
-                    color: AppColors.textTertiary,
+                    color: tertiaryText,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     'Submitted: $submittedDate',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textTertiary,
+                      fontWeight: FontWeight.w500,
+                      color: tertiaryText,
                     ),
                   ),
                   const Spacer(),
@@ -166,8 +186,8 @@ class ApplicationCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: _getStatusColor().withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
+                      color: _getStatusColor().withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
@@ -181,7 +201,7 @@ class ApplicationCard extends StatelessWidget {
                           status.toUpperCase(),
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                             color: _getStatusColor(),
                           ),
                         ),
@@ -198,10 +218,10 @@ class ApplicationCard extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
+                  color: AppColors.error.withValues(alpha: 0.1),
                   borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
                   ),
                 ),
                 child: Row(

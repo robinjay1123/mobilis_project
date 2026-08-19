@@ -3,6 +3,7 @@ class PricingPolicy {
   static const double lateReturnRatePerHour = 300;
   static const double longBookingReservationRate = 0.20;
   static const int longBookingReservationThresholdDays = 7;
+  static const double driverDailyRate = 1500.0;
 
   static const double minDailyRentalPrice = 500;
   static const double maxDailyRentalPrice = 25000;

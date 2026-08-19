@@ -1586,6 +1586,13 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     Color? iconColor,
     Color? textColor,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       child: InkWell(
@@ -1594,9 +1601,10 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppColors.darkBgSecondary,
+            color: cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borderColor),
+            border: Border.all(color: border, width: 1.2),
+            boxShadow: isDark ? null : AppColors.cardShadowOf(context),
           ),
           child: Row(
             children: [
@@ -1609,7 +1617,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                     Text(
                       title,
                       style: TextStyle(
-                        color: textColor ?? AppColors.textPrimary,
+                        color: textColor ?? primaryText,
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                       ),
@@ -1619,8 +1627,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                       subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
+                      style: TextStyle(
+                        color: secondaryText,
                         fontSize: 12,
                       ),
                     ),
@@ -1630,8 +1638,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
               trailing ??
                   Icon(
                     Icons.chevron_right,
-                    color: textColor ?? AppColors.textTertiary,
-                    size: 22,
+                    size: 18,
+                    color: tertiaryText,
                   ),
             ],
           ),

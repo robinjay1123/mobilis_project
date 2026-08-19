@@ -61,6 +61,7 @@ class BookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final normalizedStatus = status.toLowerCase();
     final shouldShowRating =
         showRating && normalizedStatus != 'pending' && rating > 0;
@@ -78,18 +79,36 @@ class BookingCard extends StatelessWidget {
         ? AppColors.error
         : AppColors.warning;
 
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final imageBg = isDark ? AppColors.darkBgTertiary : const Color(0xFFE2E8F0);
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final cardBorder = isActive
+        ? AppColors.primary
+        : (isDark ? AppColors.borderColor : AppColors.lightBorderColor);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(12),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isActive ? AppColors.primary : AppColors.borderColor,
-            width: isActive ? 2 : 1,
+            color: cardBorder,
+            width: isActive ? 2 : 1.2,
           ),
+          boxShadow: isDark
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -97,11 +116,11 @@ class BookingCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: AppColors.darkBgTertiary,
-                    borderRadius: BorderRadius.circular(8),
+                    color: imageBg,
+                    borderRadius: BorderRadius.circular(10),
                     image: carImageUrl != null
                         ? DecorationImage(
                             image: OptimizedNetworkImageProvider(carImageUrl!),
@@ -110,31 +129,33 @@ class BookingCard extends StatelessWidget {
                         : null,
                   ),
                   child: carImageUrl == null
-                      ? const Icon(
+                      ? Icon(
                           Icons.directions_car,
-                          size: 20,
-                          color: AppColors.textSecondary,
+                          size: 22,
+                          color: secondaryText,
                         )
                       : null,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         carName,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: primaryText,
                         ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
                         rentalPartner,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.textTertiary,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: tertiaryText,
                         ),
                       ),
                     ],
@@ -142,93 +163,97 @@ class BookingCard extends StatelessWidget {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
+                    horizontal: 9,
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor,
-                    borderRadius: BorderRadius.circular(4),
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                   ),
                   child: Text(
-                    status,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                    status.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: statusColor,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
             // Duration
             Row(
               children: [
-                const Icon(
-                  Icons.calendar_today,
-                  size: 12,
-                  color: AppColors.textTertiary,
+                Icon(
+                  Icons.calendar_today_rounded,
+                  size: 13,
+                  color: tertiaryText,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Text(
                   '$days days',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: secondaryText,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 5),
 
             // Pickup location
             Row(
               children: [
-                const Icon(
-                  Icons.location_on,
-                  size: 12,
-                  color: AppColors.textTertiary,
+                Icon(
+                  Icons.location_on_rounded,
+                  size: 13,
+                  color: tertiaryText,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     pickupLocation,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: secondaryText,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 5),
 
             // Dropoff location
             Row(
               children: [
-                const Icon(
-                  Icons.arrow_forward,
-                  size: 12,
-                  color: AppColors.textTertiary,
+                Icon(
+                  Icons.arrow_forward_rounded,
+                  size: 13,
+                  color: tertiaryText,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     dropoffLocation,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: secondaryText,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
             // Cost and rating
             Row(
@@ -237,19 +262,20 @@ class BookingCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Total',
+                    Text(
+                      'Total Cost',
                       style: TextStyle(
                         fontSize: 10,
-                        color: AppColors.textTertiary,
+                        fontWeight: FontWeight.w600,
+                        color: tertiaryText,
                       ),
                     ),
                     Text(
                       '₱${formatAmount(totalCost, decimalDigits: 0)}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? AppColors.primary : const Color(0xFFD97706),
                       ),
                     ),
                   ],
@@ -260,17 +286,17 @@ class BookingCard extends StatelessWidget {
                     children: [
                       if (shouldShowRating) ...[
                         const Icon(
-                          Icons.star,
-                          size: 12,
+                          Icons.star_rounded,
+                          size: 15,
                           color: AppColors.ratingGold,
                         ),
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 3),
                         Text(
                           rating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: primaryText,
                           ),
                         ),
                       ],
@@ -292,7 +318,7 @@ class BookingCard extends StatelessWidget {
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
@@ -310,16 +336,16 @@ class BookingCard extends StatelessWidget {
                     ? OutlinedButton.icon(
                         onPressed: null,
                         icon: const Icon(Icons.star_rounded, color: AppColors.ratingGold, size: 18),
-                        label: const Text(
+                        label: Text(
                           'Rating Submitted',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: AppColors.textSecondary,
+                            color: secondaryText,
                             fontSize: 13,
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.borderColor),
+                          side: BorderSide(color: isDark ? AppColors.borderColor : AppColors.lightBorderColor),
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
@@ -361,7 +387,7 @@ class BookingCard extends StatelessWidget {
                         side: const BorderSide(color: AppColors.error),
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
@@ -374,11 +400,11 @@ class BookingCard extends StatelessWidget {
                     icon: const Icon(Icons.receipt_long, size: 16),
                     label: Text(detailsButtonLabel),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: isDark ? AppColors.primary : const Color(0xFFB45309),
+                      side: BorderSide(color: isDark ? AppColors.primary : const Color(0xFFB45309)),
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
@@ -395,7 +421,7 @@ class BookingCard extends StatelessWidget {
                         foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),

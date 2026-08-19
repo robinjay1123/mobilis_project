@@ -25,30 +25,51 @@ class NotificationItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final cardBg = isDark
+        ? (isRead ? AppColors.darkCard : const Color(0xFF263346))
+        : (isRead ? Colors.white : const Color(0xFFF1F5F9));
+    final border = isDark
+        ? (isRead ? AppColors.borderColor : AppColors.primary)
+        : (isRead ? AppColors.lightBorderColor : AppColors.primaryDark);
+
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isRead ? const Color(0xFF2A3548) : const Color(0xFF354156),
-          borderRadius: BorderRadius.circular(20),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isRead ? AppColors.borderColor : Colors.white70,
+            color: border,
+            width: isRead ? 1.2 : 1.6,
           ),
+          boxShadow: isDark
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 46,
+              height: 46,
               decoration: BoxDecoration(
                 color: iconColor.withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(icon, color: iconColor, size: 25),
+              child: Icon(icon, color: iconColor, size: 24),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -57,10 +78,10 @@ class NotificationItem extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
+                      fontWeight: isRead ? FontWeight.w700 : FontWeight.w900,
+                      color: primaryText,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -68,18 +89,19 @@ class NotificationItem extends StatelessWidget {
                     message,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       height: 1.35,
-                      color: AppColors.textSecondary,
+                      color: secondaryText,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     timestamp,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: AppColors.textTertiary,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: tertiaryText,
                     ),
                   ),
                 ],
@@ -90,8 +112,8 @@ class NotificationItem extends StatelessWidget {
               Container(
                 width: 9,
                 height: 9,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.primary : AppColors.primaryDark,
                   shape: BoxShape.circle,
                 ),
               ),

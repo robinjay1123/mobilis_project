@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:mobilis_by_psdc_app/mobile_ui/theme/app_colors.dart';
 import 'package:mobilis_by_psdc_app/services/auth_service.dart';
+import 'package:mobilis_by_psdc_app/services/booking_inspection_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_service.dart';
 import 'package:mobilis_by_psdc_app/services/booking_viewed_service.dart';
 
@@ -1435,6 +1437,36 @@ class _BookingCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (isPartnerVehicle) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.handshake_outlined, size: 14, color: Colors.purpleAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _status == 'pending'
+                            ? 'Partner Unit • View Only (Awaiting Partner Approval)'
+                            : 'Partner Unit • View Only (Managed by Partner)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.purple[200] : Colors.purple[800],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (booking['safety_freeze'] == true) ...[
               const SizedBox(height: 8),
               Container(
@@ -1576,7 +1608,8 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
-            if (booking['extension_status'] == 'pending_operator') ...[
+            if (booking['extension_status'] == 'pending_operator' &&
+                !isPartnerVehicle) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1698,9 +1731,10 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
-            if (_status == 'return_pending_inspection' ||
-                _status == 'active' ||
-                _status == 'ongoing') ...[
+            if ((_status == 'return_pending_inspection' ||
+                    _status == 'active' ||
+                    _status == 'ongoing') &&
+                !isPartnerVehicle) ...[
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
@@ -1752,6 +1786,7 @@ class _BookingCard extends StatelessWidget {
             if (_status != 'pending' &&
                 _needsDriver &&
                 onAssignDriver != null &&
+                !isPartnerVehicle &&
                 !{
                   'cancelled',
                   'rejected',
@@ -1783,7 +1818,7 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
-            if (showActions && _status == 'pending') ...[
+            if (showActions && _status == 'pending' && !isPartnerVehicle) ...[
               const SizedBox(height: 10),
               const Divider(height: 1),
               const SizedBox(height: 10),
@@ -2061,10 +2096,472 @@ class _BookingCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (booking['security_deposit_return_eligible'] == true &&
+                booking['security_deposit_refunded'] != true &&
+                !isPartnerVehicle) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(
+                    Icons.assignment_return_rounded,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    'Return Security Deposit',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: () => _showMobileSecurityDepositRefundDialog(
+                    context,
+                    booking,
+                    isDark,
+                    onRefresh,
+                  ),
+                ),
+              ),
+            ],
+            if (booking['security_deposit_refunded'] == true) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.check_circle, size: 14, color: Color(0xFF10B981)),
+                    SizedBox(width: 6),
+                    Text(
+                      'Security Deposit Refunded',
+                      style: TextStyle(
+                        color: Color(0xFF10B981),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _showMobileSecurityDepositRefundDialog(
+    BuildContext context,
+    Map<String, dynamic> booking,
+    bool isDark,
+    VoidCallback? onRefresh,
+  ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final renterPhone = renter['phone_number']?.toString() ??
+        renter['phone']?.toString() ??
+        booking['renter_phone']?.toString() ??
+        '';
+    final vehicleName =
+        '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final depositAmount = (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['security_deposit'] as num?)?.toDouble() ??
+        1000.0;
+
+    final refundAmountController =
+        TextEditingController(text: depositAmount.toStringAsFixed(0));
+    final deductionAmountController = TextEditingController(text: '0');
+    final deductionNotesController = TextEditingController();
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final deposit = double.tryParse(refundAmountController.text) ?? depositAmount;
+          final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
+          final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
+
+          return Dialog(
+            backgroundColor: isDark ? const Color(0xFF172235) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.assignment_return_rounded,
+                          color: Color(0xFF10B981),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Refund Security Deposit',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              vehicleName,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark ? Colors.white60 : Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Phone Card
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          renterName,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_rounded, size: 14, color: AppColors.primary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                renterPhone.isNotEmpty ? renterPhone : 'No phone recorded',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            if (renterPhone.isNotEmpty)
+                              InkWell(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: renterPhone));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Copied $renterPhone'),
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'Copy GCash',
+                                    style: TextStyle(
+                                      color: Color(0xFF10B981),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Amounts
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Deposit (PHP)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            TextFormField(
+                              controller: refundAmountController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setDialogState(() {}),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Deduction (PHP)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 4),
+                            TextFormField(
+                              controller: deductionAmountController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(fontSize: 13),
+                              onChanged: (_) => setDialogState(() {}),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Net Refund Summary
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text(
+                          'PHP ${netRefund.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Method & Ref
+                  DropdownButtonFormField<String>(
+                    value: selectedMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                      DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                      DropdownMenuItem(value: 'Maya', child: Text('Maya')),
+                      DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedMethod = val);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: referenceController,
+                    decoration: const InputDecoration(
+                      labelText: 'Reference Number',
+                      hintText: 'e.g. 10023498172',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Receipt Upload
+                  if (receiptFile == null)
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                          withData: true,
+                        );
+                        if (result != null && result.files.isNotEmpty) {
+                          setDialogState(() => receiptFile = result.files.first);
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(42),
+                      ),
+                      icon: const Icon(Icons.upload_file_rounded, size: 18),
+                      label: const Text('Attach Receipt Proof', style: TextStyle(fontSize: 12)),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.receipt_long, color: Color(0xFF10B981), size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              receiptFile!.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                            onPressed: () => setDialogState(() => receiptFile = null),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Submit
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              final ref = referenceController.text.trim();
+                              if (ref.isEmpty && receiptFile == null) {
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please provide a reference number or receipt.'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              setDialogState(() => isSubmitting = true);
+
+                              try {
+                                String uploadedReceiptUrl = '';
+                                if (receiptFile?.bytes != null) {
+                                  final currentUserId = AuthService().currentUser?.id ?? '';
+                                  uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                    userId: currentUserId,
+                                    bookingId: bookingId,
+                                    bytes: receiptFile!.bytes!,
+                                    extension: receiptFile!.extension ?? 'jpg',
+                                  );
+                                }
+
+                                final currentUserId = AuthService().currentUser?.id ?? '';
+                                await BookingService().refundSecurityDeposit(
+                                  bookingId: bookingId,
+                                  refundAmount: netRefund,
+                                  deductionAmount: deduction,
+                                  deductionNotes: deductionNotesController.text.trim(),
+                                  refundMethod: selectedMethod,
+                                  refundReference: ref,
+                                  refundReceiptUrl: uploadedReceiptUrl,
+                                  operatorId: currentUserId,
+                                );
+
+                                if (!context.mounted) return;
+                                Navigator.pop(dialogContext);
+                                onRefresh?.call();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Security deposit refunded to $renterName.',
+                                    ),
+                                    backgroundColor: const Color(0xFF10B981),
+                                  ),
+                                );
+                              } catch (e) {
+                                setDialogState(() => isSubmitting = false);
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Refund error: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Text('Submit Deposit Refund', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    refundAmountController.dispose();
+    deductionAmountController.dispose();
+    deductionNotesController.dispose();
+    referenceController.dispose();
   }
 
   Future<void> _showApproveDialog(

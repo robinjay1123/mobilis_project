@@ -1365,8 +1365,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return discount > subtotal ? subtotal : discount;
   }
 
+  double get _driverFee {
+    if (!_withDriver) return 0.0;
+    final days = _billableDays <= 0 ? 1 : _billableDays;
+    return days * PricingPolicy.driverDailyRate;
+  }
+
   double get _totalPrice {
-    final rawTotal = _rentalSubtotal + _deliveryFee - _discountAmount;
+    final rawTotal = _rentalSubtotal + _driverFee + _deliveryFee - _discountAmount;
     return rawTotal < 0 ? 0.0 : rawTotal;
   }
 
@@ -2650,6 +2656,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           endDate: _selectedEndDate,
           pickupLocation: pickupSummary.isEmpty ? null : pickupSummary,
           dropoffLocation: dropoffSummary.isEmpty ? null : dropoffSummary,
+          withDriver: _withDriver,
+          driverFee: _driverFee,
         ),
       ),
     );
@@ -2749,14 +2757,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final scaffoldBg = isDark ? AppColors.darkBg : AppColors.lightBg;
+
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: AppColors.darkBg,
+        backgroundColor: scaffoldBg,
         appBar: AppBar(
-          backgroundColor: AppColors.darkBg,
+          backgroundColor: scaffoldBg,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+            icon: Icon(Icons.arrow_back, color: primaryText),
             onPressed: () => Navigator.pop(context),
           ),
         ),
@@ -2770,19 +2784,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
     if (_vehicle == null) {
       return Scaffold(
-        backgroundColor: AppColors.darkBg,
+        backgroundColor: scaffoldBg,
         appBar: AppBar(
-          backgroundColor: AppColors.darkBg,
+          backgroundColor: scaffoldBg,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+            icon: Icon(Icons.arrow_back, color: primaryText),
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: const Center(
+        body: Center(
           child: Text(
             'Vehicle not found',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: secondaryText),
           ),
         ),
       );
@@ -2813,25 +2827,25 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         (_vehicle!['rating_count'] as num?)?.toInt() ?? 0;
 
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: scaffoldBg,
       body: CustomScrollView(
         slivers: [
           // Image header with back button
           SliverAppBar(
             expandedHeight: 280,
             pinned: true,
-            backgroundColor: AppColors.darkBg,
+            backgroundColor: scaffoldBg,
             leading: GestureDetector(
               onTap: () => Navigator.pop(context),
               child: Container(
                 margin: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.5),
+                  color: Colors.black.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
                   Icons.arrow_back,
-                  color: AppColors.textPrimary,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -2843,14 +2857,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   height: 44,
                   margin: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
                     _isFavorite ? Icons.favorite : Icons.favorite_border,
                     color: _isFavorite
                         ? AppColors.error
-                        : AppColors.textPrimary,
+                        : Colors.white,
                   ),
                 ),
               ),
@@ -2861,8 +2875,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 vehicle: _vehicle!,
                 height: 280,
                 isThumbnail: false,
-                backgroundColor: AppColors.darkBgTertiary,
-                iconColor: AppColors.textTertiary,
+                backgroundColor: isDark ? AppColors.darkBgTertiary : const Color(0xFFE2E8F0),
+                iconColor: tertiaryText,
               ),
             ),
           ),
@@ -2918,16 +2932,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 vehicleRating > 0
                                     ? '${vehicleRating.toStringAsFixed(1)} ($vehicleRatingCount)'
                                     : 'See ratings',
-                                style: const TextStyle(
-                                  color: AppColors.primary,
+                                style: TextStyle(
+                                  color: isDark ? AppColors.primary : const Color(0xFFD97706),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
                               const SizedBox(width: 2),
-                              const Icon(
+                              Icon(
                                 Icons.chevron_right_rounded,
-                                color: AppColors.primary,
+                                color: isDark ? AppColors.primary : const Color(0xFFD97706),
                                 size: 16,
                               ),
                             ],
@@ -2941,18 +2955,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   // Title and year
                   Text(
                     '$brand $model',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                      color: primaryText,
                     ),
                   ),
                   if (year.isNotEmpty)
                     Text(
                       year,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        color: AppColors.textSecondary,
+                        color: secondaryText,
                       ),
                     ),
                   const SizedBox(height: 24),
@@ -2963,31 +2977,35 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          AppColors.primary.withOpacity(0.15),
-                          AppColors.primary.withOpacity(0.05),
+                          AppColors.primary.withValues(alpha: isDark ? 0.15 : 0.25),
+                          AppColors.primary.withValues(alpha: isDark ? 0.05 : 0.08),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isDark ? AppColors.primary : const Color(0xFFF59E0B),
+                        width: 1.2,
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           pricePerHour > 0 ? 'Price per hour' : 'Price per day',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                            color: secondaryText,
                           ),
                         ),
                         Text(
                           '₱${formatAmount(pricePerHour > 0 ? pricePerHour : pricePerDay)}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                            color: isDark ? AppColors.primary : const Color(0xFFD97706),
                           ),
                         ),
                       ],
@@ -3300,15 +3318,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 'Need a Driver?',
                                 style: TextStyle(
                                   color: AppColors.textPrimary,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                               SizedBox(height: 2),
                               Text(
-                                'Enable if you want operator to assign an available driver.',
+                                '+ PHP 1,500 / day (PSDC Professional Driver)',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primary,
                                 ),
                               ),
                             ],
@@ -4728,29 +4747,36 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Widget _buildSpecCard(IconData icon, String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderColor),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
       child: Column(
         children: [
-          Icon(icon, color: AppColors.primary, size: 20),
+          Icon(icon, color: isDark ? AppColors.primary : AppColors.primaryDark, size: 20),
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
+            style: TextStyle(fontSize: 11, color: tertiaryText),
           ),
         ],
       ),

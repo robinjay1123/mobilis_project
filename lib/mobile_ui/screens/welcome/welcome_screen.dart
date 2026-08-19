@@ -49,8 +49,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = isDark ? AppColors.darkBg : AppColors.lightBg;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: scaffoldBg,
       body: Column(
         children: [
           // Skip button
@@ -67,12 +73,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     Navigator.of(context).pushReplacementNamed('/login');
                   }
                 },
-                child: const Text(
+                child: Text(
                   'Skip',
                   style: TextStyle(
-                    color: AppColors.textSecondary,
+                    color: secondaryText,
                     fontSize: 14,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -106,8 +112,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   height: 8,
                   decoration: BoxDecoration(
                     color: _currentPage == index
-                        ? AppColors.primary
-                        : AppColors.borderColor,
+                        ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                        : border,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -153,20 +159,20 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       }
                     },
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(
-                        color: AppColors.borderColor,
-                        width: 1,
+                      side: BorderSide(
+                        color: border,
+                        width: 1.2,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Create Account',
                       style: TextStyle(
-                        color: AppColors.textPrimary,
+                        color: primaryText,
                         fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -180,7 +186,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   Widget _buildPage(WelcomePageData page, int pageIndex) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
     final isActive = _currentPage == pageIndex;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
@@ -202,13 +212,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              const Text(
+              Text(
                 'Mobilis',
                 style: TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w900,
                   letterSpacing: 0.5,
-                  color: AppColors.textPrimary,
+                  color: primaryText,
                 ),
               ),
             ],
@@ -223,10 +233,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           Text(
             page.title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
+              color: primaryText,
               height: 1.3,
             ),
           ),
@@ -234,9 +244,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           Text(
             page.description,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
-              color: AppColors.textSecondary,
+              color: secondaryText,
               height: 1.45,
             ),
           ),

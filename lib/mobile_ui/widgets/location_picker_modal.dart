@@ -69,11 +69,12 @@ class MobilisLocationPickerModal extends StatefulWidget {
     List<MobilisMapMarker> additionalMarkers = const [],
     MobilisLocationResolver? resolveAddress,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return showModalBottomSheet<MobilisLocationSelection>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: AppColors.darkBgSecondary,
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
       barrierColor: Colors.black.withValues(alpha: 0.68),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -320,6 +321,13 @@ class _MobilisLocationPickerModalState
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final fieldFill = isDark ? AppColors.darkBgTertiary : const Color(0xFFF1F5F9);
+
     final screenHeight = MediaQuery.sizeOf(context).height;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final mapHeight = (screenHeight * 0.30).clamp(220.0, 270.0).toDouble();
@@ -337,7 +345,7 @@ class _MobilisLocationPickerModalState
                 width: 44,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.borderColor,
+                  color: border,
                   borderRadius: BorderRadius.circular(99),
                 ),
               ),
@@ -348,8 +356,8 @@ class _MobilisLocationPickerModalState
                 Expanded(
                   child: Text(
                     widget.title,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
+                    style: TextStyle(
+                      color: primaryText,
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
                     ),
@@ -359,15 +367,15 @@ class _MobilisLocationPickerModalState
                   tooltip: 'Close map',
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close_rounded),
-                  color: AppColors.textSecondary,
+                  color: secondaryText,
                 ),
               ],
             ),
             const SizedBox(height: 2),
             Text(
               widget.subtitle,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                color: secondaryText,
                 fontSize: 12,
               ),
             ),
@@ -376,13 +384,13 @@ class _MobilisLocationPickerModalState
               controller: _searchController,
               textInputAction: TextInputAction.search,
               onSubmitted: (_) => _searchAddress(),
-              style: const TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: primaryText),
               decoration: InputDecoration(
                 hintText: 'Search complete address',
-                hintStyle: const TextStyle(color: AppColors.textTertiary),
-                prefixIcon: const Icon(
+                hintStyle: TextStyle(color: tertiaryText),
+                prefixIcon: Icon(
                   Icons.search_rounded,
-                  color: AppColors.textSecondary,
+                  color: secondaryText,
                 ),
                 suffixIcon: IconButton(
                   tooltip: 'Search address',
@@ -393,21 +401,24 @@ class _MobilisLocationPickerModalState
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.search_rounded),
-                  color: AppColors.primary,
+                  color: isDark ? AppColors.primary : AppColors.primaryDark,
                 ),
                 filled: true,
-                fillColor: AppColors.darkBgTertiary,
+                fillColor: fieldFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.borderColor),
+                  borderSide: BorderSide(color: border, width: 1.2),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.borderColor),
+                  borderSide: BorderSide(color: border, width: 1.2),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.primary),
+                  borderSide: BorderSide(
+                    color: isDark ? AppColors.primary : AppColors.primaryDark,
+                    width: 1.8,
+                  ),
                 ),
               ),
             ),
@@ -419,8 +430,8 @@ class _MobilisLocationPickerModalState
                 icon: const Icon(Icons.my_location_rounded, size: 18),
                 label: const Text('Use current location'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
+                  foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+                  side: BorderSide(color: isDark ? AppColors.primary : AppColors.primaryDark),
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -535,11 +546,12 @@ class MobilisMapViewerModal extends StatelessWidget {
     double fallbackLatitude = 15.9758,
     double fallbackLongitude = 120.5719,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: AppColors.darkBgSecondary,
+      backgroundColor: isDark ? AppColors.darkCard : Colors.white,
       barrierColor: Colors.black.withValues(alpha: 0.68),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -557,6 +569,11 @@ class MobilisMapViewerModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+
     final screenHeight = MediaQuery.sizeOf(context).height;
     final mapHeight = (screenHeight * 0.58).clamp(300.0, 520.0).toDouble();
     return ConstrainedBox(
@@ -572,7 +589,7 @@ class MobilisMapViewerModal extends StatelessWidget {
                 width: 44,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppColors.borderColor,
+                  color: border,
                   borderRadius: BorderRadius.circular(99),
                 ),
               ),
@@ -583,8 +600,8 @@ class MobilisMapViewerModal extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
+                    style: TextStyle(
+                      color: primaryText,
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
                     ),
@@ -594,14 +611,14 @@ class MobilisMapViewerModal extends StatelessWidget {
                   tooltip: 'Close map',
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close_rounded),
-                  color: AppColors.textSecondary,
+                  color: secondaryText,
                 ),
               ],
             ),
             Text(
               subtitle,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                color: secondaryText,
                 fontSize: 12,
               ),
             ),

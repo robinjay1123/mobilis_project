@@ -601,7 +601,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       },
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: AppColors.darkBg,
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? AppColors.darkBg
+            : AppColors.lightBg,
         drawer: _buildDrawer(),
         body: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
@@ -1545,33 +1547,40 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     required String subtext,
     Color? subtextColor,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.borderColor),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border, width: 1.2),
+          boxShadow: isDark ? null : AppColors.cardShadowOf(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: AppColors.textTertiary,
+                color: tertiaryText,
                 letterSpacing: 0.5,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+                color: primaryText,
               ),
             ),
             const SizedBox(height: 4),
@@ -1580,7 +1589,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
-                color: subtextColor ?? AppColors.textSecondary,
+                color: subtextColor ?? (isDark ? AppColors.textSecondary : AppColors.lightTextSecondary),
               ),
             ),
           ],
@@ -1594,6 +1603,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     required String label,
     required VoidCallback onTap,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -1602,14 +1615,15 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
             decoration: BoxDecoration(
-              color: AppColors.darkBgSecondary,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.borderColor),
+              color: cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: border, width: 1.2),
+              boxShadow: isDark ? null : AppColors.cardShadowOf(context),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, color: AppColors.primary, size: 24),
+                Icon(icon, color: isDark ? AppColors.primary : AppColors.primaryDark, size: 24),
                 const SizedBox(height: 10),
                 SizedBox(
                   height: 14,
@@ -1619,10 +1633,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                     child: Text(
                       label,
                       maxLines: 1,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary,
                       ),
                       textAlign: TextAlign.center,
                     ),

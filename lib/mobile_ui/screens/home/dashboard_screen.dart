@@ -3320,9 +3320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Scaffold(
         key: _scaffoldKey,
         drawer: _buildRenterDrawer(),
-        backgroundColor: selectedNavIndex == 0
-            ? (isDark ? AppColors.darkBg : AppColors.lightBg)
-            : AppColors.darkBg,
+        backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
         body: NotificationListener<ScrollNotification>(
           onNotification: _handleScrollNotification,
           child: _buildTabContent(),
@@ -7356,6 +7354,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildPendingApprovalCard(Map<String, dynamic> booking) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     final createdAt = DateTime.tryParse(
       booking['created_at']?.toString() ?? '',
     )?.toLocal();
@@ -7369,34 +7373,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.schedule, color: AppColors.primary, size: 18),
+              const Icon(Icons.schedule_rounded, color: AppColors.primary, size: 18),
               const SizedBox(width: 8),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'PENDING APPROVAL',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0,
-                    color: AppColors.textPrimary,
+                    color: primaryText,
                   ),
                 ),
               ),
               Text(
                 '$percent%',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
-                  color: AppColors.primary,
+                  color: isDark ? AppColors.primary : const Color(0xFFD97706),
                 ),
               ),
             ],
@@ -7407,21 +7412,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: LinearProgressIndicator(
               value: approvalProgress.toDouble(),
               minHeight: 6,
-              backgroundColor: AppColors.darkBgTertiary,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.primary,
+              backgroundColor: isDark ? AppColors.darkBgTertiary : const Color(0xFFE2E8F0),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isDark ? AppColors.primary : AppColors.primaryDark,
               ),
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'Waiting for owner to confirm your request.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 12, color: secondaryText),
           ),
           const SizedBox(height: 2),
-          const Text(
+          Text(
             'Usually takes less than 2 hours.',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 12, color: secondaryText),
           ),
         ],
       ),
@@ -7429,6 +7434,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildPendingVehicleCard(Map<String, dynamic> booking) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     final imageUrl = booking['imageUrl']?.toString().trim() ?? '';
     final totalCost = (booking['totalCost'] as num?)?.toDouble() ?? 0;
     final days = ((booking['days'] as num?)?.toInt() ?? 1).clamp(1, 365);
@@ -7438,9 +7449,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
       child: Row(
         children: [
@@ -7448,12 +7460,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'REQUESTED VEHICLE',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textTertiary,
+                    color: tertiaryText,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -7461,19 +7473,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   booking['carName']?.toString() ?? 'Vehicle',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
-                    color: AppColors.textPrimary,
+                    color: primaryText,
                   ),
                 ),
                 const SizedBox(height: 5),
                 Text(
                   '₱${formatAmount(dailyRate, decimalDigits: 0)} / day',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.primary,
+                    color: isDark ? AppColors.primary : const Color(0xFFD97706),
                   ),
                 ),
               ],
@@ -7488,8 +7500,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: _buildFastVehicleImage(
                 imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
                 fit: BoxFit.cover,
-                backgroundColor: AppColors.darkBgTertiary,
-                iconColor: AppColors.textTertiary,
+                backgroundColor: isDark ? AppColors.darkBgTertiary : const Color(0xFFE2E8F0),
+                iconColor: tertiaryText,
               ),
             ),
           ),
@@ -7503,13 +7515,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String title,
     required String subtitle,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
       child: Row(
         children: [
@@ -7523,19 +7542,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: primaryText,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textTertiary,
+                    color: tertiaryText,
                   ),
                 ),
               ],
@@ -7547,17 +7566,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildPendingAgreementNotes() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBg,
-        borderRadius: BorderRadius.circular(14),
-        border: const Border(
-          left: BorderSide(color: AppColors.primary, width: 3),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+          width: 1.2,
         ),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -7565,27 +7590,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Icon(
                 Icons.gavel_outlined,
                 size: 15,
-                color: AppColors.textPrimary,
+                color: isDark ? AppColors.primary : AppColors.primaryDark,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Rental Agreement Notes',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
+                  color: primaryText,
                 ),
               ),
             ],
           ),
-          SizedBox(height: 10),
-          _AgreementNote('Late penalty: ₱300/hr after scheduled return.'),
-          SizedBox(height: 7),
-          _AgreementNote(
+          const SizedBox(height: 10),
+          const _AgreementNote('Late penalty: ₱300/hr after scheduled return.'),
+          const SizedBox(height: 7),
+          const _AgreementNote(
             'Fuel Policy: Same-to-same. Return with the same fuel level.',
           ),
-          SizedBox(height: 7),
-          _AgreementNote(
+          const SizedBox(height: 7),
+          const _AgreementNote(
             'Cleanliness: Please return the car in the same clean state.',
           ),
         ],
@@ -7598,6 +7623,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required String value,
     bool highlight = false,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
       decoration: BoxDecoration(
@@ -7608,7 +7637,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           Text(
             label.toUpperCase(),
-            style: const TextStyle(fontSize: 9, color: AppColors.textTertiary),
+            style: TextStyle(fontSize: 9, color: tertiaryText),
           ),
           const SizedBox(height: 4),
           Text(
@@ -7617,7 +7646,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
-              color: highlight ? AppColors.primary : AppColors.textPrimary,
+              color: highlight
+                  ? (isDark ? AppColors.primary : const Color(0xFFD97706))
+                  : primaryText,
             ),
           ),
         ],
@@ -7626,39 +7657,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildRentalAgreementCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.borderColor),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border, width: 1.2),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Icon(
                 Icons.description_outlined,
-                color: AppColors.primary,
+                color: isDark ? AppColors.primary : AppColors.primaryDark,
                 size: 16,
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Text(
                 'Rental Agreement',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+                  color: primaryText,
                 ),
               ),
             ],
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             '• Keep vehicle clean and return it on schedule.',
-            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 11, color: secondaryText),
           ),
           SizedBox(height: 4),
           Text(

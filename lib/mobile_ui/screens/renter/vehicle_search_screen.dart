@@ -355,6 +355,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
 
   Widget _buildCategoryChip(String category) {
     final isSelected = _selectedCategory == category;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chipBg = isDark ? AppColors.darkCard : Colors.white;
+    final chipBorder = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final textColor = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final iconColor = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     return GestureDetector(
       onTap: () => _selectCategory(category),
       child: AnimatedContainer(
@@ -369,18 +375,21 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   end: Alignment.bottomRight,
                 )
               : null,
-          color: isSelected ? null : AppColors.darkBgSecondary,
+          color: isSelected ? null : chipBg,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.borderColor,
+            color: isSelected ? AppColors.primary : chipBorder,
+            width: 1.2,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          boxShadow: isDark
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 14,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : AppColors.cardShadowOf(context),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -394,7 +403,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   ? Icons.all_inclusive
                   : Icons.directions_car,
               size: 14,
-              color: isSelected ? Colors.black : AppColors.textSecondary,
+              color: isSelected ? Colors.black : iconColor,
             ),
             const SizedBox(width: 8),
             Text(
@@ -402,7 +411,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: isSelected ? Colors.black : AppColors.textPrimary,
+                color: isSelected ? Colors.black : textColor,
               ),
             ),
           ],
@@ -574,6 +583,15 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   }
 
   Widget _buildFilterPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelBg = isDark ? AppColors.darkCard : Colors.white;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final fieldBg = isDark ? AppColors.darkBgTertiary : const Color(0xFFF1F5F9);
+    final chipUnselectedBg = isDark ? AppColors.darkBgTertiary : const Color(0xFFF1F5F9);
+
     final activeFiltersCount = [
       _selectedTransmission,
       _selectedFuelType,
@@ -592,16 +610,21 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       margin: const EdgeInsets.only(top: 14, bottom: 8),
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
+        color: panelBg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        border: Border.all(
+          color: isDark ? AppColors.primary.withValues(alpha: 0.4) : AppColors.lightBorderColor,
+          width: 1.5,
+        ),
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ]
+            : AppColors.cardShadowOf(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -613,12 +636,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 children: [
                   const Icon(Icons.tune, color: AppColors.primary, size: 20),
                   const SizedBox(width: 8),
-                  const Text(
+                  Text(
                     'Vehicle Specifications',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.textPrimary,
+                      color: primaryText,
                     ),
                   ),
                   if (activeFiltersCount > 0) ...[
@@ -655,15 +678,15 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 ),
             ],
           ),
-          const Divider(height: 24, color: AppColors.borderColor),
+          Divider(height: 24, color: border),
 
           // ── TRANSMISSION ──
-          const Text(
+          Text(
             'Transmission',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 8),
@@ -681,9 +704,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   });
                 },
                 selectedColor: AppColors.primary,
-                backgroundColor: AppColors.darkBgTertiary,
+                backgroundColor: chipUnselectedBg,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  color: isSelected ? Colors.black : primaryText,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               );
@@ -692,12 +715,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 16),
 
           // ── FUEL TYPE ──
-          const Text(
+          Text(
             'Fuel Type',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 8),
@@ -716,9 +739,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   });
                 },
                 selectedColor: AppColors.primary,
-                backgroundColor: AppColors.darkBgTertiary,
+                backgroundColor: chipUnselectedBg,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  color: isSelected ? Colors.black : primaryText,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               );
@@ -733,25 +756,32 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Brand / Make',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: primaryText,
                       ),
                     ),
                     const SizedBox(height: 6),
                     TextField(
                       controller: _brandController,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      style: TextStyle(color: primaryText, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'e.g. Toyota',
-                        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                        hintStyle: TextStyle(color: tertiaryText, fontSize: 12),
                         filled: true,
-                        fillColor: AppColors.darkBgTertiary,
+                        fillColor: fieldBg,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: border, width: 1.2),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: border, width: 1.2),
+                        ),
                       ),
                     ),
                   ],
@@ -762,25 +792,32 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Model',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: primaryText,
                       ),
                     ),
                     const SizedBox(height: 6),
                     TextField(
                       controller: _modelController,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                      style: TextStyle(color: primaryText, fontSize: 13),
                       decoration: InputDecoration(
-                        hintText: 'e.g. Vlos',
-                        hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                        hintText: 'e.g. Vios',
+                        hintStyle: TextStyle(color: tertiaryText, fontSize: 12),
                         filled: true,
-                        fillColor: AppColors.darkBgTertiary,
+                        fillColor: fieldBg,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: border, width: 1.2),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide(color: border, width: 1.2),
+                        ),
                       ),
                     ),
                   ],
@@ -791,12 +828,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 16),
 
           // ── COLOR ──
-          const Text(
+          Text(
             'Vehicle Color',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 8),
@@ -818,9 +855,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                       });
                     },
                     selectedColor: AppColors.primary,
-                    backgroundColor: AppColors.darkBgTertiary,
+                    backgroundColor: chipUnselectedBg,
                     labelStyle: TextStyle(
-                      color: isSelected ? Colors.black : AppColors.textPrimary,
+                      color: isSelected ? Colors.black : primaryText,
                       fontSize: 11,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -832,12 +869,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 16),
 
           // ── SEATING CAPACITY ──
-          const Text(
+          Text(
             'Minimum Seats',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 8),
@@ -853,9 +890,9 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                   setState(() => _minSeats = selected ? seats : null);
                 },
                 selectedColor: AppColors.primary,
-                backgroundColor: AppColors.darkBgTertiary,
+                backgroundColor: chipUnselectedBg,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.black : AppColors.textPrimary,
+                  color: isSelected ? Colors.black : primaryText,
                   fontSize: 11,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
@@ -865,12 +902,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 16),
 
           // ── PRICE PER DAY RANGE ──
-          const Text(
+          Text(
             'Price / Day (PHP)',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 6),
@@ -880,33 +917,47 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                 child: TextField(
                   controller: _minPriceController,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  style: TextStyle(color: primaryText, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: 'Min ₱',
-                    hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    hintStyle: TextStyle(color: tertiaryText, fontSize: 12),
                     filled: true,
-                    fillColor: AppColors.darkBgTertiary,
+                    fillColor: fieldBg,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: border, width: 1.2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: border, width: 1.2),
+                    ),
                   ),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Text('–', style: TextStyle(color: AppColors.textSecondary)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text('–', style: TextStyle(color: secondaryText)),
               ),
               Expanded(
                 child: TextField(
                   controller: _maxPriceController,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  style: TextStyle(color: primaryText, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: 'Max ₱',
-                    hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    hintStyle: TextStyle(color: tertiaryText, fontSize: 12),
                     filled: true,
-                    fillColor: AppColors.darkBgTertiary,
+                    fillColor: fieldBg,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: border, width: 1.2),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: border, width: 1.2),
+                    ),
                   ),
                 ),
               ),
@@ -915,12 +966,12 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           const SizedBox(height: 16),
 
           // ── DATE RANGE AVAILABILITY ──
-          const Text(
+          Text(
             'Booking Date Availability',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              color: primaryText,
             ),
           ),
           const SizedBox(height: 6),
@@ -936,8 +987,8 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     style: const TextStyle(fontSize: 12),
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: const BorderSide(color: AppColors.borderColor),
+                    foregroundColor: primaryText,
+                    side: BorderSide(color: border, width: 1.2),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                   onPressed: () => _selectDate(true),
@@ -954,8 +1005,8 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     style: const TextStyle(fontSize: 12),
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textPrimary,
-                    side: const BorderSide(color: AppColors.borderColor),
+                    foregroundColor: primaryText,
+                    side: BorderSide(color: border, width: 1.2),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                   onPressed: () => _selectDate(false),
@@ -988,14 +1039,22 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
   }
 
   @override
-
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = isDark ? AppColors.darkBg : AppColors.lightBg;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final searchFill = isDark ? AppColors.darkBgTertiary : const Color(0xFFF1F5F9);
+
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: scaffoldBg,
       appBar: AppBar(
-        title: const Text('Find Vehicles'),
+        title: Text('Find Vehicles', style: TextStyle(color: primaryText, fontWeight: FontWeight.w800)),
         elevation: 0,
-        backgroundColor: AppColors.darkBgSecondary,
+        backgroundColor: cardBg,
+        iconTheme: IconThemeData(color: primaryText),
         actions: [
           if (_results.isNotEmpty)
             Padding(
@@ -1003,7 +1062,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
               child: Center(
                 child: Text(
                   '${_results.length} found',
-                  style: const TextStyle(fontSize: 14),
+                  style: TextStyle(fontSize: 14, color: primaryText, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
@@ -1015,22 +1074,28 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
           // ── Search + category header (non-scrollable visually, part of scroll) ──
           SliverToBoxAdapter(
             child: Container(
-              color: AppColors.darkBgSecondary,
+              color: cardBg,
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   // Search field
                   TextField(
                     controller: _locationController,
+                    style: TextStyle(color: primaryText),
                     decoration: InputDecoration(
                       hintText: 'Search location, brand, model...',
-                      prefixIcon: const Icon(Icons.search),
+                      prefixIcon: Icon(Icons.search, color: isDark ? AppColors.textSecondary : AppColors.lightTextSecondary),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: border, width: 1.2),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: border, width: 1.2),
                       ),
                       filled: true,
-                      fillColor: AppColors.darkBgTertiary,
-                      hintStyle: const TextStyle(color: AppColors.textTertiary),
+                      fillColor: searchFill,
+                      hintStyle: TextStyle(color: tertiaryText),
                       suffixIcon: _locationController.text.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear),
@@ -1062,12 +1127,13 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                             side: BorderSide(
                               color: _showFilters
                                   ? AppColors.primary
-                                  : AppColors.borderColor,
+                                  : border,
+                              width: 1.2,
                             ),
                             foregroundColor: _showFilters
-                                ? AppColors.primary
-                                : AppColors.textPrimary,
-                            backgroundColor: AppColors.darkBgSecondary,
+                                ? (isDark ? AppColors.primary : AppColors.primaryDark)
+                                : primaryText,
+                            backgroundColor: cardBg,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -1104,7 +1170,7 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     child: TextButton(
                       onPressed: _isLoading ? null : _viewAllVehicles,
                       style: TextButton.styleFrom(
-                        foregroundColor: AppColors.primary,
+                        foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                       child: const Text('View All Vehicles'),
@@ -1116,9 +1182,10 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                     margin: const EdgeInsets.fromLTRB(0, 8, 0, 4),
                     padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBgSecondary,
+                      color: cardBg,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.borderColor),
+                      border: Border.all(color: border, width: 1.2),
+                      boxShadow: isDark ? null : AppColors.cardShadowOf(context),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1126,18 +1193,18 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text(
+                            Text(
                               'Categories',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
+                                color: primaryText,
                               ),
                             ),
                             TextButton(
                               onPressed: _viewAllVehicles,
                               style: TextButton.styleFrom(
-                                foregroundColor: AppColors.primary,
+                                foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
                               ),
                               child: const Text('All Cars'),
                             ),

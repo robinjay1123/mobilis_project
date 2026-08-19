@@ -8581,7 +8581,43 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      if (group == BookingStatusGroup.pending)
+                      if (_isPartnerOwnedBooking(booking))
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.purple.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.handshake_outlined,
+                                size: 16,
+                                color: Colors.purpleAccent,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Partner Unit • View Only Mode',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.purple[200]
+                                      : Colors.purple[800],
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (group == BookingStatusGroup.pending &&
+                          !_isPartnerOwnedBooking(booking))
                         OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8597,7 +8633,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           label: const Text('Decline'),
                         ),
                       if (group == BookingStatusGroup.pending &&
-                          (!needsDriver || driverAccepted))
+                          (!needsDriver || driverAccepted) &&
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8615,7 +8652,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       if (group == BookingStatusGroup.pending &&
                           needsDriver &&
                           !driverAccepted &&
-                          !waitingForDriver)
+                          !waitingForDriver &&
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8634,9 +8672,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 : 'Assign Driver',
                           ),
                         ),
-                      if (statusLower == 'confirmed' ||
-                          statusLower == 'approved' ||
-                          group == BookingStatusGroup.approved)
+                      if ((statusLower == 'confirmed' ||
+                              statusLower == 'approved' ||
+                              group == BookingStatusGroup.approved) &&
+                          !_isPartnerOwnedBooking(booking))
                         OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8684,7 +8723,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               booking['returned_at'] != null ||
                               booking['returnedAt'] != null) &&
                           statusLower != 'completed' &&
-                          group != BookingStatusGroup.completed)
+                          group != BookingStatusGroup.completed &&
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed:
                               (statusLower == 'return_pending_inspection' ||
@@ -8813,7 +8853,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.payments_outlined, size: 17),
                           label: const Text('Confirm Full Payment'),
                         ),
-                      if (booking['extension_status'] == 'pending_operator')
+                      if (booking['extension_status'] == 'pending_operator' &&
+                          !_isPartnerOwnedBooking(booking))
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8836,7 +8877,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           statusLower == 'return_pending_inspection' ||
                           statusLower == 'awaiting_completion' ||
                           statusLower == 'completed' ||
-                          group == BookingStatusGroup.ongoing)
+                          group == BookingStatusGroup.ongoing) ...[
+                        if (booking['security_deposit_return_eligible'] == true &&
+                            booking['security_deposit_refunded'] != true &&
+                            !_isPartnerOwnedBooking(booking))
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                              _showSecurityDepositRefundDialog(booking);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(horizontal: 18),
+                            ),
+                            icon: const Icon(Icons.assignment_return_rounded, size: 17),
+                            label: const Text(
+                              'Return Security Deposit',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        if (booking['security_deposit_refunded'] == true)
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              final receiptUrl = booking['security_deposit_refund_receipt_url']?.toString();
+                              if (receiptUrl != null && receiptUrl.isNotEmpty) {
+                                _showReceiptProofDialog(receiptUrl, isDark);
+                              }
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF10B981),
+                              side: const BorderSide(color: Color(0xFF10B981)),
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                            ),
+                            icon: const Icon(Icons.check_circle_outline, size: 17),
+                            label: const Text('Deposit Refunded'),
+                          ),
                         ElevatedButton.icon(
                           onPressed: () {
                             Navigator.pop(dialogContext);
@@ -8851,6 +8929,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                           icon: const Icon(Icons.star_rate_rounded, size: 17),
                           label: const Text('Rate Trip'),
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -11090,8 +11169,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
+                                if (_isPartnerOwnedBooking(booking))
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.purple.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: Colors.purple.withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.handshake_outlined,
+                                          size: 14,
+                                          color: Colors.purpleAccent,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          'Partner Unit • View Only',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? Colors.purple[200]
+                                                : Colors.purple[800],
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 if (statusLower == 'pending' &&
-                                    (!withDriver || driverAccepted))
+                                    (!withDriver || driverAccepted) &&
+                                    !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
                                     onPressed: () => _approveBooking(booking),
                                     icon: const Icon(Icons.check, size: 16),
@@ -11108,7 +11223,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                 if (statusLower == 'pending' &&
                                     withDriver &&
                                     !driverAccepted &&
-                                    !waitingForDriver)
+                                    !waitingForDriver &&
+                                    !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
                                     onPressed: () =>
                                         _showApproveDialog(booking),
@@ -11132,7 +11248,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 if (statusLower == 'pending' &&
                                     withDriver &&
-                                    waitingForDriver)
+                                    waitingForDriver &&
+                                    !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(
                                     onPressed: null,
                                     icon: const SizedBox(
@@ -11144,7 +11261,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     ),
                                     label: const Text('Waiting for Driver'),
                                   ),
-                                if (statusLower == 'pending')
+                                if (statusLower == 'pending' &&
+                                    !_isPartnerOwnedBooking(booking))
                                   OutlinedButton.icon(
                                     onPressed: () => _showRejectDialog(
                                       booking['id'].toString(),
@@ -11252,11 +11370,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                       ),
                                     ),
                                   ),
-                                if (statusLower == 'approved' ||
-                                    statusLower == 'confirmed' ||
-                                    statusLower == 'active' ||
-                                    statusLower == 'ongoing' ||
-                                    statusLower == 'return_pending_inspection')
+                                if ((statusLower == 'approved' ||
+                                        statusLower == 'confirmed' ||
+                                        statusLower == 'active' ||
+                                        statusLower == 'ongoing' ||
+                                        statusLower ==
+                                            'return_pending_inspection') &&
+                                    !_isPartnerOwnedBooking(booking))
                                   ElevatedButton.icon(
                                     onPressed:
                                         statusLower ==
@@ -11740,6 +11860,512 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Future<void> _showSecurityDepositRefundDialog(
+    Map<String, dynamic> booking,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bookingId = booking['id']?.toString() ?? '';
+    final renter = booking['renter'] as Map<String, dynamic>? ?? {};
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final renterName = renter['full_name']?.toString() ?? 'Renter';
+    final renterPhone = renter['phone_number']?.toString() ??
+        renter['phone']?.toString() ??
+        booking['renter_phone']?.toString() ??
+        '';
+    final vehicleName =
+        '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim();
+    final depositAmount = (booking['reservation_fee_amount'] as num?)?.toDouble() ??
+        (booking['security_deposit'] as num?)?.toDouble() ??
+        1000.0;
+
+    final refundAmountController =
+        TextEditingController(text: depositAmount.toStringAsFixed(0));
+    final deductionAmountController = TextEditingController(text: '0');
+    final deductionNotesController = TextEditingController();
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    PlatformFile? receiptFile;
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final deposit = double.tryParse(refundAmountController.text) ?? depositAmount;
+          final deduction = double.tryParse(deductionAmountController.text) ?? 0.0;
+          final netRefund = (deposit - deduction).clamp(0.0, double.infinity);
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF172235) : Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 24, offset: Offset(0, 8)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.assignment_return_rounded,
+                              color: Color(0xFF10B981),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Refund Security Deposit',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$vehicleName • Booking #${bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase()}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark ? Colors.white60 : Colors.black54,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Renter Info & Phone Copy Card
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E2D44) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isDark ? const Color(0xFF2C3E5A) : const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: AppColors.primary.withValues(alpha: 0.2),
+                                    child: Text(
+                                      renterName.isNotEmpty ? renterName[0].toUpperCase() : 'R',
+                                      style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          renterName,
+                                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.phone_rounded, size: 14, color: AppColors.primary),
+                                            const SizedBox(width: 5),
+                                            Text(
+                                              renterPhone.isNotEmpty ? renterPhone : 'No phone recorded',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (renterPhone.isNotEmpty)
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        Clipboard.setData(ClipboardData(text: renterPhone));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Copied $renterPhone to clipboard for transfer.'),
+                                            backgroundColor: const Color(0xFF10B981),
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                        foregroundColor: const Color(0xFF10B981),
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                      icon: const Icon(Icons.copy_rounded, size: 14),
+                                      label: const Text('Copy Phone / GCash', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+
+                            // Refund Amount & Deduction Rows
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Deposit Collected (PHP)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: refundAmountController,
+                                        keyboardType: TextInputType.number,
+                                        onChanged: (_) => setDialogState(() {}),
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          prefixText: 'PHP ',
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Deductions (PHP)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: deductionAmountController,
+                                        keyboardType: TextInputType.number,
+                                        onChanged: (_) => setDialogState(() {}),
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          prefixText: 'PHP ',
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            if (double.tryParse(deductionAmountController.text) != null &&
+                                (double.tryParse(deductionAmountController.text) ?? 0) > 0) ...[
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Deduction Reason / Notes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: deductionNotesController,
+                                    decoration: InputDecoration(
+                                      isDense: true,
+                                      hintText: 'e.g. Minor cleaning fee, missing fuel shortage',
+                                      filled: true,
+                                      fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            ],
+
+                            // Net Refund Card
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Net Refund Amount to Renter:',
+                                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                                  ),
+                                  Text(
+                                    'PHP ${netRefund.toStringAsFixed(0)}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF10B981),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 17,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Payment Method & Reference
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Refund Payment Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<String>(
+                                        value: selectedMethod,
+                                        dropdownColor: isDark ? const Color(0xFF1E2D44) : Colors.white,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        items: const [
+                                          DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                                          DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer')),
+                                          DropdownMenuItem(value: 'Maya', child: Text('Maya')),
+                                          DropdownMenuItem(value: 'PSDC Cash Counter', child: Text('PSDC Cash Counter')),
+                                        ],
+                                        onChanged: (val) {
+                                          if (val != null) setDialogState(() => selectedMethod = val);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Reference / Transaction No.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: referenceController,
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          hintText: 'e.g. 10023498172',
+                                          filled: true,
+                                          fillColor: isDark ? const Color(0xFF101A29) : const Color(0xFFF1F5F9),
+                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Upload Receipt Section
+                            const Text('Proof of Refund Receipt (Required)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            if (receiptFile == null)
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await FilePicker.platform.pickFiles(
+                                    type: FileType.custom,
+                                    allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'webp'],
+                                    withData: true,
+                                  );
+                                  if (result != null && result.files.isNotEmpty) {
+                                    setDialogState(() => receiptFile = result.files.first);
+                                  }
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(46),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.upload_file_rounded),
+                                label: const Text('Attach GCash / Transfer Receipt'),
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.receipt_long_rounded, color: Color(0xFF10B981)),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        receiptFile!.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setDialogState(() => receiptFile = null),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                      tooltip: 'Remove receipt',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Actions
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isSubmitting
+                                  ? null
+                                  : () async {
+                                      final ref = referenceController.text.trim();
+                                      if (ref.isEmpty && receiptFile == null) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Please provide a reference number or upload a receipt.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      setDialogState(() => isSubmitting = true);
+
+                                      try {
+                                        String uploadedReceiptUrl = '';
+                                        if (receiptFile?.bytes != null) {
+                                          final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                          uploadedReceiptUrl = await BookingInspectionService().uploadEvidenceBytes(
+                                            userId: currentUserId,
+                                            bookingId: bookingId,
+                                            bytes: receiptFile!.bytes!,
+                                            extension: receiptFile!.extension ?? 'jpg',
+                                          );
+                                        }
+
+                                        final currentUserId = _supabase.auth.currentUser?.id ?? '';
+                                        await BookingService().refundSecurityDeposit(
+                                          bookingId: bookingId,
+                                          refundAmount: netRefund,
+                                          deductionAmount: deduction,
+                                          deductionNotes: deductionNotesController.text.trim(),
+                                          refundMethod: selectedMethod,
+                                          refundReference: ref,
+                                          refundReceiptUrl: uploadedReceiptUrl,
+                                          operatorId: currentUserId,
+                                        );
+
+                                        if (!mounted) return;
+                                        Navigator.pop(dialogContext);
+                                        _loadAllData();
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Security deposit of PHP ${netRefund.toStringAsFixed(0)} refunded to $renterName successfully.',
+                                            ),
+                                            backgroundColor: const Color(0xFF10B981),
+                                          ),
+                                        );
+                                      } catch (e) {
+                                        setDialogState(() => isSubmitting = false);
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Failed to submit refund: $e'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(46),
+                              ),
+                              child: isSubmitting
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                    )
+                                  : const Text('Confirm & Submit Refund', style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    refundAmountController.dispose();
+    deductionAmountController.dispose();
+    deductionNotesController.dispose();
+    referenceController.dispose();
+  }
+
   Future<void> _showBookingSafetyReviewDialog(
     Map<String, dynamic> booking,
   ) async {
@@ -11965,6 +12591,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         key: false,
     };
     final selectedEvidence = <PlatformFile>[];
+    bool returnDepositEligible = false;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final shouldSave = await showDialog<bool>(
@@ -12118,6 +12745,65 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                               .toList(),
                         ),
                       ),
+                    if (inspectionType == 'after') ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: returnDepositEligible
+                              ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: returnDepositEligible
+                                ? const Color(0xFF10B981)
+                                : (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Checkbox(
+                              value: returnDepositEligible,
+                              activeColor: const Color(0xFF10B981),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  returnDepositEligible = val ?? false;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Vehicle in Good Condition • Return Security Deposit',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                      color: returnDepositEligible
+                                          ? const Color(0xFF10B981)
+                                          : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Check this box if the vehicle was returned in acceptable/good condition with no unaddressed damages or major violations. This flags the booking to unlock the "Return Security Deposit" button for the operator.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isDark ? Colors.white70 : const Color(0xFF475569),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -12233,6 +12919,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
         );
       } else {
+        await BookingService().setSecurityDepositReturnEligibility(
+          bookingId: bookingId,
+          isEligible: returnDepositEligible,
+        );
+
         final currentPaymentStatus = (booking['final_payment_status'] ?? '')
             .toString()
             .trim()

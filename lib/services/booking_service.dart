@@ -322,6 +322,7 @@ class BookingService {
     double? deliveryRatePerKm,
     double? deliveryFee,
     bool withDriver = false,
+    double? driverFee,
     String? pickupLocation,
     String? dropoffLocation,
     double? pickupLatitude,
@@ -475,6 +476,7 @@ class BookingService {
           'delivery_rate_per_km': deliveryRatePerKm,
         'delivery_fee': deliveryFee ?? 0,
         'with_driver': withDriver,
+        if (driverFee != null && driverFee > 0) 'driver_fee': driverFee,
         'pickup_location': pickupLocation,
         'dropoff_location': cleanDestination,
         if (pickupLatitude != null) 'pickup_latitude': pickupLatitude,
@@ -1365,7 +1367,7 @@ class BookingService {
     }
   }
 
-  /// All bookings managed by this operator (by operator_id) — every status.
+  /// All bookings managed or monitored by operators (including partner vehicles) — every status.
   Future<List<Map<String, dynamic>>> getOperatorBookings(
     String operatorId,
   ) async {
@@ -1375,7 +1377,7 @@ class BookingService {
           .from('bookings')
           .select(
             '*, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, latitude, longitude, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, is_partner_vehicle, latitude, longitude, '
             '  owner:owner_id(id, full_name, role, latitude, longitude), vehicle_images(image_url, display_order)), '
             'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
@@ -1383,7 +1385,6 @@ class BookingService {
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
             '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
-          .eq('operator_id', operatorId)
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } on PostgrestException catch (e) {
@@ -1395,7 +1396,7 @@ class BookingService {
     }
   }
 
-  /// Approved/ongoing/active bookings for the operator's live dashboard.
+  /// Approved/ongoing/active bookings for the operator's live dashboard (including partner units).
   Future<List<Map<String, dynamic>>> getOperatorActiveBookings(
     String operatorId,
   ) async {
@@ -1404,7 +1405,7 @@ class BookingService {
           .from('bookings')
           .select(
             '*, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, latitude, longitude, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, is_partner_vehicle, latitude, longitude, '
             '  owner:owner_id(id, full_name, role, latitude, longitude), vehicle_images(image_url, display_order)), '
             'users:users!bookings_renter_id_fkey(id, full_name, email, phone, avatar_url, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
@@ -1412,7 +1413,6 @@ class BookingService {
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
             '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
-          .eq('operator_id', operatorId)
           .inFilter('status', [
             'approved',
             'confirmed',
@@ -1434,16 +1434,12 @@ class BookingService {
     }
   }
 
-  /// Pending bookings that the operator has not yet approved or rejected.
+  /// Pending bookings that operators monitor (PSDC and partner units).
   Future<List<Map<String, dynamic>>> getOperatorPendingApproval(
     String operatorId,
   ) async {
     try {
       await processExpiredPendingBookings();
-      // For PSDC vehicles the operator is matched by operator_id.
-      // For partner vehicles the operator is set after approval, so we also
-      // return unmatched pending bookings filtered by the vehicles the operator
-      // manages (via vehicles.operator_id).
       final response = await supabase
           .from('bookings')
           .select(
@@ -1452,7 +1448,7 @@ class BookingService {
             'pickup_location, dropoff_location, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, '
             'partner_booking_confirmed_at, reservation_payment_status, '
             'reservation_payment_covers_total, reservation_fee_amount, '
-            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, latitude, longitude, '
+            'vehicles(id, brand, model, year, plate_number, owner_id, owner_role, operator_id, is_partner_vehicle, latitude, longitude, '
             '  owner:owner_id(id, full_name, role, latitude, longitude)), '
             'users:users!bookings_renter_id_fkey(id, full_name, email, phone, latitude, longitude), '
             'driver:drivers!bookings_driver_id_fkey(id, user_id, '
@@ -1460,7 +1456,6 @@ class BookingService {
             'job_assignments:driver_job_assignments!driver_job_assignments_booking_id_fkey('
             '  id, driver_id, status, trip_fee, offered_at, replied_at, created_at, updated_at)',
           )
-          .or('operator_id.eq.$operatorId,vehicles.operator_id.eq.$operatorId')
           .eq('status', 'pending')
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
@@ -3711,6 +3706,72 @@ class BookingService {
       debugPrint('Error cancelling booking with deposit forfeit: $e');
       rethrow;
     }
+  }
+
+  Future<void> refundSecurityDeposit({
+    required String bookingId,
+    required double refundAmount,
+    double deductionAmount = 0.0,
+    String? deductionNotes,
+    required String refundMethod,
+    required String refundReference,
+    required String refundReceiptUrl,
+    required String operatorId,
+  }) async {
+    final now = DateTime.now().toUtc();
+    await supabase.from('bookings').update({
+      'security_deposit_refunded': true,
+      'security_deposit_refund_amount': refundAmount,
+      'security_deposit_refund_deduction': deductionAmount,
+      'security_deposit_refund_notes': deductionNotes,
+      'security_deposit_refund_method': refundMethod,
+      'security_deposit_refund_ref': refundReference,
+      'security_deposit_refund_receipt_url': refundReceiptUrl,
+      'security_deposit_refunded_at': now.toIso8601String(),
+      'security_deposit_refunded_by': operatorId,
+    }).eq('id', bookingId);
+
+    // Fetch booking to notify renter
+    try {
+      final booking = await supabase
+          .from('bookings')
+          .select('renter_id, vehicles(brand, model)')
+          .eq('id', bookingId)
+          .maybeSingle();
+      final renterId = booking?['renter_id']?.toString();
+      if (renterId != null && renterId.isNotEmpty) {
+        final vehicleMap = booking?['vehicles'] as Map<String, dynamic>? ?? {};
+        final vehicleName =
+            '${vehicleMap['brand'] ?? ''} ${vehicleMap['model'] ?? ''}'.trim();
+        await NotificationService().createNotification(
+          userId: renterId,
+          title: 'Security Deposit Refunded',
+          message:
+              'Your security deposit of PHP ${refundAmount.toStringAsFixed(0)} for $vehicleName has been successfully refunded via $refundMethod.',
+          type: 'deposit_refunded',
+          data: {
+            'booking_id': bookingId,
+            'refund_amount': refundAmount,
+            'refund_reference': refundReference,
+            'receipt_url': refundReceiptUrl,
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('Deposit refund notification error: $e');
+    }
+  }
+
+  Future<void> setSecurityDepositReturnEligibility({
+    required String bookingId,
+    required bool isEligible,
+    String? ineligibilityReason,
+  }) async {
+    await supabase.from('bookings').update({
+      'security_deposit_return_eligible': isEligible,
+      if (ineligibilityReason != null)
+        'security_deposit_ineligibility_reason': ineligibilityReason,
+    }).eq('id', bookingId);
   }
 
   // Get error message from exception

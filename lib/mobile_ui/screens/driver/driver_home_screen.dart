@@ -2110,13 +2110,18 @@ class _DriverEmptyStateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = _driverIsDark(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
+        color: isDark ? AppColors.darkCard : Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(
+          color: isDark ? AppColors.borderColor : AppColors.lightBorderColor,
+          width: 1.2,
+        ),
+        boxShadow: isDark ? null : AppColors.cardShadowOf(context),
       ),
       child: Column(
         children: [
@@ -2124,7 +2129,7 @@ class _DriverEmptyStateCard extends StatelessWidget {
             width: 62,
             height: 62,
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.12),
+              color: AppColors.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Icon(icon, color: AppColors.primary, size: 34),
@@ -2133,8 +2138,8 @@ class _DriverEmptyStateCard extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
+            style: TextStyle(
+              color: _driverPrimaryText(context),
               fontSize: 17,
               fontWeight: FontWeight.w900,
             ),
@@ -2143,8 +2148,8 @@ class _DriverEmptyStateCard extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              color: _driverSecondaryText(context),
               fontSize: 13,
               height: 1.4,
             ),
@@ -5636,39 +5641,50 @@ class _SettingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final cardBg = isDark ? AppColors.darkCard : Colors.white;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-          color: AppColors.darkBgSecondary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.borderColor),
+          color: cardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: border, width: 1.2),
+          boxShadow: isDark ? null : AppColors.cardShadowOf(context),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(icon, color: textColor ?? AppColors.primary, size: 20),
+            Icon(
+              icon,
+              color: textColor ?? (isDark ? AppColors.primary : AppColors.primaryDark),
+              size: 20,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: textColor ?? AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                  color: textColor ?? primaryText,
                 ),
               ),
             ),
             if (value.isNotEmpty)
               Text(
                 value,
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                style: TextStyle(fontSize: 13, color: secondaryText),
               ),
             const SizedBox(width: 8),
-            const Icon(
+            Icon(
               Icons.chevron_right,
-              color: AppColors.textTertiary,
+              color: tertiaryText,
               size: 20,
             ),
           ],

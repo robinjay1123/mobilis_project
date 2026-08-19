@@ -21,6 +21,13 @@ class TripTimelineStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+    final tertiaryText = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+    final border = isDark ? AppColors.borderColor : AppColors.lightBorderColor;
+    final inactiveBg = isDark ? AppColors.darkBgSecondary : const Color(0xFFE2E8F0);
+
     return Column(
       children: [
         Row(
@@ -35,25 +42,25 @@ class TripTimelineStep extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: isCompleted || isActive
                         ? AppColors.primary
-                        : AppColors.darkBgSecondary,
+                        : inactiveBg,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isActive
                           ? AppColors.primary
-                          : AppColors.borderColor,
-                      width: isActive ? 2 : 1,
+                          : border,
+                      width: isActive ? 2 : 1.2,
                     ),
                   ),
                   child: Icon(
                     icon,
                     color: isCompleted || isActive
                         ? Colors.black
-                        : AppColors.textSecondary,
+                        : secondaryText,
                     size: 20,
                   ),
                 ),
                 if (label != 'Dropoff')
-                  Container(width: 2, height: 40, color: AppColors.borderColor),
+                  Container(width: 2, height: 40, color: border),
               ],
             ),
             const SizedBox(width: 12),
@@ -64,25 +71,26 @@ class TripTimelineStep extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      color: primaryText,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     date,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                      color: secondaryText,
                     ),
                   ),
                   Text(
                     time,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppColors.textTertiary,
+                      color: tertiaryText,
                     ),
                   ),
                 ],

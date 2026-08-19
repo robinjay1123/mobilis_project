@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
 void showPolicyDetailsSheet(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final sheetBg = isDark ? AppColors.darkCard : Colors.white;
+  final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+  final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
   showModalBottomSheet(
     context: context,
-    backgroundColor: AppColors.darkBgSecondary,
+    backgroundColor: sheetBg,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
@@ -14,32 +19,32 @@ void showPolicyDetailsSheet(BuildContext context) {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
+        children: [
           Text(
             'Policy Details',
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: primaryText,
               fontSize: 20,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 14),
+          const SizedBox(height: 14),
           Text(
             'Keep conversations, payments, and coordination inside the app. Sharing phone numbers, third-party app handles, emails, bank details, or asking users to move off-platform can trigger safety restrictions.',
-            style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+            style: TextStyle(color: secondaryText, height: 1.5),
           ),
-          SizedBox(height: 14),
+          const SizedBox(height: 14),
           Text(
             'Common violations',
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: primaryText,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             '• Sending phone numbers or email addresses\n• Asking users to continue on WhatsApp, Telegram, Messenger, or similar apps\n• Arranging direct payment outside Mobilis\n• Sharing bank account or e-wallet details inside chat',
-            style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+            style: TextStyle(color: secondaryText, height: 1.5),
           ),
         ],
       ),
@@ -59,6 +64,11 @@ class RestrictionCountdownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final boxBg = isDark ? const Color(0xFF132A42) : const Color(0xFFEFF6FF);
+    final boxBorder = isDark ? const Color(0xFF315A80) : const Color(0xFFBFDBFE);
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     final remaining = _remaining(until);
     final values = <Map<String, String>>[
       {
@@ -88,15 +98,15 @@ class RestrictionCountdownRow extends StatelessWidget {
                     width: 78,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF132A42),
+                      color: boxBg,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF315A80)),
+                      border: Border.all(color: boxBorder),
                     ),
                     child: Text(
                       item['value']!,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.primary,
+                      style: TextStyle(
+                        color: isDark ? AppColors.primary : const Color(0xFFD97706),
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                       ),
@@ -105,10 +115,11 @@ class RestrictionCountdownRow extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     item['label']!,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      color: secondaryText,
                       fontSize: 11,
                       letterSpacing: 0.8,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -125,3 +136,4 @@ class RestrictionCountdownRow extends StatelessWidget {
     return diff.isNegative ? Duration.zero : diff;
   }
 }
+

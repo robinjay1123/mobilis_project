@@ -15,6 +15,18 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bubbleBg = isSender
+        ? AppColors.primary
+        : (isDark ? AppColors.darkCard : const Color(0xFFE2E8F0));
+    final bubbleBorder = isSender
+        ? AppColors.primary
+        : (isDark ? AppColors.borderColor : const Color(0xFFCBD5E1));
+    final textColor = isSender
+        ? Colors.black
+        : (isDark ? AppColors.textPrimary : AppColors.lightTextPrimary);
+    final timestampColor = isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+
     return Align(
       alignment: isSender ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -28,28 +40,30 @@ class MessageBubble extends StatelessWidget {
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.75,
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: isSender ? AppColors.primary : AppColors.darkBgSecondary,
-                borderRadius: BorderRadius.circular(12),
+                color: bubbleBg,
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSender ? AppColors.primary : AppColors.borderColor,
+                  color: bubbleBorder,
+                  width: 1.2,
                 ),
               ),
               child: Text(
                 message,
                 style: TextStyle(
                   fontSize: 14,
-                  color: isSender ? Colors.black : AppColors.textPrimary,
+                  fontWeight: FontWeight.w500,
+                  color: textColor,
                 ),
               ),
             ),
             const SizedBox(height: 2),
             Text(
               timestamp,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
-                color: AppColors.textTertiary,
+                color: timestampColor,
               ),
             ),
           ],

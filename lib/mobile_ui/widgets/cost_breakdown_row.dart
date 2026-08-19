@@ -17,6 +17,10 @@ class CostBreakdownRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryText = isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
+    final secondaryText = isDark ? AppColors.textSecondary : AppColors.lightTextSecondary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -25,17 +29,17 @@ class CostBreakdownRow extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              fontSize: isBold ? 14 : 12,
-              fontWeight: isBold ? FontWeight.w600 : FontWeight.w500,
-              color: AppColors.textPrimary,
+              fontSize: isBold ? 14 : 13,
+              fontWeight: isBold ? FontWeight.w700 : FontWeight.w500,
+              color: isBold ? primaryText : secondaryText,
             ),
           ),
           Text(
             amount,
             style: TextStyle(
-              fontSize: isBold ? 14 : 12,
-              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
-              color: amountColor ?? AppColors.textPrimary,
+              fontSize: isBold ? 15 : 13,
+              fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
+              color: amountColor ?? primaryText,
             ),
           ),
         ],
