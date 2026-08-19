@@ -3452,13 +3452,13 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                           partnerVehicle: partnerVehicle,
                                           drivers: drivers,
                                           mapTargets: mapTargets,
-                                          selectedDriverId: selectedDriverId,
-                                          onDriverMarkerTap: (driverId, driverIndex) {
+                                                                   onDriverMarkerTap: (driverId, driverIndex) {
+                                            final newId = (selectedDriverId == driverId ? null : driverId);
                                             setDialogState(() {
-                                              selectedDriverId = driverId;
+                                              selectedDriverId = newId;
                                             });
-                                            final targetIndex = driverIndex + 1;
-                                            if (listScrollController.hasClients) {
+                                            if (newId != null && listScrollController.hasClients) {
+                                              final targetIndex = driverIndex + 1;
                                               listScrollController.animateTo(
                                                 targetIndex * 90.0,
                                                 duration: const Duration(milliseconds: 350),
@@ -3528,7 +3528,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
                                       return InkWell(
                                         onTap: () => setDialogState(
-                                          () => selectedDriverId = driverId,
+                                          () => selectedDriverId = (selectedDriverId == driverId ? null : driverId),
                                         ),
                                         borderRadius: BorderRadius.circular(15),
                                         child: AnimatedContainer(
@@ -3813,18 +3813,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final unitName = _vehicleTitle(vehicle);
 
     final mapMarkers = <MobilisMapMarker>[
-      // ── Car / vehicle tracker location markers ──
-      ...mapTargets.map(
-        (target) => MobilisMapMarker(
-          latitude: target['latitude']!,
-          longitude: target['longitude']!,
+      // ── ONLY ONE Car marker: the booked vehicle at its tracker/location ──
+      if (mapTargets.isNotEmpty)
+        MobilisMapMarker(
+          latitude: mapTargets.first['latitude']!,
+          longitude: mapTargets.first['longitude']!,
           icon: Icons.directions_car_filled_rounded,
           color: _operatorGold,
           size: 40,
           label: unitName.isNotEmpty ? unitName : 'Vehicle',
           tooltip: unitName.isNotEmpty ? '$unitName (Tracker Location)' : 'Booked vehicle',
         ),
-      ),
 
       // ── Driver markers (person icon + steering-wheel badge) ──
       ...drivers.take(12).toList().asMap().entries.expand((entry) {
@@ -4117,7 +4116,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     required List<Map<String, dynamic>> drivers,
     required List<Map<String, double>> mapTargets,
     String? selectedDriverId,
-    required void Function(String driverId) onSelectDriver,
+    required void Function(String? driverId) onSelectDriver,
     required void Function(String driverId) onFinalize,
   }) {
     showDialog(
@@ -4143,18 +4142,17 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             }).toList();
 
             final enlargedMapMarkers = <MobilisMapMarker>[
-              // Car / tracker target markers
-              ...mapTargets.map(
-                (target) => MobilisMapMarker(
-                  latitude: target['latitude']!,
-                  longitude: target['longitude']!,
+              // ── ONLY ONE Car marker: the booked vehicle at its tracker/location ──
+              if (mapTargets.isNotEmpty)
+                MobilisMapMarker(
+                  latitude: mapTargets.first['latitude']!,
+                  longitude: mapTargets.first['longitude']!,
                   icon: Icons.directions_car_filled_rounded,
                   color: _operatorGold,
                   size: 46,
                   label: unitName.isNotEmpty ? unitName : 'Vehicle',
                   tooltip: unitName.isNotEmpty ? '$unitName (Tracker Location)' : 'Vehicle',
                 ),
-              ),
 
               // Driver pins
               ...drivers.map((driver) {
@@ -4255,8 +4253,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   tooltip: driverName,
                   customChild: driverWidget,
                   onTap: () {
-                    setModalState(() => activeSelectedId = driverId);
-                    onSelectDriver(driverId);
+                    final newId = (activeSelectedId == driverId ? null : driverId);
+                    setModalState(() => activeSelectedId = newId);
+                    onSelectDriver(newId);
                   },
                 );
               }).where((m) => m.latitude != 0).toList(),
@@ -4470,8 +4469,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
                                               return InkWell(
                                                 onTap: () {
-                                                  setModalState(() => activeSelectedId = driverId);
-                                                  onSelectDriver(driverId);
+                                                  final newId = (activeSelectedId == driverId ? null : driverId);
+                                                  setModalState(() => activeSelectedId = newId);
+                                                  onSelectDriver(newId);
                                                 },
                                                 borderRadius: BorderRadius.circular(12),
                                                 child: AnimatedContainer(
