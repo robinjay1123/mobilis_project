@@ -355,15 +355,6 @@ class BookingService {
     try {
       debugPrint('Creating booking for renter: $renterId, vehicle: $vehicleId');
 
-      final restriction = await UserRestrictionService().getUserRestriction(
-        renterId,
-      );
-      if (restriction.isBlocked || restriction.isAccountRestricted) {
-        throw Exception(
-          'This renter account is restricted and cannot book vehicles right now',
-        );
-      }
-
       if (renterSelfieUrl == null || renterSelfieUrl.trim().isEmpty) {
         throw Exception('A clear renter selfie is required before booking');
       }
@@ -403,11 +394,31 @@ class BookingService {
         throw Exception('Please select a trip destination before booking');
       }
 
-      final vehicleState = await supabase
-          .from('vehicles')
-          .select('id,owner_role,plate_number,is_available,is_posted,status')
-          .eq('id', vehicleId)
-          .maybeSingle();
+      // Execute restriction check, vehicle state query, and overlapping bookings query concurrently
+      final (
+        restriction,
+        vehicleState,
+        overlappingBookings,
+      ) = await (
+        UserRestrictionService().getUserRestriction(renterId),
+        supabase
+            .from('vehicles')
+            .select('id,owner_role,plate_number,is_available,is_posted,status')
+            .eq('id', vehicleId)
+            .maybeSingle(),
+        supabase
+            .from('bookings')
+            .select('id,start_at,end_at,start_date,end_date,status')
+            .eq('vehicle_id', vehicleId)
+            .inFilter('status', _bookingBlockingStatuses),
+      ).wait;
+
+      if (restriction.isBlocked || restriction.isAccountRestricted) {
+        throw Exception(
+          'This renter account is restricted and cannot book vehicles right now',
+        );
+      }
+
       final vehicleStatus =
           vehicleState?['status']?.toString().trim().toLowerCase() ?? '';
       final vehicleCanBeBooked =
@@ -428,12 +439,6 @@ class BookingService {
           );
         }
       }
-
-      final overlappingBookings = await supabase
-          .from('bookings')
-          .select('id,start_at,end_at,start_date,end_date,status')
-          .eq('vehicle_id', vehicleId)
-          .inFilter('status', _bookingBlockingStatuses);
 
       for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
         final status = b['status']?.toString();
@@ -3147,12 +3152,132 @@ class BookingService {
     }
   }
 
+  /// Checks if a booking can be extended and determines the maximum allowed extension date
+  /// before any subsequent booking or reservation starts.
+  Future<({
+    bool canExtend,
+    DateTime? maxAllowedExtensionDate,
+    DateTime? nextBookingStart,
+    String? blockingReason,
+  })> getTripExtensionAvailability({
+    required String bookingId,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) {
+        return (
+          canExtend: false,
+          maxAllowedExtensionDate: null,
+          nextBookingStart: null,
+          blockingReason: 'Booking not found',
+        );
+      }
+
+      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      final endRaw =
+          booking['end_at']?.toString() ?? booking['end_date']?.toString();
+      final currentEndAt = endRaw != null
+          ? DateTime.tryParse(endRaw)?.toLocal()
+          : null;
+
+      if (vehicleId.isEmpty || currentEndAt == null) {
+        return (
+          canExtend: false,
+          maxAllowedExtensionDate: null,
+          nextBookingStart: null,
+          blockingReason: 'Invalid booking date details',
+        );
+      }
+
+      final currentEndDay = DateTime(
+        currentEndAt.year,
+        currentEndAt.month,
+        currentEndAt.day,
+      );
+      final initialFirstDate = currentEndDay.add(const Duration(days: 1));
+
+      // Fetch all blocking bookings for this vehicle excluding the current booking
+      final response = await supabase
+          .from('bookings')
+          .select('id,start_at,end_at,start_date,end_date,status')
+          .eq('vehicle_id', vehicleId)
+          .neq('id', bookingId)
+          .inFilter('status', _bookingBlockingStatuses);
+
+      final futureIntervals = <(DateTime, DateTime)>[];
+      for (final row in List<Map<String, dynamic>>.from(response)) {
+        final status = row['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
+        final interval = _bookingInterval(row);
+        if (interval == null) continue;
+        final (start, end) = interval;
+        // If this booking ends after our current end time, it impacts future extension
+        if (end.isAfter(currentEndAt)) {
+          futureIntervals.add((start, end));
+        }
+      }
+
+      // Sort by start date ascending to find the earliest conflicting upcoming booking
+      futureIntervals.sort((a, b) => a.$1.compareTo(b.$1));
+
+      DateTime maxLastDate = initialFirstDate.add(const Duration(days: 30));
+      if (futureIntervals.isNotEmpty) {
+        final earliestNextBooking = futureIntervals.first;
+        final nextStart = earliestNextBooking.$1;
+        final nextStartDay = DateTime(nextStart.year, nextStart.month, nextStart.day);
+
+        // If the next booking starts on or before the first possible extension day, extension is impossible
+        if (nextStart.isBefore(currentEndAt) || nextStartDay.isBefore(initialFirstDate) || nextStartDay == initialFirstDate) {
+          final formattedDate = '${nextStart.month}/${nextStart.day}/${nextStart.year}';
+          return (
+            canExtend: false,
+            maxAllowedExtensionDate: null,
+            nextBookingStart: nextStart,
+            blockingReason: 'This vehicle is already reserved for another customer starting $formattedDate. Trip extension is not available.',
+          );
+        }
+
+        // The maximum allowed extension date is the day before the next booking starts
+        final contiguousMax = nextStartDay.subtract(const Duration(days: 1));
+        if (contiguousMax.isBefore(initialFirstDate)) {
+          final formattedDate = '${nextStart.month}/${nextStart.day}/${nextStart.year}';
+          return (
+            canExtend: false,
+            maxAllowedExtensionDate: null,
+            nextBookingStart: nextStart,
+            blockingReason: 'This vehicle is already reserved for another customer starting $formattedDate. Trip extension is not available.',
+          );
+        }
+
+        if (contiguousMax.isBefore(maxLastDate)) {
+          maxLastDate = contiguousMax;
+        }
+      }
+
+      return (
+        canExtend: true,
+        maxAllowedExtensionDate: maxLastDate,
+        nextBookingStart: futureIntervals.isNotEmpty ? futureIntervals.first.$1 : null,
+        blockingReason: null,
+      );
+    } catch (e) {
+      debugPrint('Error checking trip extension availability: $e');
+      return (
+        canExtend: false,
+        maxAllowedExtensionDate: null,
+        nextBookingStart: null,
+        blockingReason: 'Error checking availability: $e',
+      );
+    }
+  }
+
   /// Renter requests a trip extension for an active booking.
   Future<void> requestTripExtension({
     required String bookingId,
     required DateTime newEndAt,
     required double additionalPrice,
     required int extensionDays,
+    String? newDestination,
   }) async {
     try {
       final booking = await getBookingById(bookingId);
@@ -3181,30 +3306,34 @@ class BookingService {
       final currentEndAt = currentEndRaw != null
           ? DateTime.tryParse(currentEndRaw)?.toLocal()
           : null;
-      if (currentEndAt != null && newEndAt.isBefore(currentEndAt)) {
+      if (currentEndAt != null && !newEndAt.isAfter(currentEndAt)) {
         throw Exception(
-          'Extended end date must be after the current end date.',
+          'Extended return date must be after your current return date.',
         );
       }
 
       final vehicleId = booking['vehicle_id']?.toString() ?? '';
-      final overlapping = await supabase
+      final overlappingBookings = await supabase
           .from('bookings')
-          .select('id')
+          .select('id,start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
           .neq('id', bookingId)
-          .inFilter('status', _bookingBlockingStatuses)
-          .lt('start_at', newEndAt.toIso8601String())
-          .gt(
-            'end_at',
-            currentEndAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
-          )
-          .limit(1);
+          .inFilter('status', _bookingBlockingStatuses);
 
-      if (overlapping.isNotEmpty) {
-        throw Exception(
-          'The vehicle is already reserved for the selected extended dates.',
-        );
+      final extensionStart = currentEndAt ?? DateTime.now();
+      for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+        final status = b['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
+        final interval = _bookingInterval(b);
+        if (interval == null) continue;
+        final (existingStart, existingEnd) = interval;
+        if (extensionStart.isBefore(existingEnd) && newEndAt.isAfter(existingStart)) {
+          final startFormatted = '${existingStart.month}/${existingStart.day}/${existingStart.year}';
+          final endFormatted = '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
+          throw Exception(
+            'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is no longer available for these dates.',
+          );
+        }
       }
 
       final principalPrice =
@@ -3212,15 +3341,94 @@ class BookingService {
           (booking['total_price'] as num?)?.toDouble() ??
           0.0;
 
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
       await supabase
           .from('bookings')
           .update({
             'extension_requested_end_at': newEndAt.toIso8601String(),
+            if (newDestination != null && newDestination.trim().isNotEmpty)
+              'extension_requested_destination': newDestination.trim(),
             'extension_additional_price': additionalPrice,
             'extension_days': extensionDays,
-            'extension_status': 'pending_operator',
+            'extension_status': 'pending',
+            'extension_payment_status': 'unpaid',
             'extension_requested_at': DateTime.now().toIso8601String(),
             'principal_total_price': principalPrice,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      // Create or locate conversation for this booking
+      final conversation = await ChatService().getConversationBookingContext(
+        bookingId,
+      );
+      final renterName =
+          booking['renter']?['full_name']?.toString() ??
+          booking['users']?['full_name']?.toString() ??
+          'Renter';
+      final vehicleTitle = _vehicleTitle(vehicle);
+      final formattedDate = '${newEndAt.month}/${newEndAt.day}/${newEndAt.year}';
+      final destMsg = newDestination != null && newDestination.trim().isNotEmpty
+          ? ' to "$newDestination"'
+          : '';
+      final msg =
+          'Trip Extension Requested: $renterName requested extending trip until $formattedDate$destMsg (+PHP ${additionalPrice.toStringAsFixed(2)}). Awaiting ${isPartnerVehicle ? "Partner" : "Operator"} review.';
+
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: renterId,
+            content: msg,
+          );
+        }
+      }
+
+      // Send push notification to operators
+      unawaited(
+        NotificationService().notifyOperatorsNewBooking(
+          bookingId: bookingId,
+          vehicleTitle: vehicleTitle,
+          renterName: renterName,
+          withDriver: false,
+        ).catchError((_) {}),
+      );
+    } catch (e) {
+      debugPrint('Error requesting trip extension: $e');
+      rethrow;
+    }
+  }
+
+  /// Accept an extension request (Partner for partner vehicle, Operator for operator vehicle).
+  Future<void> acceptTripExtension({
+    required String bookingId,
+    required String reviewerId,
+    String? reviewerRole,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
+      if (isPartnerVehicle && reviewerRole == 'operator') {
+        throw Exception(
+          'Operator cannot accept extension for a Partner-owned vehicle. Only the Partner can accept.',
+        );
+      }
+
+      final addPrice =
+          (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_status': 'payment_pending',
+            'extension_payment_status': 'unpaid',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -3231,30 +3439,130 @@ class BookingService {
       if (conversation != null) {
         final conversationId = conversation['id']?.toString();
         if (conversationId != null) {
-          final renterName =
-              booking['renter']?['full_name']?.toString() ?? 'Renter';
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: booking['renter_id']?.toString() ?? '',
+            senderId: reviewerId,
             content:
-                'Trip Extension Requested: $renterName requested extending trip until ${newEndAt.month}/${newEndAt.day}/${newEndAt.year} (+PHP ${additionalPrice.toStringAsFixed(2)}). Awaiting operator approval.',
+                'Trip Extension Accepted: Your extension request was accepted! Please pay the extension fee of PHP ${addPrice.toStringAsFixed(2)} in the app to proceed.',
           );
         }
       }
     } catch (e) {
-      debugPrint('Error requesting trip extension: $e');
+      debugPrint('Error accepting trip extension: $e');
       rethrow;
     }
   }
 
-  /// Operator approves a pending trip extension request.
-  Future<void> approveTripExtension({
+  /// Submit payment for an extension request (by Renter).
+  Future<void> submitExtensionPayment({
     required String bookingId,
-    required String operatorId,
+    required String renterId,
+    required String method,
+    required String reference,
+    required String proofUrl,
+  }) async {
+    try {
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_payment_method': method.trim(),
+            'extension_payment_reference': reference.trim(),
+            'extension_payment_proof_url': proofUrl.trim(),
+            'extension_payment_submitted_at': DateTime.now().toIso8601String(),
+            'extension_payment_status': 'pending_review',
+            'extension_status': 'payment_completed',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      final conversation = await ChatService().getConversationBookingContext(
+        bookingId,
+      );
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: renterId,
+            content:
+                'Extension Payment Submitted: Renter submitted extension fee payment ($method - Ref: $reference). Awaiting verification.',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error submitting extension payment: $e');
+      rethrow;
+    }
+  }
+
+  /// Verify extension payment (Operator for operator vehicle, Partner for partner vehicle).
+  Future<void> verifyExtensionPayment({
+    required String bookingId,
+    required String verifierId,
+    String? verifierRole,
   }) async {
     try {
       final booking = await getBookingById(bookingId);
       if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
+      if (isPartnerVehicle && verifierRole == 'operator') {
+        throw Exception(
+          'Operator cannot verify payment for a Partner-owned vehicle. Only the Partner can verify.',
+        );
+      }
+
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_payment_status': 'verified',
+            'extension_payment_verified_at': DateTime.now().toIso8601String(),
+            'extension_payment_verified_by': verifierId,
+            'extension_status': 'pending_final_confirmation',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+
+      final conversation = await ChatService().getConversationBookingContext(
+        bookingId,
+      );
+      if (conversation != null) {
+        final conversationId = conversation['id']?.toString();
+        if (conversationId != null) {
+          await ChatService().sendMessage(
+            conversationId: conversationId,
+            senderId: verifierId,
+            content:
+                'Extension Payment Verified: Payment confirmed! Ready for final trip extension confirmation.',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error verifying extension payment: $e');
+      rethrow;
+    }
+  }
+
+  /// Finalize trip extension (commits new dates, destination, and fee to booking).
+  Future<void> finalizeTripExtension({
+    required String bookingId,
+    required String finalizerId,
+    String? finalizerRole,
+  }) async {
+    try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
+      if (isPartnerVehicle && finalizerRole == 'operator') {
+        throw Exception(
+          'Operator cannot finalize extension for a Partner-owned vehicle. Only the Partner can finalize.',
+        );
+      }
 
       final newEndRaw = booking['extension_requested_end_at']?.toString();
       if (newEndRaw == null || newEndRaw.isEmpty) {
@@ -3262,6 +3570,36 @@ class BookingService {
       }
 
       final newEndAt = DateTime.parse(newEndRaw).toLocal();
+      final currentEndRaw =
+          booking['end_at']?.toString() ?? booking['end_date']?.toString();
+      final currentEndAt = currentEndRaw != null
+          ? DateTime.tryParse(currentEndRaw)?.toLocal()
+          : null;
+
+      final vehicleId = booking['vehicle_id']?.toString() ?? '';
+      final overlappingBookings = await supabase
+          .from('bookings')
+          .select('id,start_at,end_at,start_date,end_date,status')
+          .eq('vehicle_id', vehicleId)
+          .neq('id', bookingId)
+          .inFilter('status', _bookingBlockingStatuses);
+
+      final extensionStart = currentEndAt ?? DateTime.now();
+      for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+        final status = b['status']?.toString();
+        if (!_isBlockingStatus(status)) continue;
+        final interval = _bookingInterval(b);
+        if (interval == null) continue;
+        final (existingStart, existingEnd) = interval;
+        if (extensionStart.isBefore(existingEnd) && newEndAt.isAfter(existingStart)) {
+          final startFormatted = '${existingStart.month}/${existingStart.day}/${existingStart.year}';
+          final endFormatted = '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
+          throw Exception(
+            'Cannot finalize extension: Vehicle has another active reservation ($startFormatted - $endFormatted).',
+          );
+        }
+      }
+
       final additionalPrice =
           (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
       final currentTotal = (booking['total_price'] as num?)?.toDouble() ?? 0.0;
@@ -3269,6 +3607,8 @@ class BookingService {
       final currentSubtotal =
           (booking['rental_subtotal'] as num?)?.toDouble() ?? currentTotal;
       final newSubtotal = currentSubtotal + additionalPrice;
+      final requestedDest =
+          booking['extension_requested_destination']?.toString().trim();
 
       await supabase
           .from('bookings')
@@ -3279,10 +3619,14 @@ class BookingService {
               newEndAt.month,
               newEndAt.day,
             ).toIso8601String(),
+            if (requestedDest != null && requestedDest.isNotEmpty)
+              'dropoff_location': requestedDest,
             'total_price': newTotal,
             'rental_subtotal': newSubtotal,
-            'extension_status': 'approved',
-            'extension_approved_at': DateTime.now().toIso8601String(),
+            'extension_status': 'finalized',
+            'extension_payment_status': 'paid',
+            'extension_finalized_at': DateTime.now().toIso8601String(),
+            'extension_finalized_by': finalizerId,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -3295,31 +3639,44 @@ class BookingService {
         if (conversationId != null) {
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: operatorId,
+            senderId: finalizerId,
             content:
-                'Trip Extension Approved: Your trip end date has been updated to ${newEndAt.month}/${newEndAt.day}/${newEndAt.year}. New total: PHP ${newTotal.toStringAsFixed(2)}.',
+                'Trip Extension Finalized: Your trip end date is updated to ${newEndAt.month}/${newEndAt.day}/${newEndAt.year}${requestedDest != null && requestedDest.isNotEmpty ? " (Destination: $requestedDest)" : ""}. New total: PHP ${newTotal.toStringAsFixed(2)}.',
           );
         }
       }
     } catch (e) {
-      debugPrint('Error approving trip extension: $e');
+      debugPrint('Error finalizing trip extension: $e');
       rethrow;
     }
   }
 
-  /// Operator rejects a pending trip extension request.
+  /// Reject trip extension request.
   Future<void> rejectTripExtension({
     required String bookingId,
-    required String operatorId,
+    required String reviewerId,
+    String? reviewerRole,
     String? reason,
   }) async {
     try {
+      final booking = await getBookingById(bookingId);
+      if (booking == null) throw Exception('Booking not found');
+
+      final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+      final isPartnerVehicle = _isPartnerBookingVehicle(vehicle);
+
+      if (isPartnerVehicle && reviewerRole == 'operator') {
+        throw Exception(
+          'Operator cannot reject extension for a Partner-owned vehicle. Only the Partner can reject.',
+        );
+      }
+
       await supabase
           .from('bookings')
           .update({
             'extension_status': 'rejected',
             'extension_rejection_reason':
-                reason ?? 'Extension request rejected by operator.',
+                reason ?? 'Extension request declined.',
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', bookingId);
@@ -3332,7 +3689,7 @@ class BookingService {
         if (conversationId != null) {
           await ChatService().sendMessage(
             conversationId: conversationId,
-            senderId: operatorId,
+            senderId: reviewerId,
             content:
                 'Trip Extension Request Declined${reason != null && reason.isNotEmpty ? ": $reason" : ""}. Please return the vehicle by your original schedule.',
           );
@@ -3341,6 +3698,52 @@ class BookingService {
     } catch (e) {
       debugPrint('Error rejecting trip extension: $e');
       rethrow;
+    }
+  }
+
+  /// Cancel trip extension request (by Renter).
+  Future<void> cancelTripExtension({
+    required String bookingId,
+    required String userId,
+  }) async {
+    try {
+      await supabase
+          .from('bookings')
+          .update({
+            'extension_status': 'cancelled',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', bookingId);
+    } catch (e) {
+      debugPrint('Error cancelling trip extension: $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch all extension requests for an operator or partner.
+  Future<List<Map<String, dynamic>>> getExtensionRequests({
+    String? operatorId,
+    String? partnerId,
+  }) async {
+    try {
+      var query = supabase
+          .from('bookings')
+          .select('''
+            *,
+            users:renter_id (*),
+            vehicles:vehicle_id (
+              *,
+              owner:owner_id (*)
+            )
+          ''')
+          .neq('extension_status', 'none')
+          .order('extension_requested_at', ascending: false);
+
+      final response = await query;
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      debugPrint('Error fetching extension requests: $e');
+      return [];
     }
   }
 

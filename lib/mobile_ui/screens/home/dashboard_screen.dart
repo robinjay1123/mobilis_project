@@ -8451,9 +8451,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    final unavailableDates = await VehicleService().getUnavailableDates(
-      vehicleId,
+    final availability = await BookingService().getTripExtensionAvailability(
+      bookingId: bookingId,
     );
+
+    if (!availability.canExtend) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            availability.blockingReason ??
+                'This vehicle cannot be extended because another customer has reserved it.',
+          ),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
 
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     final explicitDailyRate =
@@ -8469,39 +8484,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // Extension must strictly start contiguous from the current booking's last day
     final currentEndDay = DateTime(currentEndAt.year, currentEndAt.month, currentEndAt.day);
     final initialFirstDate = currentEndDay.add(const Duration(days: 1));
-
-    // Calculate maximum contiguous extension date before any subsequent reservation starts
-    DateTime maxLastDate = initialFirstDate.add(const Duration(days: 30));
-    final upcomingBlocked = unavailableDates
-        .where((d) => d.isAfter(currentEndDay))
-        .toList()
-      ..sort((a, b) => a.compareTo(b));
-
-    if (upcomingBlocked.isNotEmpty) {
-      final nextBookingStart = upcomingBlocked.first;
-      final nextBookingDay = DateTime(
-        nextBookingStart.year,
-        nextBookingStart.month,
-        nextBookingStart.day,
-      );
-      final contiguousMax = nextBookingDay.subtract(const Duration(days: 1));
-
-      if (contiguousMax.isBefore(initialFirstDate)) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'This vehicle cannot be extended because another customer has reserved it starting ${_formatDateShort(nextBookingStart.toIso8601String())}.',
-            ),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-      if (contiguousMax.isBefore(maxLastDate)) {
-        maxLastDate = contiguousMax;
-      }
-    }
+    final maxLastDate = availability.maxAllowedExtensionDate ??
+        initialFirstDate.add(const Duration(days: 30));
 
     final pickedDate = await showDatePicker(
       context: context,
@@ -8509,9 +8493,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       firstDate: initialFirstDate,
       lastDate: maxLastDate,
       selectableDayPredicate: (day) {
-        return !unavailableDates.any(
-          (d) => d.year == day.year && d.month == day.month && d.day == day.day,
-        );
+        if (day.isAfter(maxLastDate)) return false;
+        return true;
       },
       helpText: 'SELECT NEW EXTENDED RETURN DATE',
       builder: (context, child) {
@@ -8547,6 +8530,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (extensionDays <= 0) return;
 
     final additionalPrice = extensionDays * dailyRate;
+    final destinationController = TextEditingController();
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -8672,6 +8656,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: destinationController,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: InputDecoration(
+                labelText: 'New Destination (Optional)',
+                labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                hintText: 'e.g. Baguio City or same as current',
+                hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Colors.white12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
@@ -8685,7 +8687,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'This extension request will be sent to the PSDC operator for re-approval.',
+                      'This extension request will be sent to the vehicle manager for review and re-approval.',
                       style: TextStyle(color: Color(0xFFF59E0B), fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -8717,7 +8719,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
 
-    if (confirm != true) return;
+    if (confirm != true) {
+      destinationController.dispose();
+      return;
+    }
+
+    final requestedDestination = destinationController.text.trim();
+    destinationController.dispose();
 
     try {
       await BookingService().requestTripExtension(
@@ -8725,13 +8733,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         newEndAt: selectedNewEndAt,
         additionalPrice: additionalPrice,
         extensionDays: extensionDays,
+        newDestination: requestedDestination.isNotEmpty ? requestedDestination : null,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Trip extension request submitted to operator for approval!',
+            'Trip extension request submitted for approval!',
           ),
           backgroundColor: AppColors.success,
         ),
@@ -9713,6 +9722,12 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             children: [
               _buildVehicleSummary(status),
               const SizedBox(height: 16),
+              if (booking['extension_status'] != null &&
+                  booking['extension_status'].toString().isNotEmpty &&
+                  booking['extension_status'] != 'none') ...[
+                _buildRenterTripExtensionCard(context),
+                const SizedBox(height: 16),
+              ],
               if (isApprovedTrip) ...[
                 _buildOngoingTripPanel(),
                 const SizedBox(height: 16),
@@ -10319,6 +10334,527 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildRenterTripExtensionCard(BuildContext context) {
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ?? 'pending';
+    final requestedEndAt = DateTime.tryParse(
+      booking['extension_requested_end_at']?.toString() ?? '',
+    );
+    final days = (booking['extension_days'] as num?)?.toInt() ?? 1;
+    final additionalPrice =
+        (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+    final newDest =
+        booking['extension_requested_destination']?.toString().trim();
+    final payStatus =
+        booking['extension_payment_status']?.toString().toLowerCase().trim() ??
+        'unpaid';
+
+    String statusText;
+    Color statusColor;
+    switch (extStatus) {
+      case 'pending':
+      case 'pending_operator':
+      case 'pending_partner':
+        statusText = 'Under Review';
+        statusColor = Colors.amber;
+        break;
+      case 'accepted':
+      case 'payment_pending':
+        statusText = 'Accepted • Payment Due';
+        statusColor = const Color(0xFF38BDF8);
+        break;
+      case 'payment_completed':
+        statusText = 'Payment Submitted • Verifying';
+        statusColor = Colors.purpleAccent;
+        break;
+      case 'pending_final_confirmation':
+        statusText = 'Payment Verified • Confirming';
+        statusColor = const Color(0xFF6366F1);
+        break;
+      case 'finalized':
+      case 'approved':
+        statusText = 'Extension Finalized';
+        statusColor = Colors.greenAccent;
+        break;
+      case 'rejected':
+      case 'cancelled':
+        statusText = 'Extension Declined';
+        statusColor = AppColors.error;
+        break;
+      default:
+        statusText = extStatus.toUpperCase();
+        statusColor = AppColors.textSecondary;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.update_rounded, color: statusColor, size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Trip Extension Request',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.5)),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _detailRow(
+            Icons.event_repeat_rounded,
+            'Requested Return Date',
+            requestedEndAt != null
+                ? '${requestedEndAt.year}-${requestedEndAt.month.toString().padLeft(2, '0')}-${requestedEndAt.day.toString().padLeft(2, '0')} (+$days days)'
+                : 'N/A',
+          ),
+          if (newDest != null && newDest.isNotEmpty)
+            _detailRow(Icons.flag_outlined, 'Requested Destination', newDest),
+          _detailRow(
+            Icons.payments_outlined,
+            'Additional Extension Fee',
+            '+PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+          ),
+          if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _showRenterExtensionPaymentModal(context),
+                icon: const Icon(Icons.payment_rounded, size: 18),
+                label: Text(
+                  'Pay Extension Fee (PHP ${formatAmount(additionalPrice, decimalDigits: 0)})',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ] else if (extStatus == 'payment_completed') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.purple.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.hourglass_top_rounded, color: Colors.purpleAccent, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Payment receipt submitted! Waiting for manager to verify proof and confirm your dates.',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (extStatus == 'pending_final_confirmation') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.indigo.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.indigo.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.verified_rounded, color: Color(0xFF818CF8), size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Payment verified! Vehicle manager is performing final calendar confirmation.',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (extStatus == 'finalized') ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 16),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Trip extension successfully confirmed! New return schedule and destinations are committed.',
+                      style: TextStyle(
+                        color: Colors.greenAccent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRenterExtensionPaymentModal(BuildContext context) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final additionalPrice =
+        (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    XFile? pickedReceipt;
+    bool isSubmitting = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (modalContext, setModalState) {
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(modalContext).viewInsets.bottom + 20,
+            ),
+            decoration: const BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Pay Trip Extension Fee',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'PSDC Payment Accounts',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          '• GCash: 0917-123-4567 (Mobilis PSDC Main)\n• Maya: 0917-123-4567\n• BDO Bank Transfer: 0012-3456-7890',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Select Payment Method',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedMethod,
+                    dropdownColor: AppColors.darkBg,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                      DropdownMenuItem(value: 'Maya', child: Text('Maya / PayMaya')),
+                      DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer (BDO/BPI)')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setModalState(() => selectedMethod = val);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: referenceController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      labelText: 'Payment Reference Number / Transaction ID',
+                      labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      hintText: 'e.g. 10023458921',
+                      hintStyle: const TextStyle(color: Colors.white24),
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final image = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 85,
+                      );
+                      if (image != null) {
+                        setModalState(() => pickedReceipt = image);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: pickedReceipt != null
+                              ? AppColors.primary
+                              : AppColors.borderColor,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            pickedReceipt != null
+                                ? Icons.check_circle_rounded
+                                : Icons.upload_file_rounded,
+                            color: pickedReceipt != null
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            pickedReceipt != null
+                                ? 'Receipt Attached: ${pickedReceipt!.name}'
+                                : 'Upload Payment Receipt Proof (Screenshot)',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: pickedReceipt != null
+                                  ? AppColors.primary
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              final ref = referenceController.text.trim();
+                              if (ref.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please enter a payment reference number.'),
+                                    backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              setModalState(() => isSubmitting = true);
+                              try {
+                                String proofUrl = '';
+                                if (pickedReceipt != null) {
+                                  final bytes = await pickedReceipt!.readAsBytes();
+                                  final fileExt = pickedReceipt!.name.split('.').last;
+                                  final fileName =
+                                      'ext_payment_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+                                  final supabase = Supabase.instance.client;
+                                  await supabase.storage
+                                      .from('booking-payments')
+                                      .uploadBinary(
+                                        fileName,
+                                        bytes,
+                                        fileOptions: const FileOptions(upsert: true),
+                                      );
+                                  proofUrl = supabase.storage
+                                      .from('booking-payments')
+                                      .getPublicUrl(fileName);
+                                }
+
+                                await BookingService().submitExtensionPayment(
+                                  bookingId: bookingId,
+                                  paymentMethod: selectedMethod,
+                                  paymentReference: ref,
+                                  proofUrl: proofUrl.isNotEmpty ? proofUrl : null,
+                                );
+
+                                if (modalContext.mounted) {
+                                  Navigator.pop(modalContext);
+                                }
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Extension payment submitted successfully!'),
+                                      backgroundColor: AppColors.success,
+                                    ),
+                                  );
+                                  Navigator.pop(context);
+                                }
+                              } catch (e) {
+                                setModalState(() => isSubmitting = false);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to submit payment: $e'),
+                                      backgroundColor: AppColors.error,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                          : const Text(
+                              'Submit Payment Proof',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

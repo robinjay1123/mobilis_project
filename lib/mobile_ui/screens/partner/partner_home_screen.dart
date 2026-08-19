@@ -3614,6 +3614,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   Widget _buildBookingsTab() {
     const statusList = [
       'pending',
+      'extensions',
       'approved',
       'ongoing',
       'completed',
@@ -3972,6 +3973,13 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             const SizedBox(height: 14),
             BookingReturnCountdown(booking: booking),
           ],
+          // Trip Extension Management Section for Partner
+          if (booking['extension_status'] != null &&
+              booking['extension_status'].toString().isNotEmpty &&
+              booking['extension_status'] != 'none') ...[
+            const SizedBox(height: 14),
+            _buildPartnerExtensionManagementSection(booking),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -4040,7 +4048,507 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
+  Widget _buildPartnerExtensionManagementSection(Map<String, dynamic> booking) {
+    final extStatus =
+        booking['extension_status']?.toString().toLowerCase().trim() ?? 'pending';
+    final requestedEndAt = DateTime.tryParse(
+      booking['extension_requested_end_at']?.toString() ?? '',
+    );
+    final days = (booking['extension_days'] as num?)?.toInt() ?? 1;
+    final additionalPrice =
+        (booking['extension_additional_price'] as num?)?.toDouble() ?? 0.0;
+    final newDest =
+        booking['extension_requested_destination']?.toString().trim();
+    final proofUrl =
+        booking['extension_payment_proof_url']?.toString().trim() ?? '';
+    final payMethod =
+        booking['extension_payment_method']?.toString().trim() ?? 'E-Wallet';
+    final payRef =
+        booking['extension_payment_reference']?.toString().trim() ?? 'N/A';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1F33),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF204B6B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.update_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Trip Extension Request',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              _buildPartnerExtensionStatusPill(extStatus),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Requested Return:',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              Text(
+                requestedEndAt != null
+                    ? '${_formatDateShort(requestedEndAt.toIso8601String())} (+$days d)'
+                    : 'N/A',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          if (newDest != null && newDest.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'New Destination:',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
+                Flexible(
+                  child: Text(
+                    newDest,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Extension Fee Due:',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+              Text(
+                '+₱${additionalPrice.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          if (proofUrl.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.greenAccent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Payment: $payMethod • Ref: $payRef',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => _showReceiptProofDialog(proofUrl),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      child: Text(
+                        'View Proof',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          // Action Buttons for Partner
+          if (extStatus == 'pending' || extStatus == 'pending_partner') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _showPartnerRejectExtensionDialog(booking),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(color: AppColors.error),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _handlePartnerAcceptExtension(booking),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text('Accept & Request Pay', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ] else if (extStatus == 'payment_completed') ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _handlePartnerVerifyPayment(booking),
+                icon: const Icon(Icons.verified_user_rounded, size: 16),
+                label: const Text('Verify Renter Payment Proof'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38BDF8),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ] else if (extStatus == 'pending_final_confirmation') ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _handlePartnerFinalizeExtension(booking),
+                icon: const Icon(Icons.task_alt_rounded, size: 16),
+                label: const Text('Confirm & Finalize Extension'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ] else if (extStatus == 'accepted' || extStatus == 'payment_pending') ...[
+            const Center(
+              child: Text(
+                'Waiting for Renter to submit extension payment proof...',
+                style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPartnerExtensionStatusPill(String status) {
+    Color color;
+    String label;
+
+    switch (status) {
+      case 'pending':
+      case 'pending_partner':
+      case 'pending_operator':
+        color = Colors.amber;
+        label = 'Pending Review';
+        break;
+      case 'accepted':
+      case 'payment_pending':
+        color = const Color(0xFF38BDF8);
+        label = 'Payment Pending';
+        break;
+      case 'payment_completed':
+        color = Colors.purpleAccent;
+        label = 'Payment Review';
+        break;
+      case 'pending_final_confirmation':
+        color = const Color(0xFF6366F1);
+        label = 'Pending Final';
+        break;
+      case 'finalized':
+      case 'approved':
+        color = Colors.greenAccent;
+        label = 'Finalized';
+        break;
+      case 'rejected':
+      case 'cancelled':
+        color = AppColors.error;
+        label = 'Rejected';
+        break;
+      default:
+        color = AppColors.textSecondary;
+        label = status.toUpperCase();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handlePartnerAcceptExtension(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().acceptTripExtension(
+        bookingId: bookingId,
+        reviewerId: currentPartnerId,
+        reviewerRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Extension request accepted! Renter notified for payment.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error accepting extension: $e');
+    }
+  }
+
+  Future<void> _handlePartnerVerifyPayment(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().verifyExtensionPayment(
+        bookingId: bookingId,
+        verifierId: currentPartnerId,
+        verifierRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment verified! Extension is ready for final confirmation.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error verifying payment: $e');
+    }
+  }
+
+  Future<void> _handlePartnerFinalizeExtension(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final currentPartnerId = partnerId;
+    if (bookingId.isEmpty || currentPartnerId == null) return;
+
+    try {
+      await BookingService().finalizeTripExtension(
+        bookingId: bookingId,
+        finalizerId: currentPartnerId,
+        finalizerRole: 'partner',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Trip extension finalized! New dates & total price committed.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      _loadPartnerData();
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error finalizing extension: $e');
+    }
+  }
+
+  Future<void> _showPartnerRejectExtensionDialog(Map<String, dynamic> booking) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    final reasonController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Reject Trip Extension', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for declining this extension request:',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'e.g. Schedule conflict or maintenance required.',
+                hintStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: Colors.white10,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              final currentPartnerId = partnerId;
+              if (currentPartnerId == null) return;
+              Navigator.pop(dialogContext);
+              try {
+                await BookingService().rejectTripExtension(
+                  bookingId: bookingId,
+                  reviewerId: currentPartnerId,
+                  reviewerRole: 'partner',
+                  reason: reasonController.text.trim(),
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Trip extension rejected.'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                  _loadPartnerData();
+                }
+              } catch (e) {
+                if (mounted) _showErrorSnackBar('Error rejecting extension: $e');
+              }
+            },
+            child: const Text('Reject Request'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReceiptProofDialog(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: AppColors.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          constraints: const BoxConstraints(maxWidth: 450, maxHeight: 600),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Payment Receipt Proof',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: OptimizedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.contain,
+                    placeholder: const Center(child: CircularProgressIndicator()),
+                    errorWidget: const Center(
+                      child: Text('Could not load receipt image.'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   bool _matchesBookingTab(Map<String, dynamic> booking, String tabKey) {
+    if (tabKey == 'extensions') {
+      final ext = booking['extension_status']?.toString().toLowerCase().trim();
+      return ext != null && ext.isNotEmpty && ext != 'none';
+    }
     return bookingStatusGroup(booking['status']).name == tabKey;
   }
 
@@ -4048,6 +4556,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     switch (tabKey) {
       case 'pending':
         return 'Pending';
+      case 'extensions':
+        return 'Extend Trips';
       case 'approved':
         return 'Approved';
       case 'ongoing':

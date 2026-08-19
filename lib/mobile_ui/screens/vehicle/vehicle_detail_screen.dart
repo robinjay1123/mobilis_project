@@ -1993,39 +1993,45 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             withDriver: _withDriver,
             onProcess: () async {
               final evidenceService = BookingEvidenceService();
-              final signatureUrl = await evidenceService.uploadEvidenceBytes(
-                userId: currentUser.id,
-                bytes: _signatureBytes!,
-                evidenceType: 'signature',
-              );
-              final coTravelerSignatureUrl = await evidenceService
-                  .uploadEvidenceBytes(
-                    userId: currentUser.id,
-                    bytes: _coTravelerSignatureBytes!,
-                    evidenceType: 'co_traveler_signature',
-                  );
-              final validIdUrl = await evidenceService.uploadEvidenceFile(
-                userId: currentUser.id,
-                file: _validIdPhoto!,
-                evidenceType: 'valid_id',
-              );
-              final selfieUrl = await evidenceService.uploadEvidenceFile(
-                userId: currentUser.id,
-                file: _selfiePhoto!,
-                evidenceType: 'selfie',
-              );
-              final coTravelerValidIdUrl = await evidenceService
-                  .uploadEvidenceFile(
-                    userId: currentUser.id,
-                    file: _coTravelerValidIdPhoto!,
-                    evidenceType: 'co_traveler_valid_id',
-                  );
-              final coTravelerSelfieUrl = await evidenceService
-                  .uploadEvidenceFile(
-                    userId: currentUser.id,
-                    file: _coTravelerSelfiePhoto!,
-                    evidenceType: 'co_traveler_selfie',
-                  );
+              final (
+                signatureUrl,
+                coTravelerSignatureUrl,
+                validIdUrl,
+                selfieUrl,
+                coTravelerValidIdUrl,
+                coTravelerSelfieUrl,
+              ) = await (
+                evidenceService.uploadEvidenceBytes(
+                  userId: currentUser.id,
+                  bytes: _signatureBytes!,
+                  evidenceType: 'signature',
+                ),
+                evidenceService.uploadEvidenceBytes(
+                  userId: currentUser.id,
+                  bytes: _coTravelerSignatureBytes!,
+                  evidenceType: 'co_traveler_signature',
+                ),
+                evidenceService.uploadEvidenceFile(
+                  userId: currentUser.id,
+                  file: _validIdPhoto!,
+                  evidenceType: 'valid_id',
+                ),
+                evidenceService.uploadEvidenceFile(
+                  userId: currentUser.id,
+                  file: _selfiePhoto!,
+                  evidenceType: 'selfie',
+                ),
+                evidenceService.uploadEvidenceFile(
+                  userId: currentUser.id,
+                  file: _coTravelerValidIdPhoto!,
+                  evidenceType: 'co_traveler_valid_id',
+                ),
+                evidenceService.uploadEvidenceFile(
+                  userId: currentUser.id,
+                  file: _coTravelerSelfiePhoto!,
+                  evidenceType: 'co_traveler_selfie',
+                ),
+              ).wait;
 
               final createdBooking = await BookingService().createBooking(
                 renterId: currentUser.id,

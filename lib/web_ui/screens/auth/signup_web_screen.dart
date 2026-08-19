@@ -201,19 +201,14 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
         passwordController.clear();
         confirmPasswordController.clear();
 
-        try {
-          final prefsService = PreferencesService();
-          await prefsService.init();
-          await prefsService.clearSignupFormData();
-        } catch (e) {
+        // Clear saved form data asynchronously (non-blocking)
+        PreferencesService().clearSignupFormData().catchError((e) {
           debugPrint('Error clearing saved form data: $e');
-        }
-
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            Navigator.of(context).pushReplacementNamed('/verification-options');
-          }
+          return false;
         });
+
+        // Navigate immediately to verification options
+        Navigator.of(context).pushReplacementNamed('/verification-options');
       } else {
         _showErrorSnackBar('Account creation failed. Please try again.');
       }
@@ -237,16 +232,6 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
         content: Text(message),
         backgroundColor: AppColors.error,
         duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 2),
       ),
     );
   }

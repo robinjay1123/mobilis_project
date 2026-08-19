@@ -173,18 +173,10 @@ class AuthService {
 
   Future<void> _ensurePartnerProfileExists(String userId) async {
     try {
-      final existing = await supabase
-          .from('partners')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existing != null) return;
-
-      await supabase.from('partners').insert({
+      await supabase.from('partners').upsert({
         'user_id': userId,
         'verification_status': 'pending',
-      });
+      }, onConflict: 'user_id');
     } on PostgrestException catch (e) {
       // Keep role switching working even when partner provisioning fails.
       debugPrint('Partner profile provisioning skipped: ${e.message}');
@@ -195,15 +187,9 @@ class AuthService {
 
   Future<void> _ensureRenterProfileExists(String userId) async {
     try {
-      final existing = await supabase
-          .from('renters')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existing != null) return;
-
-      await supabase.from('renters').insert({'user_id': userId});
+      await supabase.from('renters').upsert({
+        'user_id': userId,
+      }, onConflict: 'user_id');
     } on PostgrestException catch (e) {
       // Keep auth/profile flow working even if renters table is not present yet.
       debugPrint('Renter profile provisioning skipped: ${e.message}');
@@ -291,15 +277,7 @@ class AuthService {
 
   Future<void> _ensureDriverProfileExists(String userId) async {
     try {
-      final existing = await supabase
-          .from('drivers')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      if (existing != null) return;
-
-      await supabase.from('drivers').insert({
+      await supabase.from('drivers').upsert({
         'user_id': userId,
         'license_number': _placeholderLicenseNumber(userId),
         'license_expiry': _placeholderLicenseExpiry,
@@ -309,12 +287,27 @@ class AuthService {
         'driver_tier': 'standard',
         'rating': 0.0,
         'total_trips': 0,
-      });
+      }, onConflict: 'user_id');
     } on PostgrestException catch (e) {
       // Keep role switching working even when driver provisioning fails.
       debugPrint('Driver profile provisioning skipped: ${e.message}');
     } catch (e) {
       debugPrint('Unexpected driver profile provisioning error: $e');
+    }
+  }
+
+  Future<void> _ensureRoleProfileExists({
+    required String userId,
+    required String role,
+  }) async {
+    if (role == 'partner') {
+      await _ensurePartnerProfileExists(userId);
+    } else if (role == 'driver') {
+      await _ensureDriverProfileExists(userId);
+    } else if (role == 'operator') {
+      await _ensureOperatorProfileExists(userId);
+    } else if (role == 'renter') {
+      await _ensureRenterProfileExists(userId);
     }
   }
 
@@ -704,15 +697,6 @@ class AuthService {
       normalizedMetadata['name'] = normalizedName;
       normalizedMetadata['phone'] = normalizedPhone;
 
-      final existingProfile = await supabase
-          .from('users')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle();
-      if (existingProfile != null) {
-        throw const AuthException('User already registered');
-      }
-
       final response = await supabase.auth.signUp(
         email: email,
         password: password,
@@ -720,33 +704,38 @@ class AuthService {
         emailRedirectTo: 'io.supabase.flutter://login-callback/',
       );
 
+      // In Supabase, if email is already registered with confirmation enabled,
+      // an obfuscated user with empty identities is returned to prevent enumeration.
+      if (response.user != null &&
+          response.user!.identities != null &&
+          response.user!.identities!.isEmpty) {
+        throw const AuthException('User already registered');
+      }
+
       debugPrint('Signup successful for: $email');
 
-      // If signup was successful and we have a user, create/update the users table entry
+      // If signup was successful and we have a user, run profile and role setup in parallel
       if (response.user != null) {
-        await _createOrUpdateUserProfile(
-          userId: response.user!.id,
-          email: email,
-          fullName: normalizedMetadata['full_name'] as String?,
-          phone: normalizedMetadata['phone'] as String?,
-          location: normalizedMetadata['location'] as String?,
-          role: normalizedMetadata['role'] as String? ?? 'renter',
-        );
+        final userId = response.user!.id;
+        final role = normalizedMetadata['role'] as String? ?? 'renter';
 
-        final blockedMatch = await UserRestrictionService()
-            .findBlockedIdentityMatch(
-              email: email,
-              phone: normalizedMetadata['phone'] as String?,
-              fullName: normalizedMetadata['full_name'] as String?,
-            );
-        if (blockedMatch != null) {
-          await UserRestrictionService().markUserAsBlockedMatch(
-            userId: response.user!.id,
-            matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
-            reason:
-                'Matched a permanently blocked user record during signup review.',
-          );
-        }
+        await Future.wait([
+          _createOrUpdateUserProfile(
+            userId: userId,
+            email: email,
+            fullName: normalizedMetadata['full_name'] as String?,
+            phone: normalizedMetadata['phone'] as String?,
+            location: normalizedMetadata['location'] as String?,
+            role: role,
+          ),
+          _ensureRoleProfileExists(userId: userId, role: role),
+          _checkAndApplyBlockedMatch(
+            userId: userId,
+            email: email,
+            phone: normalizedMetadata['phone'] as String?,
+            fullName: normalizedMetadata['full_name'] as String?,
+          ),
+        ]);
       }
 
       if (response.session == null) {
@@ -768,6 +757,32 @@ class AuthService {
     } catch (e) {
       debugPrint('Unexpected error during signup: $e');
       rethrow;
+    }
+  }
+
+  Future<void> _checkAndApplyBlockedMatch({
+    required String userId,
+    required String email,
+    String? phone,
+    String? fullName,
+  }) async {
+    try {
+      final blockedMatch = await UserRestrictionService()
+          .findBlockedIdentityMatch(
+            email: email,
+            phone: phone,
+            fullName: fullName,
+          );
+      if (blockedMatch != null) {
+        await UserRestrictionService().markUserAsBlockedMatch(
+          userId: userId,
+          matchedBlockedUserId: blockedMatch['id']?.toString() ?? '',
+          reason:
+              'Matched a permanently blocked user record during signup review.',
+        );
+      }
+    } catch (e) {
+      debugPrint('Error checking blocked match during signup: $e');
     }
   }
 
@@ -822,18 +837,6 @@ class AuthService {
         'full_name': safeName,
         'id_verified': false,
         if (role != null && role.isNotEmpty) 'role': role,
-        if (role != null && role.isNotEmpty)
-          'application_status': role == 'partner' || role == 'driver'
-              ? 'basic'
-              : 'none',
-      },
-      {
-        'id': userId,
-        'email': email,
-        'name': safeName,
-        'full_name': safeName,
-        'id_verified': false,
-        if (role != null && role.isNotEmpty) 'role': role,
       },
       {'id': userId, 'email': email, 'name': safeName, 'full_name': safeName},
       {'id': userId, 'email': email, 'name': safeName},
@@ -856,18 +859,6 @@ class AuthService {
           PostgrestException(
             message: 'Unable to create or update users profile',
           );
-    }
-
-    if (role == 'partner') {
-      await _ensurePartnerProfileExists(userId);
-    }
-
-    if (role == 'driver') {
-      await _ensureDriverProfileExists(userId);
-    }
-
-    if (role == 'renter') {
-      await _ensureRenterProfileExists(userId);
     }
 
     debugPrint('User profile created/updated successfully');

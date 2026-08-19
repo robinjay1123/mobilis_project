@@ -67,50 +67,6 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  /// Load previously saved signup form data
-  Future<void> _loadSavedFormData() async {
-    try {
-      final prefsService = PreferencesService();
-      await prefsService.init();
-
-      final formData = prefsService.getAllSignupFormData();
-
-      if (mounted && formData.isNotEmpty) {
-        setState(() {
-          fullNameController.text = formData['fullName'] ?? '';
-          emailController.text = formData['email'] ?? '';
-          phoneController.text = formData['phone'] ?? '';
-          locationController.text = formData['location'] ?? '';
-          addressController.text = formData['address'] ?? '';
-          selectedRole = formData['role'];
-        });
-        debugPrint('Saved form data loaded (${formData.length} fields)');
-      }
-    } catch (e) {
-      debugPrint('Error loading saved form data: $e');
-    }
-  }
-
-  /// Save current form data for later
-  Future<void> _saveFormData() async {
-    try {
-      final prefsService = PreferencesService();
-      await prefsService.init();
-
-      await prefsService.saveAllSignupFormData({
-        'fullName': fullNameController.text.trim(),
-        'email': emailController.text.trim(),
-        'phone': phoneController.text.trim(),
-        'location': locationController.text.trim(),
-        'address': addressController.text.trim(),
-        'role': selectedRole ?? '',
-      });
-      debugPrint('Form data saved for next signup attempt');
-    } catch (e) {
-      debugPrint('Error saving form data: $e');
-    }
-  }
-
   @override
   void dispose() {
     fullNameController.dispose();
@@ -209,23 +165,14 @@ class _SignupScreenState extends State<SignupScreen> {
           passwordController.clear();
           confirmPasswordController.clear();
 
-          // Clear saved form data since signup was successful
-          try {
-            final prefsService = PreferencesService();
-            await prefsService.init();
-            await prefsService.clearSignupFormData();
-          } catch (e) {
+          // Clear saved form data asynchronously (non-blocking)
+          PreferencesService().clearSignupFormData().catchError((e) {
             debugPrint('Error clearing saved form data: $e');
-          }
-
-          // Navigate based on role - go to verification options
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) {
-              Navigator.of(
-                context,
-              ).pushReplacementNamed('/verification-options');
-            }
+            return false;
           });
+
+          // Navigate immediately to verification options
+          Navigator.of(context).pushReplacementNamed('/verification-options');
         } else {
           _showErrorSnackBar('Account creation failed. Please try again.');
         }
