@@ -1966,7 +1966,7 @@ class BookingService {
         final response = await supabase
             .from('drivers')
             .select(
-              'id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active)',
+              'id, user_id, verification_status, driver_tier, rating, total_trips, users(id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active)',
             );
         rawDriverRows = List<Map<String, dynamic>>.from(response);
       } catch (joinErr) {
@@ -1978,12 +1978,12 @@ class BookingService {
         try {
           final driversList = await supabase
               .from('drivers')
-              .select('id, user_id, verification_status, driver_tier, rating, total_trips, is_psdc_driver');
+              .select('id, user_id, verification_status, driver_tier, rating, total_trips');
 
           final usersList = await supabase
               .from('users')
-              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active')
-              .or('role.eq.driver,is_psdc_driver.eq.true');
+              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active')
+              .eq('role', 'driver');
 
           final usersMap = <String, Map<String, dynamic>>{};
           for (final u in List<Map<String, dynamic>>.from(usersList)) {
@@ -2018,10 +2018,9 @@ class BookingService {
                 'id': uId,
                 'user_id': uId,
                 'verification_status': 'verified',
-                'driver_tier': u['is_psdc_driver'] == true ? 'psdc' : 'standard',
+                'driver_tier': 'standard',
                 'rating': 5.0,
                 'total_trips': 0,
-                'is_psdc_driver': u['is_psdc_driver'] == true,
                 'users': u,
               });
             }
@@ -2036,7 +2035,7 @@ class BookingService {
         try {
           final usersList = await supabase
               .from('users')
-              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_psdc_driver, is_active')
+              .select('id, full_name, email, phone, role, is_available, id_verified, verification_status, application_status, avatar_url, profile_picture_url, location, latitude, longitude, is_active')
               .eq('role', 'driver');
 
           for (final u in List<Map<String, dynamic>>.from(usersList)) {
@@ -2045,10 +2044,9 @@ class BookingService {
               'id': uId,
               'user_id': uId,
               'verification_status': 'verified',
-              'driver_tier': u['is_psdc_driver'] == true ? 'psdc' : 'standard',
+              'driver_tier': 'standard',
               'rating': 5.0,
               'total_trips': 0,
-              'is_psdc_driver': u['is_psdc_driver'] == true,
               'users': u,
             });
           }

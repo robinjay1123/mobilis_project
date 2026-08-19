@@ -1777,7 +1777,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           await _supabase
               .from('drivers')
               .select(
-                'id, user_id, is_psdc_driver, driver_tier, verification_status, is_verified',
+                'id, user_id, driver_tier, verification_status, license_verified, nbi_verified',
               ),
         );
         for (final d in driversResponse) {
