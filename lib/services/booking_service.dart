@@ -11,6 +11,7 @@ import 'booking_inspection_service.dart';
 import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
 import '../utils/pricing_policy.dart';
+import '../utils/philippine_geocoding.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -2033,22 +2034,32 @@ class BookingService {
           })
           .map((driver) {
             final normalized = Map<String, dynamic>.from(driver);
-            final user = driver['users'] as Map<String, dynamic>? ?? {};
+            final user = Map<String, dynamic>.from(driver['users'] as Map<String, dynamic>? ?? {});
             final isPsdc =
                 driver['is_psdc_driver'] == true ||
                 user['is_psdc_driver'] == true ||
                 driver['driver_tier']?.toString().toLowerCase() == 'psdc';
             normalized['is_psdc_driver'] = isPsdc;
 
-            final latitude = (user['latitude'] as num?)?.toDouble();
-            final longitude = (user['longitude'] as num?)?.toDouble();
-            if (latitude != null &&
-                longitude != null &&
-                proximityTargets.isNotEmpty) {
+            // Resolve driver coordinates from Plus Code, city name, address, or lat/lng
+            final rawLocation = user['location'] ?? user['address'] ?? user['city'] ?? driver['address'] ?? driver['location'] ?? '';
+            final resolvedPoint = PhilippineGeocoding.resolveLocationSync(
+              rawLocation,
+              latitudeValue: user['latitude'] ?? driver['latitude'],
+              longitudeValue: user['longitude'] ?? driver['longitude'],
+            );
+
+            user['latitude'] = resolvedPoint.latitude;
+            user['longitude'] = resolvedPoint.longitude;
+            normalized['users'] = user;
+            normalized['latitude'] = resolvedPoint.latitude;
+            normalized['longitude'] = resolvedPoint.longitude;
+
+            if (proximityTargets.isNotEmpty) {
               final distances = proximityTargets.map(
                 (target) => _distanceInKilometers(
-                  latitude,
-                  longitude,
+                  resolvedPoint.latitude,
+                  resolvedPoint.longitude,
                   target['latitude']!,
                   target['longitude']!,
                 ),
