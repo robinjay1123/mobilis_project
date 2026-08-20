@@ -125,8 +125,41 @@ class MessageFilterService {
     }
   }
 
+  /// Check if a message is an automated system audit, booking summary, or checklist notice
+  static bool isSystemOrAuditMessage(String messageContent) {
+    final trimmed = messageContent.trim();
+    final lower = trimmed.toLowerCase();
+    return trimmed.startsWith('[System]') ||
+        lower.startsWith('booking confirmed') ||
+        lower.startsWith('booking request created') ||
+        lower.startsWith('booking details') ||
+        lower.startsWith('booking approved') ||
+        lower.startsWith('pre-trip checklist') ||
+        lower.startsWith('return checklist') ||
+        (lower.contains('booking id:') &&
+            (lower.contains('plate number:') ||
+                lower.contains('schedule:') ||
+                lower.contains('vehicle:'))) ||
+        lower.contains('use this conversation for booking coordination') ||
+        lower.contains('checklist submitted') ||
+        lower.contains('gps coordinates:') ||
+        lower.contains('pre-trip inspection completed') ||
+        lower.contains('return inspection completed') ||
+        (lower.contains('renter:') && lower.contains('partner/owner:'));
+  }
+
   /// Analyze message for off-platform transaction attempts
   static Map<String, dynamic> analyzeMessage(String messageContent) {
+    if (isSystemOrAuditMessage(messageContent)) {
+      return {
+        'is_suspicious': false,
+        'risk_score': 0.0,
+        'risk_level': 'none',
+        'found_keywords': <String>[],
+        'should_flag': false,
+      };
+    }
+
     final lowerContent = messageContent.toLowerCase();
     final foundKeywords = <String>[];
     double riskScore = 0.0;
