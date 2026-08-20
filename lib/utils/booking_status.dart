@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../mobile_ui/theme/app_colors.dart';
 
-enum BookingStatusGroup { pending, approved, ongoing, completed, cancelled }
+enum BookingStatusGroup { pending, approved, ongoing, completed, cancelled, frozen }
 
 const bookingStatusOrder = <BookingStatusGroup>[
   BookingStatusGroup.pending,
@@ -10,10 +10,14 @@ const bookingStatusOrder = <BookingStatusGroup>[
   BookingStatusGroup.ongoing,
   BookingStatusGroup.completed,
   BookingStatusGroup.cancelled,
+  BookingStatusGroup.frozen,
 ];
 
 BookingStatusGroup bookingStatusGroup(dynamic value) {
   final status = value?.toString().trim().toLowerCase() ?? '';
+  if ({'frozen', 'safety_freeze', 'locked'}.contains(status)) {
+    return BookingStatusGroup.frozen;
+  }
   if ({'approved', 'confirmed', 'assigned'}.contains(status)) {
     return BookingStatusGroup.approved;
   }
@@ -43,6 +47,7 @@ String bookingStatusLabel(BookingStatusGroup status) => switch (status) {
   BookingStatusGroup.ongoing => 'Ongoing',
   BookingStatusGroup.completed => 'Completed',
   BookingStatusGroup.cancelled => 'Cancelled',
+  BookingStatusGroup.frozen => 'Frozen',
 };
 
 Color bookingStatusColor(BookingStatusGroup status) => switch (status) {
@@ -51,4 +56,5 @@ Color bookingStatusColor(BookingStatusGroup status) => switch (status) {
   BookingStatusGroup.ongoing => AppColors.success,
   BookingStatusGroup.completed => const Color(0xFF4EA5FF),
   BookingStatusGroup.cancelled => AppColors.error,
+  BookingStatusGroup.frozen => const Color(0xFF00E5FF),
 };
