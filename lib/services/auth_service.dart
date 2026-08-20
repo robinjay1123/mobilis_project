@@ -9,12 +9,6 @@ import 'verification_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
-  static String get _placeholderLicenseExpiry => DateTime.now()
-      .add(const Duration(days: 365))
-      .toIso8601String()
-      .split('T')[0];
-  static String _placeholderLicenseNumber(String userId) =>
-      'PENDING-${userId.replaceAll('-', '').substring(0, 12)}';
 
   factory AuthService() {
     return _instance;
@@ -136,30 +130,17 @@ class AuthService {
 
       debugPrint('Updating role for user: ${user.id} to $newRole');
 
-      await supabase.from('users').update({'role': newRole}).eq('id', user.id);
-
+      final updates = <String, dynamic>{'role': newRole};
       if (newRole == 'partner' || newRole == 'driver') {
-        await supabase
-            .from('users')
-            .update({'application_status': 'pending'})
-            .eq('id', user.id);
+        updates['application_status'] = 'pending';
       }
 
-      if (newRole == 'partner') {
-        await _ensurePartnerProfileExists(user.id);
-      }
+      await supabase.from('users').update(updates).eq('id', user.id);
 
-      if (newRole == 'driver') {
-        await _ensureDriverProfileExists(user.id);
-      }
-
-      if (newRole == 'operator') {
-        await _ensureOperatorProfileExists(user.id);
-      }
-
-      if (newRole == 'renter') {
-        await _ensureRenterProfileExists(user.id);
-      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('cached_user_role_${user.id}', newRole);
+      } catch (_) {}
 
       debugPrint('User role updated to: $newRole');
     } on PostgrestException catch (e) {
@@ -168,41 +149,6 @@ class AuthService {
     } catch (e) {
       debugPrint('Error updating user role: $e');
       rethrow;
-    }
-  }
-
-  Future<void> _ensurePartnerProfileExists(String userId) async {
-    try {
-      await supabase.from('partners').upsert({
-        'user_id': userId,
-        'verification_status': 'pending',
-      }, onConflict: 'user_id');
-    } on PostgrestException catch (e) {
-      // Keep role switching working even when partner provisioning fails.
-      debugPrint('Partner profile provisioning skipped: ${e.message}');
-    } catch (e) {
-      debugPrint('Unexpected partner profile provisioning error: $e');
-    }
-  }
-
-  Future<void> _ensureRenterProfileExists(String userId) async {
-    // public.renters is the verified-renters registry.
-    // A row is only created here after admin approval (verification_service.dart).
-    // We deliberately do NOT pre-create a row on signup so unverified users
-    // are not treated as verified renters.
-    debugPrint('_ensureRenterProfileExists: renter row will be created after verification approval.');
-  }
-
-  Future<void> _ensureOperatorProfileExists(String userId) async {
-    try {
-      await supabase
-          .from('users')
-          .update({'role': 'operator'})
-          .eq('id', userId);
-    } on PostgrestException catch (e) {
-      debugPrint('Operator profile provisioning skipped: ${e.message}');
-    } catch (e) {
-      debugPrint('Unexpected operator profile provisioning error: $e');
     }
   }
 
@@ -267,29 +213,6 @@ class AuthService {
             metadata['avatar_url'] ??
             metadata['picture'],
       };
-    }
-  }
-
-  Future<void> _ensureDriverProfileExists(String userId) async {
-    // public.drivers is the verified-drivers registry.
-    // A row is only created here after admin approval (verification_service.dart).
-    // We deliberately do NOT pre-create a row on signup so unverified users
-    // are not treated as verified/certified drivers.
-    debugPrint('_ensureDriverProfileExists: driver row will be created after verification approval.');
-  }
-
-  Future<void> _ensureRoleProfileExists({
-    required String userId,
-    required String role,
-  }) async {
-    if (role == 'partner') {
-      await _ensurePartnerProfileExists(userId);
-    } else if (role == 'driver') {
-      await _ensureDriverProfileExists(userId);
-    } else if (role == 'operator') {
-      await _ensureOperatorProfileExists(userId);
-    } else if (role == 'renter') {
-      await _ensureRenterProfileExists(userId);
     }
   }
 
@@ -696,28 +619,36 @@ class AuthService {
 
       debugPrint('Signup successful for: $email');
 
-      // If signup was successful and we have a user, run profile and role setup in parallel
+      // If signup was successful and we have a user, save public.users record
       if (response.user != null) {
         final userId = response.user!.id;
         final role = normalizedMetadata['role'] as String? ?? 'renter';
 
-        await Future.wait([
-          _createOrUpdateUserProfile(
-            userId: userId,
-            email: email,
-            fullName: normalizedMetadata['full_name'] as String?,
-            phone: normalizedMetadata['phone'] as String?,
-            location: normalizedMetadata['location'] as String?,
-            role: role,
-          ),
-          _ensureRoleProfileExists(userId: userId, role: role),
+        // Upsert user profile into public.users
+        await _createOrUpdateUserProfile(
+          userId: userId,
+          email: email,
+          fullName: normalizedMetadata['full_name'] as String?,
+          phone: normalizedMetadata['phone'] as String?,
+          location: normalizedMetadata['location'] as String?,
+          role: role,
+        );
+
+        // Pre-cache role for immediate routing
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('cached_user_role_$userId', role);
+        } catch (_) {}
+
+        // Run non-blocking background checks
+        unawaited(
           _checkAndApplyBlockedMatch(
             userId: userId,
             email: email,
             phone: normalizedMetadata['phone'] as String?,
             fullName: normalizedMetadata['full_name'] as String?,
           ),
-        ]);
+        );
       }
 
       if (response.session == null) {

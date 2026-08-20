@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -116,7 +117,7 @@ class _SignupWebScreenState extends State<SignupWebScreen> {
   }
 
   void _handleSignup() async {
-    await _saveFormData();
+    unawaited(_saveFormData());
 
     final connectivityService = ConnectivityService();
     if (!connectivityService.isOnline) {
