@@ -5122,15 +5122,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   showRateButton: isReturnSubmitted,
                   isAlreadyRated: isRated,
                   onRateTrip: () async {
-                    await Navigator.of(context).push(
+                    final submitted = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(
                         builder: (_) => TripRatingFlowScreen(
                           bookingId: bookingIdStr,
                           reviewerRole: 'renter',
+                          title: 'Rate Trip',
+                          subtitle: 'Leave your ratings and reviews for this trip.',
                         ),
                       ),
                     );
-                    _loadBookings();
+                    if (submitted == true) {
+                      await TripRatingService().reconcileCompletedBooking(bookingIdStr);
+                      _loadBookings();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Rating saved successfully! Thank you.'),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      }
+                    }
                   },
                   showTrackButton: isNavigable,
                   trackButtonLabel: 'Navigate',
@@ -6002,15 +6015,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onReceipt: () => _showTripReceipt(booking),
           isAlreadyRated: _isRenterBookingFullyRated(booking),
           onRateTrip: () async {
-            await Navigator.of(context).push(
+            final bookingId = booking['id']?.toString() ?? '';
+            final submitted = await Navigator.of(context).push<bool>(
               MaterialPageRoute(
                 builder: (_) => TripRatingFlowScreen(
-                  bookingId: booking['id'].toString(),
+                  bookingId: bookingId,
                   reviewerRole: 'renter',
+                  title: 'Rate Trip',
+                  subtitle: 'Leave your ratings and reviews for this trip.',
                 ),
               ),
             );
-            _loadBookings();
+            if (submitted == true) {
+              await TripRatingService().reconcileCompletedBooking(bookingId);
+              _loadBookings();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Rating saved successfully! Thank you.'),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              }
+            }
           },
         ),
       ),
@@ -6516,7 +6543,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
       if (submitted == true) {
+        await TripRatingService().reconcileCompletedBooking(bookingId);
         await _loadBookings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ratings saved successfully!'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        }
       }
       return;
     }

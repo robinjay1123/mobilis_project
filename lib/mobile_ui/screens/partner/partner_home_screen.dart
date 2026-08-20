@@ -4834,22 +4834,32 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     BuildContext context,
     Map<String, dynamic> booking,
   ) async {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
     final submitted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => TripRatingFlowScreen(
-          bookingId: booking['id'].toString(),
+          bookingId: bookingId,
           reviewerRole: 'partner',
-          title: 'Rate Renter',
+          title: 'Rate Trip',
           subtitle:
-              'Your renter rating is required before this trip can continue to final completion.',
+              'Rate the renter and driver for this trip.',
         ),
       ),
     );
     if (submitted == true) {
+      final actorId = AuthService().currentUser?.id;
+      final reconciled = await TripRatingService().reconcileCompletedBooking(
+        bookingId,
+        operatorFallbackUserId: actorId,
+      );
       await _loadPartnerData();
       if (!mounted) return;
       _showSuccessSnackBar(
-        'Renter rating saved. Waiting for the remaining required ratings.',
+        reconciled
+            ? 'Rating saved. Trip completed and revenue updated.'
+            : 'Rating saved. Waiting for remaining required reviews.',
       );
     }
   }
@@ -4930,10 +4940,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                       inspectionType: 'after',
                     )
                   : null,
-              onConfirmPayment: completionStage == 'awaiting_payment'
-                  ? () => _confirmPartnerFinalPayment(parentContext, booking)
-                  : null,
-              onRateTrip: completionStage == 'partner_rating'
+              onRateTrip: (completionStage == 'partner_rating' ||
+                      status == 'completed' ||
+                      status == 'returned' ||
+                      status == 'return_inspected')
                   ? () => _openPartnerRenterRating(parentContext, booking)
                   : null,
               onReceipt: () => BookingReceiptService.shareReceipt(booking),
@@ -7686,7 +7696,7 @@ class BookingDetailModal extends StatelessWidget {
                   ),
                   icon: const Icon(Icons.star_rate_rounded, size: 18),
                   label: const Text(
-                    'Rate Renter',
+                    'Rate Trip',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),

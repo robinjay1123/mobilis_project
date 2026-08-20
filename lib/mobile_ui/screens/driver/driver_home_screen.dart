@@ -24,6 +24,7 @@ import '../profile/ratings_reviews_screen.dart';
 import '../profile/trip_rating_flow_screen.dart';
 import '../profile/unified_profile_screen.dart';
 import '../tracking/trip_navigation_screen.dart';
+import '../../../services/trip_rating_service.dart';
 import '../../../utils/notification_target.dart';
 import '../../../utils/notification_visual.dart';
 
@@ -2690,23 +2691,35 @@ class _TripCardState extends State<_TripCard> {
   }
 
   Future<void> _rateRenter(BuildContext context) async {
+    final bookingId = trip['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
     final submitted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => TripRatingFlowScreen(
-          bookingId: trip['id'].toString(),
+          bookingId: bookingId,
           reviewerRole: 'driver',
           title: 'Rate Renter',
           subtitle:
-              'Your renter rating is required before the renter can complete the trip.',
+              'Rate the renter and operator for this completed trip.',
         ),
       ),
     );
     if (submitted == true) {
+      final actorId = AuthService().currentUser?.id;
+      final reconciled = await TripRatingService().reconcileCompletedBooking(
+        bookingId,
+        operatorFallbackUserId: actorId,
+      );
       widget.onChanged();
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Renter rating saved. Waiting for the renter review.'),
+        SnackBar(
+          content: Text(
+            reconciled
+                ? 'Rating saved. Trip successfully completed!'
+                : 'Rating saved. Waiting for remaining reviews.',
+          ),
           backgroundColor: AppColors.success,
         ),
       );
@@ -2959,7 +2972,9 @@ class _TripCardState extends State<_TripCard> {
               icon: Icons.hourglass_bottom_rounded,
               message: 'Waiting for payment or the previous required rating.',
             ),
-          if (completionStage == 'driver_rating')
+          if (completionStage == 'driver_rating' ||
+              status == 'completed' ||
+              status == 'returned')
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
