@@ -393,52 +393,6 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     }
   }
 
-  Future<void> _loadUnreadMessagesCount() async {
-    final currentUserId = _supabase.auth.currentUser?.id;
-    if (currentUserId == null || currentUserId.isEmpty) {
-      if (mounted && _unreadMessagesCount != 0) {
-        setState(() => _unreadMessagesCount = 0);
-      }
-      return;
-    }
-
-    try {
-      List<String> conversationIds = _conversations
-          .map((c) => c['id']?.toString())
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toList();
-
-      if (conversationIds.isEmpty) {
-        await _loadConversations();
-        conversationIds = _conversations
-            .map((c) => c['id']?.toString())
-            .whereType<String>()
-            .where((id) => id.isNotEmpty)
-            .toList();
-      }
-
-      if (conversationIds.isEmpty) {
-        if (mounted && _unreadMessagesCount != 0) {
-          setState(() => _unreadMessagesCount = 0);
-        }
-        return;
-      }
-
-      final unreadMessages = await _supabase
-          .from('messages')
-          .select('id')
-          .inFilter('conversation_id', conversationIds)
-          .eq('is_read', false)
-          .neq('sender_id', currentUserId);
-      final count = (unreadMessages as List).length;
-      if (mounted && _unreadMessagesCount != count) {
-        setState(() => _unreadMessagesCount = count);
-      }
-    } catch (e) {
-      debugPrint('Error loading unread messages count: $e');
-    }
-  }
 
   // Stats
   int _totalUsers = 0;
@@ -17236,7 +17190,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     ),
                     child: Text(
                       '$unreadCount new',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: _operatorNavy,
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
