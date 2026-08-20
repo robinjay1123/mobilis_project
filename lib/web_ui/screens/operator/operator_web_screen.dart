@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -172,6 +173,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _unviewedBookingsCount = 0;
   Set<String> _viewedBookingIds = {};
   int _unreadMessagesCount = 0;
+  Map<String, int> _conversationUnreadCounts = {};
   Map<String, Set<String>> _operatorSubmittedRatingRolesByBooking = {};
 
   bool _isPendingBookingForCurrentOperator(Map<String, dynamic> booking) {
@@ -189,7 +191,140 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         : <String, dynamic>{};
     final bookingOperatorId = booking['operator_id']?.toString().trim();
     final vehicleOperatorId = vehicle['operator_id']?.toString().trim();
-    return bookingOperatorId == operatorId || vehicleOperatorId == operatorId;
+    final isAssignedToThisOperator = bookingOperatorId == operatorId ||
+        vehicleOperatorId == operatorId;
+    final isCompanyVehicle = vehicle['owner_id'] == null;
+    final isUnassigned = (bookingOperatorId == null ||
+            bookingOperatorId.isEmpty) &&
+        (vehicleOperatorId == null || vehicleOperatorId.isEmpty);
+
+    return isAssignedToThisOperator || (isCompanyVehicle && isUnassigned);
+  }
+
+  Future<void> _loadPendingBookingsCount() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      if (mounted && _pendingBookingsCount != 0) {
+        setState(() => _pendingBookingsCount = 0);
+      }
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('bookings')
+          .select('id, status, operator_id, vehicles(owner_id, operator_id)')
+          .eq('status', 'pending');
+
+      final pendingBookings = List<Map<String, dynamic>>.from(response);
+      final count = pendingBookings
+          .where(_isPendingBookingForCurrentOperator)
+          .length;
+
+      if (mounted && _pendingBookingsCount != count) {
+        setState(() => _pendingBookingsCount = count);
+      }
+    } catch (e) {
+      debugPrint('Error loading pending bookings count: $e');
+    }
+  }
+
+  Future<void> _loadUnviewedBookingsCount() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      if (mounted && _unviewedBookingsCount != 0) {
+        setState(() => _unviewedBookingsCount = 0);
+      }
+      return;
+    }
+
+    try {
+      final response = await _supabase
+          .from('bookings')
+          .select('id, status, operator_id, vehicles(owner_id, operator_id)')
+          .order('created_at', ascending: false)
+          .limit(100);
+
+      final allBookings = List<Map<String, dynamic>>.from(response);
+      final relevantBookings = allBookings
+          .where(_isPendingBookingForCurrentOperator)
+          .toList();
+
+      final unviewedCount = relevantBookings
+          .where((b) => !_viewedBookingIds.contains(b['id']?.toString()))
+          .length;
+
+      if (mounted && _unviewedBookingsCount != unviewedCount) {
+        setState(() => _unviewedBookingsCount = unviewedCount);
+      }
+    } catch (e) {
+      debugPrint('Error loading unviewed bookings count: $e');
+    }
+  }
+
+  Future<void> _loadUnreadMessagesCount() async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null || currentUserId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _unreadMessagesCount = 0;
+          _conversationUnreadCounts = {};
+        });
+      }
+      return;
+    }
+
+    try {
+      List<String> conversationIds = _conversations
+          .map((c) => c['id']?.toString())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+
+      if (conversationIds.isEmpty) {
+        await _loadConversations();
+        conversationIds = _conversations
+            .map((c) => c['id']?.toString())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toList();
+      }
+
+      if (conversationIds.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _unreadMessagesCount = 0;
+            _conversationUnreadCounts = {};
+          });
+        }
+        return;
+      }
+
+      final unreadMessages = await _supabase
+          .from('messages')
+          .select('id, conversation_id')
+          .inFilter('conversation_id', conversationIds)
+          .eq('is_read', false)
+          .neq('sender_id', currentUserId);
+
+      final unreadMap = <String, int>{};
+      for (final msg in List<Map<String, dynamic>>.from(unreadMessages)) {
+        final convId = msg['conversation_id']?.toString() ?? '';
+        if (convId.isNotEmpty) {
+          unreadMap[convId] = (unreadMap[convId] ?? 0) + 1;
+        }
+      }
+
+      final unreadConversationCount = unreadMap.keys.length;
+      if (mounted) {
+        setState(() {
+          _conversationUnreadCounts = unreadMap;
+          _unreadMessagesCount = unreadConversationCount;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading unread messages count: $e');
+    }
   }
 
   Future<void> _recalculatePendingBookings() async {
@@ -15858,6 +15993,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               bookings!conversations_booking_id_fkey (
                 id,
                 vehicle_id,
+                renter_id,
                 start_at,
                 end_at,
                 start_date,
@@ -15871,7 +16007,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   year,
                   vehicle_images(image_url, display_order)
                 ),
-                renter:users!bookings_renter_id_fkey (id, full_name, email, is_blocked, off_platform_flag_count)
+                renter:users!bookings_renter_id_fkey (id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count)
               ),
               users!conversations_user_id_fkey (id, full_name, email),
               other_users:users!conversations_other_user_id_fkey (id, full_name, email)
@@ -15903,6 +16039,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           activeStatuses,
         );
       }
+
+      // Batch-fetch any missing renter profiles to ensure renter name is always visible
+      final missingRenterIds = <String>{};
+      for (final item in _conversations) {
+        final b = item['bookings'];
+        if (b is Map) {
+          final r = b['renter'];
+          final rName = r is Map ? r['full_name']?.toString().trim() : null;
+          if (rName == null || rName.isEmpty || rName.toLowerCase() == 'unknown renter') {
+            final rid = b['renter_id']?.toString().trim() ?? '';
+            if (rid.isNotEmpty) missingRenterIds.add(rid);
+          }
+        }
+      }
+      if (missingRenterIds.isNotEmpty) {
+        try {
+          final usersRows = await _supabase
+              .from('users')
+              .select('id, full_name, email, phone, avatar_url, is_blocked, off_platform_flag_count')
+              .inFilter('id', missingRenterIds.toList());
+          final usersMap = {
+            for (final u in List<Map<String, dynamic>>.from(usersRows))
+              u['id']?.toString() ?? '': u
+          };
+          for (final item in _conversations) {
+            final b = item['bookings'];
+            if (b is Map) {
+              final rid = b['renter_id']?.toString().trim() ?? '';
+              if (rid.isNotEmpty && usersMap.containsKey(rid)) {
+                b['renter'] = usersMap[rid];
+              }
+            }
+          }
+        } catch (uErr) {
+          debugPrint('[Messages] Batch-fetch missing renters skipped: $uErr');
+        }
+      }
+
       debugPrint('[Messages] Loaded ${_conversations.length} conversations');
 
       if (mounted) {
@@ -16500,13 +16674,26 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ),
         children: [
           SizedBox(
-            height: 84,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: participants.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 10),
-              itemBuilder: (context, index) =>
-                  _buildParticipantProfileCard(participants[index], isDark),
+            height: 86,
+            child: ScrollConfiguration(
+              behavior: const MaterialScrollBehavior().copyWith(
+                dragDevices: {
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.trackpad,
+                  PointerDeviceKind.stylus,
+                },
+              ),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                itemCount: participants.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (context, index) =>
+                    _buildParticipantProfileCard(participants[index], isDark),
+              ),
             ),
           ),
         ],
@@ -16913,7 +17100,36 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final booking = conversation['bookings'] as Map<String, dynamic>? ?? {};
     final renter = booking['renter'] as Map<String, dynamic>? ?? {};
     final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-    final renterName = renter['full_name']?.toString() ?? 'Unknown renter';
+    
+    var renterName = renter['full_name']?.toString()?.trim() ?? '';
+    if (renterName.isEmpty || renterName.toLowerCase() == 'unknown renter') {
+      final userObj = conversation['users'] as Map<String, dynamic>?;
+      final otherUserObj = conversation['other_users'] as Map<String, dynamic>?;
+      if (userObj != null && userObj['full_name']?.toString().trim().isNotEmpty == true) {
+        renterName = userObj['full_name'].toString().trim();
+      } else if (otherUserObj != null && otherUserObj['full_name']?.toString().trim().isNotEmpty == true) {
+        renterName = otherUserObj['full_name'].toString().trim();
+      }
+    }
+    if (renterName.isEmpty || renterName.toLowerCase() == 'unknown renter') {
+      final participants = _conversationParticipants[conversationId];
+      if (participants != null && participants.isNotEmpty) {
+        for (final p in participants) {
+          final pRole = p['role']?.toString().toLowerCase() ?? '';
+          if (pRole == 'renter' || pRole == 'customer' || pRole == 'user') {
+            final pName = (p['full_name'] ?? p['display_name'])?.toString().trim() ?? '';
+            if (pName.isNotEmpty) {
+              renterName = pName;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (renterName.isEmpty || renterName.toLowerCase() == 'unknown renter') {
+      renterName = 'Renter';
+    }
+
     final vehicleName = [
       vehicle['brand'],
       vehicle['model'],
@@ -16926,6 +17142,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ? shortId.substring(0, 8).toUpperCase()
         : shortId.toUpperCase();
 
+    final unreadCount = _conversationUnreadCounts[conversationId] ?? 0;
     final messages = _messages[conversationId] ?? const [];
     final violation = _checkConversationViolation(conversation, messages);
     final hasViolation = violation['has_violation'] == true;
@@ -17007,6 +17224,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ),
                 const Spacer(),
+                if (unreadCount > 0) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _operatorGold,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$unreadCount new',
+                      style: const TextStyle(
+                        color: _operatorNavy,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 if (hasViolation) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -17338,16 +17576,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   )
                 else
                   SizedBox(
-                    height: 88,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: participants.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 10),
-                      itemBuilder: (context, index) =>
-                          _buildParticipantProfileCard(
-                            participants[index],
-                            isDark,
-                          ),
+                    height: 92,
+                    child: ScrollConfiguration(
+                      behavior: const MaterialScrollBehavior().copyWith(
+                        dragDevices: {
+                          PointerDeviceKind.mouse,
+                          PointerDeviceKind.touch,
+                          PointerDeviceKind.trackpad,
+                          PointerDeviceKind.stylus,
+                        },
+                      ),
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
+                        itemCount: participants.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) =>
+                            _buildParticipantProfileCard(
+                              participants[index],
+                              isDark,
+                            ),
+                      ),
                     ),
                   ),
                 const SizedBox(height: 16),

@@ -64,6 +64,14 @@ class ChatService {
             bookings!conversations_booking_id_fkey (
               id,
               status,
+              renter_id,
+              renter:users!bookings_renter_id_fkey (
+                id,
+                full_name,
+                email,
+                phone,
+                avatar_url
+              ),
               vehicles!bookings_vehicle_id_fkey (
                 id,
                 brand,
@@ -260,6 +268,14 @@ class ChatService {
           .select('''
             id,
             status,
+            renter_id,
+            renter:users!bookings_renter_id_fkey (
+              id,
+              full_name,
+              email,
+              phone,
+              avatar_url
+            ),
             vehicles!bookings_vehicle_id_fkey (
               id,
               brand,
