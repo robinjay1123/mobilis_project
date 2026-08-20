@@ -5712,6 +5712,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     required List<Map<String, dynamic>> drivers,
     required List<Map<String, double>> mapTargets,
     String? selectedDriverId,
+    bool isRefreshing = false,
+    DateTime? lastUpdated,
+    VoidCallback? onRefreshTap,
     void Function(String driverId, int driverIndex)? onDriverMarkerTap,
     VoidCallback? onEnlargeTap,
   }) {
@@ -5727,7 +5730,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           color: AppColors.primary,
           size: 38,
           label: unitName.isNotEmpty ? unitName : 'Vehicle',
-          tooltip: unitName.isNotEmpty ? '$unitName (Tracker Location)' : 'Partner vehicle',
+          tooltip: unitName.isNotEmpty ? '$unitName (GPS Tracker)' : 'Partner vehicle',
         ),
 
       // ── Driver markers ──
@@ -5849,10 +5852,46 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           Positioned.fill(
             child: MobilisLeafletMap(
               key: ValueKey(
-                'partner_map_${selectedDriverId ?? ''}_${mapMarkers.length}',
+                'partner_map_${selectedDriverId ?? ''}_${mapMarkers.map((m) => '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}').join('|')}',
               ),
               markers: mapMarkers,
               initialZoom: mapMarkers.length > 1 ? 11 : 13,
+            ),
+          ),
+          // Live tracker indicator chip
+          Positioned(
+            top: 10,
+            left: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A).withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: (isRefreshing ? AppColors.primary : const Color(0xFF10B981)).withValues(alpha: 0.5),
+                ),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 2)),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _PartnerLivePulseDot(
+                    color: isRefreshing ? AppColors.primary : const Color(0xFF10B981),
+                    size: 6,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    isRefreshing ? 'REFRESHING GPS...' : 'LIVE GPS (8s)',
+                    style: TextStyle(
+                      color: isRefreshing ? AppColors.primary : const Color(0xFF10B981),
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (onEnlargeTap != null)
@@ -5909,926 +5948,34 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
   }) {
     showDialog(
       context: context,
-      builder: (context) {
-        String? activeSelectedId = selectedDriverId;
-        String searchQuery = '';
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final unitName = _partnerVehicleTitle(vehicle);
-            final plate = vehicle['plate_number']?.toString() ?? '';
-            final pickup = booking['pickup_location']?.toString().trim() ?? '';
-
-            final filteredDrivers = drivers.where((d) {
-              if (searchQuery.trim().isEmpty) return true;
-              final user = d['users'] as Map<String, dynamic>? ?? {};
-              final name = user['full_name']?.toString().toLowerCase() ?? '';
-              final email = user['email']?.toString().toLowerCase() ?? '';
-              final loc = user['location']?.toString().toLowerCase() ?? '';
-              final q = searchQuery.toLowerCase().trim();
-              return name.contains(q) || email.contains(q) || loc.contains(q);
-            }).toList();
-
-            final enlargedMapMarkers = <MobilisMapMarker>[
-              // ── ONLY ONE Car marker: the booked vehicle at its tracker/location ──
-              if (mapTargets.isNotEmpty)
-                MobilisMapMarker(
-                  latitude: mapTargets.first['latitude']!,
-                  longitude: mapTargets.first['longitude']!,
-                  icon: Icons.directions_car_filled_rounded,
-                  color: AppColors.primary,
-                  size: 44,
-                  label: unitName.isNotEmpty ? unitName : 'Vehicle',
-                  tooltip: unitName.isNotEmpty ? '$unitName (Tracker Location)' : 'Vehicle',
-                ),
-
-              // Driver pins
-              ...drivers.map((driver) {
-                final user = driver['users'] as Map<String, dynamic>? ?? {};
-                final rawLocation = user['location'] ?? user['address'] ?? user['city'] ?? driver['address'] ?? '';
-                final point = PhilippineGeocoding.resolveLocationSync(
-                  rawLocation,
-                  latitudeValue: user['latitude'] ?? driver['latitude'],
-                  longitudeValue: user['longitude'] ?? driver['longitude'],
-                );
-
-                if (!PhilippineGeocoding.isValidPhilippines(point)) {
-                  return const MobilisMapMarker(latitude: 0, longitude: 0);
-                }
-
-                final driverId = driver['id']?.toString() ?? '';
-                final driverName = (user['full_name']?.toString().trim().isNotEmpty == true)
-                    ? user['full_name'].toString().trim()
-                    : (user['email']?.toString().split('@').first ?? 'Driver');
-                final isSelected = activeSelectedId == driverId;
-                final isPsdcDriver =
-                    driver['is_psdc_driver'] == true ||
-                    user['is_psdc_driver'] == true ||
-                    driver['driver_tier']?.toString().toLowerCase() == 'psdc';
-
-                final markerColor = isSelected
-                    ? AppColors.primary
-                    : isPsdcDriver
-                        ? const Color(0xFFD97706)
-                        : AppColors.success;
-
-                final driverWidget = SizedBox(
-                  width: 46,
-                  height: 46,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: markerColor,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: markerColor.withValues(alpha: 0.6),
-                              blurRadius: 10,
-                              spreadRadius: isSelected ? 3 : 1,
-                            ),
-                          ],
-                          border: Border.all(
-                            color: Colors.white,
-                            width: isSelected ? 3.0 : 1.5,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.person_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? const Color(0xFF0F172A)
-                                : isPsdcDriver
-                                    ? const Color(0xFFF59E0B)
-                                    : const Color(0xFF0EA5E9),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                          child: const Icon(
-                            Icons.sports_motorsports_rounded,
-                            color: Colors.white,
-                            size: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-
-                return MobilisMapMarker(
-                  latitude: point.latitude,
-                  longitude: point.longitude,
-                  icon: Icons.person_pin_circle_rounded,
-                  color: markerColor,
-                  size: 40,
-                  label: driverName,
-                  tooltip: driverName,
-                  customChild: driverWidget,
-                  onTap: () {
-                    final newId = (activeSelectedId == driverId ? null : driverId);
-                    setModalState(() => activeSelectedId = newId);
-                    onSelectDriver(newId);
-                  },
-                );
-              }).where((m) => m.latitude != 0).toList(),
-            ];
-
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.all(16),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 1100,
-                  maxHeight: 760,
-                ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.darkCard,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black54,
-                        blurRadius: 40,
-                        offset: Offset(0, 16),
-                      ),
-                    ],
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                  ),
-                  child: Column(
-                    children: [
-                      // Header
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(Icons.map_rounded, color: AppColors.primary, size: 22),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Text(
-                                        'Partner Driver Proximity Map',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary,
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Text(
-                                          unitName,
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w900,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    [
-                                      if (plate.isNotEmpty) 'Plate: $plate',
-                                      if (pickup.isNotEmpty) 'Pickup: $pickup',
-                                      '${drivers.length} Certified Drivers',
-                                    ].join(' • '),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isWide = constraints.maxWidth >= 700;
-                            final mapWidget = Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: MobilisLeafletMap(
-                                    key: ValueKey(
-                                      'partner_enlarged_${activeSelectedId ?? ''}_${enlargedMapMarkers.length}',
-                                    ),
-                                    markers: enlargedMapMarkers,
-                                    initialZoom: enlargedMapMarkers.length > 1 ? 12 : 14,
-                                  ),
-                                ),
-                                Positioned(
-                                  left: 10,
-                                  bottom: 10,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF0F172A).withValues(alpha: 0.9),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.directions_car_filled_rounded, color: AppColors.primary, size: 14),
-                                        const SizedBox(width: 4),
-                                        const Text('Vehicle Tracker', style: TextStyle(color: Colors.white, fontSize: 10)),
-                                        const SizedBox(width: 10),
-                                        const Icon(Icons.person_pin_circle_rounded, color: AppColors.success, size: 14),
-                                        const SizedBox(width: 4),
-                                        const Text('Verified Driver', style: TextStyle(color: Colors.white, fontSize: 10)),
-                                        const SizedBox(width: 10),
-                                        const Icon(Icons.person_pin_circle_rounded, color: Color(0xFFF59E0B), size: 14),
-                                        const SizedBox(width: 4),
-                                        const Text('PSDC Driver', style: TextStyle(color: Colors.white, fontSize: 10)),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-
-                            final listWidget = Container(
-                              width: isWide ? 340 : double.infinity,
-                              color: const Color(0xFF0B132B),
-                              child: Column(
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: TextField(
-                                      onChanged: (val) => setModalState(() => searchQuery = val),
-                                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                                      decoration: InputDecoration(
-                                        hintText: 'Search driver by name or town...',
-                                        hintStyle: TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                                        prefixIcon: Icon(Icons.search_rounded, color: AppColors.textSecondary, size: 16),
-                                        filled: true,
-                                        fillColor: Colors.white.withValues(alpha: 0.06),
-                                        isDense: true,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                        border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: BorderSide.none,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: filteredDrivers.isEmpty
-                                        ? Center(
-                                            child: Text(
-                                              'No matching drivers',
-                                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                            ),
-                                          )
-                                        : ListView.separated(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                                            itemCount: filteredDrivers.length,
-                                            separatorBuilder: (_, __) => const SizedBox(height: 6),
-                                            itemBuilder: (context, idx) {
-                                              final driver = filteredDrivers[idx];
-                                              final driverId = driver['id'].toString();
-                                              final user = driver['users'] as Map<String, dynamic>? ?? {};
-                                              final name = (user['full_name']?.toString().trim().isNotEmpty == true)
-                                                  ? user['full_name'].toString().trim()
-                                                  : (user['email']?.toString().split('@').first.toUpperCase() ?? 'Driver');
-                                              final isPsdcDriver =
-                                                  driver['is_psdc_driver'] == true ||
-                                                  user['is_psdc_driver'] == true ||
-                                                  driver['driver_tier']?.toString().toLowerCase() == 'psdc';
-                                              final selected = activeSelectedId == driverId;
-                                              final distance = (driver['distance_km'] as num?)?.toDouble();
-                                              final rating = (driver['rating'] as num?)?.toDouble() ?? 5.0;
-                                              final trips = (driver['total_trips'] as num?)?.toInt() ?? 0;
-                                              final locationStr = user['location']?.toString() ?? user['city']?.toString() ?? '';
-
-                                              return InkWell(
-                                                onTap: () {
-                                                  final newId = (activeSelectedId == driverId ? null : driverId);
-                                                  setModalState(() => activeSelectedId = newId);
-                                                  onSelectDriver(newId);
-                                                },
-                                                borderRadius: BorderRadius.circular(10),
-                                                child: AnimatedContainer(
-                                                  duration: const Duration(milliseconds: 150),
-                                                  padding: const EdgeInsets.all(10),
-                                                  decoration: BoxDecoration(
-                                                    color: selected
-                                                        ? AppColors.primary
-                                                        : Colors.white.withValues(alpha: 0.05),
-                                                    borderRadius: BorderRadius.circular(10),
-                                                    border: Border.all(
-                                                      color: selected
-                                                          ? AppColors.primary
-                                                          : Colors.white.withValues(alpha: 0.08),
-                                                    ),
-                                                  ),
-                                                  child: Row(
-                                                    children: [
-                                                      Container(
-                                                        width: 34,
-                                                        height: 34,
-                                                        decoration: BoxDecoration(
-                                                          color: selected
-                                                              ? const Color(0xFF0F172A)
-                                                              : (isPsdcDriver
-                                                                  ? const Color(0xFFD97706)
-                                                                  : const Color(0xFF0284C7)),
-                                                          borderRadius: BorderRadius.circular(8),
-                                                        ),
-                                                        child: const Icon(
-                                                          Icons.person_rounded,
-                                                          color: Colors.white,
-                                                          size: 18,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: Column(
-                                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                                          children: [
-                                                            Text(
-                                                              name,
-                                                              style: TextStyle(
-                                                                color: selected ? Colors.black : Colors.white,
-                                                                fontSize: 12,
-                                                                fontWeight: FontWeight.w800,
-                                                              ),
-                                                            ),
-                                                            const SizedBox(height: 2),
-                                                            Text(
-                                                              [
-                                                                if (distance != null) '${distance.toStringAsFixed(1)} km away',
-                                                                '${rating.toStringAsFixed(1)} ★',
-                                                                '$trips trips',
-                                                                if (locationStr.isNotEmpty) locationStr,
-                                                              ].join(' • '),
-                                                              maxLines: 1,
-                                                              overflow: TextOverflow.ellipsis,
-                                                              style: TextStyle(
-                                                                color: selected ? Colors.black87 : AppColors.textSecondary,
-                                                                fontSize: 9,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                      Icon(
-                                                        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                                                        color: selected ? Colors.black : Colors.white30,
-                                                        size: 18,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.04),
-                                      border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: OutlinedButton(
-                                            onPressed: () => Navigator.pop(context),
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: Colors.white,
-                                              side: const BorderSide(color: Colors.white24),
-                                              padding: const EdgeInsets.symmetric(vertical: 10),
-                                            ),
-                                            child: const Text('Close Map', style: TextStyle(fontSize: 12)),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: ElevatedButton(
-                                            onPressed: activeSelectedId == null
-                                                ? null
-                                                : () {
-                                                    Navigator.pop(context);
-                                                    onFinalize(activeSelectedId!);
-                                                  },
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: AppColors.primary,
-                                              foregroundColor: Colors.black,
-                                              padding: const EdgeInsets.symmetric(vertical: 10),
-                                            ),
-                                            child: const Text('Assign Driver', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            if (isWide) {
-                              return Row(
-                                children: [
-                                  Expanded(child: mapWidget),
-                                  listWidget,
-                                ],
-                              );
-                            } else {
-                              return Column(
-                                children: [
-                                  Expanded(flex: 3, child: mapWidget),
-                                  Expanded(flex: 4, child: listWidget),
-                                ],
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (context) => _PartnerEnlargedDriverMapDialog(
+        booking: booking,
+        vehicle: vehicle,
+        initialDrivers: drivers,
+        initialMapTargets: mapTargets,
+        initialSelectedDriverId: selectedDriverId,
+        state: this,
+        onSelectDriver: onSelectDriver,
+        onFinalize: onFinalize,
+      ),
     );
   }
 
   void _showDriverAssignmentModal(
     BuildContext context,
     Map<String, dynamic> booking,
-  ) async {
-    final bookingService = BookingService();
-    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
-
-    final bookingDate = DateTime.tryParse(
-      (booking['start_at'] ?? booking['start_date'])?.toString() ?? '',
-    );
-
-    // Initial target coordinates
-    var mapTargets = <Map<String, double>>[
-      {
-        'latitude': PhilippineGeocoding.defaultLat,
-        'longitude': PhilippineGeocoding.defaultLng,
-      },
-    ];
-
-    Future<List<Map<String, dynamic>>> driversFuture = bookingService.getAvailableVerifiedDrivers(
-      bookingDate: bookingDate,
-      proximityTargets: mapTargets,
-      prioritizeProximity: true,
-      prioritizePsdc: false,
-    );
-
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (modalContext) {
-        String? selectedDriverId;
-        final listScrollController = ScrollController();
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            // Asynchronously resolve precise vehicle GPS tracker fix & pickup Plus Code
-            _resolvePartnerBookingVehicleAndProximityTargets(booking).then((refinedTargets) {
-              if (refinedTargets.isNotEmpty &&
-                  (refinedTargets.first['latitude'] != mapTargets.first['latitude'] ||
-                   refinedTargets.first['longitude'] != mapTargets.first['longitude'])) {
-                if (context.mounted) {
-                  setModalState(() {
-                    mapTargets = refinedTargets;
-                    driversFuture = bookingService.getAvailableVerifiedDrivers(
-                      bookingDate: bookingDate,
-                      proximityTargets: refinedTargets,
-                      prioritizeProximity: true,
-                      prioritizePsdc: false,
-                    );
-                  });
-                }
-              }
-            }).catchError((e) {
-              debugPrint('GPS tracker resolution note: $e');
-            });
-
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.85,
-              decoration: BoxDecoration(
-                color: AppColors.darkCard,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: const [
-                  BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, -5)),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Handle
-                  Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(top: 12, bottom: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-
-                  // Header
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 16, 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Icon(
-                            Icons.airline_seat_recline_normal_rounded,
-                            color: AppColors.primary,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Assign Certified Driver',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Drivers ranked by proximity to ${_partnerVehicleTitle(vehicle)}',
-                                style: TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-
-                  // Drivers list & Map
-                  Expanded(
-                    child: FutureBuilder<List<Map<String, dynamic>>>(
-                      future: driversFuture,
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return Center(
-                            child: CircularProgressIndicator(color: AppColors.primary),
-                          );
-                        }
-                        final drivers = snapshot.data ?? [];
-                        if (drivers.isEmpty) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(32),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.person_off_rounded,
-                                    color: AppColors.textSecondary,
-                                    size: 48,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    'No Available Certified Drivers',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'All certified drivers are currently on active trips or unavailable.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          controller: listScrollController,
-                          padding: const EdgeInsets.only(bottom: 24),
-                          itemCount: drivers.length + 1,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                          itemBuilder: (context, index) {
-                            if (index == 0) {
-                              return _buildPartnerDriverCoverageSummary(
-                                booking: booking,
-                                vehicle: vehicle,
-                                drivers: drivers,
-                                mapTargets: mapTargets,
-                                selectedDriverId: selectedDriverId,
-                                onDriverMarkerTap: (driverId, driverIndex) {
-                                  final newId = (selectedDriverId == driverId ? null : driverId);
-                                  setModalState(() => selectedDriverId = newId);
-                                  if (newId != null && listScrollController.hasClients) {
-                                    final targetIndex = driverIndex + 1;
-                                    listScrollController.animateTo(
-                                      targetIndex * 80.0,
-                                      duration: const Duration(milliseconds: 350),
-                                      curve: Curves.easeOut,
-                                    );
-                                  }
-                                },
-                                onEnlargeTap: () {
-                                  _showEnlargedPartnerDriverMapDialog(
-                                    booking: booking,
-                                    vehicle: vehicle,
-                                    drivers: drivers,
-                                    mapTargets: mapTargets,
-                                    selectedDriverId: selectedDriverId,
-                                    onSelectDriver: (driverId) {
-                                      setModalState(() => selectedDriverId = driverId);
-                                    },
-                                    onFinalize: (driverId) async {
-                                      Navigator.pop(context); // Close bottom sheet
-                                      _performAssignDriver(booking, driverId);
-                                    },
-                                  );
-                                },
-                              );
-                            }
-
-                            final driver = drivers[index - 1];
-                            final driverId = driver['id'].toString();
-                            final user = driver['users'] as Map<String, dynamic>? ?? {};
-                            final name = (user['full_name']?.toString().trim().isNotEmpty == true)
-                                ? user['full_name'].toString().trim()
-                                : (user['email']?.toString().split('@').first.toUpperCase() ?? 'Driver');
-                            final isPsdcDriver =
-                                driver['is_psdc_driver'] == true ||
-                                user['is_psdc_driver'] == true ||
-                                driver['driver_tier']?.toString().toLowerCase() == 'psdc';
-                            final selected = selectedDriverId == driverId;
-                            final rating = (driver['rating'] as num?)?.toDouble() ?? 5.0;
-                            final trips = (driver['total_trips'] as num?)?.toInt() ?? 0;
-                            final distance = (driver['distance_km'] as num?)?.toDouble();
-                            final locationStr = user['location']?.toString().trim().isNotEmpty == true
-                                ? user['location'].toString().trim()
-                                : user['address']?.toString().trim().isNotEmpty == true
-                                ? user['address'].toString().trim()
-                                : user['city']?.toString().trim() ?? '';
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: InkWell(
-                                onTap: () => setModalState(
-                                  () => selectedDriverId = (selectedDriverId == driverId ? null : driverId),
-                                ),
-                                borderRadius: BorderRadius.circular(14),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: selected
-                                        ? AppColors.primary.withValues(alpha: 0.15)
-                                        : Colors.white.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: selected
-                                          ? AppColors.primary
-                                          : Colors.white.withValues(alpha: 0.08),
-                                      width: selected ? 1.5 : 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      // Avatar + Badge
-                                      SizedBox(
-                                        width: 44,
-                                        height: 44,
-                                        child: Stack(
-                                          children: [
-                                            Container(
-                                              width: 38,
-                                              height: 38,
-                                              alignment: Alignment.center,
-                                              decoration: BoxDecoration(
-                                                color: selected
-                                                    ? AppColors.primary
-                                                    : (isPsdcDriver
-                                                        ? const Color(0xFFD97706)
-                                                        : const Color(0xFF0284C7)),
-                                                borderRadius: BorderRadius.circular(10),
-                                              ),
-                                              child: const Icon(
-                                                Icons.person_rounded,
-                                                color: Colors.white,
-                                                size: 22,
-                                              ),
-                                            ),
-                                            Positioned(
-                                              right: 0,
-                                              bottom: 0,
-                                              child: Container(
-                                                width: 16,
-                                                height: 16,
-                                                decoration: BoxDecoration(
-                                                  color: isPsdcDriver
-                                                      ? const Color(0xFFF59E0B)
-                                                      : const Color(0xFF0EA5E9),
-                                                  shape: BoxShape.circle,
-                                                  border: Border.all(color: Colors.white, width: 1.5),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.sports_motorsports_rounded,
-                                                  color: Colors.white,
-                                                  size: 9,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    name,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 14,
-                                                      fontWeight: FontWeight.w700,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  decoration: BoxDecoration(
-                                                    color: isPsdcDriver
-                                                        ? const Color(0xFFF59E0B).withValues(alpha: 0.2)
-                                                        : const Color(0xFF0284C7).withValues(alpha: 0.2),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
-                                                  child: Text(
-                                                    isPsdcDriver ? 'PSDC' : 'VERIFIED',
-                                                    style: TextStyle(
-                                                      color: isPsdcDriver
-                                                          ? const Color(0xFFF59E0B)
-                                                          : const Color(0xFF38BDF8),
-                                                      fontSize: 9,
-                                                      fontWeight: FontWeight.w900,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              [
-                                                if (distance != null) '${distance.toStringAsFixed(1)} km away',
-                                                '${rating.toStringAsFixed(1)} ★',
-                                                '$trips trips',
-                                                if (locationStr.isNotEmpty) locationStr,
-                                              ].join(' • '),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                color: AppColors.textSecondary,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Icon(
-                                        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                                        color: selected ? AppColors.primary : Colors.white30,
-                                        size: 22,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Bottom Action
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0B132B),
-                      border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white24),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Cancel'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: selectedDriverId == null
-                                ? null
-                                : () {
-                                    Navigator.pop(context);
-                                    _performAssignDriver(booking, selectedDriverId!);
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text(
-                              'Assign Driver',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      builder: (modalContext) => _PartnerAssignDriverModal(
+        booking: booking,
+        state: this,
+        onAssignDriver: (driverId) {
+          _performAssignDriver(booking, driverId);
+        },
+      ),
     );
   }
 
@@ -7715,6 +6862,1384 @@ class BookingDetailModal extends StatelessWidget {
       expand: false,
       builder: (context, scrollController) =>
           detailContent(scrollController: scrollController),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live Pulsing Dot for Partner GPS Tracker Status
+// ─────────────────────────────────────────────────────────────────────────────
+class _PartnerLivePulseDot extends StatefulWidget {
+  final Color color;
+  final double size;
+  const _PartnerLivePulseDot({
+    this.color = const Color(0xFF10B981),
+    this.size = 8,
+  });
+
+  @override
+  State<_PartnerLivePulseDot> createState() => _PartnerLivePulseDotState();
+}
+
+class _PartnerLivePulseDotState extends State<_PartnerLivePulseDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: widget.size,
+          height: widget.size,
+          decoration: BoxDecoration(
+            color: widget.color.withValues(alpha: _animation.value),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: widget.color.withValues(alpha: _animation.value * 0.6),
+                blurRadius: widget.size * 1.2,
+                spreadRadius: widget.size * 0.4,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Driver Assignment Modal with Live GPS Tracker Auto-Refresh
+// ─────────────────────────────────────────────────────────────────────────────
+class _PartnerAssignDriverModal extends StatefulWidget {
+  final Map<String, dynamic> booking;
+  final _PartnerHomeScreenState state;
+  final void Function(String driverId) onAssignDriver;
+
+  const _PartnerAssignDriverModal({
+    required this.booking,
+    required this.state,
+    required this.onAssignDriver,
+  });
+
+  @override
+  State<_PartnerAssignDriverModal> createState() =>
+      _PartnerAssignDriverModalState();
+}
+
+class _PartnerAssignDriverModalState extends State<_PartnerAssignDriverModal> {
+  String? _selectedDriverId;
+  final ScrollController _listScrollController = ScrollController();
+  Timer? _trackerTimer;
+  List<Map<String, double>> _mapTargets = [
+    {
+      'latitude': PhilippineGeocoding.defaultLat,
+      'longitude': PhilippineGeocoding.defaultLng,
+    },
+  ];
+  List<Map<String, dynamic>> _drivers = [];
+  bool _isLoadingDrivers = true;
+  bool _isRefreshingTracker = false;
+  DateTime? _lastTrackerUpdate;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDrivers(initial: true);
+
+    // Continuous 8-second live GPS tracker auto-refresh
+    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      _pollLiveTracker();
+    });
+  }
+
+  @override
+  void dispose() {
+    _trackerTimer?.cancel();
+    _listScrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchDrivers({bool initial = false}) async {
+    final bookingDate = DateTime.tryParse(
+      (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
+    );
+    try {
+      final refinedTargets =
+          await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
+      if (mounted) {
+        if (refinedTargets.isNotEmpty) {
+          _mapTargets = refinedTargets;
+        }
+        final list = await BookingService().getAvailableVerifiedDrivers(
+          bookingDate: bookingDate,
+          proximityTargets: _mapTargets,
+          prioritizeProximity: true,
+          prioritizePsdc: false,
+        );
+        if (mounted) {
+          setState(() {
+            _drivers = list;
+            _isLoadingDrivers = false;
+            _lastTrackerUpdate = DateTime.now();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Partner driver fetch error: $e');
+      if (mounted && initial) {
+        setState(() => _isLoadingDrivers = false);
+      }
+    }
+  }
+
+  Future<void> _pollLiveTracker() async {
+    if (!mounted || _isRefreshingTracker) return;
+    setState(() => _isRefreshingTracker = true);
+    final bookingDate = DateTime.tryParse(
+      (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
+    );
+    try {
+      final refinedTargets =
+          await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
+      if (mounted) {
+        if (refinedTargets.isNotEmpty) {
+          _mapTargets = refinedTargets;
+        }
+        final list = await BookingService().getAvailableVerifiedDrivers(
+          bookingDate: bookingDate,
+          proximityTargets: _mapTargets,
+          prioritizeProximity: true,
+          prioritizePsdc: false,
+        );
+        if (mounted) {
+          setState(() {
+            _drivers = list;
+            _lastTrackerUpdate = DateTime.now();
+            _isRefreshingTracker = false;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Partner auto-refresh live tracker note: $e');
+      if (mounted) {
+        setState(() => _isRefreshingTracker = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vehicle = widget.booking['vehicles'] as Map<String, dynamic>? ?? {};
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: AppColors.darkCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 30,
+            offset: Offset(0, -5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Handle
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 16, 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.airline_seat_recline_normal_rounded,
+                    color: AppColors.primary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Assign Certified Driver',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Live tracker indicator chip
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: (_isRefreshingTracker
+                                        ? AppColors.primary
+                                        : const Color(0xFF10B981))
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _PartnerLivePulseDot(
+                                  color: _isRefreshingTracker
+                                      ? AppColors.primary
+                                      : const Color(0xFF10B981),
+                                  size: 6,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isRefreshingTracker
+                                      ? 'REFRESHING GPS...'
+                                      : 'LIVE GPS (8s)',
+                                  style: TextStyle(
+                                    color: _isRefreshingTracker
+                                        ? AppColors.primary
+                                        : const Color(0xFF10B981),
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Drivers continuously ranked by GPS tracker proximity to ${widget.state._partnerVehicleTitle(vehicle)}',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+
+          // Drivers list & Map
+          Expanded(
+            child: _isLoadingDrivers
+                ? Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : (_drivers.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.person_off_rounded,
+                                color: AppColors.textSecondary,
+                                size: 48,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'No Available Certified Drivers',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'All certified drivers are currently on active trips or unavailable.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: _listScrollController,
+                        padding: const EdgeInsets.only(bottom: 24),
+                        itemCount: _drivers.length + 1,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return widget.state._buildPartnerDriverCoverageSummary(
+                              booking: widget.booking,
+                              vehicle: vehicle,
+                              drivers: _drivers,
+                              mapTargets: _mapTargets,
+                              selectedDriverId: _selectedDriverId,
+                              isRefreshing: _isRefreshingTracker,
+                              lastUpdated: _lastTrackerUpdate,
+                              onRefreshTap: _pollLiveTracker,
+                              onDriverMarkerTap: (driverId, driverIndex) {
+                                final newId = (_selectedDriverId == driverId
+                                    ? null
+                                    : driverId);
+                                setState(() => _selectedDriverId = newId);
+                                if (newId != null &&
+                                    _listScrollController.hasClients) {
+                                  final targetIndex = driverIndex + 1;
+                                  _listScrollController.animateTo(
+                                    targetIndex * 80.0,
+                                    duration: const Duration(milliseconds: 350),
+                                    curve: Curves.easeOut,
+                                  );
+                                }
+                              },
+                              onEnlargeTap: () {
+                                widget.state._showEnlargedPartnerDriverMapDialog(
+                                  booking: widget.booking,
+                                  vehicle: vehicle,
+                                  drivers: _drivers,
+                                  mapTargets: _mapTargets,
+                                  selectedDriverId: _selectedDriverId,
+                                  onSelectDriver: (driverId) {
+                                    setState(() => _selectedDriverId = driverId);
+                                  },
+                                  onFinalize: (driverId) {
+                                    Navigator.pop(context); // Close bottom sheet
+                                    widget.onAssignDriver(driverId);
+                                  },
+                                );
+                              },
+                            );
+                          }
+
+                          final driver = _drivers[index - 1];
+                          final driverId = driver['id'].toString();
+                          final user =
+                              driver['users'] as Map<String, dynamic>? ?? {};
+                          final name = (user['full_name']
+                                      ?.toString()
+                                      .trim()
+                                      .isNotEmpty ==
+                                  true)
+                              ? user['full_name'].toString().trim()
+                              : (user['email']
+                                      ?.toString()
+                                      .split('@')
+                                      .first
+                                      .toUpperCase() ??
+                                  'Driver');
+                          final isPsdcDriver =
+                              driver['is_psdc_driver'] == true ||
+                                  user['is_psdc_driver'] == true ||
+                                  driver['driver_tier']
+                                          ?.toString()
+                                          .toLowerCase() ==
+                                      'psdc';
+                          final selected = _selectedDriverId == driverId;
+                          final distance =
+                              (driver['distance_km'] as num?)?.toDouble();
+                          final rating =
+                              (driver['rating'] as num?)?.toDouble() ?? 5.0;
+                          final trips =
+                              (driver['total_trips'] as num?)?.toInt() ?? 0;
+                          final locationStr = user['location']
+                                      ?.toString()
+                                      .trim()
+                                      .isNotEmpty ==
+                                  true
+                              ? user['location'].toString().trim()
+                              : user['address']
+                                          ?.toString()
+                                          .trim()
+                                          .isNotEmpty ==
+                                      true
+                                  ? user['address'].toString().trim()
+                                  : user['city']?.toString().trim() ?? '';
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: InkWell(
+                              onTap: () => setState(
+                                () => _selectedDriverId =
+                                    (_selectedDriverId == driverId
+                                        ? null
+                                        : driverId),
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 150),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: selected
+                                      ? AppColors.primary.withValues(alpha: 0.15)
+                                      : Colors.white.withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: selected
+                                        ? AppColors.primary
+                                        : Colors.white.withValues(alpha: 0.08),
+                                    width: selected ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    // Avatar + Badge
+                                    SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: Stack(
+                                        children: [
+                                          Container(
+                                            width: 38,
+                                            height: 38,
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: selected
+                                                  ? AppColors.primary
+                                                  : (isPsdcDriver
+                                                      ? const Color(0xFFD97706)
+                                                      : const Color(0xFF0284C7)),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            child: const Icon(
+                                              Icons.person_rounded,
+                                              color: Colors.white,
+                                              size: 22,
+                                            ),
+                                          ),
+                                          Positioned(
+                                            right: 0,
+                                            bottom: 0,
+                                            child: Container(
+                                              width: 16,
+                                              height: 16,
+                                              decoration: BoxDecoration(
+                                                color: isPsdcDriver
+                                                    ? const Color(0xFFF59E0B)
+                                                    : const Color(0xFF0EA5E9),
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: Colors.white,
+                                                  width: 1.5,
+                                                ),
+                                              ),
+                                              child: const Icon(
+                                                Icons.sports_motorsports_rounded,
+                                                color: Colors.white,
+                                                size: 9,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  name,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              if (isPsdcDriver)
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        const Color(0xFFF59E0B),
+                                                    borderRadius:
+                                                        BorderRadius.circular(6),
+                                                  ),
+                                                  child: const Text(
+                                                    'PSDC',
+                                                    style: TextStyle(
+                                                      color: Colors.black,
+                                                      fontSize: 8,
+                                                      fontWeight: FontWeight.w900,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            [
+                                              if (distance != null)
+                                                '${distance.toStringAsFixed(1)} km away',
+                                              '${rating.toStringAsFixed(1)} ★',
+                                              '$trips trips',
+                                              if (locationStr.isNotEmpty)
+                                                locationStr,
+                                            ].join(' • '),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: AppColors.textSecondary,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Icon(
+                                      selected
+                                          ? Icons.check_circle_rounded
+                                          : Icons.circle_outlined,
+                                      color: selected
+                                          ? AppColors.primary
+                                          : Colors.white30,
+                                      size: 22,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      )),
+          ),
+
+          // Bottom Action
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B132B),
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _selectedDriverId == null
+                        ? null
+                        : () {
+                            Navigator.pop(context);
+                            widget.onAssignDriver(_selectedDriverId!);
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Assign Driver',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Partner Enlarged Driver Proximity Map Dialog with Live Tracker Polling
+// ─────────────────────────────────────────────────────────────────────────────
+class _PartnerEnlargedDriverMapDialog extends StatefulWidget {
+  final Map<String, dynamic> booking;
+  final Map<String, dynamic> vehicle;
+  final List<Map<String, dynamic>> initialDrivers;
+  final List<Map<String, double>> initialMapTargets;
+  final String? initialSelectedDriverId;
+  final _PartnerHomeScreenState state;
+  final void Function(String? driverId) onSelectDriver;
+  final void Function(String driverId) onFinalize;
+
+  const _PartnerEnlargedDriverMapDialog({
+    required this.booking,
+    required this.vehicle,
+    required this.initialDrivers,
+    required this.initialMapTargets,
+    this.initialSelectedDriverId,
+    required this.state,
+    required this.onSelectDriver,
+    required this.onFinalize,
+  });
+
+  @override
+  State<_PartnerEnlargedDriverMapDialog> createState() =>
+      _PartnerEnlargedDriverMapDialogState();
+}
+
+class _PartnerEnlargedDriverMapDialogState
+    extends State<_PartnerEnlargedDriverMapDialog> {
+  late String? _activeSelectedId;
+  String _searchQuery = '';
+  late List<Map<String, double>> _mapTargets;
+  late List<Map<String, dynamic>> _drivers;
+  Timer? _trackerTimer;
+  bool _isRefreshing = false;
+  DateTime? _lastTrackerUpdate;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeSelectedId = widget.initialSelectedDriverId;
+    _mapTargets = List.from(widget.initialMapTargets);
+    _drivers = List.from(widget.initialDrivers);
+    _lastTrackerUpdate = DateTime.now();
+
+    // Constant live tracker polling every 8 seconds
+    _trackerTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      _pollLiveTracker();
+    });
+  }
+
+  @override
+  void dispose() {
+    _trackerTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _pollLiveTracker() async {
+    if (!mounted || _isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    final bookingDate = DateTime.tryParse(
+      (widget.booking['start_at'] ?? widget.booking['start_date'])?.toString() ?? '',
+    );
+    try {
+      final refinedTargets =
+          await widget.state._resolvePartnerBookingVehicleAndProximityTargets(widget.booking);
+      if (mounted) {
+        if (refinedTargets.isNotEmpty) {
+          _mapTargets = refinedTargets;
+        }
+        final list = await BookingService().getAvailableVerifiedDrivers(
+          bookingDate: bookingDate,
+          proximityTargets: _mapTargets,
+          prioritizeProximity: true,
+          prioritizePsdc: false,
+        );
+        if (mounted) {
+          setState(() {
+            _drivers = list;
+            _lastTrackerUpdate = DateTime.now();
+            _isRefreshing = false;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Partner enlarged map tracker poll error: $e');
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unitName = widget.state._partnerVehicleTitle(widget.vehicle);
+    final plate = widget.vehicle['plate_number']?.toString() ?? '';
+    final pickup = widget.booking['pickup_location']?.toString().trim() ?? '';
+
+    final filteredDrivers = _drivers.where((d) {
+      if (_searchQuery.trim().isEmpty) return true;
+      final user = d['users'] as Map<String, dynamic>? ?? {};
+      final name = user['full_name']?.toString().toLowerCase() ?? '';
+      final email = user['email']?.toString().toLowerCase() ?? '';
+      final loc = user['location']?.toString().toLowerCase() ?? '';
+      final q = _searchQuery.toLowerCase().trim();
+      return name.contains(q) || email.contains(q) || loc.contains(q);
+    }).toList();
+
+    final enlargedMapMarkers = <MobilisMapMarker>[
+      // ── ONLY ONE Car marker: the booked vehicle at its tracker/location ──
+      if (_mapTargets.isNotEmpty)
+        MobilisMapMarker(
+          latitude: _mapTargets.first['latitude']!,
+          longitude: _mapTargets.first['longitude']!,
+          icon: Icons.directions_car_filled_rounded,
+          color: AppColors.primary,
+          size: 44,
+          label: unitName.isNotEmpty ? unitName : 'Vehicle',
+          tooltip: unitName.isNotEmpty ? '$unitName (GPS Tracker)' : 'Vehicle',
+        ),
+
+      // Driver pins
+      ..._drivers.map((driver) {
+        final user = driver['users'] as Map<String, dynamic>? ?? {};
+        final rawLocation = user['location'] ??
+            user['address'] ??
+            user['city'] ??
+            driver['address'] ??
+            '';
+        final point = PhilippineGeocoding.resolveLocationSync(
+          rawLocation,
+          latitudeValue: user['latitude'] ?? driver['latitude'],
+          longitudeValue: user['longitude'] ?? driver['longitude'],
+        );
+
+        if (!PhilippineGeocoding.isValidPhilippines(point)) {
+          return const MobilisMapMarker(latitude: 0, longitude: 0);
+        }
+
+        final driverId = driver['id']?.toString() ?? '';
+        final driverName = (user['full_name']?.toString().trim().isNotEmpty == true)
+            ? user['full_name'].toString().trim()
+            : (user['email']?.toString().split('@').first ?? 'Driver');
+        final isSelected = _activeSelectedId == driverId;
+        final isPsdcDriver = driver['is_psdc_driver'] == true ||
+            user['is_psdc_driver'] == true ||
+            driver['driver_tier']?.toString().toLowerCase() == 'psdc';
+
+        final markerColor = isSelected
+            ? AppColors.primary
+            : isPsdcDriver
+                ? const Color(0xFFD97706)
+                : AppColors.success;
+
+        final driverWidget = SizedBox(
+          width: 46,
+          height: 46,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: markerColor,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: markerColor.withValues(alpha: 0.6),
+                      blurRadius: 10,
+                      spreadRadius: isSelected ? 3 : 1,
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white,
+                    width: isSelected ? 3.0 : 1.5,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFF0F172A)
+                        : isPsdcDriver
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF0EA5E9),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: const Icon(
+                    Icons.sports_motorsports_rounded,
+                    color: Colors.white,
+                    size: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return MobilisMapMarker(
+          latitude: point.latitude,
+          longitude: point.longitude,
+          icon: Icons.person_pin_circle_rounded,
+          color: markerColor,
+          size: 40,
+          label: driverName,
+          tooltip: driverName,
+          customChild: driverWidget,
+          onTap: () {
+            final newId = (_activeSelectedId == driverId ? null : driverId);
+            setState(() => _activeSelectedId = newId);
+            widget.onSelectDriver(newId);
+          },
+        );
+      }).where((m) => m.latitude != 0).toList(),
+    ];
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 1100,
+          maxHeight: 760,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 40,
+                offset: Offset(0, 16),
+              ),
+            ],
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          child: Column(
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.map_rounded,
+                          color: AppColors.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Partner Driver Proximity Map',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  unitName,
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Live indicator badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: (_isRefreshing
+                                            ? AppColors.primary
+                                            : const Color(0xFF10B981))
+                                        .withValues(alpha: 0.5),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _PartnerLivePulseDot(
+                                      color: _isRefreshing
+                                          ? AppColors.primary
+                                          : const Color(0xFF10B981),
+                                      size: 5,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _isRefreshing
+                                          ? 'GPS REFRESHING...'
+                                          : 'LIVE GPS (8s)',
+                                      style: TextStyle(
+                                        color: _isRefreshing
+                                            ? AppColors.primary
+                                            : const Color(0xFF10B981),
+                                        fontSize: 8.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            [
+                              if (plate.isNotEmpty) 'Plate: $plate',
+                              if (pickup.isNotEmpty) 'Pickup: $pickup',
+                              '${_drivers.length} Certified Drivers',
+                              if (_lastTrackerUpdate != null)
+                                'Last Fix: ${_lastTrackerUpdate!.hour.toString().padLeft(2, '0')}:${_lastTrackerUpdate!.minute.toString().padLeft(2, '0')}:${_lastTrackerUpdate!.second.toString().padLeft(2, '0')}',
+                            ].join(' • '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Refresh Tracker',
+                      icon: Icon(
+                        Icons.sync_rounded,
+                        color: _isRefreshing
+                            ? AppColors.primary
+                            : Colors.white70,
+                      ),
+                      onPressed: _isRefreshing ? null : _pollLiveTracker,
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded,
+                          color: Colors.white, size: 22),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 700;
+                    final mapWidget = Stack(
+                      children: [
+                        Positioned.fill(
+                          child: MobilisLeafletMap(
+                            key: ValueKey(
+                              'partner_enlarged_${_activeSelectedId ?? ''}_${enlargedMapMarkers.map((m) => '${m.latitude.toStringAsFixed(4)},${m.longitude.toStringAsFixed(4)}').join('|')}',
+                            ),
+                            markers: enlargedMapMarkers,
+                            initialZoom:
+                                enlargedMapMarkers.length > 1 ? 12 : 14,
+                          ),
+                        ),
+                        Positioned(
+                          left: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A)
+                                  .withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.15)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.directions_car_filled_rounded,
+                                    color: AppColors.primary, size: 14),
+                                const SizedBox(width: 4),
+                                const Text('Vehicle Tracker',
+                                    style: TextStyle(
+                                        color: Colors.white, fontSize: 10)),
+                                const SizedBox(width: 10),
+                                const Icon(Icons.person_pin_circle_rounded,
+                                    color: AppColors.success, size: 14),
+                                const SizedBox(width: 4),
+                                const Text('Verified Driver',
+                                    style: TextStyle(
+                                        color: Colors.white, fontSize: 10)),
+                                const SizedBox(width: 10),
+                                const Icon(Icons.person_pin_circle_rounded,
+                                    color: Color(0xFFF59E0B), size: 14),
+                                const SizedBox(width: 4),
+                                const Text('PSDC Driver',
+                                    style: TextStyle(
+                                        color: Colors.white, fontSize: 10)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+
+                    final listWidget = Container(
+                      width: isWide ? 340 : double.infinity,
+                      color: const Color(0xFF0B132B),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: TextField(
+                              onChanged: (val) =>
+                                  setState(() => _searchQuery = val),
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 12),
+                              decoration: InputDecoration(
+                                hintText: 'Search driver by name or town...',
+                                hintStyle: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 11),
+                                prefixIcon: Icon(Icons.search_rounded,
+                                    color: AppColors.textSecondary, size: 16),
+                                filled: true,
+                                fillColor: Colors.white.withValues(alpha: 0.06),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: filteredDrivers.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'No matching drivers',
+                                      style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    itemCount: filteredDrivers.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(height: 6),
+                                    itemBuilder: (context, idx) {
+                                      final driver = filteredDrivers[idx];
+                                      final driverId = driver['id'].toString();
+                                      final user = driver['users']
+                                              as Map<String, dynamic>? ??
+                                          {};
+                                      final name = (user['full_name']
+                                                  ?.toString()
+                                                  .trim()
+                                                  .isNotEmpty ==
+                                              true)
+                                          ? user['full_name'].toString().trim()
+                                          : (user['email']
+                                                  ?.toString()
+                                                  .split('@')
+                                                  .first
+                                                  .toUpperCase() ??
+                                              'Driver');
+                                      final isPsdcDriver =
+                                          driver['is_psdc_driver'] == true ||
+                                              user['is_psdc_driver'] == true ||
+                                              driver['driver_tier']
+                                                      ?.toString()
+                                                      .toLowerCase() ==
+                                                  'psdc';
+                                      final selected =
+                                          _activeSelectedId == driverId;
+                                      final distance =
+                                          (driver['distance_km'] as num?)
+                                              ?.toDouble();
+                                      final rating =
+                                          (driver['rating'] as num?)
+                                                  ?.toDouble() ??
+                                              5.0;
+                                      final trips =
+                                          (driver['total_trips'] as num?)
+                                                  ?.toInt() ??
+                                              0;
+                                      final locationStr = user['location']
+                                              ?.toString() ??
+                                          user['city']?.toString() ??
+                                          '';
+
+                                      return InkWell(
+                                        onTap: () {
+                                          final newId = (_activeSelectedId ==
+                                                  driverId
+                                              ? null
+                                              : driverId);
+                                          setState(
+                                              () => _activeSelectedId = newId);
+                                          widget.onSelectDriver(newId);
+                                        },
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                              milliseconds: 150),
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: selected
+                                                ? AppColors.primary
+                                                : Colors.white
+                                                    .withValues(alpha: 0.05),
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: selected
+                                                  ? AppColors.primary
+                                                  : Colors.white
+                                                      .withValues(alpha: 0.08),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 34,
+                                                height: 34,
+                                                decoration: BoxDecoration(
+                                                  color: selected
+                                                      ? const Color(0xFF0F172A)
+                                                      : (isPsdcDriver
+                                                          ? const Color(
+                                                              0xFFD97706)
+                                                          : const Color(
+                                                              0xFF0284C7)),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.person_rounded,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      name,
+                                                      style: TextStyle(
+                                                        color: selected
+                                                            ? Colors.black
+                                                            : Colors.white,
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      [
+                                                        if (distance != null)
+                                                          '${distance.toStringAsFixed(1)} km away',
+                                                        '${rating.toStringAsFixed(1)} ★',
+                                                        '$trips trips',
+                                                        if (locationStr
+                                                            .isNotEmpty)
+                                                          locationStr,
+                                                      ].join(' • '),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: TextStyle(
+                                                        color: selected
+                                                            ? Colors.black87
+                                                            : AppColors
+                                                                .textSecondary,
+                                                        fontSize: 9,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Icon(
+                                                selected
+                                                    ? Icons.check_circle_rounded
+                                                    : Icons.circle_outlined,
+                                                color: selected
+                                                    ? Colors.black
+                                                    : Colors.white30,
+                                                size: 18,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.04),
+                              border: Border(
+                                  top: BorderSide(
+                                      color: Colors.white
+                                          .withValues(alpha: 0.08))),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(
+                                          color: Colors.white24),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 10),
+                                    ),
+                                    child: const Text('Close Map',
+                                        style: TextStyle(fontSize: 12)),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: _activeSelectedId == null
+                                        ? null
+                                        : () {
+                                            Navigator.pop(context);
+                                            widget.onFinalize(
+                                                _activeSelectedId!);
+                                          },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 10),
+                                    ),
+                                    child: const Text('Assign Driver',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (isWide) {
+                      return Row(
+                        children: [
+                          Expanded(child: mapWidget),
+                          listWidget,
+                        ],
+                      );
+                    } else {
+                      return Column(
+                        children: [
+                          Expanded(flex: 3, child: mapWidget),
+                          Expanded(flex: 4, child: listWidget),
+                        ],
+                      );
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
