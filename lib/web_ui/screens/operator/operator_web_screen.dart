@@ -1399,7 +1399,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   Future<void> _openOperatorRenterRating(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
-    if (bookingId.isEmpty) return;
+    if (bookingId.isEmpty || _isPartnerOwnedBooking(booking)) return;
 
     try {
       final latestBooking =
@@ -1433,8 +1433,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Rating is complete for this trip.'),
-            backgroundColor: Colors.blueGrey,
+            content: Text(
+              'Rating is already complete for this booking.',
+            ),
           ),
         );
         return;
@@ -1517,7 +1518,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   ) async {
     final bookingId = booking['id']?.toString() ?? '';
     final actorId = _supabase.auth.currentUser?.id;
-    if (bookingId.isEmpty || actorId == null) return;
+    if (bookingId.isEmpty || actorId == null || _isPartnerOwnedBooking(booking)) {
+      return;
+    }
 
     final finalReceiptUrl =
         (booking['final_payment_proof_url'] ??
@@ -10930,15 +10933,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
-                      if (statusLower == 'active' ||
-                          statusLower == 'ongoing' ||
-                          statusLower == 'return_pending_inspection' ||
-                          statusLower == 'awaiting_completion' ||
-                          statusLower == 'completed' ||
-                          group == BookingStatusGroup.ongoing) ...[
+                      if ((statusLower == 'active' ||
+                              statusLower == 'ongoing' ||
+                              statusLower == 'return_pending_inspection' ||
+                              statusLower == 'awaiting_completion' ||
+                              statusLower == 'completed' ||
+                              group == BookingStatusGroup.ongoing) &&
+                          !_isPartnerOwnedBooking(booking)) ...[
                         if (booking['security_deposit_return_eligible'] == true &&
-                            booking['security_deposit_refunded'] != true &&
-                            !_isPartnerOwnedBooking(booking))
+                            booking['security_deposit_refunded'] != true)
                           ElevatedButton.icon(
                             onPressed: () {
                               Navigator.pop(dialogContext);
@@ -12060,7 +12063,44 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       if (booking['final_payment_status'] == 'pending' &&
                           status.trim().toLowerCase() != 'completed') ...[
                         const SizedBox(height: 12),
-                        if (isPaymentSubmitted)
+                        if (_isPartnerOwnedBooking(booking))
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.purple.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.handshake_outlined,
+                                  color: Colors.purpleAccent,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Partner Unit: Final payment & receipt verification is managed directly by the partner.',
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? Colors.purple[200]
+                                          : Colors.purple[800],
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (isPaymentSubmitted)
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
@@ -13644,6 +13684,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                     statusLower !=
                                         'return_pending_inspection' &&
                                     booking['return_inspected_at'] != null &&
+                                    !_isPartnerOwnedBooking(booking) &&
                                     (completionStage == 'operator_rating' ||
                                         completionStage ==
                                             'awaiting_completion' ||
