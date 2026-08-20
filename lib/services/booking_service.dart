@@ -3454,7 +3454,7 @@ class BookingService {
           vehicleTitle: vehicleTitle,
           renterName: renterName,
           withDriver: false,
-        ).catchError((_) {}),
+        ).catchError((_) => 0),
       );
     } catch (e) {
       debugPrint('Error requesting trip extension: $e');
