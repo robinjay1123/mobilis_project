@@ -98,6 +98,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final TextEditingController _reservationAmountController =
       TextEditingController();
+  final TextEditingController _securityDeposit4to5Controller =
+      TextEditingController();
+  final TextEditingController _securityDeposit6PlusController =
+      TextEditingController();
   final TextEditingController _reservationAccountNameController =
       TextEditingController();
   final TextEditingController _reservationQrUrlController =
@@ -129,6 +133,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _rentalTermsController.dispose();
     _privacyPolicyController.dispose();
     _reservationAmountController.dispose();
+    _securityDeposit4to5Controller.dispose();
+    _securityDeposit6PlusController.dispose();
     _reservationAccountNameController.dispose();
     _reservationQrUrlController.dispose();
     _reservationInstructionsController.dispose();
@@ -332,6 +338,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final settings = await ReservationPaymentService().getSettings();
       if (!mounted) return;
       _reservationAmountController.text = settings.amount.toStringAsFixed(0);
+      _securityDeposit4to5Controller.text =
+          settings.deposit4to5Seater.toStringAsFixed(0);
+      _securityDeposit6PlusController.text =
+          settings.deposit6PlusSeater.toStringAsFixed(0);
       _reservationQrUrlController.text = settings.qrUrl;
       _reservationAccountNameController.text = settings.accountName;
       _reservationInstructionsController.text = settings.instructions;
@@ -345,10 +355,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveReservationPaymentSettings() async {
     final amount =
         double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    final deposit4to5 =
+        double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0;
+    final deposit6Plus =
+        double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0;
     setState(() => _isSavingReservationPayment = true);
     try {
       await ReservationPaymentService().updateSettings(
         amount: amount,
+        deposit4to5Seater: deposit4to5,
+        deposit6PlusSeater: deposit6Plus,
         qrUrl: _reservationQrUrlController.text,
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -451,6 +467,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await service.deleteQrCode(currentQrUrl);
       await service.updateSettings(
         amount: double.tryParse(_reservationAmountController.text.trim()) ?? 0,
+        deposit4to5Seater:
+            double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0,
+        deposit6PlusSeater:
+            double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0,
         qrUrl: '',
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -3167,7 +3187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   final isTwoCol = box.maxWidth > 550;
                   return Column(
                     children: [
-                      if (isTwoCol)
+                      if (isTwoCol) ...[
                         Row(
                           children: [
                             Expanded(
@@ -3187,8 +3207,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ],
-                        )
-                      else ...[
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Security Deposit (4–5 Seater) (₱)',
+                                _securityDeposit4to5Controller,
+                                Icons.shield_outlined,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Security Deposit (6+ Seater) (₱)',
+                                _securityDeposit6PlusController,
+                                Icons.directions_bus_outlined,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
                         _buildWebTextField(
                           'Reservation Fee Amount (₱)',
                           _reservationAmountController,
@@ -3200,6 +3242,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Account / Payee Name',
                           _reservationAccountNameController,
                           Icons.account_balance_outlined,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Security Deposit (4–5 Seater) (₱)',
+                          _securityDeposit4to5Controller,
+                          Icons.shield_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Security Deposit (6+ Seater) (₱)',
+                          _securityDeposit6PlusController,
+                          Icons.directions_bus_outlined,
+                          keyboardType: TextInputType.number,
                         ),
                       ],
                     ],

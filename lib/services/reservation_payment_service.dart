@@ -7,16 +7,30 @@ import 'image_optimization_service.dart';
 
 class ReservationPaymentSettings {
   final double amount;
+  final double deposit4to5Seater;
+  final double deposit6PlusSeater;
   final String qrUrl;
   final String accountName;
   final String instructions;
 
   const ReservationPaymentSettings({
     required this.amount,
+    this.deposit4to5Seater = 2000.0,
+    this.deposit6PlusSeater = 3000.0,
     required this.qrUrl,
     required this.accountName,
     required this.instructions,
   });
+
+  /// Dynamically calculate the security deposit based on seat count.
+  /// 4–5 seaters (and below) -> deposit4to5Seater (default: ₱2,000)
+  /// 6+ seaters -> deposit6PlusSeater (default: ₱3,000)
+  double getDepositForSeats(int seats) {
+    if (seats >= 6) {
+      return deposit6PlusSeater;
+    }
+    return deposit4to5Seater;
+  }
 }
 
 class ReservationPaymentProof {
@@ -41,6 +55,8 @@ class ReservationPaymentProof {
 
 class ReservationPaymentService {
   static const amountKey = 'reservation_payment_amount';
+  static const securityDeposit4to5Key = 'security_deposit_4_5_seater';
+  static const securityDeposit6PlusKey = 'security_deposit_6_plus_seater';
   static const qrUrlKey = 'reservation_payment_qr_url';
   static const accountNameKey = 'reservation_payment_account_name';
   static const instructionsKey = 'reservation_payment_instructions';
@@ -63,6 +79,8 @@ class ReservationPaymentService {
           .select('key,value')
           .inFilter('key', [
             amountKey,
+            securityDeposit4to5Key,
+            securityDeposit6PlusKey,
             qrUrlKey,
             accountNameKey,
             instructionsKey,
@@ -75,6 +93,10 @@ class ReservationPaymentService {
 
       return ReservationPaymentSettings(
         amount: double.tryParse(values[amountKey] ?? '') ?? 1000,
+        deposit4to5Seater:
+            double.tryParse(values[securityDeposit4to5Key] ?? '') ?? 2000,
+        deposit6PlusSeater:
+            double.tryParse(values[securityDeposit6PlusKey] ?? '') ?? 3000,
         qrUrl: values[qrUrlKey]?.trim() ?? '',
         accountName: values[accountNameKey]?.trim().isNotEmpty == true
             ? values[accountNameKey]!.trim()
@@ -87,6 +109,8 @@ class ReservationPaymentService {
       debugPrint('Unable to load reservation payment settings: $e');
       return const ReservationPaymentSettings(
         amount: 1000,
+        deposit4to5Seater: 2000,
+        deposit6PlusSeater: 3000,
         qrUrl: '',
         accountName: 'PSDC',
         instructions: defaultInstructions,
@@ -96,12 +120,21 @@ class ReservationPaymentService {
 
   Future<void> updateSettings({
     required double amount,
+    double? deposit4to5Seater,
+    double? deposit6PlusSeater,
     required String qrUrl,
     required String accountName,
     required String instructions,
   }) async {
     if (amount <= 0) {
       throw Exception('Reservation amount must be greater than zero.');
+    }
+
+    final effectiveDeposit4to5 = deposit4to5Seater ?? 2000.0;
+    final effectiveDeposit6Plus = deposit6PlusSeater ?? 3000.0;
+
+    if (effectiveDeposit4to5 <= 0 || effectiveDeposit6Plus <= 0) {
+      throw Exception('Security deposit amounts must be greater than zero.');
     }
 
     final userId = _supabase.auth.currentUser?.id;
@@ -112,6 +145,18 @@ class ReservationPaymentService {
         'value': amount.toStringAsFixed(0),
         'description':
             'Refundable reservation payment required before booking request creation.',
+      },
+      {
+        'key': securityDeposit4to5Key,
+        'value': effectiveDeposit4to5.toStringAsFixed(0),
+        'description':
+            'Refundable security deposit for 4 to 5 seater vehicles.',
+      },
+      {
+        'key': securityDeposit6PlusKey,
+        'value': effectiveDeposit6Plus.toStringAsFixed(0),
+        'description':
+            'Refundable security deposit for 6+ seater vehicles.',
       },
       {
         'key': qrUrlKey,

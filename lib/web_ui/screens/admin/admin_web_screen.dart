@@ -464,6 +464,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isSavingPrivacy = false;
   final TextEditingController _reservationAmountController =
       TextEditingController();
+  final TextEditingController _securityDeposit4to5Controller =
+      TextEditingController();
+  final TextEditingController _securityDeposit6PlusController =
+      TextEditingController();
   final TextEditingController _reservationQrUrlController =
       TextEditingController();
   final TextEditingController _reservationAccountNameController =
@@ -546,6 +550,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _rentalTermsController.dispose();
     _privacyPolicyController.dispose();
     _reservationAmountController.dispose();
+    _securityDeposit4to5Controller.dispose();
+    _securityDeposit6PlusController.dispose();
     _reservationQrUrlController.dispose();
     _reservationAccountNameController.dispose();
     _reservationInstructionsController.dispose();
@@ -1430,6 +1436,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final settings = await ReservationPaymentService().getSettings();
       if (!mounted) return;
       _reservationAmountController.text = settings.amount.toStringAsFixed(0);
+      _securityDeposit4to5Controller.text =
+          settings.deposit4to5Seater.toStringAsFixed(0);
+      _securityDeposit6PlusController.text =
+          settings.deposit6PlusSeater.toStringAsFixed(0);
       _reservationQrUrlController.text = settings.qrUrl;
       _reservationAccountNameController.text = settings.accountName;
       _reservationInstructionsController.text = settings.instructions;
@@ -1490,11 +1500,17 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   Future<void> _saveReservationPaymentSettings() async {
     final amount =
         double.tryParse(_reservationAmountController.text.trim()) ?? 0;
+    final deposit4to5 =
+        double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0;
+    final deposit6Plus =
+        double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0;
     setState(() => _isSavingReservationPayment = true);
 
     try {
       await ReservationPaymentService().updateSettings(
         amount: amount,
+        deposit4to5Seater: deposit4to5,
+        deposit6PlusSeater: deposit6Plus,
         qrUrl: _reservationQrUrlController.text,
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -1602,6 +1618,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       await service.deleteQrCode(currentQrUrl);
       await service.updateSettings(
         amount: double.tryParse(_reservationAmountController.text.trim()) ?? 0,
+        deposit4to5Seater:
+            double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0,
+        deposit6PlusSeater:
+            double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0,
         qrUrl: '',
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -14268,6 +14288,69 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           isDark,
                           label: 'Account Name',
                           hint: 'PSDC',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Security Deposit by Seater Capacity',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Automatically applied based on vehicle seat count (4–5 seaters vs 6+ seaters).',
+                  style: TextStyle(
+                    color: isDark ? Colors.grey : Colors.grey.shade600,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _securityDeposit4to5Controller,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: '4–5 Seater Deposit (₱)',
+                          hint: '2000',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _securityDeposit6PlusController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: '6+ Seater Deposit (₱)',
+                          hint: '3000',
                         ),
                       ),
                     ),

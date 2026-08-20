@@ -170,9 +170,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         widget.vehicleData['partner_name'] != null;
     final partnerCommission =
         isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+    final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
+    final configuredDeposit = _settings.getDepositForSeats(seats);
     final reservationOnlyAmount = widget.requiresLongBookingReservation
         ? widget.reservationFeeAmount
-        : _settings.amount;
+        : configuredDeposit;
     final payableAmount = _payFullAmount
         ? widget.rentalTotal + partnerCommission
         : reservationOnlyAmount;
@@ -281,9 +283,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             widget.discountAmount)
         .clamp(0.0, double.infinity);
 
+    final seats = (vehicle['seats'] as num?)?.toInt() ?? 5;
+    final configuredDeposit = _settings.getDepositForSeats(seats);
     final securityDeposit = widget.requiresLongBookingReservation
         ? widget.reservationFeeAmount
-        : _settings.amount;
+        : configuredDeposit;
 
     final grandTotal = principalRentalSubtotal + securityDeposit;
 
@@ -887,7 +891,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                         const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF3B82F6)),
                         const SizedBox(width: 6),
                         Text(
-                          'Security Deposit',
+                          widget.requiresLongBookingReservation
+                              ? 'Security Deposit (Long-term)'
+                              : 'Security Deposit (${((widget.vehicleData['seats'] as num?)?.toInt() ?? 5) >= 6 ? '6+ Seater' : '4–5 Seater'})',
                           style: TextStyle(
                             color: isDark ? Colors.white : const Color(0xFF0F172A),
                             fontWeight: FontWeight.w700,
