@@ -4196,17 +4196,17 @@ class __EarningsTabState extends State<_EarningsTab> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(color: _driverBorderColor(context)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _selectedPeriod,
-          dropdownColor: AppColors.darkBgSecondary,
+          dropdownColor: _driverCardColor(context),
           iconEnabledColor: AppColors.primary,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
+          style: TextStyle(
+            color: _driverPrimaryText(context),
             fontWeight: FontWeight.w800,
           ),
           items: _periodOptions
@@ -4237,9 +4237,10 @@ class __EarningsTabState extends State<_EarningsTab> {
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF071D31),
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(color: _driverBorderColor(context)),
+        boxShadow: AppColors.cardShadowOf(context),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4250,13 +4251,13 @@ class __EarningsTabState extends State<_EarningsTab> {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(color: AppColors.textSecondary),
+                  style: TextStyle(color: _driverSecondaryText(context)),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   value,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: _driverPrimaryText(context),
                     fontSize: 28,
                     fontWeight: FontWeight.w900,
                   ),
@@ -4287,9 +4288,10 @@ class __EarningsTabState extends State<_EarningsTab> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(color: _driverBorderColor(context)),
+        boxShadow: AppColors.cardShadowOf(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4298,15 +4300,15 @@ class __EarningsTabState extends State<_EarningsTab> {
           const SizedBox(height: 12),
           Text(
             label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              color: _driverSecondaryText(context),
               fontSize: 12,
             ),
           ),
           Text(
             value,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
+            style: TextStyle(
+              color: _driverPrimaryText(context),
               fontSize: 22,
               fontWeight: FontWeight.w900,
             ),
@@ -4322,8 +4324,8 @@ class __EarningsTabState extends State<_EarningsTab> {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
+            style: TextStyle(
+              color: _driverPrimaryText(context),
               fontSize: 16,
               fontWeight: FontWeight.w900,
             ),
@@ -4347,9 +4349,10 @@ class __EarningsTabState extends State<_EarningsTab> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
+        color: _driverCardColor(context),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(color: _driverBorderColor(context)),
+        boxShadow: AppColors.cardShadowOf(context),
       ),
       child: Row(
         children: [
@@ -4358,7 +4361,10 @@ class __EarningsTabState extends State<_EarningsTab> {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(color: AppColors.textSecondary),
+              style: TextStyle(
+                color: _driverSecondaryText(context),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

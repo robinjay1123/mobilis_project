@@ -120,7 +120,9 @@ class _MyAppState extends State<MyApp> {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Mobilis',
-        theme: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
         home: NoInternetScreen(
           onRetry: () async {
             final connectivityService = ConnectivityService();
@@ -136,7 +138,9 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Mobilis',
-      theme: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: _isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: DoubleBackExitWrapper(
         child: AuthWrapper(
           onThemeToggle: _toggleTheme,

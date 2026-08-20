@@ -898,14 +898,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             decoration: BoxDecoration(
-              color: isUser ? AppColors.primary : AppColors.darkCard,
+              color: isUser ? AppColors.primary : AppColors.cardOf(context),
               borderRadius: BorderRadius.circular(13),
-              border: isUser ? null : Border.all(color: AppColors.borderColor),
+              border: isUser ? null : Border.all(color: AppColors.cardBorderOf(context)),
+              boxShadow: isUser ? null : AppColors.cardShadowOf(context),
             ),
             child: Text(
               message['message'] ?? '',
               style: TextStyle(
-                color: isUser ? Colors.black : AppColors.textPrimary,
+                color: isUser ? Colors.black : AppColors.textPrimaryOf(context),
                 fontSize: 13,
                 height: 1.45,
               ),
@@ -922,7 +923,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cardColor,
-        border: const Border(top: BorderSide(color: AppColors.borderColor)),
+        border: Border(top: BorderSide(color: AppColors.subtleBorderOf(context))),
       ),
       child: FilledButton.icon(
         onPressed: _openLiveAdminChat,
@@ -949,9 +950,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       decoration: BoxDecoration(
-        color: AppColors.darkCard,
+        color: AppColors.cardOf(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borderColor),
+        border: Border.all(color: AppColors.cardBorderOf(context)),
+        boxShadow: AppColors.cardShadowOf(context),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

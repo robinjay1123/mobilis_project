@@ -477,8 +477,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                   Text(
                     vehicleName,
                     textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
+                    style: TextStyle(
+                      color: AppColors.textPrimaryOf(context),
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                     ),
@@ -487,8 +487,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                     const SizedBox(height: 2),
                     Text(
                       plateNumber,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
+                      style: TextStyle(
+                        color: AppColors.textSecondaryOf(context),
                         fontSize: 12,
                       ),
                     ),
@@ -501,9 +501,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             decoration: BoxDecoration(
-              color: const Color(0xFF0E355A),
+              color: AppColors.surfaceOf(context),
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: AppColors.cardBorderOf(context)),
+              boxShadow: AppColors.cardShadowOf(context),
             ),
             child: Row(
               children: [

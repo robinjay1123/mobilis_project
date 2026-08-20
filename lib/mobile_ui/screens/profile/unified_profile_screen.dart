@@ -651,7 +651,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    const ColoredBox(color: AppColors.darkBgSecondary),
+                    ColoredBox(color: AppColors.cardOf(context)),
                     Positioned.fromRect(
                       rect: avatarRect,
                       child: GestureDetector(
@@ -749,7 +749,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
                       child: Container(
                         decoration: BoxDecoration(
                           color: Color.lerp(
-                            AppColors.darkBgSecondary,
+                            AppColors.surfaceOf(context),
                             Colors.black.withValues(alpha: 0.58),
                             progress,
                           ),
@@ -843,8 +843,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
           name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
+          style: TextStyle(
+            color: AppColors.textPrimaryOf(context),
             fontSize: 18,
             fontWeight: FontWeight.w900,
           ),
@@ -864,7 +864,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         for (var index = 0; index < widget.stats.length; index++) ...[
           Expanded(child: _stat(widget.stats[index])),
           if (index != widget.stats.length - 1)
-            Container(height: 42, width: 1, color: AppColors.borderColor),
+            Container(height: 42, width: 1, color: AppColors.subtleBorderOf(context)),
         ],
       ],
     );
@@ -920,7 +920,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         badgeColor = AppColors.success;
       } else {
         label = 'Basic Partner';
-        badgeColor = AppColors.textSecondary;
+        badgeColor = AppColors.textSecondaryOf(context);
       }
     } else if (role == 'driver') {
       if (isVerified) {
@@ -928,7 +928,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         badgeColor = AppColors.success;
       } else {
         label = 'Basic Driver';
-        badgeColor = AppColors.textSecondary;
+        badgeColor = AppColors.textSecondaryOf(context);
       }
     } else {
       if (isVerified) {
@@ -936,7 +936,7 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
         badgeColor = AppColors.success;
       } else {
         label = 'Basic Renter';
-        badgeColor = AppColors.textSecondary;
+        badgeColor = AppColors.textSecondaryOf(context);
       }
     }
 
@@ -962,15 +962,15 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       padding: const EdgeInsets.only(bottom: 5),
       child: Row(
         children: [
-          Icon(icon, color: AppColors.textTertiary, size: 14),
+          Icon(icon, color: AppColors.textTertiaryOf(context), size: 14),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                color: AppColors.textSecondaryOf(context),
                 fontSize: 12,
               ),
             ),
@@ -1008,8 +1008,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
               displayValue,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: AppColors.textPrimaryOf(context),
                 fontSize: 17,
                 fontWeight: FontWeight.w900,
               ),
@@ -1020,8 +1020,8 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                color: AppColors.textSecondaryOf(context),
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),

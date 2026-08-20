@@ -2771,16 +2771,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           margin: const EdgeInsets.all(12),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           decoration: BoxDecoration(
-            color: const Color(0xFF2A3548),
+            color: AppColors.modalBgOf(sheetContext),
             borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: Colors.white12),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black45,
-                blurRadius: 28,
-                offset: Offset(0, 12),
-              ),
-            ],
+            border: Border.all(color: AppColors.modalBorderOf(sheetContext)),
+            boxShadow: AppColors.cardShadowOf(sheetContext),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2791,7 +2785,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 44,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: AppColors.subtleBorderOf(sheetContext),
                     borderRadius: BorderRadius.circular(99),
                   ),
                 ),
@@ -2824,8 +2818,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         Text(
                           title?.isNotEmpty == true ? title! : 'Notification',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: AppColors.textPrimaryOf(sheetContext),
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
                           ),
@@ -2834,8 +2828,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 4),
                           Text(
                             timestamp!,
-                            style: const TextStyle(
-                              color: AppColors.textTertiary,
+                            style: TextStyle(
+                              color: AppColors.textTertiaryOf(sheetContext),
                               fontSize: 12,
                             ),
                           ),
@@ -2850,8 +2844,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 message?.isNotEmpty == true
                     ? message!
                     : 'No additional details are available.',
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
+                style: TextStyle(
+                  color: AppColors.textPrimaryOf(sheetContext),
                   fontSize: 15,
                   height: 1.5,
                 ),
@@ -8619,26 +8613,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: AppColors.darkCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: AppColors.borderColor),
+          side: BorderSide(color: AppColors.cardBorderOf(context)),
         ),
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.update_rounded,
-                color: AppColors.primary,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
+            const Icon(Icons.av_timer_rounded, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
               'Confirm Trip Extension',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 17),
+              style: TextStyle(
+                color: AppColors.textPrimaryOf(context),
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+              ),
             ),
           ],
         ),
@@ -8649,9 +8636,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: AppColors.surfaceOf(context),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: AppColors.cardBorderOf(context)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -8659,13 +8646,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Extension Start (Locked):',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        style: TextStyle(color: AppColors.textSecondaryOf(context), fontSize: 12),
                       ),
                       Text(
                         _formatDateShort(currentEndAt.toIso8601String()),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                        style: TextStyle(color: AppColors.textPrimaryOf(context), fontWeight: FontWeight.w700, fontSize: 12),
                       ),
                     ],
                   ),
@@ -8673,9 +8660,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'New Extended Return:',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        style: TextStyle(color: AppColors.textSecondaryOf(context), fontSize: 12),
                       ),
                       Text(
                         _formatDateShort(selectedNewEndAt.toIso8601String()),

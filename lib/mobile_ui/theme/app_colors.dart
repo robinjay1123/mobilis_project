@@ -71,20 +71,70 @@ class AppColors {
   }
 
   static Color borderOf(BuildContext context) {
-    return isDarkMode(context) ? borderColor : lightBorderColor;
+    return isDarkMode(context)
+        ? borderColor.withValues(alpha: 0.7)
+        : lightBorderColor;
   }
 
   static Color subtleBorderOf(BuildContext context) {
-    return isDarkMode(context) ? borderColor.withValues(alpha: 0.5) : lightBorderSubtle;
+    return isDarkMode(context)
+        ? borderColor.withValues(alpha: 0.45)
+        : lightBorderSubtle;
+  }
+
+  static Color cardBorderOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF334155).withValues(alpha: 0.6)
+        : const Color(0xFFE2E8F0);
+  }
+
+  static Color chipBgOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF1E293B)
+        : const Color(0xFFF1F5F9);
+  }
+
+  static Color chipBorderOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF334155).withValues(alpha: 0.6)
+        : const Color(0xFFE2E8F0);
+  }
+
+  static Color modalBgOf(BuildContext context) {
+    return isDarkMode(context) ? const Color(0xFF1E293B) : Colors.white;
+  }
+
+  static Color modalBorderOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF334155).withValues(alpha: 0.7)
+        : const Color(0xFFE2E8F0);
+  }
+
+  static Color inputFillOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF0F172A).withValues(alpha: 0.8)
+        : const Color(0xFFF8FAFC);
+  }
+
+  static Color inputBorderOf(BuildContext context) {
+    return isDarkMode(context)
+        ? const Color(0xFF334155)
+        : const Color(0xFFCBD5E1);
   }
 
   static List<BoxShadow> cardShadowOf(BuildContext context) {
     if (isDarkMode(context)) {
-      return const [];
+      return [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.25),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
+        ),
+      ];
     }
     return [
       BoxShadow(
-        color: Colors.black.withValues(alpha: 0.05),
+        color: Colors.black.withValues(alpha: 0.04),
         blurRadius: 10,
         offset: const Offset(0, 2),
       ),

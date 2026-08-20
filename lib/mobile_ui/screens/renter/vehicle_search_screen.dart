@@ -288,47 +288,61 @@ class _VehicleSearchScreenState extends State<VehicleSearchScreen> {
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (context, child) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppColors.primary,
-              onPrimary: Colors.black,
-              surface: AppColors.darkBgSecondary,
-              onSurface: AppColors.textPrimary,
-            ),
+            colorScheme: isDark
+                ? const ColorScheme.dark(
+                    primary: AppColors.primary,
+                    onPrimary: Colors.black,
+                    surface: AppColors.darkBgSecondary,
+                    onSurface: AppColors.textPrimary,
+                  )
+                : const ColorScheme.light(
+                    primary: AppColors.primary,
+                    onPrimary: Colors.black,
+                    surface: Colors.white,
+                    onSurface: AppColors.lightTextPrimary,
+                  ),
             datePickerTheme: DatePickerThemeData(
-              backgroundColor: AppColors.darkBgSecondary,
+              backgroundColor: isDark ? AppColors.darkBgSecondary : Colors.white,
               surfaceTintColor: Colors.transparent,
-              headerBackgroundColor: AppColors.darkBg,
-              headerForegroundColor: AppColors.textPrimary,
+              headerBackgroundColor: isDark ? AppColors.darkBg : AppColors.primary,
+              headerForegroundColor: isDark ? AppColors.textPrimary : Colors.black,
               dayForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled))
-                  return AppColors.textTertiary;
+                if (states.contains(WidgetState.disabled)) {
+                  return isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+                }
                 if (states.contains(WidgetState.selected)) return Colors.black;
-                return AppColors.textPrimary;
+                return isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
               }),
               dayBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected))
+                if (states.contains(WidgetState.selected)) {
                   return AppColors.primary;
+                }
                 return Colors.transparent;
               }),
               todayForegroundColor: WidgetStateProperty.all(AppColors.primary),
               todayBorder: const BorderSide(color: AppColors.primary),
               yearForegroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled))
-                  return AppColors.textTertiary;
+                if (states.contains(WidgetState.disabled)) {
+                  return isDark ? AppColors.textTertiary : AppColors.lightTextTertiary;
+                }
                 if (states.contains(WidgetState.selected)) return Colors.black;
-                return AppColors.textPrimary;
+                return isDark ? AppColors.textPrimary : AppColors.lightTextPrimary;
               }),
               yearBackgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.selected))
+                if (states.contains(WidgetState.selected)) {
                   return AppColors.primary;
+                }
                 return Colors.transparent;
               }),
             ),
-            dialogBackgroundColor: AppColors.darkBgSecondary,
+            dialogBackgroundColor: isDark ? AppColors.darkBgSecondary : Colors.white,
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+              style: TextButton.styleFrom(
+                foregroundColor: isDark ? AppColors.primary : AppColors.primaryDark,
+              ),
             ),
           ),
           child: child!,

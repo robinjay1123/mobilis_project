@@ -486,14 +486,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 _rangeContainsBlockedDate(rangeStart!, rangeEnd!, bookedDays);
 
             return Dialog(
-              backgroundColor: AppColors.darkBgSecondary,
+              backgroundColor: AppColors.modalBgOf(context),
               insetPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 24,
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: AppColors.borderColor),
+                side: BorderSide(color: AppColors.modalBorderOf(context)),
               ),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
@@ -505,13 +505,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     children: [
                       Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Text(
                               'Select Booking Dates',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
+                                color: AppColors.textPrimaryOf(context),
                               ),
                             ),
                           ),
@@ -1098,7 +1098,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.darkBgSecondary,
+      backgroundColor: AppColors.modalBgOf(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
@@ -1112,8 +1112,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               children: [
                 Text(
                   'Your booking on ${_formatDate(date)}',
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: AppColors.textPrimaryOf(context),
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1126,9 +1126,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBgTertiary,
+                      color: AppColors.surfaceOf(context),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.borderColor),
+                      border: Border.all(color: AppColors.cardBorderOf(context)),
                     ),
                     child: Row(
                       children: [

@@ -5843,9 +5843,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: AppColors.darkCard,
+        color: AppColors.cardOf(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        border: Border.all(color: AppColors.cardBorderOf(context)),
       ),
       child: Stack(
         children: [
@@ -7766,16 +7766,10 @@ class _PartnerEnlargedDriverMapDialogState
         ),
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.darkCard,
+            color: AppColors.modalBgOf(context),
             borderRadius: BorderRadius.circular(20),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black54,
-                blurRadius: 40,
-                offset: Offset(0, 16),
-              ),
-            ],
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            boxShadow: AppColors.cardShadowOf(context),
+            border: Border.all(color: AppColors.modalBorderOf(context)),
           ),
           child: Column(
             children: [
