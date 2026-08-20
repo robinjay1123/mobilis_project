@@ -17071,6 +17071,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ),
           const SizedBox(height: 14),
           Text(
+            'Select a booking conversation',
+            style: TextStyle(
+              color: isDark ? Colors.white : _operatorInk,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 5),
           Text(
