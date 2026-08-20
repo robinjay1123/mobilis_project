@@ -275,8 +275,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           .toList();
 
       if (conversationIds.isEmpty) {
-        final convs = await _loadConversations();
-        conversationIds = convs
+        await _loadConversations();
+        conversationIds = _conversations
             .map((c) => c['id']?.toString())
             .whereType<String>()
             .where((id) => id.isNotEmpty)
