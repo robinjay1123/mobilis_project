@@ -463,8 +463,18 @@ class TripRatingService {
     }
 
     final ownerRole = _ownerRole(context, owner);
-    final hasDriver = resolvedDriverId.isNotEmpty;
-    final isPartnerVehicle = ownerRole == 'partner';
+    final bool hasDriverFlag = context['with_driver'] == true ||
+        context['with_driver']?.toString().toLowerCase() == 'true' ||
+        context['with_driver']?.toString().toLowerCase() == 'yes' ||
+        (context['driver_id'] != null &&
+            context['driver_id'].toString().trim().isNotEmpty);
+    final hasDriver = hasDriverFlag && resolvedDriverId.isNotEmpty;
+
+    final bool isPartnerVehicle = ownerRole == 'partner' ||
+        owner['role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle['owner_role']?.toString().trim().toLowerCase() == 'partner' ||
+        vehicle['is_partner_vehicle'] == true ||
+        vehicle['partner_vehicle_id'] != null;
 
     if (cleanRole == 'renter') {
       if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
@@ -523,15 +533,19 @@ class TripRatingService {
         addTarget(resolvedOperator, 'operator', 'How was the operator support?');
       }
     } else if (cleanRole == 'operator') {
+      // 1. Operator ALWAYS rates Renter
       if (resolvedRenterId.isNotEmpty) {
         addTarget(resolvedRenter, 'renter', 'How was the renter during this booking?', allowSelf: true);
       }
-      if (hasDriver) {
-        addTarget(resolvedDriver, 'driver', 'How was the assigned driver?');
+      // 2. Operator rates Partner ONLY if Partner Vehicle
+      if (isPartnerVehicle && resolvedOwnerId.isNotEmpty && resolvedOwnerId != reviewerUserId) {
+        addTarget(resolvedOwner, 'partner', 'How was the partner coordination and vehicle?');
       }
-      if (isPartnerVehicle && resolvedOwnerId.isNotEmpty) {
-        addTarget(resolvedOwner, 'partner', 'How was the partner coordination?');
+      // 3. Operator rates Driver ONLY if Driver was used
+      if (hasDriver && resolvedDriverId.isNotEmpty && resolvedDriverId != reviewerUserId) {
+        addTarget(resolvedDriver, 'driver', 'How was the assigned driver during this trip?');
       }
+      // Operator NEVER rates the vehicle
     }
 
     final deduped = <String, Map<String, dynamic>>{};
@@ -566,6 +580,28 @@ class TripRatingService {
     }
 
     return const <Map<String, dynamic>>[];
+  }
+
+  Future<bool> isReviewerRatingComplete({
+    required String bookingId,
+    required String reviewerUserId,
+    required String reviewerRole,
+    String? operatorFallbackUserId,
+  }) async {
+    final cleanRole = (reviewerRole == 'admin' || reviewerRole == 'super_admin')
+        ? 'operator'
+        : reviewerRole.trim().toLowerCase();
+    final resolvedOperatorFallback =
+        (cleanRole == 'operator' ? reviewerUserId : operatorFallbackUserId)?.trim();
+
+    final remaining = await buildTargetsForBooking(
+      bookingId: bookingId,
+      reviewerUserId: reviewerUserId,
+      reviewerRole: cleanRole,
+      includePreviouslySubmittedForRecovery: false,
+      operatorFallbackUserId: resolvedOperatorFallback,
+    );
+    return remaining.isEmpty;
   }
 
   Future<void> submitRating({

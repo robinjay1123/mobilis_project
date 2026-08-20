@@ -172,6 +172,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   int _unviewedBookingsCount = 0;
   Set<String> _viewedBookingIds = {};
   int _unreadMessagesCount = 0;
+  Map<String, Set<String>> _operatorSubmittedRatingRolesByBooking = {};
 
   bool _isPendingBookingForCurrentOperator(Map<String, dynamic> booking) {
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
@@ -1370,6 +1371,32 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     setState(() => _trackingLocations = locations);
   }
 
+  bool _isOperatorRatingFullyCompleted(Map<String, dynamic> booking) {
+    final bookingId = booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return false;
+
+    if (booking['operator_trip_confirmed_at'] != null) {
+      return true;
+    }
+
+    final isPartner = _isPartnerOwnedBooking(booking);
+    final withDriver = _bookingNeedsDriver(booking['with_driver']);
+
+    final ratedRoles =
+        _operatorSubmittedRatingRolesByBooking[bookingId] ?? const {};
+
+    // 1. Renter is ALWAYS required for operator
+    if (!ratedRoles.contains('renter')) return false;
+
+    // 2. Partner is required if partner vehicle
+    if (isPartner && !ratedRoles.contains('partner')) return false;
+
+    // 3. Driver is required if with driver
+    if (withDriver && !ratedRoles.contains('driver')) return false;
+
+    return true;
+  }
+
   Future<void> _openOperatorRenterRating(Map<String, dynamic> booking) async {
     final bookingId = booking['id']?.toString() ?? '';
     if (bookingId.isEmpty) return;
@@ -1391,6 +1418,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (completionStage == 'awaiting_payment' &&
           latestBooking['final_payment_status'] != 'paid') {
         await _confirmOperatorFinalPayment(latestBooking);
+        return;
+      }
+
+      // Check database to prevent duplicate rating if already complete
+      final isComplete = await TripRatingService().isReviewerRatingComplete(
+        bookingId: bookingId,
+        reviewerUserId: actorId,
+        reviewerRole: 'operator',
+        operatorFallbackUserId: actorId,
+      );
+
+      if (isComplete) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rating is complete for this trip.'),
+            backgroundColor: Colors.blueGrey,
+          ),
+        );
         return;
       }
 
@@ -1423,9 +1469,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: TripRatingFlowScreen(
                 bookingId: bookingId,
                 reviewerRole: 'operator',
-                title: 'Rate Renter',
+                title: 'Rate Trip',
                 subtitle:
-                    'Rate the renter before this trip moves to final completion.',
+                    'Submit all required ratings for this completed booking.',
               ),
             ),
           ),
@@ -1448,8 +1494,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           SnackBar(
             content: Text(
               reconciled
-                  ? 'Renter rating saved. Trip completed and revenue updated.'
-                  : 'Renter rating saved. Waiting for remaining required ratings.',
+                  ? 'All ratings submitted. Trip completed and revenue updated.'
+                  : 'Rating submitted successfully.',
             ),
             backgroundColor: Colors.green,
           ),
@@ -2004,6 +2050,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         }
         return normalizedBooking;
       }).toList();
+
+      final actorId = _supabase.auth.currentUser?.id;
+      if (actorId != null && actorId.isNotEmpty) {
+        try {
+          final ratingsResp = await _supabase
+              .from('trip_ratings')
+              .select('booking_id, target_role')
+              .eq('reviewer_user_id', actorId);
+          final ratingsList = List<Map<String, dynamic>>.from(ratingsResp);
+          final ratedMap = <String, Set<String>>{};
+          for (final r in ratingsList) {
+            final bId = r['booking_id']?.toString() ?? '';
+            final role =
+                r['target_role']?.toString().toLowerCase().trim() ?? '';
+            if (bId.isNotEmpty && role.isNotEmpty) {
+              ratedMap.putIfAbsent(bId, () => {}).add(role);
+            }
+          }
+          _operatorSubmittedRatingRolesByBooking = ratedMap;
+        } catch (e) {
+          debugPrint('Error loading operator ratings: $e');
+        }
+      }
 
       _recalculatePendingBookings();
     } catch (e, st) {
@@ -11876,20 +11945,47 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                             icon: const Icon(Icons.check_circle_outline, size: 17),
                             label: const Text('Deposit Refunded'),
                           ),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(dialogContext);
-                            _openOperatorRenterRating(booking);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _operatorNavy,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(0, 44),
-                            padding: const EdgeInsets.symmetric(horizontal: 18),
+                        if (_isOperatorRatingFullyCompleted(booking))
+                          Tooltip(
+                            message: 'Rating is complete',
+                            child: ElevatedButton.icon(
+                              onPressed: null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isDark
+                                    ? Colors.grey.shade800
+                                    : Colors.grey.shade300,
+                                foregroundColor: isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade600,
+                                minimumSize: const Size(0, 44),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.check_circle_outline,
+                                size: 17,
+                              ),
+                              label: const Text('Rating Complete'),
+                            ),
+                          )
+                        else
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(dialogContext);
+                              _openOperatorRenterRating(booking);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _operatorNavy,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                              ),
+                            ),
+                            icon: const Icon(Icons.star_rate_rounded, size: 17),
+                            label: const Text('Rate Trip'),
                           ),
-                          icon: const Icon(Icons.star_rate_rounded, size: 17),
-                          label: const Text('Rate Trip'),
-                        ),
                       ],
                     ],
                   ),
@@ -14526,26 +14622,51 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                         completionStage ==
                                             'awaiting_after_checklist' ||
                                         completionStage ==
-                                            'awaiting_payment') &&
-                                    booking['operator_trip_confirmed_at'] ==
-                                        null)
-                                  ElevatedButton.icon(
-                                    onPressed: () =>
-                                        _openOperatorRenterRating(booking),
-                                    icon: const Icon(
-                                      Icons.star_rate_rounded,
-                                      size: 16,
-                                    ),
-                                    label: const Text('Rate Trip'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.primary,
-                                      foregroundColor: Colors.black,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 8,
+                                            'awaiting_payment' ||
+                                        completionStage == 'completed')) ...[
+                                  if (_isOperatorRatingFullyCompleted(booking))
+                                    Tooltip(
+                                      message: 'Rating is complete',
+                                      child: ElevatedButton.icon(
+                                        onPressed: null,
+                                        icon: const Icon(
+                                          Icons.check_circle_outline,
+                                          size: 16,
+                                        ),
+                                        label: const Text('Rating Complete'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: isDark
+                                              ? Colors.grey.shade800
+                                              : Colors.grey.shade300,
+                                          foregroundColor: isDark
+                                              ? Colors.grey.shade400
+                                              : Colors.grey.shade600,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 8,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    ElevatedButton.icon(
+                                      onPressed: () =>
+                                          _openOperatorRenterRating(booking),
+                                      icon: const Icon(
+                                        Icons.star_rate_rounded,
+                                        size: 16,
+                                      ),
+                                      label: const Text('Rate Trip'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.primary,
+                                        foregroundColor: Colors.black,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                ],
                                 if (completionStage == 'completed')
                                   Text(
                                     'Trip completed after all required ratings',

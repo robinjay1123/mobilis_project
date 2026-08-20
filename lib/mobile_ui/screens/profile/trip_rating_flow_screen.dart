@@ -102,6 +102,28 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       } catch (_) {}
     }
 
+    if (targets.isNotEmpty) {
+      final allRated = targets.every((t) => t['alreadyRated'] == true);
+      if (allRated && cleanReviewerRole == 'operator') {
+        if (!mounted) return;
+        setState(() {
+          _targets = [];
+          _emptyTitle = 'Rating is complete';
+          _emptyMessage =
+              'All required ratings for this trip have been successfully submitted.';
+          _emptyIcon = Icons.check_circle_outline_rounded;
+          _emptyIconColor = AppColors.success;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final firstUnrated = targets.indexWhere((t) => t['alreadyRated'] != true);
+      if (firstUnrated >= 0) {
+        _currentIndex = firstUnrated;
+      }
+    }
+
     var emptyTitle = 'No Rating Targets';
     var emptyMessage = 'No rating targets available for this booking.';
     var emptyIcon = Icons.hourglass_bottom_rounded;
@@ -206,6 +228,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         imageFiles: _selectedImages,
       );
 
+      target['alreadyRated'] = true;
       _moveNextOrFinish();
     } catch (e) {
       if (!mounted) return;
@@ -220,13 +243,14 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   }
 
   void _moveNextOrFinish() {
-    if (_currentIndex >= _targets.length - 1) {
+    final nextUnrated = _targets.indexWhere((t) => t['alreadyRated'] != true);
+    if (nextUnrated == -1 || _currentIndex >= _targets.length - 1) {
       Navigator.pop(context, true);
       return;
     }
 
     setState(() {
-      _currentIndex++;
+      _currentIndex = nextUnrated >= 0 ? nextUnrated : _currentIndex + 1;
       _isSubmitting = false;
       _populateFieldsForCurrentTarget();
     });
