@@ -2861,7 +2861,13 @@ class BookingService {
         : await _resolveDriverUserId(driverId);
     final currentUserId = supabase.auth.currentUser?.id;
     final participantIds = <String>{renterId};
-    if (ownerId != null && ownerId.isNotEmpty) participantIds.add(ownerId);
+    if (ownerId != null && ownerId.isNotEmpty) {
+      participantIds.add(ownerId);
+    } else {
+      // For company vehicles, add all active operators so all operators can see and reply to chat
+      final allOperatorIds = await _getAllOperatorIds();
+      participantIds.addAll(allOperatorIds);
+    }
     if (operatorId != null && operatorId.isNotEmpty) {
       participantIds.add(operatorId);
     }
@@ -3030,6 +3036,24 @@ class BookingService {
     } catch (e) {
       debugPrint('Could not fetch default operator for booking chat: $e');
       return null;
+    }
+  }
+
+  Future<List<String>> _getAllOperatorIds() async {
+    try {
+      final operators = await supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'operator')
+          .limit(20);
+      return List<Map<String, dynamic>>.from(operators)
+          .map((op) => op['id']?.toString().trim())
+          .whereType<String>()
+          .where((id) => id.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('Could not fetch all operators: $e');
+      return [];
     }
   }
 

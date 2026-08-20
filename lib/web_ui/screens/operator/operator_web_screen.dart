@@ -15696,13 +15696,25 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final bookingRows = await _supabase
           .from('bookings')
-          .select('id, status, operator_id')
+          .select('id, status, operator_id, vehicles!bookings_vehicle_id_fkey(owner_id)')
           .inFilter('status', activeStatuses)
           .order('updated_at', ascending: false);
       final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
           .where((booking) {
             final bookingId = booking['id']?.toString().trim() ?? '';
             final operatorId = booking['operator_id']?.toString().trim() ?? '';
+            final bookingStatus =
+                booking['status']?.toString().trim().toLowerCase() ?? '';
+            final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+            final isPartnerCar = vehicle?['owner_id'] != null &&
+                vehicle!['owner_id'].toString().trim().isNotEmpty;
+
+            // Pending bookings for partner cars are awaiting partner confirmation
+            // and should not have active group conversations created yet.
+            if (isPartnerCar && bookingStatus == 'pending') {
+              return false;
+            }
+
             return operatorId.isEmpty ||
                 operatorId == currentUserId ||
                 participantBookingIds.contains(bookingId);

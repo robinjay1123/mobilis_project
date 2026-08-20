@@ -186,6 +186,51 @@ class ChatService {
       }
     }
 
+    // Operators and Admins manage all company car bookings (where owner_id is null)
+    // and all bookings where operator_id is not yet explicitly set.
+    try {
+      final userRow = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final userRole = userRow?['role']?.toString().trim().toLowerCase();
+      if (userRole == 'operator' || userRole == 'admin') {
+        final companyVehicleRows = await supabase
+            .from('vehicles')
+            .select('id')
+            .isFilter('owner_id', null);
+        final companyVehicleIds = List<Map<String, dynamic>>.from(companyVehicleRows)
+            .map((row) => row['id']?.toString().trim())
+            .whereType<String>()
+            .where((id) => id.isNotEmpty)
+            .toList();
+
+        if (companyVehicleIds.isNotEmpty) {
+          final companyBookingRows = await supabase
+              .from('bookings')
+              .select('id')
+              .inFilter('vehicle_id', companyVehicleIds);
+          for (final row in List<Map<String, dynamic>>.from(companyBookingRows)) {
+            final id = row['id']?.toString().trim() ?? '';
+            if (id.isNotEmpty) bookingIds.add(id);
+          }
+        }
+
+        // Also fetch bookings where operator_id is null
+        final unassignedBookingRows = await supabase
+            .from('bookings')
+            .select('id')
+            .isFilter('operator_id', null);
+        for (final row in List<Map<String, dynamic>>.from(unassignedBookingRows)) {
+          final id = row['id']?.toString().trim() ?? '';
+          if (id.isNotEmpty) bookingIds.add(id);
+        }
+      }
+    } catch (e) {
+      debugPrint('Company vehicle booking lookup for operator skipped: $e');
+    }
+
     return bookingIds.toList();
   }
 

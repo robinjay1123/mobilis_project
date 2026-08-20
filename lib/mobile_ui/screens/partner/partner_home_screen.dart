@@ -4681,11 +4681,31 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         bookingId,
       );
 
-      if (conversation == null && partnerId != null && renterId.isNotEmpty) {
-        conversation = await chatService.createGroupConversation(
-          bookingId: bookingId,
-          participantIds: [partnerId!, renterId],
-        );
+      final bookingStatus =
+          booking['status']?.toString().trim().toLowerCase() ?? '';
+      const activeChatStatuses = {
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+        'completed',
+      };
+
+      if (conversation == null) {
+        if (!activeChatStatuses.contains(bookingStatus)) {
+          _showErrorSnackBar(
+            'Chat will be available once the booking is confirmed.',
+          );
+          return;
+        }
+        if (partnerId != null && renterId.isNotEmpty) {
+          conversation = await chatService.createGroupConversation(
+            bookingId: bookingId,
+            participantIds: [partnerId!, renterId],
+          );
+        }
       }
 
       final conversationId = conversation?['id']?.toString() ?? '';
@@ -4762,7 +4782,22 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           renter?['id']?.toString() ?? booking['renter_id']?.toString() ?? '';
       final renterName = renter?['full_name']?.toString() ?? 'Renter';
 
-      if (conversation == null && partnerId != null && renterId.isNotEmpty) {
+      final bookingStatus =
+          booking['status']?.toString().trim().toLowerCase() ?? '';
+      const activeChatStatuses = {
+        'approved',
+        'confirmed',
+        'active',
+        'ongoing',
+        'return_pending_inspection',
+        'awaiting_completion',
+        'completed',
+      };
+
+      if (conversation == null &&
+          activeChatStatuses.contains(bookingStatus) &&
+          partnerId != null &&
+          renterId.isNotEmpty) {
         conversation = await chatService.createGroupConversation(
           bookingId: bookingId,
           participantIds: [partnerId!, renterId],
