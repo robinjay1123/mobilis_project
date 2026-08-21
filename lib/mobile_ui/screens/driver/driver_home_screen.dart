@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/booking_service.dart';
 import '../../../services/booking_receipt_service.dart';
@@ -2779,13 +2781,14 @@ class _TripCardState extends State<_TripCard> {
     final renterName = renter?['full_name']?.toString().trim();
     final renterPhone = renter?['phone']?.toString().trim();
     final renterId = trip['renter_id']?.toString() ?? '';
-    final startLabel =
-        trip['start_at']?.toString() ?? trip['start_date']?.toString() ?? 'N/A';
-    final endLabel =
-        trip['end_at']?.toString() ?? trip['end_date']?.toString() ?? 'N/A';
+    final startLabel = _formatDriverScheduleDate(trip['start_at'] ?? trip['start_date']);
+    final endLabel = _formatDriverScheduleDate(trip['end_at'] ?? trip['end_date']);
+    final durationLabel = _formatDriverBookingDuration(trip);
+    final isPartner = _isPartnerVehicleForDriver(trip);
     final total =
         (trip['total_price'] as num?)?.toDouble() ??
         (trip['total_cost'] as num?)?.toDouble();
+    final tripFee = (trip['trip_fee'] as num?)?.toDouble();
     final vehicleName = vehicle == null
         ? 'Assigned vehicle'
         : [vehicle['vehicle_name'], vehicle['brand'], vehicle['model']]
@@ -2795,120 +2798,305 @@ class _TripCardState extends State<_TripCard> {
               .map((part) => part.toString().trim())
               .take(2)
               .join(' ');
+    final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isDark ? AppColors.borderColor : Colors.grey.shade300,
         ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : Colors.black,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                    if (plateNumber.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Plate: $plateNumber',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(6),
+              const SizedBox(width: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _buildDriverVehicleOwnershipBadge(isPartner: isPartner, isDark: isDark),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AppColors.success.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Text(
+                      _displayTripStatus(trip['status']?.toString() ?? 'assigned'),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                        color: AppColors.success,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Route Destination Box
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.25)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.trip_origin_rounded, size: 14, color: Colors.green),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Pickup: ${trip['pickup_location'] ?? 'Declared Pickup Point'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey.shade300 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on_rounded, size: 14, color: Colors.redAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Destination: ${trip['dropoff_location'] ?? 'Declared Destination'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Rentee Info
+          Row(
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 15,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
                 child: Text(
-                  _displayTripStatus(trip['status']?.toString() ?? 'assigned'),
-                  style: const TextStyle(
-                    fontSize: 11,
+                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
+                  '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+                  style: TextStyle(
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.success,
+                    color: isDark ? Colors.grey.shade300 : Colors.black87,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            '${trip['pickup_location'] ?? 'Pickup'} to '
-            '${trip['dropoff_location'] ?? 'Destination'}',
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Renter: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
-            '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Renter ID: ${renterId.isNotEmpty ? renterId : 'N/A'}',
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Schedule: $startLabel -> $endLabel',
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          if (total != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Booking total: PHP ${total.toStringAsFixed(0)}',
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.grey : Colors.grey.shade600,
+          if (renterId.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.only(left: 21),
+              child: Text(
+                'Rentee ID: $renterId',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                ),
               ),
             ),
           ],
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
+          // Schedule & Days of Booking
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Schedule: $startLabel → $endLabel',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Duration: $durationLabel',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                if (total != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    'Total: PHP ${total.toStringAsFixed(0)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (tripFee != null) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: Text(
+                'Driver Fee: PHP ${tripFee.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.green,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+
+          // View Details Button (Careful padding, available across ALL status tabs)
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: () async {
-                try {
-                  await BookingReceiptService.shareReceipt(trip);
-                } catch (error) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Could not download receipt: $error'),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
-                }
-              },
-              icon: const Icon(Icons.download_rounded, size: 17),
-              label: const Text('Download Trip Receipt'),
+              onPressed: () => _showDriverTripDetailsModal(context, trip),
+              icon: const Icon(Icons.info_outline_rounded, size: 16),
+              label: const Text('View Details'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                side: BorderSide(
+                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                ),
+                foregroundColor: isDark ? Colors.white : Colors.black87,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          if (status == 'confirmed' || status == 'approved')
+
+          // Download Trip Receipt
+          if (status != 'cancelled' && status != 'canceled') ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    await BookingReceiptService.shareReceipt(trip);
+                  } catch (error) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Could not download receipt: $error'),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: const Text('Download Trip Receipt'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          if (status == 'confirmed' || status == 'approved') ...[
+            const SizedBox(height: 10),
             const _DriverWaitingAction(
               icon: Icons.fact_check_outlined,
               message:
                   'Waiting for the vehicle owner to submit the pre-trip checklist and start the trip.',
             ),
+          ],
           if ({
             'approved',
             'confirmed',
@@ -2916,13 +3104,19 @@ class _TripCardState extends State<_TripCard> {
             'ongoing',
             'return_pending_inspection',
           }.contains(status)) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: () => _openConversation(context),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
                 label: const Text('Message'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
               ),
             ),
           ],
@@ -2931,20 +3125,24 @@ class _TripCardState extends State<_TripCard> {
             Column(
               children: [
                 BookingReturnCountdown(booking: trip),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => _openNavigation(context),
-                    icon: const Icon(Icons.navigation_rounded, size: 17),
+                    icon: const Icon(Icons.navigation_rounded, size: 16),
                     label: const Text('Navigate'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -2954,39 +3152,53 @@ class _TripCardState extends State<_TripCard> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ],
-          if (status == 'return_pending_inspection')
+          if (status == 'return_pending_inspection') ...[
+            const SizedBox(height: 10),
             const _DriverWaitingAction(
               icon: Icons.fact_check_outlined,
               message:
                   'Waiting for the vehicle owner to submit the after checklist.',
             ),
+          ],
           if (status == 'awaiting_completion' &&
-              completionStage != 'driver_rating')
+              completionStage != 'driver_rating') ...[
+            const SizedBox(height: 10),
             const _DriverWaitingAction(
               icon: Icons.hourglass_bottom_rounded,
               message: 'Waiting for payment or the previous required rating.',
             ),
+          ],
           if (completionStage == 'driver_rating' ||
               status == 'completed' ||
-              status == 'returned')
+              status == 'returned') ...[
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () => _rateRenter(context),
-                icon: const Icon(Icons.star_rate_rounded, size: 17),
+                icon: const Icon(Icons.star_rate_rounded, size: 16),
                 label: const Text('Rate Renter'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -3137,14 +3349,15 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
               .map((part) => part.toString().trim())
               .take(2)
               .join(' ');
-    final scheduleStart =
-        booking?['start_at']?.toString() ??
-        booking?['start_date']?.toString() ??
-        'N/A';
-    final scheduleEnd =
-        booking?['end_at']?.toString() ??
-        booking?['end_date']?.toString() ??
-        'N/A';
+    final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+    final isPartner = _isPartnerVehicleForDriver(booking ?? offer);
+    final scheduleStart = _formatDriverScheduleDate(
+      booking?['start_at'] ?? booking?['start_date'],
+    );
+    final scheduleEnd = _formatDriverScheduleDate(
+      booking?['end_at'] ?? booking?['end_date'],
+    );
+    final durationLabel = _formatDriverBookingDuration(booking ?? offer);
     final total =
         (booking?['total_price'] as num?)?.toDouble() ??
         (booking?['total_cost'] as num?)?.toDouble();
@@ -3155,7 +3368,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkCard : Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isDark ? AppColors.borderColor : Colors.grey.shade300,
         ),
@@ -3164,101 +3377,236 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      vehicleName.isEmpty ? 'Assigned vehicle' : vehicleName,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                    if (plateNumber.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Plate: $plateNumber',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
+              const SizedBox(width: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                alignment: WrapAlignment.end,
+                children: [
+                  _buildDriverVehicleOwnershipBadge(isPartner: isPartner, isDark: isDark),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      assignmentStatus.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Route Destination Box
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.25)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.trip_origin_rounded, size: 14, color: Colors.green),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Pickup: ${booking?['pickup_location'] ?? 'Declared Pickup Point'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey.shade300 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on_rounded, size: 14, color: Colors.redAccent),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Destination: ${booking?['dropoff_location'] ?? 'Declared Destination'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Rentee Info
+          Row(
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 15,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
                 child: Text(
-                  assignmentStatus.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
+                  'Rentee: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
+                  '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.grey.shade300 : Colors.black87,
                   ),
                 ),
               ),
             ],
           ),
-          if ((vehicle?['plate_number']?.toString().trim().isNotEmpty ?? false))
+          if (renterId.isNotEmpty && renterId != 'N/A') ...[
+            const SizedBox(height: 3),
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(left: 21),
               child: Text(
-                'Plate: ${vehicle!['plate_number']}',
+                'Rentee ID: $renterId',
                 style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? Colors.grey : Colors.grey.shade600,
+                  fontSize: 11,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
                 ),
               ),
             ),
-          const SizedBox(height: 12),
-          Text(
-            '${booking?['pickup_location'] ?? 'Pickup'} to '
-            '${booking?['dropoff_location'] ?? 'Destination'}',
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Renter: ${renterName?.isNotEmpty == true ? renterName : 'Unknown'}'
-            '${renterPhone != null && renterPhone.isNotEmpty ? ' • $renterPhone' : ''}',
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Renter ID: $renterId',
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Schedule: $scheduleStart -> $scheduleEnd',
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.grey : Colors.grey.shade600,
-            ),
-          ),
-          if (total != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Booking total: PHP ${total.toStringAsFixed(0)}',
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.grey : Colors.grey.shade600,
-              ),
-            ),
           ],
+          const SizedBox(height: 6),
+          // Schedule & Days
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Schedule: $scheduleStart → $scheduleEnd',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Duration: $durationLabel',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                if (total != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    'Total: PHP ${total.toStringAsFixed(0)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           if (tripFee != null) ...[
             const SizedBox(height: 4),
-            Text(
-              'Driver fee: PHP ${tripFee.toStringAsFixed(0)}',
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.grey : Colors.grey.shade600,
+            Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: Text(
+                'Driver Fee: PHP ${tripFee.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.green,
+                ),
               ),
             ),
           ],
           const SizedBox(height: 14),
+          // View Details Button (Careful padding)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _showDriverTripDetailsModal(context, booking ?? offer),
+              icon: const Icon(Icons.info_outline_rounded, size: 16),
+              label: const Text('View Details'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                side: BorderSide(
+                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                ),
+                foregroundColor: isDark ? Colors.white : Colors.black87,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -3270,6 +3618,9 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                     foregroundColor: AppColors.error,
                     side: const BorderSide(color: AppColors.error),
                     padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: const Text('Decline'),
                 ),
@@ -3282,6 +3633,9 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: _isResponding
                       ? const SizedBox(
@@ -3292,7 +3646,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                             color: Colors.black,
                           ),
                         )
-                      : const Text('Accept'),
+                      : const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ),
             ],
@@ -3301,6 +3655,572 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
       ),
     );
   }
+}
+
+// Helper methods for Driver vehicle badges, schedule formatting, and View Details modal
+bool _isPartnerVehicleForDriver(Map<String, dynamic>? tripOrBooking) {
+  if (tripOrBooking == null) return false;
+  final vehicle = (tripOrBooking['vehicles'] ?? tripOrBooking['vehicle']) as Map<String, dynamic>?;
+  final owner = vehicle?['owner'] as Map<String, dynamic>?;
+  final ownerRole = owner?['role']?.toString().trim().toLowerCase();
+  return tripOrBooking['is_partner_vehicle'] == true ||
+      tripOrBooking['partner_id'] != null ||
+      vehicle?['is_partner_vehicle'] == true ||
+      vehicle?['partner_id'] != null ||
+      vehicle?['partner_vehicle_id'] != null ||
+      ownerRole == 'partner';
+}
+
+Widget _buildDriverVehicleOwnershipBadge({
+  required bool isPartner,
+  required bool isDark,
+}) {
+  final color = isPartner ? const Color(0xFFBA68C8) : const Color(0xFF26A69A);
+  final bgColor = isPartner
+      ? Colors.purple.withValues(alpha: 0.15)
+      : Colors.teal.withValues(alpha: 0.15);
+  final borderColor = isPartner
+      ? Colors.purple.withValues(alpha: 0.5)
+      : Colors.teal.withValues(alpha: 0.5);
+
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: borderColor, width: 1),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isPartner ? Icons.handshake_rounded : Icons.business_rounded,
+          size: 11,
+          color: color,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          isPartner ? 'PARTNER CAR' : 'PSDC FLEET',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.3,
+            color: color,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+String _formatDriverScheduleDate(dynamic dateVal) {
+  if (dateVal == null) return 'N/A';
+  final parsed = DateTime.tryParse(dateVal.toString());
+  if (parsed == null) return dateVal.toString();
+  return DateFormat('MMM dd, yyyy • h:mm a').format(parsed.toLocal());
+}
+
+String _formatDriverBookingDuration(Map<String, dynamic> trip) {
+  final start = DateTime.tryParse(
+    trip['start_at']?.toString() ?? trip['start_date']?.toString() ?? '',
+  );
+  final end = DateTime.tryParse(
+    trip['end_at']?.toString() ?? trip['end_date']?.toString() ?? '',
+  );
+  if (trip['is_hourly'] == true || trip['rental_type'] == 'hourly') {
+    if (start != null && end != null) {
+      final hours = end.difference(start).inHours;
+      return '$hours Hours (Hourly)';
+    }
+  }
+  if (trip['days'] != null && (trip['days'] as num) > 0) {
+    final d = (trip['days'] as num).toInt();
+    return '$d Day${d == 1 ? '' : 's'}';
+  }
+  if (start != null && end != null) {
+    final hours = end.difference(start).inHours;
+    if (hours < 24 && hours > 0) {
+      return '$hours Hours';
+    }
+    final days = (hours / 24).ceil();
+    return '$days Day${days <= 1 ? '' : 's'}';
+  }
+  return '1 Day';
+}
+
+void _showDriverTripDetailsModal(BuildContext context, Map<String, dynamic> trip) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final booking = (trip['bookings'] as Map<String, dynamic>?) ?? trip;
+  final vehicle = (booking['vehicles'] ?? booking['vehicle']) as Map<String, dynamic>?;
+  final renter = booking['renter'] as Map<String, dynamic>?;
+  final renterName = renter?['full_name']?.toString().trim();
+  final renterPhone = renter?['phone']?.toString().trim();
+  final renterEmail = renter?['email']?.toString().trim();
+  final renterId = booking['renter_id']?.toString() ?? renter?['id']?.toString() ?? 'N/A';
+  final isPartner = _isPartnerVehicleForDriver(booking);
+
+  final vehicleName = vehicle == null
+      ? 'Assigned Vehicle'
+      : [vehicle['vehicle_name'], vehicle['brand'], vehicle['model']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .map((part) => part.toString().trim())
+            .join(' ');
+  final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+  final total = (booking['total_price'] as num?)?.toDouble() ??
+      (booking['total_cost'] as num?)?.toDouble() ??
+      0.0;
+  final tripFee = (trip['trip_fee'] as num?)?.toDouble();
+  final startStr = _formatDriverScheduleDate(booking['start_at'] ?? booking['start_date']);
+  final endStr = _formatDriverScheduleDate(booking['end_at'] ?? booking['end_date']);
+  final durationStr = _formatDriverBookingDuration(booking);
+  final status = (booking['status']?.toString().trim().isEmpty ?? true)
+      ? 'Assigned'
+      : booking['status'].toString().trim();
+
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (modalContext) {
+      return DraggableScrollableSheet(
+        initialChildSize: 0.82,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) {
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF16202E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(
+                color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black45,
+                  blurRadius: 20,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Top drag handle
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                // Header bar
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 16, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Trip & Booking Details',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Booking ID: ${booking['id'] ?? 'N/A'}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(modalContext),
+                        icon: const Icon(Icons.close_rounded),
+                        color: isDark ? Colors.grey.shade400 : Colors.black54,
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                // Scrollable content
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(20),
+                    children: [
+                      // Vehicle & Badges Header Card
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F1722) : const Color(0xFFF7FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.directions_car_filled_rounded,
+                                    color: AppColors.primary,
+                                    size: 26,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        vehicleName.isEmpty ? 'Assigned Vehicle' : vehicleName,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          color: isDark ? Colors.white : Colors.black87,
+                                        ),
+                                      ),
+                                      if (plateNumber.isNotEmpty) ...[
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          'Plate: $plateNumber',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _buildDriverVehicleOwnershipBadge(isPartner: isPartner, isDark: isDark),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.success.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: AppColors.success.withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    status.toUpperCase(),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.3,
+                                      color: AppColors.success,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Rentee Details Card
+                      _buildDriverDetailSectionCard(
+                        isDark: isDark,
+                        icon: Icons.person_rounded,
+                        title: 'Rentee (Customer) Details',
+                        children: [
+                          _buildDriverDetailRow(
+                            label: 'Full Name',
+                            value: renterName?.isNotEmpty == true ? renterName! : 'Unknown Customer',
+                            isDark: isDark,
+                            isEmphasized: true,
+                          ),
+                          if (renterPhone != null && renterPhone.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildDriverDetailRow(
+                                    label: 'Phone Contact',
+                                    value: renterPhone,
+                                    isDark: isDark,
+                                  ),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final uri = Uri.parse('tel:$renterPhone');
+                                    if (await canLaunchUrl(uri)) {
+                                      await launchUrl(uri);
+                                    }
+                                  },
+                                  icon: const Icon(Icons.call_rounded, size: 14),
+                                  label: const Text('Call'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (renterEmail != null && renterEmail.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            _buildDriverDetailRow(label: 'Email', value: renterEmail, isDark: isDark),
+                          ],
+                          const SizedBox(height: 8),
+                          _buildDriverDetailRow(label: 'Rentee ID', value: renterId, isDark: isDark),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Route & Destination Card
+                      _buildDriverDetailSectionCard(
+                        isDark: isDark,
+                        icon: Icons.alt_route_rounded,
+                        title: 'Trip Route & Destination',
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.trip_origin_rounded, color: Colors.green, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Pickup Location',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      booking['pickup_location']?.toString().trim().isNotEmpty == true
+                                          ? booking['pickup_location'].toString()
+                                          : 'Declared Pickup Point',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8, top: 4, bottom: 4),
+                            child: SizedBox(
+                              height: 16,
+                              child: VerticalDivider(thickness: 2, color: Colors.grey),
+                            ),
+                          ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Destination (Drop-off)',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      booking['dropoff_location']?.toString().trim().isNotEmpty == true
+                                          ? booking['dropoff_location'].toString()
+                                          : 'Declared Destination Point',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? AppColors.primary : Colors.black,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Schedule & Duration Card
+                      _buildDriverDetailSectionCard(
+                        isDark: isDark,
+                        icon: Icons.calendar_month_rounded,
+                        title: 'Schedule & Duration',
+                        children: [
+                          _buildDriverDetailRow(label: 'Booking Duration', value: durationStr, isDark: isDark, isEmphasized: true),
+                          const SizedBox(height: 8),
+                          _buildDriverDetailRow(label: 'Start Date & Time', value: startStr, isDark: isDark),
+                          const SizedBox(height: 8),
+                          _buildDriverDetailRow(label: 'End Date & Time', value: endStr, isDark: isDark),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Billing & Earnings Card
+                      _buildDriverDetailSectionCard(
+                        isDark: isDark,
+                        icon: Icons.payments_outlined,
+                        title: 'Booking Cost & Driver Fee',
+                        children: [
+                          _buildDriverDetailRow(
+                            label: 'Total Booking Amount',
+                            value: 'PHP ${total.toStringAsFixed(2)}',
+                            isDark: isDark,
+                            isEmphasized: true,
+                          ),
+                          if (tripFee != null) ...[
+                            const SizedBox(height: 8),
+                            _buildDriverDetailRow(
+                              label: 'Driver Assigned Fee / Payout',
+                              value: 'PHP ${tripFee.toStringAsFixed(2)}',
+                              isDark: isDark,
+                              isEmphasized: true,
+                              valueColor: Colors.green,
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Close Button
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(modalContext),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Close Details',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+Widget _buildDriverDetailSectionCard({
+  required bool isDark,
+  required IconData icon,
+  required String title,
+  required List<Widget> children,
+}) {
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF0F1722) : const Color(0xFFF7FAFC),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: isDark ? AppColors.borderColor : Colors.grey.shade200,
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...children,
+      ],
+    ),
+  );
+}
+
+Widget _buildDriverDetailRow({
+  required String label,
+  required String value,
+  required bool isDark,
+  bool isEmphasized = false,
+  Color? valueColor,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: isEmphasized ? 14 : 12,
+          fontWeight: isEmphasized ? FontWeight.w800 : FontWeight.w600,
+          color: valueColor ?? (isDark ? Colors.white : Colors.black87),
+        ),
+      ),
+    ],
+  );
 }
 
 class _DriverMessagesTab extends StatefulWidget {
