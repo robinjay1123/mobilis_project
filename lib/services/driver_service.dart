@@ -599,13 +599,14 @@ class DriverService {
           .update({'status': 'accepted', 'replied_at': now, 'updated_at': now})
           .eq('id', jobAssignmentId);
 
-      // 2. Update booking to confirmed
+      // 2. Update booking to driver_accepted (waiting for operator/partner to finalize)
       await supabase
           .from('bookings')
           .update({
             'driver_id': currentUserId,
             'with_driver': true,
-            'status': 'confirmed',
+            'status': 'driver_accepted',
+            'driver_accepted_at': now,
             'updated_at': now,
           })
           .eq('id', bookingId);
@@ -634,7 +635,7 @@ class DriverService {
           ? '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''}'.trim()
           : 'Assigned Vehicle';
 
-      // 5. Notify Operator
+      // 5. Notify Operator & Partner to finalize the booking
       await NotificationService().notifyOperatorDriverResponse(
         bookingId: bookingId,
         driverId: currentUserId,
@@ -649,10 +650,10 @@ class DriverService {
         try {
           await supabase.from('notifications').insert({
             'user_id': renterId,
-            'title': '🚗 Driver Assigned & Confirmed!',
-            'message': '$driverName has accepted your trip reservation for $vehicleTitle.',
+            'title': '🚗 Driver Accepted Job Offer!',
+            'message': '$driverName has accepted the trip assignment for $vehicleTitle. Waiting for operator/partner to finalize the booking.',
             'type': 'booking',
-            'data': {'booking_id': bookingId, 'status': 'confirmed'},
+            'data': {'booking_id': bookingId, 'status': 'driver_accepted'},
             'created_at': now,
           });
         } catch (_) {}
@@ -1615,8 +1616,10 @@ class DriverService {
           .eq('user_id', userId)
           .maybeSingle();
       final driverProfileId = driverProfile?['id']?.toString();
-      if (driverProfileId == null || driverProfileId.isEmpty) {
-        return [];
+
+      final filterDriverIds = <String>{userId};
+      if (driverProfileId != null && driverProfileId.isNotEmpty) {
+        filterDriverIds.add(driverProfileId);
       }
 
       final response = await supabase
@@ -1647,7 +1650,13 @@ class DriverService {
               model,
               year,
               vehicle_name,
-              plate_number
+              plate_number,
+              owner_id,
+              is_partner_vehicle,
+              partner_id,
+              owner:owner_id (
+                role
+              )
             ),
             renter:renter_id (
               id,
@@ -1659,21 +1668,97 @@ class DriverService {
               id,
               driver_id,
               status,
-              trip_fee
+              trip_fee,
+              created_at
             )
           ''')
-          .eq('driver_id', userId)
-          .inFilter('status', [
-            'confirmed',
-            'approved',
-            'active',
-            'ongoing',
-            'return_pending_inspection',
-            'awaiting_completion',
-          ])
-          .order('start_date', ascending: true);
+          .inFilter('driver_id', filterDriverIds.toList())
+          .order('start_date', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      final bookingsList = List<Map<String, dynamic>>.from(response);
+
+      // Also query driver_job_assignments in case booking.driver_id is pending
+      try {
+        final pendingAssignmentOffers = await supabase
+            .from('driver_job_assignments')
+            .select('''
+              id,
+              booking_id,
+              driver_id,
+              status,
+              trip_fee,
+              created_at,
+              bookings:booking_id (
+                id,
+                renter_id,
+                vehicle_id,
+                driver_id,
+                status,
+                start_at,
+                end_at,
+                start_date,
+                end_date,
+                total_price,
+                total_cost,
+                pickup_location,
+                dropoff_location,
+                pickup_latitude,
+                pickup_longitude,
+                dropoff_latitude,
+                dropoff_longitude,
+                picked_up_at,
+                returned_at,
+                vehicles:vehicle_id (
+                  id,
+                  brand,
+                  model,
+                  year,
+                  vehicle_name,
+                  plate_number,
+                  owner_id,
+                  is_partner_vehicle,
+                  partner_id,
+                  owner:owner_id (
+                    role
+                  )
+                ),
+                renter:renter_id (
+                  id,
+                  full_name,
+                  email,
+                  phone
+                )
+              )
+            ''')
+            .inFilter('driver_id', filterDriverIds.toList())
+            .inFilter('status', ['pending_offer', 'assigned', 'accepted'])
+            .order('created_at', ascending: false);
+
+        final existingBookingIds =
+            bookingsList.map((b) => b['id']?.toString()).toSet();
+
+        for (final item in pendingAssignmentOffers) {
+          final b = item['bookings'] as Map<String, dynamic>?;
+          if (b != null && !existingBookingIds.contains(b['id']?.toString())) {
+            final merged = Map<String, dynamic>.from(b);
+            merged['job_assignments'] = [
+              {
+                'id': item['id'],
+                'driver_id': item['driver_id'],
+                'status': item['status'],
+                'trip_fee': item['trip_fee'],
+                'created_at': item['created_at'],
+              }
+            ];
+            bookingsList.add(merged);
+            existingBookingIds.add(b['id']?.toString());
+          }
+        }
+      } catch (e) {
+        debugPrint('Pending assignments merge fallback: $e');
+      }
+
+      return bookingsList;
     } on PostgrestException catch (e) {
       debugPrint('Database error fetching assigned bookings: ${e.message}');
       return [];

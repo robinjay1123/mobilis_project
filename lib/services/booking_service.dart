@@ -1756,7 +1756,16 @@ class BookingService {
 
     final currentStatus =
         booking['status']?.toString().trim().toLowerCase() ?? '';
-    if (!{'pending', 'approved', 'confirmed'}.contains(currentStatus)) {
+    if (!{
+      'pending',
+      'pending_approval',
+      'driver_accepted',
+      'pending_driver_confirmation',
+      'driver_assigned',
+      'awaiting_driver',
+      'approved',
+      'confirmed',
+    }.contains(currentStatus)) {
       throw Exception(
         'This booking cannot be finalized from its current state',
       );

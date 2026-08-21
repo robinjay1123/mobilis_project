@@ -6070,6 +6070,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
 
     try {
+      final withDriver = booking['with_driver'] == true;
+      final driverId = booking['driver_id']?.toString().trim();
+      final status = (booking['status']?.toString() ?? '').trim().toLowerCase();
+
+      if (withDriver) {
+        if (driverId == null || driverId.isEmpty) {
+          throw Exception('Please assign a driver before approving this booking.');
+        }
+        if (status != 'driver_accepted' && status != 'confirmed' && status != 'approved') {
+          throw Exception('Waiting for the assigned driver to accept the job offer first.');
+        }
+      }
+
       await bookingService.updateBookingStatus(booking['id'], 'approved');
 
       Navigator.pop(context); // Close loading dialog

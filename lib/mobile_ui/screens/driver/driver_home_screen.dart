@@ -2389,10 +2389,19 @@ class __JobsTabState extends State<_JobsTab> {
 
   String _statusGroup(Map<String, dynamic> trip) {
     final status = (trip['status']?.toString() ?? '').trim().toLowerCase();
+    final assignments = (trip['job_assignments'] as List?)
+        ?.whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList() ?? [];
+    final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
+    final assignmentStatus = latestAssignment?['status']?.toString().toLowerCase();
+
     if (['completed', 'returned', 'successful', 'success'].contains(status)) {
       return 'completed';
     }
-    if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status)) {
+    if (['cancelled', 'canceled', 'rejected', 'declined'].contains(status) ||
+        assignmentStatus == 'rejected' ||
+        assignmentStatus == 'declined') {
       return 'cancelled';
     }
     if ([
@@ -2406,7 +2415,8 @@ class __JobsTabState extends State<_JobsTab> {
     ].contains(status)) {
       return 'ongoing';
     }
-    if (['approved', 'confirmed', 'assigned'].contains(status)) {
+    if (['approved', 'confirmed'].contains(status) &&
+        assignmentStatus != 'pending_offer') {
       return 'approved';
     }
     return 'pending';
@@ -2611,8 +2621,127 @@ class _TripCardState extends State<_TripCard> {
     }
   }
 
-  String _displayTripStatus(String status) {
-    switch (status.trim().toLowerCase()) {
+  bool _isResponding = false;
+
+  Future<void> _respondToJob(bool accept) async {
+    final bookingId = trip['id']?.toString() ?? '';
+    final assignments = (trip['job_assignments'] as List?)
+        ?.whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList() ?? [];
+    final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
+    final assignmentId = latestAssignment?['id']?.toString() ?? '';
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        title: Text(
+          accept ? 'Accept Trip Assignment?' : 'Decline Trip Assignment?',
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          accept
+              ? 'You are accepting this trip assignment. The booking will be marked as "Driver Accepted" so the operator or partner can finalize and approve it.'
+              : 'Declining this offer will notify the operator or partner to assign another available driver.',
+          style: TextStyle(
+            color: isDark ? AppColors.textSecondary : Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: accept ? AppColors.success : AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(accept ? 'Accept Job' : 'Decline Job'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isResponding = true);
+    try {
+      if (assignmentId.isNotEmpty) {
+        if (accept) {
+          await DriverService().acceptJobOffer(assignmentId);
+        } else {
+          await DriverService().declineJobOffer(assignmentId);
+        }
+      } else {
+        final now = DateTime.now().toIso8601String();
+        final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+        if (accept) {
+          await Supabase.instance.client.from('bookings').update({
+            'status': 'driver_accepted',
+            'driver_id': currentUserId,
+            'with_driver': true,
+            'driver_accepted_at': now,
+            'updated_at': now,
+          }).eq('id', bookingId);
+        } else {
+          await Supabase.instance.client.from('bookings').update({
+            'status': 'pending',
+            'driver_id': null,
+            'driver_assigned_at': null,
+            'updated_at': now,
+          }).eq('id', bookingId);
+        }
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accept
+                ? '✅ Job accepted! Booking is marked as Driver Accepted. Waiting for operator/partner finalization.'
+                : 'Job offer declined. Operator/partner notified to reassign.',
+          ),
+          backgroundColor: accept ? AppColors.success : AppColors.warning,
+        ),
+      );
+      widget.onChanged();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update job assignment: $error'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isResponding = false);
+    }
+  }
+
+  String _displayTripStatus(String status, {String? assignmentStatus}) {
+    final s = status.trim().toLowerCase();
+    final a = assignmentStatus?.trim().toLowerCase();
+    if (s == 'driver_accepted' || a == 'accepted') {
+      return 'Driver Accepted';
+    }
+    if (s == 'pending' ||
+        s == 'pending_approval' ||
+        s == 'awaiting_driver' ||
+        s == 'driver_assigned' ||
+        s == 'pending_driver_confirmation' ||
+        a == 'pending_offer' ||
+        a == 'assigned') {
+      return 'Pending Acceptance';
+    }
+    switch (s) {
       case 'approved':
       case 'confirmed':
         return 'Approved';
@@ -2620,10 +2749,43 @@ class _TripCardState extends State<_TripCard> {
       case 'ongoing':
         return 'Ongoing';
       case 'completed':
+      case 'returned':
         return 'Completed';
+      case 'cancelled':
+      case 'canceled':
+      case 'rejected':
+      case 'declined':
+        return 'Cancelled';
       default:
         return status;
     }
+  }
+
+  Color _statusBadgeColor(String status, {String? assignmentStatus}) {
+    final s = status.trim().toLowerCase();
+    final a = assignmentStatus?.trim().toLowerCase();
+    if (s == 'driver_accepted' || a == 'accepted') {
+      return Colors.cyan;
+    }
+    if (s == 'pending' ||
+        s == 'pending_approval' ||
+        s == 'awaiting_driver' ||
+        s == 'driver_assigned' ||
+        s == 'pending_driver_confirmation' ||
+        a == 'pending_offer' ||
+        a == 'assigned') {
+      return Colors.amber.shade700;
+    }
+    if (s == 'approved' || s == 'confirmed') {
+      return AppColors.success;
+    }
+    if (s == 'active' || s == 'ongoing') {
+      return AppColors.primary;
+    }
+    if (s == 'completed' || s == 'returned') {
+      return Colors.blue;
+    }
+    return Colors.redAccent;
   }
 
   Future<void> _markReturned(BuildContext context) async {
@@ -2774,6 +2936,29 @@ class _TripCardState extends State<_TripCard> {
   Widget _buildLegacyRevenueView(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final status = (trip['status']?.toString() ?? 'assigned').toLowerCase();
+    final assignments = (trip['job_assignments'] as List?)
+        ?.whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList() ?? [];
+    final latestAssignment = assignments.isNotEmpty ? assignments.last : null;
+    final assignmentStatus = latestAssignment?['status']?.toString().toLowerCase();
+
+    final isPendingDriverAcceptance = (status == 'pending' ||
+            status == 'pending_approval' ||
+            status == 'awaiting_driver' ||
+            status == 'driver_assigned' ||
+            status == 'pending_driver_confirmation') &&
+        (assignmentStatus == 'pending_offer' ||
+            assignmentStatus == 'assigned' ||
+            assignmentStatus == null);
+
+    final isDriverAcceptedWaitingFinalize = status == 'driver_accepted' ||
+        (assignmentStatus == 'accepted' &&
+            (status == 'pending' ||
+                status == 'driver_accepted' ||
+                status == 'driver_assigned' ||
+                status == 'pending_driver_confirmation'));
+
     final completionState = BookingService().getTripCompletionState(trip);
     final completionStage = completionState['completionStage']?.toString();
     final vehicle = trip['vehicles'] as Map<String, dynamic>?;
@@ -2788,7 +2973,8 @@ class _TripCardState extends State<_TripCard> {
     final total =
         (trip['total_price'] as num?)?.toDouble() ??
         (trip['total_cost'] as num?)?.toDouble();
-    final tripFee = (trip['trip_fee'] as num?)?.toDouble();
+    final tripFee = (trip['trip_fee'] as num?)?.toDouble() ??
+        (latestAssignment?['trip_fee'] as num?)?.toDouble();
     final vehicleName = vehicle == null
         ? 'Assigned vehicle'
         : [vehicle['vehicle_name'], vehicle['brand'], vehicle['model']]
@@ -2799,6 +2985,9 @@ class _TripCardState extends State<_TripCard> {
               .take(2)
               .join(' ');
     final plateNumber = vehicle?['plate_number']?.toString().trim() ?? '';
+
+    final badgeColor = _statusBadgeColor(trip['status']?.toString() ?? 'assigned', assignmentStatus: assignmentStatus);
+    final badgeLabel = _displayTripStatus(trip['status']?.toString() ?? 'assigned', assignmentStatus: assignmentStatus);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2861,19 +3050,19 @@ class _TripCardState extends State<_TripCard> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.15),
+                      color: badgeColor.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.success.withValues(alpha: 0.5),
+                        color: badgeColor.withValues(alpha: 0.5),
                       ),
                     ),
                     child: Text(
-                      _displayTripStatus(trip['status']?.toString() ?? 'assigned'),
-                      style: const TextStyle(
+                      badgeLabel,
+                      style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.3,
-                        color: AppColors.success,
+                        color: badgeColor,
                       ),
                     ),
                   ),
@@ -3086,6 +3275,67 @@ class _TripCardState extends State<_TripCard> {
                   ),
                 ),
               ),
+            ),
+          ],
+
+          if (isPendingDriverAcceptance) ...[
+            const SizedBox(height: 10),
+            const _DriverWaitingAction(
+              icon: Icons.hourglass_top_rounded,
+              message:
+                  'You have been assigned to this trip. Please review the details and accept or decline this job offer.',
+            ),
+            const SizedBox(height: 10),
+            if (_isResponding)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _respondToJob(false),
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text('Decline Job'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        side: const BorderSide(color: AppColors.error),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () => _respondToJob(true),
+                      icon: const Icon(Icons.check_rounded, size: 16),
+                      label: const Text('Accept Job'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+          if (isDriverAcceptedWaitingFinalize) ...[
+            const SizedBox(height: 10),
+            const _DriverWaitingAction(
+              icon: Icons.check_circle_outline_rounded,
+              message:
+                  'You accepted this trip. Waiting for the operator or partner to finalize and approve the booking.',
             ),
           ],
 
