@@ -86,32 +86,6 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
     super.dispose();
   }
 
-  bool _handleProfileScroll(ScrollNotification notification) {
-    if (notification is OverscrollNotification) {
-      if (notification.overscroll > 0 &&
-          _photoController.status != AnimationStatus.completed) {
-        _photoController.forward();
-      } else if (notification.overscroll < 0 &&
-          _photoController.status != AnimationStatus.dismissed) {
-        _photoController.reverse();
-      }
-      return false;
-    }
-    if (notification is! ScrollUpdateNotification ||
-        notification.dragDetails == null) {
-      return false;
-    }
-
-    final delta = notification.scrollDelta ?? 0;
-    if (delta > 1 && _photoController.status != AnimationStatus.completed) {
-      _photoController.forward();
-    } else if (delta < -1 &&
-        _photoController.status != AnimationStatus.dismissed) {
-      _photoController.reverse();
-    }
-    return false;
-  }
-
   Future<void> _loadProfile() async {
     setState(() => _isLoading = true);
     final profile = await AuthService().getCurrentUserProfile();
@@ -504,75 +478,72 @@ class _UnifiedProfileScreenState extends State<UnifiedProfileScreen>
       children: [
         _profileHeaderBar(),
         Expanded(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _handleProfileScroll,
-            child: RefreshIndicator(
-              onRefresh: _loadProfile,
-              child: ListView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                children: [
-                  _profileCard(
-                    name: name,
-                    email: email,
-                    phone: phone,
-                    location: location,
-                    avatarUrl: avatarUrl,
+          child: RefreshIndicator(
+            onRefresh: _loadProfile,
+            child: ListView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+              children: [
+                _profileCard(
+                  name: name,
+                  email: email,
+                  phone: phone,
+                  location: location,
+                  avatarUrl: avatarUrl,
+                ),
+                const SizedBox(height: 18),
+                _settingsTile(
+                  icon: widget.isDarkMode
+                      ? Icons.dark_mode
+                      : Icons.light_mode,
+                  title: 'Appearance',
+                  subtitle: widget.isDarkMode ? 'Dark Mode' : 'Light Mode',
+                  trailing: Switch(
+                    value: widget.isDarkMode,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: widget.onThemeToggle,
                   ),
-                  const SizedBox(height: 18),
-                  _settingsTile(
-                    icon: widget.isDarkMode
-                        ? Icons.dark_mode
-                        : Icons.light_mode,
-                    title: 'Appearance',
-                    subtitle: widget.isDarkMode ? 'Dark Mode' : 'Light Mode',
-                    trailing: Switch(
-                      value: widget.isDarkMode,
-                      activeThumbColor: AppColors.primary,
-                      onChanged: widget.onThemeToggle,
-                    ),
-                  ),
-                  _settingsTile(
-                    icon: Icons.verified_user_outlined,
-                    title: 'Verification and Documents',
-                    subtitle: _verificationSubtitle(),
-                    onTap: _openVerificationSummary,
-                  ),
-                  _settingsTile(
-                    icon: Icons.star_outline_rounded,
-                    title: 'Ratings and Reviews',
-                    subtitle: 'View ratings and renter reviews',
-                    onTap: _openRatings,
-                  ),
-                  _settingsTile(
-                    icon: Icons.help_outline,
-                    title: 'Help Center',
-                    subtitle: 'FAQs, support, reports, terms, and privacy',
-                    onTap: _openHelpCenter,
-                  ),
-                  _settingsTile(
-                    icon: Icons.health_and_safety_outlined,
-                    title: 'Emergency Contact',
-                    subtitle: 'Safety contact for trips and incidents',
-                    onTap: _openEmergencyContact,
-                  ),
-                  _settingsTile(
-                    icon: Icons.settings_outlined,
-                    title: 'Settings',
-                    subtitle: 'Notifications, privacy, security, and account',
-                    onTap: _openSettings,
-                  ),
-                  _settingsTile(
-                    icon: Icons.logout,
-                    title: 'Logout',
-                    subtitle: 'Sign out of this device',
-                    iconColor: AppColors.error,
-                    textColor: AppColors.error,
-                    onTap: _confirmLogout,
-                  ),
-                ],
-              ),
+                ),
+                _settingsTile(
+                  icon: Icons.verified_user_outlined,
+                  title: 'Verification and Documents',
+                  subtitle: _verificationSubtitle(),
+                  onTap: _openVerificationSummary,
+                ),
+                _settingsTile(
+                  icon: Icons.star_outline_rounded,
+                  title: 'Ratings and Reviews',
+                  subtitle: 'View ratings and renter reviews',
+                  onTap: _openRatings,
+                ),
+                _settingsTile(
+                  icon: Icons.help_outline,
+                  title: 'Help Center',
+                  subtitle: 'FAQs, support, reports, terms, and privacy',
+                  onTap: _openHelpCenter,
+                ),
+                _settingsTile(
+                  icon: Icons.health_and_safety_outlined,
+                  title: 'Emergency Contact',
+                  subtitle: 'Safety contact for trips and incidents',
+                  onTap: _openEmergencyContact,
+                ),
+                _settingsTile(
+                  icon: Icons.settings_outlined,
+                  title: 'Settings',
+                  subtitle: 'Notifications, privacy, security, and account',
+                  onTap: _openSettings,
+                ),
+                _settingsTile(
+                  icon: Icons.logout,
+                  title: 'Logout',
+                  subtitle: 'Sign out of this device',
+                  iconColor: AppColors.error,
+                  textColor: AppColors.error,
+                  onTap: _confirmLogout,
+                ),
+              ],
             ),
           ),
         ),
