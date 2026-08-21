@@ -12,6 +12,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/mpin_service.dart';
 import '../../../services/reservation_payment_service.dart';
 import '../../../utils/currency_formatter.dart';
+import '../../../utils/pricing_policy.dart';
 import '../../../utils/web_html.dart' as html;
 
 class ReservationPaymentScreen extends StatefulWidget {
