@@ -780,8 +780,7 @@ class DriverService {
               'status': 'pending',
               'updated_at': now,
             })
-            .eq('id', bookingId)
-            .eq('driver_id', currentUserId);
+            .eq('id', bookingId);
       }
 
       // 3. Mark driver available
@@ -802,7 +801,7 @@ class DriverService {
           ? driverUser!['full_name'].toString().trim()
           : 'The driver';
 
-      // 4. Notify Operator
+      // 4. Notify Operator & Partner
       if (bookingId.isNotEmpty) {
         await NotificationService().notifyOperatorDriverResponse(
           bookingId: bookingId,
@@ -811,6 +810,25 @@ class DriverService {
           accepted: false,
           operatorId: booking?['operator_id']?.toString(),
         );
+
+        final vehicle = booking?['vehicles'] as Map<String, dynamic>?;
+        final ownerId =
+            vehicle?['owner_id']?.toString() ?? booking?['partner_id']?.toString();
+        if (ownerId != null &&
+            ownerId.isNotEmpty &&
+            ownerId != booking?['operator_id']?.toString()) {
+          try {
+            await supabase.from('notifications').insert({
+              'user_id': ownerId,
+              'title': 'Driver Offer Declined',
+              'message':
+                  '$driverName declined the job assignment for booking #${bookingId.substring(0, bookingId.length > 8 ? 8 : bookingId.length)}. You can now assign another driver.',
+              'type': 'booking',
+              'data': {'booking_id': bookingId, 'event': 'driver_declined'},
+              'created_at': now,
+            });
+          } catch (_) {}
+        }
       }
 
       // 5. Log in admin_audit_logs
