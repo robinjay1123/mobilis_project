@@ -1225,7 +1225,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   int get _billableHours {
     final minutes = _rentalDuration.inMinutes;
     if (minutes <= 0) return 0;
-    return (minutes / 60).ceil();
+    final hours = (minutes / 60).ceil();
+    if (_bookingMode == BookingMode.hourly) {
+      return hours < PricingPolicy.minHourlyBookingHours
+          ? PricingPolicy.minHourlyBookingHours
+          : hours;
+    }
+    return hours;
   }
 
   double get _rentalSubtotal {
@@ -1234,13 +1240,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
 
     if (_bookingMode == BookingMode.hourly) {
-      final hours = _billableHours;
-      if (pricePerHour > 0) {
-        return pricePerHour * hours;
-      } else if (pricePerDay > 0) {
-        return (pricePerDay / 24.0) * hours;
-      }
-      return 0.0;
+      final actualMinutes = _rentalDuration.inMinutes;
+      final rawHours = actualMinutes <= 0 ? 0 : (actualMinutes / 60).ceil();
+      return PricingPolicy.calculateHourlyRentalSubtotal(
+        hours: rawHours,
+        pricePerDay: pricePerDay,
+        pricePerHour: pricePerHour,
+      );
     }
 
     // ── DAILY BOOKING MODE ──
@@ -1286,8 +1292,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   String _getFormattedDurationString() {
     if (_bookingMode == BookingMode.hourly) {
-      final hours = _billableHours;
-      return '$hours hour${hours == 1 ? '' : 's'}';
+      final rawMinutes = _rentalDuration.inMinutes;
+      final rawHours = rawMinutes <= 0 ? 0 : (rawMinutes / 60).ceil();
+      if (rawHours <= PricingPolicy.minHourlyBookingHours) {
+        return '$rawHours hrs (Min. 12 hrs applied = 1/2 Day Price)';
+      }
+      final excess = rawHours - PricingPolicy.minHourlyBookingHours;
+      return '$rawHours hrs (12 hrs Half-Day + $excess hr${excess == 1 ? '' : 's'})';
     }
 
     final start = _startAtLocal;
@@ -3519,14 +3530,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                           _buildSummaryRow(
                             'Rental mode',
                             _bookingMode == BookingMode.hourly
-                                ? 'Hourly rate'
-                                : 'Daily rate',
+                                ? 'Hourly Rental (Min. 12 hrs)'
+                                : 'Daily Rental',
                           ),
                           const SizedBox(height: 8),
                           _buildSummaryRow(
                             'Rate',
                             _bookingMode == BookingMode.hourly
-                                ? '₱${formatAmount(((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0))}/hr'
+                                ? '12 hrs: ₱${formatAmount(pricePerDay > 0 ? pricePerDay / 2 : (((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0) * 12))} (Half-day) + ₱${formatAmount(((_vehicle?['price_per_hour'] as num?)?.toDouble() ?? (pricePerDay > 0 ? pricePerDay / 24 : 0.0)))}/hr'
                                 : '₱${formatAmount(pricePerDay)}/day',
                           ),
                           const SizedBox(height: 8),

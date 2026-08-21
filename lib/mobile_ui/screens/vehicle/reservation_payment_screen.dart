@@ -712,7 +712,13 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final vehicle = widget.vehicleData;
 
     final isHourly = vehicle['pricing_type']?.toString().toLowerCase() == 'hourly' ||
-        (vehicle['hourly_rate'] != null && widget.rentalSubtotal < (vehicle['daily_rate'] ?? 99999));
+        (widget.startDate != null &&
+            widget.endDate != null &&
+            widget.endDate!.difference(widget.startDate!).inHours < 24 &&
+            widget.rentalSubtotal <
+                (((vehicle['price_per_day'] ?? vehicle['daily_rate'] ?? 0) as num).toDouble() > 0
+                    ? ((vehicle['price_per_day'] ?? vehicle['daily_rate'] ?? 0) as num).toDouble()
+                    : 99999));
 
     final dailyRate = ((vehicle['price_per_day'] ??
             vehicle['daily_rate'] ??
@@ -723,9 +729,6 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             vehicle['price_per_hour'] ??
             0) as num)
         .toDouble();
-    final unitRate = isHourly
-        ? (hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? dailyRate / 24 : widget.rentalSubtotal))
-        : (dailyRate > 0 ? dailyRate : widget.rentalSubtotal);
 
     final duration = (widget.startDate != null && widget.endDate != null)
         ? widget.endDate!.difference(widget.startDate!)
@@ -733,13 +736,32 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     final durationDays = duration != null
         ? (duration.inHours / 24).ceil().clamp(1, 999)
         : 1;
-    final durationHours = duration != null ? duration.inHours.clamp(1, 9999) : 1;
+    final rawHours = duration != null ? duration.inHours.clamp(1, 9999) : 1;
+    final billableHours = isHourly
+        ? (rawHours < PricingPolicy.minHourlyBookingHours
+            ? PricingPolicy.minHourlyBookingHours
+            : rawHours)
+        : rawHours;
+    final excessHours =
+        isHourly && billableHours > PricingPolicy.minHourlyBookingHours
+            ? billableHours - PricingPolicy.minHourlyBookingHours
+            : 0;
+
+    final halfDayPrice = dailyRate > 0
+        ? dailyRate / 2.0
+        : (hourlyRate * PricingPolicy.minHourlyBookingHours);
+    final effectiveHourlyRate =
+        hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? dailyRate / 24.0 : 0.0);
+
     final durationText = isHourly
-        ? '$durationHours ${durationHours == 1 ? 'Hour' : 'Hours'}'
+        ? (rawHours <= PricingPolicy.minHourlyBookingHours
+            ? '$rawHours hrs (Min. 12 hrs applied)'
+            : '$rawHours hrs (12 hrs + $excessHours excess hrs)')
         : '$durationDays ${durationDays == 1 ? 'Day' : 'Days'}';
+
     final rateLabel = isHourly
-        ? 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / hour'
-        : 'PHP ${formatAmount(unitRate, decimalDigits: 0)} / day';
+        ? '12 hrs: ₱${formatAmount(halfDayPrice, decimalDigits: 0)} (Half-day) + ₱${formatAmount(effectiveHourlyRate, decimalDigits: 0)}/hr'
+        : 'PHP ${formatAmount(dailyRate > 0 ? dailyRate : widget.rentalSubtotal, decimalDigits: 0)} / day';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -852,7 +874,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
           // Computation details: Principal Rental Charges
           _buildBreakdownRow(
-            'Base unit rental ($rateLabel × $durationText)',
+            isHourly
+                ? 'Base unit rental ($durationText)'
+                : 'Base unit rental ($rateLabel × $durationText)',
             widget.rentalSubtotal,
             isDark: isDark,
           ),
