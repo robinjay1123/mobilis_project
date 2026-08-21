@@ -6539,6 +6539,101 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     return null;
   }
 
+  Map<String, dynamic> _getVehicleMotionInfo(Map<String, dynamic> location) {
+    final speedMps = (location['speed_mps'] as num?)?.toDouble() ?? 0.0;
+    final speedKph = (speedMps * 3.6).round();
+    final recordedAtStr = location['recorded_at']?.toString();
+    DateTime? recordedAt;
+    if (recordedAtStr != null && recordedAtStr.isNotEmpty) {
+      recordedAt = DateTime.tryParse(recordedAtStr)?.toUtc();
+    }
+    final now = DateTime.now().toUtc();
+    final isStale =
+        recordedAt == null || now.difference(recordedAt).inMinutes >= 5;
+    final isMoving = speedKph >= 3;
+
+    if (isMoving) {
+      return {
+        'status': 'moving',
+        'label': 'MOVING • $speedKph km/h',
+        'short_label': '$speedKph km/h',
+        'color': const Color(0xFF00E676),
+        'icon': Icons.speed_rounded,
+        'speedKph': speedKph,
+        'isMoving': true,
+        'isParked': false,
+        'isStopped': false,
+      };
+    } else if (isStale) {
+      return {
+        'status': 'parked',
+        'label': 'PARKED • ENGINE OFF',
+        'short_label': 'PARKED (OFF)',
+        'color': const Color(0xFF9E9E9E),
+        'icon': Icons.power_settings_new_rounded,
+        'speedKph': 0,
+        'isMoving': false,
+        'isParked': true,
+        'isStopped': false,
+      };
+    } else {
+      return {
+        'status': 'stopped',
+        'label': 'STOPPED • IDLING',
+        'short_label': 'STOPPED',
+        'color': const Color(0xFFFF9100),
+        'icon': Icons.pause_circle_filled_rounded,
+        'speedKph': 0,
+        'isMoving': false,
+        'isParked': false,
+        'isStopped': true,
+      };
+    }
+  }
+
+  Widget _buildMovementStatusChip({
+    required Map<String, dynamic> location,
+    required bool isDark,
+    bool isCompact = false,
+  }) {
+    final motion = _getVehicleMotionInfo(location);
+    final color = motion['color'] as Color;
+    final label =
+        isCompact ? motion['short_label'] as String : motion['label'] as String;
+    final icon = motion['icon'] as IconData;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 7 : 9,
+        vertical: isCompact ? 3 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(alpha: 0.6),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: isCompact ? 11 : 13),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: isCompact ? 10 : 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.3,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTrackingContent(bool isDark) {
     final visibleLocations = _visibleTrackingLocations();
     final isFocused = _focusedTrackingBookingId != null &&
@@ -6601,6 +6696,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final carLat = (focusedLocation['latitude'] as num?)?.toDouble();
       final carLng = (focusedLocation['longitude'] as num?)?.toDouble();
+      final motion = _getVehicleMotionInfo(focusedLocation);
+      final motionColor = motion['color'] as Color;
 
       if (focusedHasActiveBooking && pickupPoint != null) {
         mapMarkers.add(
@@ -6622,12 +6719,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             latitude: carLat,
             longitude: carLng,
             icon: Icons.directions_car_filled_rounded,
-            color: AppColors.primary,
+            color: motionColor,
             size: 46,
             tooltip: vehicleName.isNotEmpty
-                ? '$vehicleName • ${focusedHasActiveBooking ? 'On Trip' : 'Available (Idle)'}'
-                : 'Tracked Vehicle',
-            label: vehicleName.isNotEmpty ? vehicleName : null,
+                ? '$vehicleName • ${motion['label']}'
+                : 'Tracked Vehicle • ${motion['label']}',
+            label: vehicleName.isNotEmpty
+                ? '$vehicleName (${motion['short_label']})'
+                : motion['label'],
           ),
         );
 
@@ -6670,7 +6769,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
         final locId =
             booking?['id']?.toString() ?? loc['id']?.toString() ?? '';
-        final hasBooking = loc['has_active_booking'] == true;
+        final motion = _getVehicleMotionInfo(loc);
+        final motionColor = motion['color'] as Color;
 
         if (lat != null && lng != null) {
           mapMarkers.add(
@@ -6678,12 +6778,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               latitude: lat,
               longitude: lng,
               icon: Icons.directions_car_filled_rounded,
-              color: AppColors.primary,
-              size: 40,
+              color: motionColor,
+              size: 42,
               tooltip: vehicleName.isNotEmpty
-                  ? '$vehicleName • ${hasBooking ? 'On Trip' : 'Available (Idle)'}'
-                  : 'Tracked Vehicle',
-              label: vehicleName.isNotEmpty ? vehicleName : null,
+                  ? '$vehicleName • ${motion['label']}'
+                  : 'Tracked Vehicle • ${motion['label']}',
+              label: vehicleName.isNotEmpty
+                  ? '$vehicleName (${motion['short_label']})'
+                  : motion['short_label'],
               onTap: () {
                 if (locId.isNotEmpty) {
                   setState(() => _focusedTrackingBookingId = locId);
@@ -7037,13 +7139,19 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 6),
+                              _buildMovementStatusChip(
+                                location: location,
+                                isDark: isDark,
+                                isCompact: true,
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 4),
                           Text(
                             hasActiveBooking
-                                ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'}'
-                                : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Status: Available / Idle • Speed: $speedKph km/h',
+                                ? 'Booking: ${booking?['id'] ?? 'N/A'} | Driver: ${driverUser?['full_name'] ?? 'N/A (Self-Drive)'} | Renter: ${renter?['full_name'] ?? 'N/A'} • Speed: $speedKph km/h'
+                                : 'Tracker ID: ${tracker?['device_identifier'] ?? location['device_identifier'] ?? 'GPS Connected'} • Speed: $speedKph km/h',
                             style: TextStyle(
                               color: isDark
                                   ? Colors.grey[400]

@@ -90,9 +90,41 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     final lat = (tracking?['latitude'] as num?)?.toDouble();
     final lng = (tracking?['longitude'] as num?)?.toDouble();
     final speedMps = (tracking?['speed_mps'] as num?)?.toDouble() ?? 0;
+    final speedKph = (speedMps * 3.6).round();
     final speedMph = speedMps * 2.23694;
     final heading = (tracking?['heading_degrees'] as num?)?.toDouble() ?? 0;
     final recordedAt = tracking?['recorded_at']?.toString();
+    DateTime? recordedAtDt;
+    if (recordedAt != null && recordedAt.isNotEmpty) {
+      recordedAtDt = DateTime.tryParse(recordedAt)?.toUtc();
+    }
+    final now = DateTime.now().toUtc();
+    final isStale =
+        recordedAtDt == null || now.difference(recordedAtDt).inMinutes >= 5;
+    final isMoving = speedKph >= 3;
+
+    final String motionStatusLabel;
+    final Color motionColor;
+    final IconData motionIcon;
+
+    if (tracking == null) {
+      motionStatusLabel = 'AWAITING GPS';
+      motionColor = Colors.grey;
+      motionIcon = Icons.sensors_off_rounded;
+    } else if (isMoving) {
+      motionStatusLabel = 'MOVING • $speedKph KM/H';
+      motionColor = const Color(0xFF00E676);
+      motionIcon = Icons.speed_rounded;
+    } else if (isStale) {
+      motionStatusLabel = 'PARKED • ENGINE OFF';
+      motionColor = const Color(0xFF9E9E9E);
+      motionIcon = Icons.power_settings_new_rounded;
+    } else {
+      motionStatusLabel = 'STOPPED • IDLING';
+      motionColor = const Color(0xFFFF9100);
+      motionIcon = Icons.pause_circle_filled_rounded;
+    }
+
     final destination =
         bookingMap?['dropoff_location']?.toString() ??
         booking['dropoff_location']?.toString() ??
@@ -106,11 +138,6 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
         renter?['full_name']?.toString().trim().isNotEmpty == true
         ? renter!['full_name'].toString().trim()
         : widget.recipientName;
-    final trackingStatus = tracking == null
-        ? 'Awaiting GPS'
-        : speedMph > 4
-        ? 'Driving'
-        : 'Parked';
 
     return Scaffold(
       backgroundColor: const Color(0xFF071E2D),
@@ -176,22 +203,31 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF6CE5C8).withValues(alpha: 0.85),
+                        color: const Color(0xFF082A4C),
                         borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: motionColor, width: 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: motionColor.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
-                          const Icon(
-                            Icons.circle,
-                            size: 10,
-                            color: AppColors.success,
+                          Icon(
+                            motionIcon,
+                            size: 14,
+                            color: motionColor,
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            trackingStatus.toUpperCase(),
-                            style: const TextStyle(
-                              color: Color(0xFF064B3B),
-                              fontWeight: FontWeight.w700,
+                            motionStatusLabel,
+                            style: TextStyle(
+                              color: motionColor,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 12,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ],
@@ -247,7 +283,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                           : vehicleName,
                       plateNumber: plateNumber,
                       destination: destination,
+                      speedKph: speedKph,
                       speedMph: speedMph,
+                      motionStatusLabel: motionStatusLabel,
+                      motionColor: motionColor,
                       heading: _headingLabel(heading),
                       updatedAt: _formatUpdated(recordedAt),
                     ),
@@ -386,7 +425,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     required String vehicleName,
     required String plateNumber,
     required String destination,
+    required int speedKph,
     required double speedMph,
+    required String motionStatusLabel,
+    required Color motionColor,
     required String heading,
     required String updatedAt,
   }) {
@@ -511,7 +553,17 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                 Expanded(
                   child: _buildMetric(
                     label: 'SPEED',
-                    value: '${speedMph.toStringAsFixed(0)} mph',
+                    value: '$speedKph km/h',
+                  ),
+                ),
+                Expanded(
+                  child: _buildMetric(
+                    label: 'STATUS',
+                    value: motionStatusLabel.contains('MOVING')
+                        ? 'Moving'
+                        : (motionStatusLabel.contains('PARKED')
+                            ? 'Parked (Off)'
+                            : 'Stopped'),
                   ),
                 ),
                 Expanded(
