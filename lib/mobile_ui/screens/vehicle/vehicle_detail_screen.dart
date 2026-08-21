@@ -2059,7 +2059,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 rentalTermsSnapshot: requireTermsAgreement
                     ? _acceptedTermsSnapshot
                     : null,
-                reservationFeeAmount: reservationPaymentProof?.amount,
+                securityDeposit: reservationPaymentProof?.securityDeposit,
+                reservationFeeAmount: reservationPaymentProof?.reservationFee ??
+                    (reservationPaymentProof?.paymentType == 'full_payment'
+                        ? 0.0
+                        : reservationPaymentProof?.amount),
                 reservationPaymentReference:
                     reservationPaymentProof?.referenceNumber,
                 reservationPaymentProofUrl: reservationPaymentProof?.proofUrl,

@@ -332,6 +332,7 @@ class BookingService {
     double? dropoffLongitude,
     DateTime? rentalTermsAcceptedAt,
     String? rentalTermsSnapshot,
+    double? securityDeposit,
     double? reservationFeeAmount,
     String? reservationPaymentReference,
     String? reservationPaymentProofUrl,
@@ -492,6 +493,10 @@ class BookingService {
         'status': 'pending',
         'created_at': DateTime.now().toIso8601String(),
       };
+
+      if (securityDeposit != null) {
+        bookingPayload['security_deposit'] = securityDeposit;
+      }
 
       if (reservationFeeAmount != null) {
         bookingPayload['reservation_fee_amount'] = reservationFeeAmount;

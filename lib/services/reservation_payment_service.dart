@@ -41,6 +41,8 @@ class ReservationPaymentProof {
   final String proofUrl;
   final String? proofStoragePath;
   final String? senderPhone;
+  final double? securityDeposit;
+  final double? reservationFee;
 
   const ReservationPaymentProof({
     required this.amount,
@@ -50,6 +52,8 @@ class ReservationPaymentProof {
     required this.proofUrl,
     this.proofStoragePath,
     this.senderPhone,
+    this.securityDeposit,
+    this.reservationFee,
   });
 }
 

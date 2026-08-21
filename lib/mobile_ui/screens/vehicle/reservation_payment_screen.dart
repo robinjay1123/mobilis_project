@@ -170,14 +170,19 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         widget.vehicleData['partner_name'] != null;
     final partnerCommission =
         isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+    final principalRentalSubtotal = (widget.rentalSubtotal +
+            widget.driverFee +
+            widget.deliveryFee +
+            partnerCommission -
+            widget.discountAmount)
+        .clamp(0.0, double.infinity);
     final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
-    final configuredDeposit = _settings.getDepositForSeats(seats);
-    final reservationOnlyAmount = widget.requiresLongBookingReservation
+    final securityDeposit = _settings.getDepositForSeats(seats);
+    final reservationFee = widget.requiresLongBookingReservation
         ? widget.reservationFeeAmount
-        : configuredDeposit;
-    final payableAmount = _payFullAmount
-        ? widget.rentalTotal + partnerCommission
-        : reservationOnlyAmount;
+        : _settings.amount; // default ₱1,000
+    final grandTotal = principalRentalSubtotal + securityDeposit;
+    final payableAmount = _payFullAmount ? grandTotal : reservationFee;
 
     if (senderPhone.isEmpty) {
       setState(() {
@@ -197,7 +202,12 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
     // PSDC Desk / Over-the-counter payment (Requires Operator MPIN Authorization)
     if (_selectedPaymentChannel == 'desk') {
-      await _handleDeskPaymentWithOperatorMpin(payableAmount, senderPhone);
+      await _handleDeskPaymentWithOperatorMpin(
+        payableAmount: payableAmount,
+        senderPhone: senderPhone,
+        securityDeposit: securityDeposit,
+        reservationFee: reservationFee,
+      );
       return;
     }
 
@@ -244,6 +254,8 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
           proofUrl: receiptUpload.publicUrl,
           proofStoragePath: receiptUpload.storagePath,
           senderPhone: senderPhone,
+          securityDeposit: securityDeposit,
+          reservationFee: _payFullAmount ? 0.0 : reservationFee,
         ),
       );
     } catch (e) {
@@ -284,17 +296,21 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         .clamp(0.0, double.infinity);
 
     final seats = (vehicle['seats'] as num?)?.toInt() ?? 5;
-    final configuredDeposit = _settings.getDepositForSeats(seats);
-    final securityDeposit = widget.requiresLongBookingReservation
+    final securityDeposit = _settings.getDepositForSeats(seats);
+    final reservationFee = widget.requiresLongBookingReservation
         ? widget.reservationFeeAmount
-        : configuredDeposit;
+        : _settings.amount; // default ₱1,000
 
+    // Grand total = Principal rental charges + Refundable security deposit
     final grandTotal = principalRentalSubtotal + securityDeposit;
 
-    final payableAmount = _payFullAmount ? grandTotal : securityDeposit;
+    // Full Payment: Grand Total (Principal + Security Deposit; No Reservation Fee)
+    // Reservation Only: Reservation Fee now to hold booking
+    final payableAmount = _payFullAmount ? grandTotal : reservationFee;
 
+    // Remaining balance due upon vehicle turnover
     final remainingBalance =
-        _payFullAmount ? 0.0 : principalRentalSubtotal;
+        _payFullAmount ? 0.0 : (grandTotal - reservationFee).clamp(0.0, double.infinity);
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
@@ -360,6 +376,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                         partnerCommission: partnerCommission,
                         principalRentalSubtotal: principalRentalSubtotal,
                         securityDeposit: securityDeposit,
+                        reservationFee: reservationFee,
                         grandTotal: grandTotal,
                         payableAmount: payableAmount,
                         remainingBalance: remainingBalance,
@@ -687,6 +704,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     required double partnerCommission,
     required double principalRentalSubtotal,
     required double securityDeposit,
+    required double reservationFee,
     required double grandTotal,
     required double payableAmount,
     required double remainingBalance,
@@ -891,9 +909,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                         const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF3B82F6)),
                         const SizedBox(width: 6),
                         Text(
-                          widget.requiresLongBookingReservation
-                              ? 'Security Deposit (Long-term)'
-                              : 'Security Deposit (${((widget.vehicleData['seats'] as num?)?.toInt() ?? 5) >= 6 ? '6+ Seater' : '4–5 Seater'})',
+                          'Security Deposit (${((widget.vehicleData['seats'] as num?)?.toInt() ?? 5) >= 6 ? '6+ Seater' : '4–5 Seater'})',
                           style: TextStyle(
                             color: isDark ? Colors.white : const Color(0xFF0F172A),
                             fontWeight: FontWeight.w700,
@@ -914,7 +930,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '• 100% Refundable upon vehicle return in good condition\n• Held separately (not consumed as rental payment)',
+                  '• Added to total rental price\n• 100% Refundable upon vehicle return with no damages/violations',
                   style: TextStyle(
                     color: isDark ? Colors.white60 : const Color(0xFF64748B),
                     fontSize: 11,
@@ -929,75 +945,179 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
             child: Divider(height: 1),
           ),
           _buildBreakdownRow(
-            'Grand Total (Rental + Refundable Deposit)',
+            'Grand Total (Principal Rent + Security Deposit)',
             grandTotal,
             isDark: isDark,
             isBold: true,
           ),
           const SizedBox(height: 12),
+
+          // Reservation Fee Section (If paying reservation only) or Full Payment Info
+          if (!_payFullAmount) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.bookmark_added_rounded, size: 16, color: Color(0xFF3B82F6)),
+                          const SizedBox(width: 6),
+                          Text(
+                            widget.requiresLongBookingReservation
+                                ? 'Reservation Fee (20% to hold booking)'
+                                : 'Reservation Fee (To hold booking)',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'PHP ${formatAmount(reservationFee, decimalDigits: 0)}',
+                        style: const TextStyle(
+                          color: Color(0xFF3B82F6),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '• Deducted from Grand Total to secure your booking request\n• Remaining principal rental & security deposit will be settled upon vehicle turnover',
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                      fontSize: 11,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF10B981)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Full Payment Mode: Paying Principal Rent + Refundable Security Deposit upfront (No reservation fee required).',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF065F46),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Payable Now Card
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
+              color: AppColors.primary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.45)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _payFullAmount
-                          ? 'Payable Now (Full Payment + Deposit)'
-                          : widget.requiresLongBookingReservation
-                              ? 'Payable Now (20% Reservation)'
-                              : 'Payable Now (Security Deposit Only)',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _payFullAmount
+                            ? 'Payable Now (Full Rent + Deposit)'
+                            : widget.requiresLongBookingReservation
+                                ? 'Payable Now (20% Reservation Fee)'
+                                : 'Payable Now (Reservation Fee Only)',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
                       ),
-                    ),
-                    Text(
-                      _selectedPaymentChannel == 'qr' ? 'via Official QR' : 'at PSDC Desk Counter',
-                      style: TextStyle(
-                        color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                        fontSize: 11,
+                      const SizedBox(height: 2),
+                      Text(
+                        _selectedPaymentChannel == 'qr' ? 'via Official QR Code' : 'at PSDC Desk Counter',
+                        style: TextStyle(
+                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                          fontSize: 11,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 Text(
                   'PHP ${formatAmount(payableAmount, decimalDigits: 0)}',
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w900,
-                    fontSize: 18,
+                    fontSize: 19,
                   ),
                 ),
               ],
             ),
           ),
           if (!_payFullAmount && remainingBalance > 0) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  'Remaining balance (Due upon vehicle pickup):',
-                  style: TextStyle(
-                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                    fontSize: 12,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Remaining balance (Due upon vehicle pickup):',
+                        style: TextStyle(
+                          color: isDark ? Colors.white70 : const Color(0xFF334155),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '(Covers remaining rental + ₱${formatAmount(securityDeposit, decimalDigits: 0)} refundable deposit)',
+                        style: TextStyle(
+                          color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                          fontSize: 10.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Text(
                   'PHP ${formatAmount(remainingBalance, decimalDigits: 0)}',
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : const Color(0xFF334155),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
                   ),
                 ),
               ],
@@ -1083,7 +1203,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Optional. Leave off to pay reservation / deposit only.',
+                  _payFullAmount
+                      ? 'Paying principal rent + refundable security deposit upfront. No reservation fee.'
+                      : 'Pay reservation fee now to hold vehicle. Remaining rent balance + security deposit payable upon pickup.',
                   style: TextStyle(
                     color: isDark ? Colors.white60 : const Color(0xFF64748B),
                     fontSize: 11,
@@ -1157,10 +1279,12 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     );
   }
 
-  Future<void> _handleDeskPaymentWithOperatorMpin(
-    double payableAmount,
-    String senderPhone,
-  ) async {
+  Future<void> _handleDeskPaymentWithOperatorMpin({
+    required double payableAmount,
+    required String senderPhone,
+    required double securityDeposit,
+    required double reservationFee,
+  }) async {
     final mpinController = TextEditingController();
     bool isVerifying = false;
     String? dialogError;
@@ -1504,6 +1628,8 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
         proofUrl: '',
         proofStoragePath: null,
         senderPhone: senderPhone,
+        securityDeposit: securityDeposit,
+        reservationFee: _payFullAmount ? 0.0 : reservationFee,
       ),
     );
   }
