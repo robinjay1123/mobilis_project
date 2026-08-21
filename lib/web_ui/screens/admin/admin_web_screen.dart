@@ -9117,7 +9117,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                                   ),
                                 ),
                               ),
-                              if (_isPartnerOwnedBooking(booking ?? {}) ||
+                              if (booking?['is_partner_vehicle'] == true ||
+                                  booking?['partner_id'] != null ||
                                   (vehicle?['owner']?['role']?.toString().toLowerCase() == 'partner') ||
                                   vehicle?['is_partner_vehicle'] == true ||
                                   vehicle?['partner_id'] != null) ...[
