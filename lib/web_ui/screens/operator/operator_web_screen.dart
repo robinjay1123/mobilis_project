@@ -1925,9 +1925,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _visibleTrackingLocations() {
     if (_focusedTrackingBookingId == null ||
         _focusedTrackingBookingId!.isEmpty) {
-      return _trackingLocations
-          .where((location) => _isCompanyOwnedTrackingLocation(location))
-          .toList();
+      return _trackingLocations;
     }
 
     final focused = _trackingLocations.where((location) {
@@ -1941,9 +1939,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
     if (focused.isNotEmpty) return focused;
 
-    return _trackingLocations
-        .where((location) => _isCompanyOwnedTrackingLocation(location))
-        .toList();
+    return _trackingLocations;
   }
 
   bool _isCompanyOwnedTrackingLocation(Map<String, dynamic> location) {
@@ -7139,6 +7135,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                                   ),
                                 ),
                               ),
+                              if (_isPartnerOwnedBooking(booking ?? {}) ||
+                                  (vehicle?['owner']?['role']?.toString().toLowerCase() == 'partner') ||
+                                  vehicle?['is_partner_vehicle'] == true ||
+                                  vehicle?['partner_id'] != null) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.purple.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: Colors.purple.withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'PARTNER CAR',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.4,
+                                      color: Colors.purpleAccent,
+                                    ),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(width: 6),
                               _buildMovementStatusChip(
                                 location: location,

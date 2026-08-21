@@ -854,7 +854,11 @@ class TrackingService {
 
   bool _canViewTracking(_TrackingAccess access, Map<String, dynamic>? booking) {
     if (booking == null) return false;
-    if (access.role == 'admin' || access.role == 'super_admin') return true;
+    if (access.role == 'admin' ||
+        access.role == 'super_admin' ||
+        access.role == 'operator') {
+      return true;
+    }
 
     final vehicle = booking['vehicles'] as Map<String, dynamic>?;
     if (vehicle == null) return false;
@@ -868,9 +872,6 @@ class TrackingService {
 
     if (access.role == 'partner') {
       return partnerVehicle && ownerId == access.userId;
-    }
-    if (access.role == 'operator') {
-      return !partnerVehicle;
     }
     return false;
   }
