@@ -1364,6 +1364,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   double get _discountAmount {
     if (_selectedVoucher == null) return 0.0;
+    final available = _getAvailableVouchersList();
+    if (!available.any((v) => v.code == _selectedVoucher!.code)) {
+      return 0.0;
+    }
     final subtotal = _rentalSubtotal;
     if (subtotal <= 0) return 0.0;
     final v = _selectedVoucher!;
@@ -3670,6 +3674,64 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Widget _buildVoucherSelectionCard() {
     final hasVoucher = _selectedVoucher != null;
     final discount = _discountAmount;
+    final availableVouchers = _getAvailableVouchersList();
+    final completedTrips = _loyaltyRewardState?.successfulTrips ?? 0;
+
+    // If user has not selected a voucher and has not earned any vouchers yet,
+    // show locked PSDC Card status banner without an apply button.
+    if (!hasVoucher && availableVouchers.isEmpty) {
+      final tripsNeeded = (3 - completedTrips).clamp(1, 3);
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.borderColor.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.textSecondary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'PSDC Loyalty Rewards',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Complete $tripsNeeded more completed trip${tripsNeeded == 1 ? '' : 's'} to unlock your first ₱50 discount reward! ($completedTrips/3 trips on PSDC Card)',
+                    style: const TextStyle(
+                      color: AppColors.textTertiary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -3687,7 +3749,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: (hasVoucher ? AppColors.success : AppColors.primary)
-                  .withOpacity(0.15),
+                  .withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
@@ -3717,10 +3779,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 Text(
                   hasVoucher
                       ? 'Saved ₱${formatAmount(discount)} on this trip!'
-                      : 'Tap to apply promo code or loyalty reward',
+                      : '${availableVouchers.length} earned reward${availableVouchers.length == 1 ? '' : 's'} available to apply',
                   style: TextStyle(
                     color: hasVoucher
-                        ? AppColors.success.withOpacity(0.85)
+                        ? AppColors.success.withValues(alpha: 0.85)
                         : AppColors.textSecondary,
                     fontSize: 12,
                   ),
@@ -3755,6 +3817,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   void _showVoucherPickerModalSheet() {
     final customCodeController = TextEditingController();
+    String? promoError;
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -3764,6 +3828,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       ),
       builder: (context) {
         final availableVouchers = _getAvailableVouchersList();
+        final completedTrips = _loyaltyRewardState?.successfulTrips ?? 0;
+
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
@@ -3781,7 +3847,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Apply Voucher & Rewards',
+                        'Apply Earned Rewards',
                         style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 18,
@@ -3804,8 +3870,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         child: TextField(
                           controller: customCodeController,
                           style: const TextStyle(color: AppColors.textPrimary),
+                          onChanged: (_) {
+                            if (promoError != null) {
+                              setSheetState(() => promoError = null);
+                            }
+                          },
                           decoration: InputDecoration(
-                            hintText: 'Enter Promo Code',
+                            hintText: 'Enter Reward Code',
                             hintStyle: const TextStyle(
                               color: AppColors.textTertiary,
                             ),
@@ -3831,20 +3902,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                               .trim()
                               .toUpperCase();
                           if (code.isEmpty) return;
-                          final match = availableVouchers.firstWhere(
-                            (v) => v.code.toUpperCase() == code,
-                            orElse: () => LoyaltyVoucher(
-                              code: code,
-                              title: '$code Voucher',
-                              description: 'Custom Promo Code',
-                              discountPercent: 0.0,
-                              discountAmount: 100.0,
-                              isPercent: false,
-                              minTripsRequired: 0,
-                            ),
+
+                          // Look for match only in earned available vouchers
+                          final match = availableVouchers.cast<LoyaltyVoucher?>().firstWhere(
+                            (v) => v?.code.toUpperCase() == code,
+                            orElse: () => null,
                           );
-                          setState(() => _selectedVoucher = match);
-                          Navigator.pop(context);
+
+                          if (match != null) {
+                            setState(() => _selectedVoucher = match);
+                            Navigator.pop(context);
+                          } else {
+                            // Check if this is a known system voucher code that user hasn't reached yet
+                            final knownSys = LoyaltyService.systemVouchers
+                                .cast<LoyaltyVoucher?>()
+                                .firstWhere(
+                                  (v) => v?.code.toUpperCase() == code,
+                                  orElse: () => null,
+                                );
+                            setSheetState(() {
+                              if (knownSys != null) {
+                                promoError =
+                                    '${knownSys.title} requires ${knownSys.minTripsRequired} completed trips. You have $completedTrips trip(s).';
+                              } else {
+                                promoError =
+                                    'Invalid or locked voucher. Complete more trips on your PSDC Loyalty Card to earn rewards.';
+                              }
+                            });
+                          }
                         },
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
@@ -3861,9 +3946,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       ),
                     ],
                   ),
+                  if (promoError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      promoError!,
+                      style: const TextStyle(
+                        color: AppColors.error,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   const Text(
-                    'Available Discounts & Rewards',
+                    'Earned Discounts & Rewards',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 13,
@@ -3876,7 +3972,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       padding: EdgeInsets.symmetric(vertical: 20),
                       child: Center(
                         child: Text(
-                          'No active vouchers available.',
+                          'No earned vouchers yet. Complete trips on your PSDC Loyalty Card to unlock rewards!',
+                          textAlign: TextAlign.center,
                           style: TextStyle(color: AppColors.textTertiary),
                         ),
                       ),
@@ -3961,87 +4058,89 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
   List<LoyaltyVoucher> _getAvailableVouchersList() {
     final list = <LoyaltyVoucher>[];
-    if (_loyaltyRewardState != null) {
-      // Prioritize redeemed milestones from loyalty card, falling back to unlocked milestones
-      final stamps = _loyaltyRewardState!.redeemedMilestones.isNotEmpty
-          ? _loyaltyRewardState!.redeemedMilestones
-          : _loyaltyRewardState!.unlockedMilestones.map((m) => m.stamp).toSet();
+    final rewardState = _loyaltyRewardState;
+    if (rewardState == null) return list;
 
-      for (final stamp in stamps) {
-        if (stamp == 3) {
-          list.add(
-            const LoyaltyVoucher(
-              code: 'LOYALTY50',
-              title: '₱50 OFF Loyalty Reward',
-              description: 'Redeemed from PSDC Loyalty Reward Card (3 trips)',
-              discountPercent: 0.0,
-              discountAmount: 50.0,
-              isPercent: false,
-              minTripsRequired: 3,
-            ),
-          );
-        } else if (stamp == 6) {
-          list.add(
-            const LoyaltyVoucher(
-              code: 'LOYALTY200',
-              title: '₱200 OFF Loyalty Reward',
-              description: 'Redeemed from PSDC Loyalty Reward Card (6 trips)',
-              discountPercent: 0.0,
-              discountAmount: 200.0,
-              isPercent: false,
-              minTripsRequired: 6,
-            ),
-          );
-        } else if (stamp == 12) {
-          list.add(
-            const LoyaltyVoucher(
-              code: 'LOYALTY300',
-              title: '₱300 OFF Loyalty Reward',
-              description: 'Redeemed from PSDC Loyalty Reward Card (12 trips)',
-              discountPercent: 0.0,
-              discountAmount: 300.0,
-              isPercent: false,
-              minTripsRequired: 12,
-            ),
-          );
-        } else if (stamp == 15) {
-          final pricePerDay =
-              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-          final pricePerHour =
-              (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
-          final hourlyRate = pricePerHour > 0
-              ? pricePerHour
-              : (pricePerDay / 24.0);
-          list.add(
-            LoyaltyVoucher(
-              code: 'LOYALTY_FREE3H',
-              title: 'Free 3 Hours Rental Reward',
-              description: 'Redeemed from PSDC Loyalty Reward Card (15 trips)',
-              discountPercent: 0.0,
-              discountAmount: hourlyRate * 3,
-              isPercent: false,
-              minTripsRequired: 15,
-            ),
-          );
-        } else if (stamp == 18) {
-          final pricePerDay =
-              (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
-          list.add(
-            LoyaltyVoucher(
-              code: 'LOYALTY_FREE24H',
-              title: 'Free 24 Hours Rental Reward',
-              description: 'Redeemed from PSDC Loyalty Reward Card (18 trips)',
-              discountPercent: 0.0,
-              discountAmount: pricePerDay,
-              isPercent: false,
-              minTripsRequired: 18,
-            ),
-          );
-        }
+    // Only vouchers from earned / unlocked milestones in the PSDC card
+    final completedTrips = rewardState.successfulTrips;
+    if (completedTrips < 3) return list;
+
+    // Milestone stamps earned:
+    final earnedStamps = rewardState.unlockedMilestones.map((m) => m.stamp).toSet();
+
+    for (final stamp in earnedStamps) {
+      if (stamp == 3) {
+        list.add(
+          const LoyaltyVoucher(
+            code: 'LOYALTY50',
+            title: '₱50 OFF Loyalty Reward',
+            description: 'Earned from PSDC Loyalty Reward Card (3 trips)',
+            discountPercent: 0.0,
+            discountAmount: 50.0,
+            isPercent: false,
+            minTripsRequired: 3,
+          ),
+        );
+      } else if (stamp == 6) {
+        list.add(
+          const LoyaltyVoucher(
+            code: 'LOYALTY200',
+            title: '₱200 OFF Loyalty Reward',
+            description: 'Earned from PSDC Loyalty Reward Card (6 trips)',
+            discountPercent: 0.0,
+            discountAmount: 200.0,
+            isPercent: false,
+            minTripsRequired: 6,
+          ),
+        );
+      } else if (stamp == 12) {
+        list.add(
+          const LoyaltyVoucher(
+            code: 'LOYALTY300',
+            title: '₱300 OFF Loyalty Reward',
+            description: 'Earned from PSDC Loyalty Reward Card (12 trips)',
+            discountPercent: 0.0,
+            discountAmount: 300.0,
+            isPercent: false,
+            minTripsRequired: 12,
+          ),
+        );
+      } else if (stamp == 15) {
+        final pricePerDay =
+            (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+        final pricePerHour =
+            (_vehicle?['price_per_hour'] as num?)?.toDouble() ?? 0.0;
+        final hourlyRate = pricePerHour > 0
+            ? pricePerHour
+            : (pricePerDay / 24.0);
+        list.add(
+          LoyaltyVoucher(
+            code: 'LOYALTY_FREE3H',
+            title: 'Free 3 Hours Rental Reward',
+            description: 'Earned from PSDC Loyalty Reward Card (15 trips)',
+            discountPercent: 0.0,
+            discountAmount: hourlyRate * 3,
+            isPercent: false,
+            minTripsRequired: 15,
+          ),
+        );
+      } else if (stamp == 18) {
+        final pricePerDay =
+            (_vehicle?['price_per_day'] as num?)?.toDouble() ?? 0.0;
+        list.add(
+          LoyaltyVoucher(
+            code: 'LOYALTY_FREE24H',
+            title: 'Free 24 Hours Rental Reward',
+            description: 'Earned from PSDC Loyalty Reward Card (18 trips)',
+            discountPercent: 0.0,
+            discountAmount: pricePerDay,
+            isPercent: false,
+            minTripsRequired: 18,
+          ),
+        );
       }
     }
 
-    final completedTrips = _loyaltyRewardState?.successfulTrips ?? 0;
     for (final sysVoucher in LoyaltyService.systemVouchers) {
       if (completedTrips >= sysVoucher.minTripsRequired) {
         if (!list.any((v) => v.code == sysVoucher.code)) {
