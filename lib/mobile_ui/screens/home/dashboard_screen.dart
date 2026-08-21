@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2341,8 +2342,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           : 'PSDC';
       final driver = booking['driver'] as Map<String, dynamic>?;
       final driverUser = driver?['users'] as Map<String, dynamic>?;
-      final withDriver = booking['with_driver'] == true;
+      final withDriver = booking['with_driver'] == true ||
+          booking['withDriver'] == true ||
+          booking['with_driver'] == 1 ||
+          booking['with_driver']?.toString().toLowerCase() == 'true';
       final driverName = driverUser?['full_name']?.toString().trim();
+      final driverPhone = driverUser?['phone']?.toString().trim() ?? '';
+      final driverEmail = driverUser?['email']?.toString().trim() ?? '';
       final paymentStatus =
           booking['payment_status']?.toString().trim().isNotEmpty == true
           ? booking['payment_status'].toString().trim()
@@ -2403,7 +2409,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'end_date_raw': booking['end_date'],
         'vehicles': vehicle,
         'driver': driver,
+        'driver_user': driverUser,
+        'driverPhone': driverPhone,
+        'driverEmail': driverEmail,
+        'driver_id': booking['driver_id'],
+        'job_assignments': assignments,
         'withDriver': withDriver,
+        'with_driver': withDriver,
+        'plateNumber': vehicle?['plate_number']?.toString().trim() ?? '',
+        'transmission': vehicle?['transmission']?.toString().trim() ?? '',
+        'fuelType': vehicle?['fuel_type']?.toString().trim() ?? '',
+        'seats': vehicle?['seats'],
         'driverName': driverName == null || driverName.isEmpty
             ? (withDriver ? 'To be assigned' : 'Not requested')
             : toProfessionalTitleCase(driverName),
@@ -9764,6 +9780,10 @@ class _RenterBookingDetailsPage extends StatelessWidget {
     final finalPaymentRef =
         booking['final_payment_reference']?.toString() ??
         booking['finalPaymentReference']?.toString();
+    final withDriver = booking['withDriver'] == true ||
+        booking['with_driver'] == true ||
+        booking['with_driver'] == 1 ||
+        booking['with_driver']?.toString().toLowerCase() == 'true';
     const completionActionLabel = 'Rate Your Trip';
     const completionActionIcon = Icons.star_rate_rounded;
 
@@ -9789,16 +9809,19 @@ class _RenterBookingDetailsPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildVehicleSummary(status),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
+              // Dedicated Rental Service & Driver Details Section
+              _buildRentalServiceAndDriverSection(context),
+              const SizedBox(height: 14),
               if (booking['extension_status'] != null &&
                   booking['extension_status'].toString().isNotEmpty &&
                   booking['extension_status'] != 'none') ...[
                 _buildRenterTripExtensionCard(context),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ],
               if (isApprovedTrip) ...[
                 _buildOngoingTripPanel(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
               ] else if (onNavigate != null) ...[
                 _buildPrimaryButton(
                   icon: Icons.navigation_rounded,
@@ -9819,31 +9842,36 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                 children: [
                   _detailRow(
                     Icons.calendar_today_outlined,
-                    'Pickup',
+                    'Pickup Schedule',
                     '${booking['startDate'] ?? 'N/A'} ${booking['startTime'] ?? ''}',
                   ),
                   _detailRow(
                     Icons.event_available_outlined,
-                    'Drop-off',
+                    'Drop-off Schedule',
                     '${booking['endDate'] ?? 'N/A'} ${booking['endTime'] ?? ''}',
                   ),
                   _detailRow(
-                    Icons.location_on_outlined,
+                    Icons.trip_origin_rounded,
                     'Pickup Location',
                     booking['pickupLocation']?.toString() ?? 'Not specified',
                   ),
                   _detailRow(
-                    Icons.flag_outlined,
+                    Icons.location_on_rounded,
                     'Drop-off Location',
                     booking['dropoffLocation']?.toString() ?? 'Not specified',
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               _buildSection(
                 title: 'Payment Summary',
                 children: [
                   _detailRow(Icons.timer_outlined, 'Duration', '$days day(s)'),
+                  _detailRow(
+                    withDriver ? Icons.drive_eta_rounded : Icons.key_rounded,
+                    'Rental Service',
+                    withDriver ? 'With Professional Driver' : 'Self-Drive',
+                  ),
                   _detailRow(
                     Icons.receipt_long_outlined,
                     'Payment Type',
@@ -9919,6 +9947,572 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                   onPressed: onCancel!,
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _callPhone(BuildContext context, String? phone) async {
+    final clean = phone?.trim() ?? '';
+    if (clean.isEmpty) return;
+    final uri = Uri.parse('tel:$clean');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open phone dialer: $clean')),
+      );
+    }
+  }
+
+  /// 🚗 Dedicated Rental Service & Driver Details Section
+  Widget _buildRentalServiceAndDriverSection(BuildContext context) {
+    final withDriver = booking['withDriver'] == true ||
+        booking['with_driver'] == true ||
+        booking['with_driver'] == 1 ||
+        booking['with_driver']?.toString().toLowerCase() == 'true';
+    final rawDriverName = booking['driverName']?.toString().trim();
+    final hasAssignedDriver = rawDriverName != null &&
+        rawDriverName.isNotEmpty &&
+        rawDriverName != 'To be assigned' &&
+        rawDriverName != 'Not requested';
+    final driverPhone = booking['driverPhone']?.toString().trim() ?? '';
+    final driverEmail = booking['driverEmail']?.toString().trim() ?? '';
+
+    if (!withDriver) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.key_rounded, size: 16, color: Colors.blueAccent),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Rental Service',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue.withValues(alpha: 0.4)),
+                  ),
+                  child: const Text(
+                    '🔑 SELF-DRIVE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.blueAccent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'You will be driving the vehicle. Please present your valid Driver\'s License and required government ID upon vehicle pickup.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // With Professional Driver
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: hasAssignedDriver
+              ? Colors.cyan.withValues(alpha: 0.45)
+              : Colors.amber.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: (hasAssignedDriver ? Colors.cyan : Colors.amber).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.airline_seat_recline_normal_rounded,
+                  size: 16,
+                  color: hasAssignedDriver ? Colors.cyan : Colors.amber,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Rental Service',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (hasAssignedDriver ? Colors.cyan : Colors.amber).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: (hasAssignedDriver ? Colors.cyan : Colors.amber).withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  '🚗 WITH DRIVER',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: hasAssignedDriver ? Colors.cyan : Colors.amber,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (hasAssignedDriver) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.darkBgTertiary,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.cyan.withValues(alpha: 0.2),
+                        child: Text(
+                          rawDriverName.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.cyan,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    rawDriverName,
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'CERTIFIED DRIVER',
+                                    style: TextStyle(
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (driverEmail.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                driverEmail,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (driverPhone.isNotEmpty)
+                        IconButton.filledTonal(
+                          onPressed: () => _callPhone(context, driverPhone),
+                          icon: const Icon(Icons.phone_rounded, size: 16),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.green.withValues(alpha: 0.2),
+                            foregroundColor: Colors.green,
+                            padding: const EdgeInsets.all(8),
+                          ),
+                          tooltip: 'Call Driver',
+                        ),
+                    ],
+                  ),
+                  if (driverPhone.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 46),
+                      child: Text(
+                        'Phone: $driverPhone',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your assigned professional driver will meet you at the designated pickup location and operate the vehicle for your trip.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11.5,
+                height: 1.35,
+              ),
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.hourglass_top_rounded, size: 18, color: Colors.amber),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Driver Allocation in Progress',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.amber,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'You booked this trip with a designated professional driver. Our dispatch team is assigning a certified driver. Contact details will appear here once confirmed.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.textSecondary,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleSummary(String status) {
+    final imageUrl = booking['imageUrl']?.toString();
+    final plate = booking['plateNumber']?.toString().trim() ?? '';
+    final transmission = booking['transmission']?.toString().trim() ?? '';
+    final fuel = booking['fuelType']?.toString().trim() ?? '';
+    final seats = booking['seats'];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: AppColors.darkBgTertiary,
+                  borderRadius: BorderRadius.circular(16),
+                  image: imageUrl == null || imageUrl.isEmpty
+                      ? null
+                      : DecorationImage(
+                          image: OptimizedNetworkImageProvider(imageUrl),
+                          fit: BoxFit.cover,
+                        ),
+                ),
+                child: imageUrl == null || imageUrl.isEmpty
+                    ? const Icon(
+                        Icons.directions_car,
+                        color: AppColors.textSecondary,
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      booking['carName']?.toString() ?? 'Vehicle',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      booking['rentalPartner']?.toString() ?? 'Mobilis',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (plate.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Plate: $plate',
+                        style: const TextStyle(
+                          color: AppColors.textTertiary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: StatusBadge(status: status),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (transmission.isNotEmpty || fuel.isNotEmpty || seats != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                if (transmission.isNotEmpty)
+                  _specChip(transmission),
+                if (fuel.isNotEmpty)
+                  _specChip(fuel),
+                if (seats != null)
+                  _specChip('$seats Seats'),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _specChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgTertiary,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AppColors.primary, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppColors.textTertiary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotice(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.black,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecondaryButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primary,
+          side: const BorderSide(color: AppColors.primary),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
           ),
         ),
       ),
@@ -10180,204 +10774,6 @@ class _RenterBookingDetailsPage extends StatelessWidget {
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           textStyle: const TextStyle(fontWeight: FontWeight.w900),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleSummary(String status) {
-    final imageUrl = booking['imageUrl']?.toString();
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.darkBgTertiary,
-              borderRadius: BorderRadius.circular(16),
-              image: imageUrl == null || imageUrl.isEmpty
-                  ? null
-                  : DecorationImage(
-                      image: OptimizedNetworkImageProvider(imageUrl),
-                      fit: BoxFit.cover,
-                    ),
-            ),
-            child: imageUrl == null || imageUrl.isEmpty
-                ? const Icon(
-                    Icons.directions_car,
-                    color: AppColors.textSecondary,
-                  )
-                : null,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  booking['carName']?.toString() ?? 'Vehicle',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  booking['rentalPartner']?.toString() ?? 'Mobilis',
-                  style: const TextStyle(color: AppColors.textSecondary),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: StatusBadge(status: status),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSection({
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.darkBgSecondary,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...children,
-        ],
-      ),
-    );
-  }
-
-  Widget _detailRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppColors.primary, size: 19),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNotice(String text) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.warning.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPrimaryButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.black,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          textStyle: const TextStyle(fontWeight: FontWeight.w900),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSecondaryButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          side: const BorderSide(color: AppColors.primary),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
         ),
       ),
     );
