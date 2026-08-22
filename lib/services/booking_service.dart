@@ -10,6 +10,7 @@ import 'vehicle_service.dart';
 import 'booking_inspection_service.dart';
 import 'trip_rating_service.dart';
 import 'loyalty_service.dart';
+import 'vehicle_turnaround_service.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
 
@@ -2504,6 +2505,28 @@ class BookingService {
         data: {'booking_id': bookingId, 'vehicle_id': booking['vehicle_id']},
       );
     }
+
+    // Automated vehicle unlisting for turnaround / cleaning & inspection
+    try {
+      final vehicleId = booking['vehicle_id']?.toString();
+      if (vehicleId != null && vehicleId.isNotEmpty) {
+        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+        final partnerVehicleId = booking['partner_vehicle_id']?.toString() ??
+            vehicle?['partner_vehicle_id']?.toString();
+        final vehicleTitle = _vehicleTitle(vehicle);
+        final partnerId = vehicle?['owner_id']?.toString();
+
+        await VehicleTurnaroundService().handleVehicleReturn(
+          vehicleId: vehicleId,
+          partnerVehicleId: partnerVehicleId,
+          bookingId: bookingId,
+          vehicleTitle: vehicleTitle,
+          partnerId: partnerId,
+        );
+      }
+    } catch (turnaroundErr) {
+      debugPrint('Could not initiate vehicle turnaround: $turnaroundErr');
+    }
   }
 
   Future<void> _postInspectionAuditToBookingChat({
@@ -4020,6 +4043,28 @@ class BookingService {
                 'Vehicle Return Confirmed: Return inspection completed by $reviewerRole. ${lateReturnFee > 0 ? "Late fee applied: PHP ${lateReturnFee.toStringAsFixed(2)}." : "No late fees."}',
           );
         }
+      }
+
+      // Automated vehicle unlisting for turnaround / cleaning & inspection
+      try {
+        final vehicleId = booking['vehicle_id']?.toString();
+        if (vehicleId != null && vehicleId.isNotEmpty) {
+          final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+          final partnerVehicleId = booking['partner_vehicle_id']?.toString() ??
+              vehicle?['partner_vehicle_id']?.toString();
+          final vehicleTitle = _vehicleTitle(vehicle);
+          final partnerId = vehicle?['owner_id']?.toString();
+
+          await VehicleTurnaroundService().handleVehicleReturn(
+            vehicleId: vehicleId,
+            partnerVehicleId: partnerVehicleId,
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            partnerId: partnerId,
+          );
+        }
+      } catch (turnaroundErr) {
+        debugPrint('Could not initiate vehicle turnaround: $turnaroundErr');
       }
     } catch (e) {
       debugPrint('Error confirming vehicle return: $e');

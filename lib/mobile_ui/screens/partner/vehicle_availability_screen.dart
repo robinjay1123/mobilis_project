@@ -7,6 +7,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/partner_service.dart';
 import '../../../services/vehicle_service.dart';
 import '../../../services/gps_service.dart';
+import '../../../services/vehicle_turnaround_service.dart';
 import '../../../models/gps_tracker_model.dart';
 import '../../../utils/pricing_policy.dart';
 import '../../theme/app_colors.dart';
@@ -43,6 +44,8 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
     'rejected': 0,
     'total': 0,
   };
+  final Map<String, int> _vehicleTurnaroundMinutes = {};
+  final Map<String, Map<String, dynamic>> _activeTurnarounds = {};
 
   bool isLoading = true;
 
@@ -59,8 +62,25 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
       final user = authService.currentUser;
 
       if (user != null) {
+        await VehicleTurnaroundService().processExpiredTurnarounds();
         final appList = await partnerService.getVehicleApplications(user.id);
         final counts = await partnerService.getApplicationCounts(user.id);
+
+        for (final app in appList) {
+          final vId = _approvedVehicleId(app);
+          if (vId.isNotEmpty) {
+            final mins = await VehicleTurnaroundService()
+                .getVehicleTurnaroundMinutes(vId);
+            _vehicleTurnaroundMinutes[vId] = mins;
+            final active = await VehicleTurnaroundService()
+                .getActiveTurnaround(vId);
+            if (active != null) {
+              _activeTurnarounds[vId] = active;
+            } else {
+              _activeTurnarounds.remove(vId);
+            }
+          }
+        }
 
         setState(() {
           applications = appList;
@@ -1081,18 +1101,258 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
               title: 'Available',
               subtitle: 'Vehicle can be shown as available for booking',
               value: isAvailable,
-              onChanged: (value) => _updateApprovedApplicationSettings(
-                application,
-                ownerIsDriver: ownerIsDriver,
-                isAvailable: value,
-              ),
+              onChanged: (value) async {
+                if (value) {
+                  final vId = _approvedVehicleId(application);
+                  if (vId.isNotEmpty) {
+                    await VehicleTurnaroundService().relistVehicleImmediately(
+                      vehicleId: vId,
+                      partnerVehicleId: application['partner_vehicle_id']?.toString(),
+                    );
+                    setState(() => _activeTurnarounds.remove(vId));
+                  }
+                }
+                _updateApprovedApplicationSettings(
+                  application,
+                  ownerIsDriver: ownerIsDriver,
+                  isAvailable: value,
+                );
+              },
             ),
+            _buildTurnaroundSection(application),
             const SizedBox(height: 8),
             _buildGpsTrackingCard(application),
           ],
         ],
       ),
     );
+  }
+
+  Widget _buildTurnaroundSection(Map<String, dynamic> application) {
+    final vehicleId = _approvedVehicleId(application);
+    if (vehicleId.isEmpty) return const SizedBox.shrink();
+
+    final activeTurnaround = _activeTurnarounds[vehicleId];
+    final currentMinutes = _vehicleTurnaroundMinutes[vehicleId] ?? 60;
+    final partnerVehicleId = application['partner_vehicle_id']?.toString();
+
+    String? relistTimeStr;
+    int? remainingMins;
+    if (activeTurnaround != null) {
+      final relistAtRaw = activeTurnaround['auto_relist_at']?.toString();
+      if (relistAtRaw != null) {
+        final relistAt = DateTime.tryParse(relistAtRaw);
+        if (relistAt != null) {
+          final diff = relistAt.difference(DateTime.now()).inMinutes;
+          remainingMins = diff > 0 ? diff : 0;
+          final hour = relistAt.hour % 12 == 0 ? 12 : relistAt.hour % 12;
+          final minute = relistAt.minute.toString().padLeft(2, '0');
+          final period = relistAt.hour >= 12 ? 'PM' : 'AM';
+          relistTimeStr = '$hour:$minute $period';
+        }
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: activeTurnaround != null
+            ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+            : AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: activeTurnaround != null
+              ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+              : AppColors.borderColor,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (activeTurnaround != null) ...[
+            Row(
+              children: [
+                const Icon(
+                  Icons.cleaning_services_rounded,
+                  color: Color(0xFFF59E0B),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Cleaning & Inspection in Progress',
+                    style: TextStyle(
+                      color: Color(0xFFF59E0B),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    remainingMins != null && remainingMins > 0
+                        ? '~${remainingMins}m left'
+                        : 'Expiring soon',
+                    style: const TextStyle(
+                      color: Color(0xFFF59E0B),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This vehicle is unlisted for turnaround. It will automatically relist at ${relistTimeStr ?? "scheduled time"}.',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _relistTurnaroundImmediately(application),
+                icon: const Icon(Icons.flash_on_rounded, size: 16),
+                label: const Text(
+                  'Cleaned Early? Relist Immediately',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            const Divider(color: Colors.white10, height: 20),
+          ],
+          Row(
+            children: [
+              const Icon(
+                Icons.auto_mode_rounded,
+                color: AppColors.primary,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Post-Return Cleaning Buffer',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'Auto-unlist on return for inspection',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.darkBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: VehicleTurnaroundService.turnaroundOptions.contains(currentMinutes)
+                        ? currentMinutes
+                        : 60,
+                    dropdownColor: AppColors.darkBgSecondary,
+                    isDense: true,
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    icon: const Icon(
+                      Icons.arrow_drop_down_rounded,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                    items: VehicleTurnaroundService.turnaroundOptions.map((mins) {
+                      return DropdownMenuItem<int>(
+                        value: mins,
+                        child: Text(
+                          VehicleTurnaroundService.getLabelForMinutes(mins),
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (newMins) async {
+                      if (newMins == null) return;
+                      setState(() {
+                        _vehicleTurnaroundMinutes[vehicleId] = newMins;
+                      });
+                      await VehicleTurnaroundService().setVehicleTurnaroundMinutes(
+                        vehicleId: vehicleId,
+                        partnerVehicleId: partnerVehicleId,
+                        minutes: newMins,
+                      );
+                      _showSuccessSnackBar(
+                        'Turnaround buffer set to ${VehicleTurnaroundService.getLabelForMinutes(newMins)}',
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _relistTurnaroundImmediately(Map<String, dynamic> application) async {
+    final vId = _approvedVehicleId(application);
+    if (vId.isEmpty) return;
+    final partnerVehicleId = application['partner_vehicle_id']?.toString();
+
+    await VehicleTurnaroundService().relistVehicleImmediately(
+      vehicleId: vId,
+      partnerVehicleId: partnerVehicleId,
+    );
+
+    setState(() {
+      _activeTurnarounds.remove(vId);
+      if (partnerVehicleId != null) _activeTurnarounds.remove(partnerVehicleId);
+      application['is_available'] = true;
+    });
+
+    await _updateApprovedApplicationSettings(
+      application,
+      ownerIsDriver: _truthy(application['owner_is_driver']),
+      isAvailable: true,
+    );
+
+    _showSuccessSnackBar('Vehicle is Cleaned & Relisted Immediately!');
   }
 
   Widget _buildGpsTrackingCard(Map<String, dynamic> application) {
@@ -1445,11 +1705,24 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => _updateApprovedApplicationSettings(
-                    application,
-                    ownerIsDriver: ownerIsDriver,
-                    isAvailable: !isPosted,
-                  ),
+                  onTap: () async {
+                    final targetAvailable = !isPosted;
+                    if (targetAvailable) {
+                      final vId = _approvedVehicleId(application);
+                      if (vId.isNotEmpty) {
+                        await VehicleTurnaroundService().relistVehicleImmediately(
+                          vehicleId: vId,
+                          partnerVehicleId: application['partner_vehicle_id']?.toString(),
+                        );
+                        setState(() => _activeTurnarounds.remove(vId));
+                      }
+                    }
+                    _updateApprovedApplicationSettings(
+                      application,
+                      ownerIsDriver: ownerIsDriver,
+                      isAvailable: targetAvailable,
+                    );
+                  },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
                     width: 40,
@@ -1479,6 +1752,10 @@ class _VehicleAvailabilityScreenState extends State<VehicleAvailabilityScreen> {
                 ),
               ],
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: _buildTurnaroundSection(application),
           ),
           const Divider(color: AppColors.borderColor, height: 1),
           Padding(

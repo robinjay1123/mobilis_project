@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'vehicle_turnaround_service.dart';
 
 class VehicleService {
   static final VehicleService _instance = VehicleService._internal();
@@ -583,6 +584,10 @@ class VehicleService {
     debugPrint('getAvailableVehicles: category=$category');
 
     try {
+      try {
+        await VehicleTurnaroundService().processExpiredTurnarounds();
+      } catch (_) {}
+
       final approvedLinks = await _getApprovedPartnerVehicleLinks();
       final response = await supabase
           .from('vehicles')
@@ -656,6 +661,10 @@ class VehicleService {
     String? category,
   }) async {
     try {
+      try {
+        await VehicleTurnaroundService().processExpiredTurnarounds();
+      } catch (_) {}
+
       final approvedLinks = await _getApprovedPartnerVehicleLinks();
       var query = supabase
           .from('vehicles')
