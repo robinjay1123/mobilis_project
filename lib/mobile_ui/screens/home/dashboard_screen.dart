@@ -6946,7 +6946,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _buildBookingDetailRow(
                       icon: Icons.account_balance_wallet_outlined,
                       label: 'Reservation Method',
-                      value: toProfessionalTitleCase(method),
+                      value: (method == 'psdc_desk_counter' ||
+                              method.toLowerCase().contains('desk'))
+                          ? 'The payment has been paid in desk (Authorized by ${(reference != null && reference.startsWith('DESK-')) ? reference.substring(5) : (booking['operator_name'] ?? 'Desk Operator')})'
+                          : toProfessionalTitleCase(method),
                     ),
                   ],
                   if (finalMethod != null ||

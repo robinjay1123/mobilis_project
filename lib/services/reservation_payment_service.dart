@@ -43,6 +43,9 @@ class ReservationPaymentProof {
   final String? senderPhone;
   final double? securityDeposit;
   final double? reservationFee;
+  final String? operatorName;
+  final String? operatorId;
+  final String? notes;
 
   const ReservationPaymentProof({
     required this.amount,
@@ -54,6 +57,9 @@ class ReservationPaymentProof {
     this.senderPhone,
     this.securityDeposit,
     this.reservationFee,
+    this.operatorName,
+    this.operatorId,
+    this.notes,
   });
 }
 
@@ -264,13 +270,25 @@ class ReservationPaymentService {
       'reference_number': proof.referenceNumber,
       'proof_url': proof.proofUrl,
       'proof_storage_path': proof.proofStoragePath,
-      'status': 'pending_review',
+      'status': proof.method == 'psdc_desk_counter' ? 'verified' : 'pending_review',
       'submitted_at': DateTime.now().toIso8601String(),
     };
     if (proof.senderPhone != null && proof.senderPhone!.trim().isNotEmpty) {
       payload['sender_phone'] = proof.senderPhone!.trim();
     }
-    await _supabase.from('reservation_payment_receipts').insert(payload);
+    if (proof.notes != null && proof.notes!.trim().isNotEmpty) {
+      payload['notes'] = proof.notes!.trim();
+    } else if (proof.operatorName != null && proof.operatorName!.trim().isNotEmpty) {
+      payload['notes'] =
+          'The payment has been paid in desk (Authorized by ${proof.operatorName})';
+    }
+    try {
+      await _supabase.from('reservation_payment_receipts').insert(payload);
+    } catch (_) {
+      // Fallback if notes column does not exist
+      payload.remove('notes');
+      await _supabase.from('reservation_payment_receipts').insert(payload);
+    }
   }
 
   /// Get saved sender/GCash phone numbers for this renter that have been used 2+ times.

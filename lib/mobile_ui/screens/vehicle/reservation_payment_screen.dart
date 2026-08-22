@@ -66,6 +66,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
   final TextEditingController _referenceController = TextEditingController();
   final TextEditingController _senderPhoneController = TextEditingController();
+  final TextEditingController _deskMpinController = TextEditingController();
   List<String> _savedNumbers = [];
   String? _selectedSavedNumber;
   bool _isCustomNumber = false;
@@ -74,6 +75,14 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   bool _payFullAmount = false;
   String _selectedPaymentChannel = 'qr'; // 'qr' or 'desk'
   String? _errorText;
+
+  bool _isDeskMpinVerifying = false;
+  bool _isDeskMpinApproved = false;
+  String? _deskApprovedOperatorName;
+  String? _deskApprovedOperatorId;
+  int _deskMpinFailedAttempts = 0;
+  bool _isDeskPaymentLocked = false;
+  String? _deskMpinError;
 
   @override
   void initState() {
@@ -85,6 +94,7 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   void dispose() {
     _referenceController.dispose();
     _senderPhoneController.dispose();
+    _deskMpinController.dispose();
     super.dispose();
   }
 
@@ -158,6 +168,108 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
     }
   }
 
+  Future<void> _verifyDeskMpin() async {
+    if (_isDeskPaymentLocked) return;
+    final pin = _deskMpinController.text.trim();
+    if (pin.length != 6) {
+      setState(() {
+        _deskMpinError = 'Please enter a 6-digit Operator MPIN.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isDeskMpinVerifying = true;
+      _deskMpinError = null;
+    });
+
+    final isPartnerVehicle =
+        widget.vehicleData['source']?.toString().toLowerCase() == 'partner' ||
+        widget.vehicleData['is_partner_vehicle'] == true ||
+        widget.vehicleData['partner_vehicle_id'] != null ||
+        widget.vehicleData['partner_name'] != null;
+    final partnerCommission =
+        isPartnerVehicle ? widget.rentalTotal * 0.10 : 0.0;
+    final principalRentalSubtotal = (widget.rentalSubtotal +
+            widget.driverFee +
+            widget.deliveryFee +
+            partnerCommission -
+            widget.discountAmount)
+        .clamp(0.0, double.infinity);
+    final seats = (widget.vehicleData['seats'] as num?)?.toInt() ?? 5;
+    final securityDeposit = _settings.getDepositForSeats(seats);
+    final reservationFee = widget.requiresLongBookingReservation
+        ? widget.reservationFeeAmount
+        : _settings.amount;
+    final grandTotal = principalRentalSubtotal + securityDeposit;
+    final payableAmount = _payFullAmount ? grandTotal : reservationFee;
+
+    final vehicleTitle = widget.vehicleData['vehicle_name']?.toString() ??
+        '${widget.vehicleData['brand'] ?? ''} ${widget.vehicleData['model'] ?? ''}'.trim();
+    final vehicleId = widget.vehicleData['id']?.toString();
+
+    final result = await MpinService().verifyOperatorMpin(
+      pin,
+      amount: payableAmount,
+      contextDescription:
+          'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
+      bookingId: vehicleId,
+    );
+
+    if (!mounted) return;
+
+    if (result.success) {
+      setState(() {
+        _isDeskMpinVerifying = false;
+        _isDeskMpinApproved = true;
+        _deskApprovedOperatorName = result.operatorName ?? 'PSDC Desk Operator';
+        _deskApprovedOperatorId = result.operatorId;
+        _deskMpinError = null;
+        _errorText = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'MPIN accepted! Authorized by ${_deskApprovedOperatorName ?? 'Operator'}. You can now confirm payment.',
+          ),
+          backgroundColor: const Color(0xFF10B981),
+        ),
+      );
+    } else {
+      _deskMpinFailedAttempts++;
+      if (_deskMpinFailedAttempts >= 3) {
+        setState(() {
+          _isDeskMpinVerifying = false;
+          _isDeskPaymentLocked = true;
+          _selectedPaymentChannel = 'qr';
+          _isDeskMpinApproved = false;
+          _deskApprovedOperatorName = null;
+          _deskApprovedOperatorId = null;
+          _deskMpinController.clear();
+          _deskMpinError = null;
+          _errorText =
+              'PSDC Desk Payment is now unavailable after 3 failed MPIN attempts. Please proceed with Online QR Payment.';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'PSDC Desk Payment is unavailable due to 3 failed MPIN attempts. Switching to Online QR Payment.',
+            ),
+            backgroundColor: AppColors.error,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      } else {
+        final remaining = 3 - _deskMpinFailedAttempts;
+        setState(() {
+          _isDeskMpinVerifying = false;
+          _deskMpinError =
+              '${result.errorMessage ?? 'Invalid Operator MPIN.'} ($remaining attempt${remaining == 1 ? '' : 's'} remaining)';
+        });
+      }
+    }
+  }
+
   Future<void> _confirmPayment() async {
     final senderPhone = (_isCustomNumber
             ? _senderPhoneController.text.trim()
@@ -203,11 +315,50 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
 
     // PSDC Desk / Over-the-counter payment (Requires Operator MPIN Authorization)
     if (_selectedPaymentChannel == 'desk') {
-      await _handleDeskPaymentWithOperatorMpin(
-        payableAmount: payableAmount,
-        senderPhone: senderPhone,
-        securityDeposit: securityDeposit,
-        reservationFee: reservationFee,
+      if (_isDeskPaymentLocked) {
+        setState(() {
+          _errorText =
+              'PSDC Desk payment is unavailable. Please choose Online QR payment.';
+        });
+        return;
+      }
+      if (!_isDeskMpinApproved) {
+        setState(() {
+          _deskMpinError =
+              'Please have the operator enter and authorize their 6-digit MPIN first.';
+        });
+        return;
+      }
+
+      final opName = _deskApprovedOperatorName ?? 'PSDC Desk Operator';
+      final refNum = 'DESK-${opName.replaceAll(' ', '').toUpperCase()}';
+      final noteDesc =
+          'The payment has been paid in desk (Authorized by $opName)';
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Payment authorized at PSDC Desk by $opName.'),
+          backgroundColor: const Color(0xFF10B981),
+        ),
+      );
+
+      Navigator.pop(
+        context,
+        ReservationPaymentProof(
+          amount: payableAmount,
+          method: 'psdc_desk_counter',
+          paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
+          referenceNumber: refNum,
+          proofUrl: 'desk_payment_authorized',
+          proofStoragePath: null,
+          senderPhone: senderPhone,
+          securityDeposit: securityDeposit,
+          reservationFee: _payFullAmount ? 0.0 : reservationFee,
+          operatorName: opName,
+          operatorId: _deskApprovedOperatorId,
+          notes: noteDesc,
+        ),
       );
       return;
     }
@@ -646,6 +797,17 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
               onTap: _isUploading
                   ? null
                   : () {
+                      if (_isDeskPaymentLocked) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'PSDC Desk payment is locked after 3 failed MPIN attempts. Please proceed with Online QR payment.',
+                            ),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
                       setState(() {
                         _selectedPaymentChannel = 'desk';
                         _errorText = null;
@@ -655,10 +817,10 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: _selectedPaymentChannel == 'desk'
-                      ? AppColors.primary
+                      ? (_isDeskPaymentLocked ? AppColors.error.withValues(alpha: 0.15) : AppColors.primary)
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
-                  boxShadow: _selectedPaymentChannel == 'desk'
+                  boxShadow: (_selectedPaymentChannel == 'desk' && !_isDeskPaymentLocked)
                       ? [
                           BoxShadow(
                             color: AppColors.primary.withValues(alpha: 0.3),
@@ -672,21 +834,27 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.storefront_rounded,
+                      _isDeskPaymentLocked
+                          ? Icons.lock_outline_rounded
+                          : Icons.storefront_rounded,
                       size: 18,
-                      color: _selectedPaymentChannel == 'desk'
-                          ? Colors.black
-                          : (isDark ? Colors.white70 : const Color(0xFF475569)),
+                      color: _isDeskPaymentLocked
+                          ? AppColors.error
+                          : (_selectedPaymentChannel == 'desk'
+                              ? Colors.black
+                              : (isDark ? Colors.white70 : const Color(0xFF475569))),
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'PSDC Desk Counter',
+                      _isDeskPaymentLocked ? 'Desk (Locked)' : 'PSDC Desk Counter',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: _selectedPaymentChannel == 'desk'
-                            ? Colors.black
-                            : (isDark ? Colors.white70 : const Color(0xFF475569)),
+                        color: _isDeskPaymentLocked
+                            ? AppColors.error
+                            : (_selectedPaymentChannel == 'desk'
+                                ? Colors.black
+                                : (isDark ? Colors.white70 : const Color(0xFF475569))),
                       ),
                     ),
                   ],
@@ -1089,9 +1257,18 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _selectedPaymentChannel == 'qr' ? 'via Official QR Code' : 'at PSDC Desk Counter',
+                        _selectedPaymentChannel == 'qr'
+                            ? 'via Official QR Code'
+                            : (_isDeskMpinApproved
+                                ? 'The payment has been paid in desk (Authorized by ${_deskApprovedOperatorName ?? 'PSDC Desk Operator'})'
+                                : 'at PSDC Desk Counter (Requires Operator MPIN)'),
                         style: TextStyle(
-                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                          color: _selectedPaymentChannel == 'desk' && _isDeskMpinApproved
+                              ? const Color(0xFF10B981)
+                              : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                          fontWeight: _selectedPaymentChannel == 'desk' && _isDeskMpinApproved
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                           fontSize: 11,
                         ),
                       ),
@@ -1257,404 +1434,314 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
   }
 
   Widget _buildDeskCounterCard(bool isDark) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE5A93C).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE5A93C).withValues(alpha: 0.4),
+    if (_isDeskPaymentLocked) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.error.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.error.withValues(alpha: 0.4),
+          ),
         ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.storefront_rounded,
-            color: Color(0xFFE5A93C),
-            size: 24,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Over-the-Counter Settlement',
-                  style: TextStyle(
-                    color: Color(0xFFE5A93C),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Settle your payment in Cash or POS at the PSDC branch cashier desk upon vehicle inspection and handover. The operator will enter their 6-digit MPIN upon payment confirmation to instantly authorize and approve your payment.',
-                  style: TextStyle(
-                    color: isDark ? Colors.white70 : const Color(0xFF334155),
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ],
+        child: const Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.lock_clock_rounded,
+              color: AppColors.error,
+              size: 24,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _handleDeskPaymentWithOperatorMpin({
-    required double payableAmount,
-    required String senderPhone,
-    required double securityDeposit,
-    required double reservationFee,
-  }) async {
-    final mpinController = TextEditingController();
-    bool isVerifying = false;
-    String? dialogError;
-    bool isApproved = false;
-    String? approvedOperatorName;
-
-    final authorized = await showDialog<MpinVerificationResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-
-            if (isApproved) {
-              return AlertDialog(
-                backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  side: BorderSide(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.4),
-                  ),
-                ),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_rounded,
-                        color: Color(0xFF10B981),
-                        size: 54,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Payment Approved & Verified',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Authorized by ${approvedOperatorName ?? 'PSDC Desk Operator'}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Total: PHP ${formatAmount(payableAmount, decimalDigits: 0)}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: isDark ? Colors.white70 : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                ),
-              );
-            }
-
-            return AlertDialog(
-              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(22),
-                side: BorderSide(
-                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
-                ),
-              ),
-              title: Row(
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5A93C).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.storefront_rounded,
-                      color: Color(0xFFE5A93C),
-                      size: 22,
+                  Text(
+                    'PSDC Desk Payment Unavailable',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'PSDC Desk Authorization',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                          ),
-                        ),
-                        Text(
-                          'Operator MPIN required to confirm',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                          ),
-                        ),
-                      ],
+                  SizedBox(height: 6),
+                  Text(
+                    'This payment channel was locked due to 3 failed operator MPIN attempts. Please select Online (QR) payment to proceed.',
+                    style: TextStyle(
+                      color: AppColors.error,
+                      fontSize: 12,
+                      height: 1.4,
                     ),
                   ),
                 ],
               ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isDeskMpinApproved) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFF10B981).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFF10B981),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Operator MPIN Verified & Accepted',
+                        style: TextStyle(
+                          color: Color(0xFF10B981),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Amount to Settle:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
-                                ),
-                              ),
-                              Text(
-                                'PHP ${formatAmount(payableAmount, decimalDigits: 0)}',
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w900,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Settlement Type:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
-                                ),
-                              ),
-                              Text(
-                                _payFullAmount ? 'Full Rental Payment' : 'Reservation Deposit',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Please have the PSDC Cashier / Desk Operator enter their 6-digit MPIN:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white70 : const Color(0xFF475569),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: mpinController,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
-                      obscureText: true,
-                      autofocus: true,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
-                        letterSpacing: 10,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                      ),
-                      textAlign: TextAlign.center,
-                      decoration: InputDecoration(
-                        hintText: '••••••',
-                        hintStyle: TextStyle(
-                          color: isDark ? Colors.white30 : Colors.black26,
-                          letterSpacing: 10,
-                        ),
-                        counterText: '',
-                        filled: true,
-                        fillColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: AppColors.primary, width: 2),
-                        ),
-                      ),
-                    ),
-                    if (dialogError != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 2),
                       Text(
-                        dialogError!,
-                        style: const TextStyle(
-                          color: AppColors.error,
+                        'Authorized by: ${_deskApprovedOperatorName ?? 'PSDC Desk Operator'}',
+                        style: TextStyle(
+                          color: isDark ? Colors.white70 : const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w700,
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0F172A) : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'The payment has been paid in desk (Authorized by ${_deskApprovedOperatorName ?? 'PSDC Desk Operator'}). Click Confirm Payment below to complete.',
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : const Color(0xFF475569),
+                  fontSize: 11.5,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isDeskMpinApproved = false;
+                    _deskApprovedOperatorName = null;
+                    _deskApprovedOperatorId = null;
+                    _deskMpinController.clear();
+                    _deskMpinError = null;
+                  });
+                },
+                icon: const Icon(Icons.refresh_rounded, size: 14),
+                label: const Text('Change MPIN', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF10B981),
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 30),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE5A93C).withValues(alpha: 0.5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5A93C).withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.storefront_rounded,
+                  color: Color(0xFFE5A93C),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'PSDC Desk Authorization',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Operator 6-Digit MPIN Required',
+                      style: TextStyle(
+                        color: Color(0xFFE5A93C),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: isVerifying ? null : () => Navigator.pop(dialogContext),
-                  child: Text(
-                    'Cancel',
-                    style: TextStyle(
-                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                    ),
-                  ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Please have the PSDC Cashier / Desk Operator input their 6-digit MPIN to authorize and confirm this in-person desk payment:',
+            style: TextStyle(
+              color: isDark ? Colors.white70 : const Color(0xFF475569),
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _deskMpinController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            obscureText: true,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF0F172A),
+              letterSpacing: 10,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+            decoration: InputDecoration(
+              hintText: '••••••',
+              hintStyle: TextStyle(
+                color: isDark ? Colors.white30 : Colors.black26,
+                letterSpacing: 10,
+              ),
+              counterText: '',
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
                 ),
-                FilledButton(
-                  onPressed: isVerifying
-                      ? null
-                      : () async {
-                          final pin = mpinController.text.trim();
-                          if (pin.length != 6) {
-                            setDialogState(() {
-                              dialogError = 'Please enter a 6-digit MPIN.';
-                            });
-                            return;
-                          }
-                          setDialogState(() {
-                            isVerifying = true;
-                            dialogError = null;
-                          });
-
-                          final vehicleTitle = widget.vehicleData['vehicle_name']?.toString() ??
-                              '${widget.vehicleData['brand'] ?? ''} ${widget.vehicleData['model'] ?? ''}'.trim();
-                          final vehicleId = widget.vehicleData['id']?.toString();
-
-                          final result = await MpinService().verifyOperatorMpin(
-                            pin,
-                            amount: payableAmount,
-                            contextDescription: 'Desk counter settlement for $vehicleTitle (User: ${widget.userId})',
-                            bookingId: vehicleId,
-                          );
-                          if (!result.success) {
-                            setDialogState(() {
-                              isVerifying = false;
-                              dialogError = result.errorMessage ?? 'Invalid Operator MPIN.';
-                            });
-                            return;
-                          }
-
-                          setDialogState(() {
-                            isVerifying = false;
-                            isApproved = true;
-                            approvedOperatorName = result.operatorName;
-                          });
-
-                          await Future.delayed(const Duration(milliseconds: 900));
-                          if (context.mounted) {
-                            Navigator.pop(dialogContext, result);
-                          }
-                        },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  ),
-                  child: isVerifying
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.black,
-                          ),
-                        )
-                      : const Text(
-                          'Authorize Settlement',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
                 ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (authorized == null || !authorized.success || !mounted) return;
-
-    final operatorName = authorized.operatorName ?? 'Desk Operator';
-    final operatorId = authorized.operatorId ?? '';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('PSDC Desk settlement authorized by $operatorName.'),
-        backgroundColor: const Color(0xFF10B981),
-      ),
-    );
-
-    Navigator.pop(
-      context,
-      ReservationPaymentProof(
-        amount: payableAmount,
-        method: 'psdc_desk_counter',
-        paymentType: _payFullAmount ? 'full_payment' : 'reservation_only',
-        referenceNumber: 'DESK_${operatorName.replaceAll(' ', '_').toUpperCase()}${operatorId.isNotEmpty ? "_${operatorId.substring(0, operatorId.length > 6 ? 6 : operatorId.length).toUpperCase()}" : ""}',
-        proofUrl: '',
-        proofStoragePath: null,
-        senderPhone: senderPhone,
-        securityDeposit: securityDeposit,
-        reservationFee: _payFullAmount ? 0.0 : reservationFee,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primary, width: 2),
+              ),
+            ),
+            onSubmitted: (_) => _verifyDeskMpin(),
+          ),
+          if (_deskMpinError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _deskMpinError!,
+              style: const TextStyle(
+                color: AppColors.error,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (_deskMpinFailedAttempts > 0 && !_isDeskPaymentLocked) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Attempts: $_deskMpinFailedAttempts of 3 (will lock after 3 failed attempts)',
+              style: const TextStyle(
+                color: Color(0xFFF59E0B),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _isDeskMpinVerifying ? null : _verifyDeskMpin,
+              icon: _isDeskMpinVerifying
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Icon(Icons.verified_user_rounded, size: 18),
+              label: Text(
+                _isDeskMpinVerifying
+                    ? 'Verifying MPIN...'
+                    : 'Authorize & Accept MPIN',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2058,7 +2145,11 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
               child: SizedBox(
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: _isUploading ? null : _confirmPayment,
+                  onPressed: (_isUploading ||
+                          (_selectedPaymentChannel == 'desk' &&
+                              (!_isDeskMpinApproved || _isDeskPaymentLocked)))
+                      ? null
+                      : _confirmPayment,
                   icon: _isUploading
                       ? const SizedBox(
                           width: 18,
@@ -2073,7 +2164,9 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                     _isUploading
                         ? 'Uploading Proof...'
                         : _selectedPaymentChannel == 'desk'
-                            ? 'Confirm PSDC Desk Payment'
+                            ? (_isDeskMpinApproved
+                                ? 'Confirm PSDC Desk Payment'
+                                : 'Enter Operator MPIN to Confirm')
                             : 'Submit Payment Proof',
                     style: const TextStyle(
                       fontSize: 14,
@@ -2081,8 +2174,12 @@ class _ReservationPaymentScreenState extends State<ReservationPaymentScreen> {
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.black,
+                    backgroundColor: (_selectedPaymentChannel == 'desk' && !_isDeskMpinApproved)
+                        ? (isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1))
+                        : AppColors.primary,
+                    foregroundColor: (_selectedPaymentChannel == 'desk' && !_isDeskMpinApproved)
+                        ? (isDark ? Colors.white38 : Colors.black38)
+                        : Colors.black,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
