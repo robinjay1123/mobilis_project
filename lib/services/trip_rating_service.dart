@@ -1011,24 +1011,7 @@ class TripRatingService {
   /// and updates vehicles.rating and vehicles.rating_count.
   Future<void> _refreshVehicleRating(String vehicleId) async {
     try {
-      final response = await supabase
-          .from('trip_ratings')
-          .select('rating')
-          .eq('target_user_id', vehicleId)
-          .eq('target_role', 'vehicle');
-      final rows = List<Map<String, dynamic>>.from(response);
-      if (rows.isEmpty) return;
-      final count = rows.length;
-      final average =
-          rows.fold<double>(
-            0,
-            (sum, row) => sum + ((row['rating'] as num?)?.toDouble() ?? 0),
-          ) /
-          count;
-      await supabase
-          .from('vehicles')
-          .update({'rating': average, 'rating_count': count})
-          .eq('id', vehicleId);
+      await getVehicleRatingSummary(vehicleId);
     } catch (e) {
       debugPrint('Skipping vehicle rating update: $e');
     }
@@ -1420,7 +1403,9 @@ class TripRatingService {
 
   /// Fetches rating summary (average & count) for a specific vehicle.
   Future<Map<String, dynamic>> getVehicleRatingSummary(String vehicleId) async {
+    if (vehicleId.trim().isEmpty) return {'average': 0.0, 'count': 0};
     try {
+      // 1. Direct query by target_user_id (where target_role is vehicle or default)
       final response = await supabase
           .from('trip_ratings')
           .select('rating')
@@ -1428,11 +1413,38 @@ class TripRatingService {
 
       var rows = List<Map<String, dynamic>>.from(response);
 
+      // 2. Check linked partner_vehicles or canonical vehicle ID
+      String? altVehicleId;
+      try {
+        final pv = await supabase
+            .from('partner_vehicles')
+            .select('id, vehicle_id')
+            .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+            .maybeSingle();
+        if (pv != null) {
+          final id1 = pv['id']?.toString();
+          final id2 = pv['vehicle_id']?.toString();
+          altVehicleId = (id1 != vehicleId ? id1 : id2);
+        }
+      } catch (_) {}
+
+      if (altVehicleId != null && altVehicleId.isNotEmpty) {
+        final altResponse = await supabase
+            .from('trip_ratings')
+            .select('rating')
+            .eq('target_user_id', altVehicleId);
+        rows.addAll(List<Map<String, dynamic>>.from(altResponse));
+      }
+
+      // 3. If still empty, check bookings with this vehicle_id
       if (rows.isEmpty) {
+        final vehicleFilter = altVehicleId != null && altVehicleId.isNotEmpty
+            ? [vehicleId, altVehicleId]
+            : [vehicleId];
         final bookingRows = await supabase
             .from('bookings')
             .select('id')
-            .eq('vehicle_id', vehicleId);
+            .inFilter('vehicle_id', vehicleFilter);
         final bookingIds = (bookingRows as List)
             .map((b) => b['id']?.toString() ?? '')
             .where((id) => id.isNotEmpty)
@@ -1448,6 +1460,24 @@ class TripRatingService {
       }
 
       if (rows.isEmpty) {
+        // Fallback: check stored rating on vehicles table
+        try {
+          final vRow = await supabase
+              .from('vehicles')
+              .select('rating, rating_count')
+              .eq('id', vehicleId)
+              .maybeSingle();
+          if (vRow != null) {
+            final storedRating = (vRow['rating'] as num?)?.toDouble() ?? 0.0;
+            final storedCount = (vRow['rating_count'] as num?)?.toInt() ?? 0;
+            if (storedRating > 0) {
+              return {
+                'average': storedRating,
+                'count': storedCount > 0 ? storedCount : 1,
+              };
+            }
+          }
+        } catch (_) {}
         return {'average': 0.0, 'count': 0};
       }
 
@@ -1455,10 +1485,81 @@ class TripRatingService {
       for (final row in rows) {
         total += (row['rating'] as num?)?.toDouble() ?? 0;
       }
-      return {'average': total / rows.length, 'count': rows.length};
+      final average = total / rows.length;
+      final count = rows.length;
+
+      // Sync back to vehicles table for caching
+      try {
+        await supabase
+            .from('vehicles')
+            .update({'rating': average, 'rating_count': count})
+            .eq('id', vehicleId);
+      } catch (_) {}
+      try {
+        await supabase
+            .from('partner_vehicles')
+            .update({'rating': average, 'rating_count': count})
+            .eq('id', vehicleId);
+      } catch (_) {}
+      try {
+        await supabase
+            .from('partner_vehicles')
+            .update({'rating': average, 'rating_count': count})
+            .eq('vehicle_id', vehicleId);
+      } catch (_) {}
+
+      return {'average': average, 'count': count};
     } catch (e) {
       debugPrint('Error fetching vehicle rating summary: $e');
       return {'average': 0.0, 'count': 0};
+    }
+  }
+
+  /// Batch hydrates real ratings and counts for a list of vehicle records
+  Future<void> batchHydrateVehicleRatings(
+    List<Map<String, dynamic>> vehicles,
+  ) async {
+    if (vehicles.isEmpty) return;
+    try {
+      final vehicleIds = vehicles
+          .map((v) => v['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toList();
+      if (vehicleIds.isEmpty) return;
+
+      final ratingsResponse = await supabase
+          .from('trip_ratings')
+          .select('target_user_id, rating')
+          .inFilter('target_user_id', vehicleIds)
+          .eq('target_role', 'vehicle');
+
+      final ratingsByVehicle = <String, List<double>>{};
+      for (final r in ratingsResponse) {
+        final id = r['target_user_id']?.toString();
+        final score = (r['rating'] as num?)?.toDouble();
+        if (id != null && score != null && score > 0) {
+          ratingsByVehicle.putIfAbsent(id, () => []).add(score);
+        }
+      }
+
+      for (final v in vehicles) {
+        final id = v['id']?.toString() ?? '';
+        final scores = ratingsByVehicle[id];
+        if (scores != null && scores.isNotEmpty) {
+          final avg = scores.reduce((a, b) => a + b) / scores.length;
+          v['rating'] = avg;
+          v['rating_count'] = scores.length;
+        } else {
+          final rawRating = (v['rating'] as num?)?.toDouble() ?? 0.0;
+          final rawCount = (v['rating_count'] as num?)?.toInt() ?? 0;
+          if (rawRating > 0) {
+            v['rating'] = rawRating;
+            v['rating_count'] = rawCount > 0 ? rawCount : 1;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('batchHydrateVehicleRatings error: $e');
     }
   }
 
@@ -1467,6 +1568,7 @@ class TripRatingService {
     String vehicleId, {
     int limit = 30,
   }) async {
+    if (vehicleId.trim().isEmpty) return [];
     try {
       final response = await supabase
           .from('trip_ratings')
@@ -1487,11 +1589,49 @@ class TripRatingService {
 
       var ratings = List<Map<String, dynamic>>.from(response);
 
+      // Check partner_vehicles or canonical vehicle link
+      String? altVehicleId;
+      try {
+        final pv = await supabase
+            .from('partner_vehicles')
+            .select('id, vehicle_id')
+            .or('id.eq.$vehicleId,vehicle_id.eq.$vehicleId')
+            .maybeSingle();
+        if (pv != null) {
+          final id1 = pv['id']?.toString();
+          final id2 = pv['vehicle_id']?.toString();
+          altVehicleId = (id1 != vehicleId ? id1 : id2);
+        }
+      } catch (_) {}
+
+      if (altVehicleId != null && altVehicleId.isNotEmpty) {
+        final altResponse = await supabase
+            .from('trip_ratings')
+            .select('''
+              *,
+              reviewer:reviewer_user_id (
+                id,
+                full_name,
+                email,
+                role,
+                avatar_url,
+                profile_picture_url
+              )
+            ''')
+            .eq('target_user_id', altVehicleId)
+            .order('created_at', ascending: false)
+            .limit(limit);
+        ratings.addAll(List<Map<String, dynamic>>.from(altResponse));
+      }
+
       if (ratings.isEmpty) {
+        final vehicleFilter = altVehicleId != null && altVehicleId.isNotEmpty
+            ? [vehicleId, altVehicleId]
+            : [vehicleId];
         final bookingRows = await supabase
             .from('bookings')
             .select('id')
-            .eq('vehicle_id', vehicleId);
+            .inFilter('vehicle_id', vehicleFilter);
         final bookingIds = (bookingRows as List)
             .map((b) => b['id']?.toString() ?? '')
             .where((id) => id.isNotEmpty)
@@ -1511,13 +1651,24 @@ class TripRatingService {
                 )
               ''')
               .inFilter('booking_id', bookingIds)
+              .eq('target_role', 'vehicle')
               .order('created_at', ascending: false)
               .limit(limit);
           ratings = List<Map<String, dynamic>>.from(bookingRatingsResponse);
         }
       }
 
-      return ratings;
+      // Deduplicate by rating id
+      final seenIds = <String>{};
+      final deduped = <Map<String, dynamic>>[];
+      for (final r in ratings) {
+        final id = r['id']?.toString() ?? '';
+        if (id.isNotEmpty && seenIds.contains(id)) continue;
+        if (id.isNotEmpty) seenIds.add(id);
+        deduped.add(r);
+      }
+
+      return deduped;
     } catch (e) {
       debugPrint('Error fetching vehicle received ratings: $e');
       return [];

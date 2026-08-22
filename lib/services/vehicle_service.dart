@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
+import 'trip_rating_service.dart';
 import 'vehicle_turnaround_service.dart';
 
 class VehicleService {
@@ -13,7 +14,7 @@ class VehicleService {
       'category,vehicle_type,vehicle_name,description,color,fuel_type,'
       'transmission,location,'
       'latitude,longitude,seats,is_available,is_posted,status,owner_id,'
-      'owner_role,rating,'
+      'owner_role,rating,rating_count,'
       'vehicle_images!vehicle_images_vehicle_id_fkey(image_url,display_order)';
   static const List<String> _bookingBlockingStatuses = [
     'pending',
@@ -131,7 +132,11 @@ class VehicleService {
     }).toList();
 
     merged['vehicle_images'] = normalizedImages;
-    merged['rating_count'] = (merged['rating_count'] as num?)?.toInt() ?? 0;
+    final rawRating = (merged['rating'] as num?)?.toDouble() ?? 0.0;
+    final rawCount = (merged['rating_count'] as num?)?.toInt() ?? 0;
+    merged['rating'] = rawRating;
+    merged['rating_count'] =
+        rawCount > 0 ? rawCount : (rawRating > 0 ? 1 : 0);
 
     // Pick primary image_url — prefer vehicle_images relation, fall back to column
     String? primaryUrl;
@@ -534,8 +539,17 @@ class VehicleService {
       if (response == null) return null;
 
       final vehicle = Map<String, dynamic>.from(response);
+      final normalized = _normalizeVehicleRecord(vehicle);
+      try {
+        final summary =
+            await TripRatingService().getVehicleRatingSummary(vehicleId);
+        if ((summary['count'] as num? ?? 0) > 0) {
+          normalized['rating'] = summary['average'];
+          normalized['rating_count'] = summary['count'];
+        }
+      } catch (_) {}
 
-      return _normalizeVehicleRecord(vehicle);
+      return normalized;
     } on PostgrestException catch (e) {
       debugPrint('getVehicleById error: ${e.message}');
       rethrow;
@@ -622,6 +636,12 @@ class VehicleService {
         if (idKey != null) seenVehicleKeys.add(idKey);
         if (plateKey != null) seenVehicleKeys.add(plateKey);
         allVehicles.add(vehicle);
+      }
+
+      try {
+        await TripRatingService().batchHydrateVehicleRatings(allVehicles);
+      } catch (ratingErr) {
+        debugPrint('Error hydrating vehicle ratings: $ratingErr');
       }
 
       final categoryFiltered = category == null || category.isEmpty

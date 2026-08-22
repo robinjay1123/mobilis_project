@@ -197,9 +197,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       final ratingSummary = await TripRatingService().getVehicleRatingSummary(
         widget.vehicleId,
       );
-      if (_vehicle != null) {
-        _vehicle!['rating'] = ratingSummary['average'];
-        _vehicle!['rating_count'] = ratingSummary['count'];
+      if (_vehicle != null && mounted) {
+        setState(() {
+          _vehicle!['rating'] = ratingSummary['average'];
+          _vehicle!['rating_count'] = ratingSummary['count'];
+        });
       }
     } catch (e) {
       debugPrint('Could not load vehicle rating: $e');
