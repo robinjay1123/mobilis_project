@@ -15514,7 +15514,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           );
         },
       ),
-    );
+    ),
+  );
 
     if (shouldSave != true) {
       for (final controller in inspectionControllers) {
