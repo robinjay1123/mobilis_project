@@ -3295,13 +3295,12 @@ class BookingService {
       );
       final initialFirstDate = currentEndDay.add(const Duration(days: 1));
 
-      // Fetch all blocking bookings for this vehicle excluding the current booking
+      // Fetch all bookings for this vehicle excluding the current booking
       final response = await supabase
           .from('bookings')
           .select('id,start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
-          .neq('id', bookingId)
-          .inFilter('status', _bookingBlockingStatuses);
+          .neq('id', bookingId);
 
       final futureIntervals = <(DateTime, DateTime)>[];
       for (final row in List<Map<String, dynamic>>.from(response)) {
@@ -3310,8 +3309,8 @@ class BookingService {
         final interval = _bookingInterval(row);
         if (interval == null) continue;
         final (start, end) = interval;
-        // If this booking ends after our current end time, it impacts future extension
-        if (end.isAfter(currentEndAt)) {
+        // If this booking ends after our current end time or starts on/after our end day, it impacts future extension
+        if (end.isAfter(currentEndAt) || !start.isBefore(currentEndDay)) {
           futureIntervals.add((start, end));
         }
       }
@@ -3336,7 +3335,7 @@ class BookingService {
           );
         }
 
-        // The maximum allowed extension date is the day before the next booking starts
+        // The maximum allowed extension date is strictly the day before the next booking starts
         final contiguousMax = nextStartDay.subtract(const Duration(days: 1));
         if (contiguousMax.isBefore(initialFirstDate)) {
           final formattedDate = '${nextStart.month}/${nextStart.day}/${nextStart.year}';
@@ -3416,8 +3415,7 @@ class BookingService {
           .from('bookings')
           .select('id,start_at,end_at,start_date,end_date,status')
           .eq('vehicle_id', vehicleId)
-          .neq('id', bookingId)
-          .inFilter('status', _bookingBlockingStatuses);
+          .neq('id', bookingId);
 
       final extensionStart = currentEndAt ?? DateTime.now();
       for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
@@ -3430,7 +3428,7 @@ class BookingService {
           final startFormatted = '${existingStart.month}/${existingStart.day}/${existingStart.year}';
           final endFormatted = '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
           throw Exception(
-            'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is no longer available for these dates.',
+            'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is not available for these dates.',
           );
         }
       }

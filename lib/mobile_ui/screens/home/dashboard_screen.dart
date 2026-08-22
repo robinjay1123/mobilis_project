@@ -8516,10 +8516,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _showTripExtensionDialog(Map<String, dynamic> booking) async {
-    final vehicleId = booking['vehicle_id']?.toString() ?? '';
+    final vehicleId = booking['vehicle_id']?.toString() ??
+        (booking['vehicles'] as Map<String, dynamic>?)?['id']?.toString() ??
+        '';
     final bookingId = booking['id']?.toString() ?? '';
-    final endRaw =
-        booking['end_at']?.toString() ?? booking['end_date_raw']?.toString();
+    final endRaw = booking['end_at']?.toString() ??
+        booking['end_date_raw']?.toString() ??
+        booking['endDate']?.toString() ??
+        booking['end_date']?.toString();
 
     if (vehicleId.isEmpty || bookingId.isEmpty || endRaw == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8578,16 +8582,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final maxLastDate = availability.maxAllowedExtensionDate ??
         initialFirstDate.add(const Duration(days: 30));
 
+    final hasNextBooking = availability.nextBookingStart != null;
+    final formattedMaxDate =
+        '${maxLastDate.month}/${maxLastDate.day}/${maxLastDate.year}';
+
     final pickedDate = await showDatePicker(
       context: context,
       initialDate: initialFirstDate,
       firstDate: initialFirstDate,
       lastDate: maxLastDate,
       selectableDayPredicate: (day) {
-        if (day.isAfter(maxLastDate)) return false;
+        if (day.isAfter(maxLastDate) || day.isBefore(initialFirstDate)) {
+          return false;
+        }
         return true;
       },
-      helpText: 'SELECT NEW EXTENDED RETURN DATE',
+      helpText: hasNextBooking
+          ? 'SELECT RETURN DATE (AVAILABLE UNTIL $formattedMaxDate)'
+          : 'SELECT NEW EXTENDED RETURN DATE',
       builder: (context, child) {
         return Theme(
           data: ThemeData.dark().copyWith(
@@ -8739,6 +8751,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
+            if (hasNextBooking) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.event_busy_rounded, color: Colors.blueAccent, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Another renter has booked this car starting ${_formatDateShort(availability.nextBookingStart!.toIso8601String())}. The latest allowed extension date is ${_formatDateShort(maxLastDate.toIso8601String())}.',
+                        style: const TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: destinationController,
