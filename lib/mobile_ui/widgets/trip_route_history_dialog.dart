@@ -322,7 +322,7 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
         data['dropoffLocation']?.toString() ?? 'Agreed Destination';
     final booking = (data['booking'] as Map<String, dynamic>?) ?? {};
 
-    // All polyline coordinates
+    // All polyline coordinates (Actual Vehicle Trail)
     final List<LatLng> fullPolyline = [];
     for (final p in points) {
       final lat = (p['latitude'] as num?)?.toDouble();
@@ -338,6 +338,19 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     if (fullPolyline.isNotEmpty) {
       for (int i = 0; i <= activeIndex && i < fullPolyline.length; i++) {
         traveledPolyline.add(fullPolyline[i]);
+      }
+    }
+
+    // Planned / Recommended road route from pickup to destination (for reference only)
+    final List<LatLng> recommendedPolyline = [];
+    final rawRecommended = data['recommendedRoute'] as List<dynamic>? ?? [];
+    for (final p in rawRecommended) {
+      if (p is Map) {
+        final lat = (p['latitude'] as num?)?.toDouble();
+        final lng = (p['longitude'] as num?)?.toDouble();
+        if (lat != null && lng != null && lat != 0.0 && lng != 0.0) {
+          recommendedPolyline.add(LatLng(lat, lng));
+        }
       }
     }
 
@@ -387,10 +400,10 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
     LatLng initialCenter = const LatLng(14.5995, 120.9842);
     if (currentCarPos != null) {
       initialCenter = currentCarPos;
+    } else if (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
+      initialCenter = LatLng(pickupLat, pickupLng);
     } else if (fullPolyline.isNotEmpty) {
       initialCenter = fullPolyline.first;
-    } else if (pickupLat != null && pickupLng != null) {
-      initialCenter = LatLng(pickupLat, pickupLng);
     }
 
     return Column(
@@ -538,20 +551,33 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.psdc.mobilis',
                   ),
-                  // Background remaining route (translucent dashed/light blue)
+                  // 1. Planned / Recommended Route to Destination (Reference view only)
+                  if (recommendedPolyline.length > 1)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: recommendedPolyline,
+                          strokeWidth: 4.0,
+                          color: const Color(0xFFE5A93C).withValues(alpha: 0.70),
+                          borderStrokeWidth: 1.5,
+                          borderColor: Colors.black26,
+                        ),
+                      ],
+                    ),
+                  // 2. Background full vehicle trail (translucent remaining trail)
                   if (fullPolyline.length > 1)
                     PolylineLayer(
                       polylines: [
                         Polyline(
                           points: fullPolyline,
-                          strokeWidth: 4.0,
+                          strokeWidth: 3.5,
                           color: isDark
-                              ? Colors.white.withValues(alpha: 0.25)
-                              : Colors.blueGrey.withValues(alpha: 0.35),
+                              ? Colors.white.withValues(alpha: 0.20)
+                              : Colors.blueGrey.withValues(alpha: 0.30),
                         ),
                       ],
                     ),
-                  // Active traveled polyline up to current playback frame (bold neon blue)
+                  // 3. Active traveled vehicle GPS trail up to current playback frame (bold neon blue)
                   if (traveledPolyline.length > 1)
                     PolylineLayer(
                       polylines: [
@@ -559,6 +585,8 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                           points: traveledPolyline,
                           strokeWidth: 5.5,
                           color: const Color(0xFF0077FF),
+                          borderStrokeWidth: 1.5,
+                          borderColor: Colors.white70,
                         ),
                       ],
                     ),
@@ -636,14 +664,14 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
                       ),
                     ],
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 6,
                     children: [
-                      _legendDot(const Color(0xFF178A5B), 'Pickup'),
-                      const SizedBox(width: 10),
+                      _legendDot(const Color(0xFF178A5B), 'Pickup (Start)'),
                       _legendDot(const Color(0xFFD97706), 'Destination'),
-                      const SizedBox(width: 10),
-                      _legendDot(const Color(0xFF0077FF), 'Traveled Trail'),
+                      _legendDot(const Color(0xFFE5A93C), 'Planned Route (Reference)'),
+                      _legendDot(const Color(0xFF0077FF), 'Actual Vehicle Trail'),
                     ],
                   ),
                 ),

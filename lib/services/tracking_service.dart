@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'notification_service.dart';
 import 'gps_service.dart';
 import '../models/gps_tracker_model.dart';
+import '../utils/philippine_geocoding.dart';
 
 class TrackingService {
   static final TrackingService _instance = TrackingService._internal();
@@ -1141,6 +1144,54 @@ class TrackingService {
     }
   }
 
+  /// Fetches the planned road route from pickup to destination via OSRM
+  Future<List<Map<String, double>>> getPlannedRoadRoute({
+    required double startLat,
+    required double startLng,
+    required double endLat,
+    required double endLng,
+  }) async {
+    final samePoint = (startLat - endLat).abs() < 0.0001 &&
+        (startLng - endLng).abs() < 0.0001;
+    if (samePoint) {
+      return [
+        {'latitude': startLat, 'longitude': startLng}
+      ];
+    }
+    try {
+      final uri = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/'
+        '$startLng,$startLat;$endLng,$endLat'
+        '?overview=full&geometries=geojson&steps=false',
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        final routes = payload['routes'] as List<dynamic>? ?? const [];
+        if (routes.isNotEmpty) {
+          final first = Map<String, dynamic>.from(routes.first as Map);
+          final geometry = first['geometry'] as Map<String, dynamic>?;
+          final coordinates = geometry?['coordinates'] as List<dynamic>?;
+          if (coordinates != null && coordinates.length >= 2) {
+            return coordinates.map((coordinate) {
+              final pair = coordinate as List<dynamic>;
+              return {
+                'latitude': (pair[1] as num).toDouble(),
+                'longitude': (pair[0] as num).toDouble(),
+              };
+            }).toList();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('OSRM planned route fetch: $e');
+    }
+    return [
+      {'latitude': startLat, 'longitude': startLng},
+      {'latitude': endLat, 'longitude': endLng},
+    ];
+  }
+
   /// Evaluates whether the vehicle went outside the agreed destination and computes penalties
   Future<Map<String, dynamic>> evaluateTripDestinationCompliance(
     String bookingId,
@@ -1156,6 +1207,7 @@ class TrackingService {
         'topSpeedKph': 0.0,
         'safetyEvents': <Map<String, dynamic>>[],
         'routePoints': <Map<String, dynamic>>[],
+        'recommendedRoute': <Map<String, double>>[],
       };
     }
 
@@ -1172,6 +1224,7 @@ class TrackingService {
             dropoff_latitude,
             dropoff_longitude,
             start_at,
+            start_date,
             end_at,
             vehicles:vehicle_id (id, brand, model, vehicle_name, plate_number)
           ''')
@@ -1181,12 +1234,82 @@ class TrackingService {
       final booking = bookingResponse != null
           ? Map<String, dynamic>.from(bookingResponse)
           : <String, dynamic>{};
-      final points = await getTripRouteHistory(bookingId);
 
-      final pickupLat = _asDouble(booking['pickup_latitude']);
-      final pickupLng = _asDouble(booking['pickup_longitude']);
-      final dropoffLat = _asDouble(booking['dropoff_latitude']) ?? pickupLat;
-      final dropoffLng = _asDouble(booking['dropoff_longitude']) ?? pickupLng;
+      // Resolve pickup coordinates (fallback to geocoding if null or 0)
+      double? pickupLat = _asDouble(booking['pickup_latitude']);
+      double? pickupLng = _asDouble(booking['pickup_longitude']);
+      if ((pickupLat == null || pickupLng == null || (pickupLat == 0.0 && pickupLng == 0.0)) &&
+          booking['pickup_location'] != null &&
+          booking['pickup_location'].toString().trim().isNotEmpty) {
+        try {
+          final resolved = await PhilippineGeocoding.resolveLocation(booking['pickup_location']);
+          pickupLat = resolved.latitude;
+          pickupLng = resolved.longitude;
+        } catch (_) {}
+      }
+
+      // Resolve dropoff coordinates (fallback to geocoding if null or 0)
+      double? dropoffLat = _asDouble(booking['dropoff_latitude']);
+      double? dropoffLng = _asDouble(booking['dropoff_longitude']);
+      if ((dropoffLat == null || dropoffLng == null || (dropoffLat == 0.0 && dropoffLng == 0.0)) &&
+          booking['dropoff_location'] != null &&
+          booking['dropoff_location'].toString().trim().isNotEmpty) {
+        try {
+          final resolved = await PhilippineGeocoding.resolveLocation(booking['dropoff_location']);
+          dropoffLat = resolved.latitude;
+          dropoffLng = resolved.longitude;
+        } catch (_) {}
+      }
+      dropoffLat ??= pickupLat;
+      dropoffLng ??= pickupLng;
+
+      // 1. Actual vehicle GPS trail from tracking_location_logs
+      final rawPoints = await getTripRouteHistory(bookingId);
+      final List<Map<String, dynamic>> points = [];
+
+      // ✅ Ensure the audit log trail starts at the pickup location
+      if (pickupLat != null && pickupLng != null && pickupLat != 0.0 && pickupLng != 0.0) {
+        final tripStartIso = booking['start_at']?.toString() ??
+            booking['start_date']?.toString() ??
+            DateTime.now().toUtc().toIso8601String();
+
+        bool hasCloseStart = false;
+        if (rawPoints.isNotEmpty) {
+          final firstLat = _asDouble(rawPoints.first['latitude']) ?? 0.0;
+          final firstLng = _asDouble(rawPoints.first['longitude']) ?? 0.0;
+          if (firstLat != 0.0 && firstLng != 0.0) {
+            final distM = Geolocator.distanceBetween(pickupLat, pickupLng, firstLat, firstLng);
+            if (distM < 250) {
+              hasCloseStart = true;
+            }
+          }
+        }
+
+        if (!hasCloseStart) {
+          points.add({
+            'booking_id': bookingId,
+            'latitude': pickupLat,
+            'longitude': pickupLng,
+            'speed_mps': 0.0,
+            'heading_degrees': 0.0,
+            'source': 'pickup_origin',
+            'recorded_at': tripStartIso,
+          });
+        }
+      }
+      points.addAll(rawPoints);
+
+      // 2. Fetch the planned / recommended road route from pickup to destination for destination reference
+      List<Map<String, double>> recommendedRoute = [];
+      if (pickupLat != null && pickupLng != null && dropoffLat != null && dropoffLng != null &&
+          pickupLat != 0.0 && pickupLng != 0.0 && dropoffLat != 0.0 && dropoffLng != 0.0) {
+        recommendedRoute = await getPlannedRoadRoute(
+          startLat: pickupLat,
+          startLng: pickupLng,
+          endLat: dropoffLat,
+          endLng: dropoffLng,
+        );
+      }
 
       double totalDistanceMeters = 0.0;
       double topSpeedMps = 0.0;
@@ -1271,6 +1394,7 @@ class TrackingService {
         'booking': booking,
         'safetyEvents': safetyEvents,
         'routePoints': points,
+        'recommendedRoute': recommendedRoute,
         'dropoffLocation':
             booking['dropoff_location']?.toString() ?? 'Stated Destination',
         'pickupLocation':
@@ -1288,6 +1412,7 @@ class TrackingService {
         'topSpeedKph': 0.0,
         'safetyEvents': <Map<String, dynamic>>[],
         'routePoints': <Map<String, dynamic>>[],
+        'recommendedRoute': <Map<String, double>>[],
       };
     }
   }
