@@ -20,11 +20,20 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     debugPrint('Firebase background init error: $e');
   }
 
-  final notification = message.notification;
-  final title =
-      notification?.title ?? message.data['title']?.toString() ?? 'Mobilis';
+  // ✅ FIX: If the FCM message already contains a 'notification' payload,
+  // Google Play Services / Firebase Android SDK & iOS APNs will AUTOMATICALLY
+  // display the notification in the tray. Manually calling localNotifications.show()
+  // here causes an immediate DUPLICATE (double) notification.
+  // We ONLY show a local notification in the background handler if message.notification == null (data-only push).
+  if (message.notification != null) {
+    debugPrint(
+      'FCM background message already includes notification payload; OS handles display: ${message.messageId}',
+    );
+    return;
+  }
+
+  final title = message.data['title']?.toString() ?? 'Mobilis';
   final body =
-      notification?.body ??
       message.data['body']?.toString() ??
       message.data['message']?.toString() ??
       'You have a new notification';
@@ -62,8 +71,10 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         iOS: iosDetails,
       );
 
+      final notifId = (message.messageId?.hashCode ?? (title.hashCode ^ body.hashCode)) & 0x7FFFFFFF;
+
       await localNotifications.show(
-        title.hashCode ^ body.hashCode,
+        notifId,
         title,
         body,
         details,
@@ -100,6 +111,7 @@ class PushNotificationService {
 
   StreamSubscription? _realtimeSubscription;
   final Set<String> _seenNotificationIds = {};
+  final Map<String, DateTime> _recentlyShownSignatures = {};
   String? _activeUserId;
   // Tracks the moment this listener session started — only show notifications
   // created AFTER this timestamp to avoid re-alerting on historical rows.
@@ -172,12 +184,14 @@ class PushNotificationService {
   void startRealtimeNotificationListener(String userId) {
     if (_activeUserId == userId && _realtimeSubscription != null) return;
     _realtimeSubscription?.cancel();
+    if (_activeUserId != userId) {
+      _seenNotificationIds.clear();
+    }
     _activeUserId = userId;
-    _seenNotificationIds.clear();
 
-    // Record when this session starts — only notifications created AFTER this
-    // moment will trigger a local system notification.
-    _listenerStartedAt = DateTime.now().subtract(const Duration(seconds: 5));
+    // Record when this session starts — only notifications created strictly
+    // AFTER this moment will trigger a local system popup.
+    _listenerStartedAt = DateTime.now();
 
     try {
       final client = Supabase.instance.client;
@@ -208,7 +222,7 @@ class PushNotificationService {
                         : null;
 
                 // Only alert on notifications created after this session started
-                // (avoids re-alerting on all historical unread notifications)
+                // (avoids re-alerting on historical unread notifications)
                 if (createdAt == null || createdAt.isBefore(sessionStart)) {
                   continue;
                 }
@@ -224,6 +238,7 @@ class PushNotificationService {
                 showSystemNotification(
                   title: title,
                   body: message,
+                  notificationId: id,
                   payload:
                       row['data'] is Map
                           ? Map<String, dynamic>.from(row['data'])
@@ -243,6 +258,7 @@ class PushNotificationService {
   Future<void> showSystemNotification({
     required String title,
     required String body,
+    String? notificationId,
     Map<String, dynamic>? payload,
   }) async {
     if (kIsWeb) {
@@ -252,6 +268,25 @@ class PushNotificationService {
       );
       return;
     }
+
+    // ✅ Deduplication protection: suppress identical notifications arriving within 8 seconds
+    final cleanTitle = title.trim();
+    final cleanBody = body.trim();
+    final dedupeKey = notificationId ?? '$cleanTitle::$cleanBody';
+    final now = DateTime.now();
+
+    if (_recentlyShownSignatures.containsKey(dedupeKey)) {
+      final lastShown = _recentlyShownSignatures[dedupeKey]!;
+      if (now.difference(lastShown).inSeconds < 8) {
+        debugPrint('Suppressed duplicate system notification: $dedupeKey');
+        return;
+      }
+    }
+    _recentlyShownSignatures[dedupeKey] = now;
+    // Clean up older entries to prevent memory growth
+    _recentlyShownSignatures.removeWhere(
+      (_, timestamp) => now.difference(timestamp).inMinutes > 2,
+    );
 
     const androidDetails = AndroidNotificationDetails(
       'mobilis_general',
@@ -273,8 +308,10 @@ class PushNotificationService {
       iOS: iosDetails,
     );
 
+    final notifId = (notificationId?.hashCode ?? (cleanTitle.hashCode ^ cleanBody.hashCode)) & 0x7FFFFFFF;
+
     await _localNotifications.show(
-      title.hashCode ^ body.hashCode,
+      notifId,
       title,
       body,
       details,
