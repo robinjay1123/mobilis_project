@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
@@ -1144,13 +1145,36 @@ class TrackingService {
     }
   }
 
-  /// Fetches the planned road route from pickup to destination via OSRM
+  /// Pure math geodesic distance in meters (fast, works synchronously on all platforms/web)
+  double _distanceBetweenMeters(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const r = 6371000.0;
+    final dLat = (lat2 - lat1) * (math.pi / 180.0);
+    final dLon = (lon2 - lon1) * (math.pi / 180.0);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * (math.pi / 180.0)) *
+            math.cos(lat2 * (math.pi / 180.0)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  /// Fetches the planned road route from pickup to destination via OSRM (non-blocking fallback)
   Future<List<Map<String, double>>> getPlannedRoadRoute({
     required double startLat,
     required double startLng,
     required double endLat,
     required double endLng,
   }) async {
+    final fallback = [
+      {'latitude': startLat, 'longitude': startLng},
+      {'latitude': endLat, 'longitude': endLng},
+    ];
     final samePoint = (startLat - endLat).abs() < 0.0001 &&
         (startLng - endLng).abs() < 0.0001;
     if (samePoint) {
@@ -1164,7 +1188,7 @@ class TrackingService {
         '$startLng,$startLat;$endLng,$endLat'
         '?overview=full&geometries=geojson&steps=false',
       );
-      final response = await http.get(uri).timeout(const Duration(seconds: 6));
+      final response = await http.get(uri).timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         final payload = jsonDecode(response.body) as Map<String, dynamic>;
         final routes = payload['routes'] as List<dynamic>? ?? const [];
@@ -1186,10 +1210,7 @@ class TrackingService {
     } catch (e) {
       debugPrint('OSRM planned route fetch: $e');
     }
-    return [
-      {'latitude': startLat, 'longitude': startLng},
-      {'latitude': endLat, 'longitude': endLng},
-    ];
+    return fallback;
   }
 
   /// Evaluates whether the vehicle went outside the agreed destination and computes penalties
@@ -1214,20 +1235,7 @@ class TrackingService {
     try {
       final bookingResponse = await supabase
           .from('bookings')
-          .select('''
-            id,
-            status,
-            pickup_location,
-            dropoff_location,
-            pickup_latitude,
-            pickup_longitude,
-            dropoff_latitude,
-            dropoff_longitude,
-            start_at,
-            start_date,
-            end_at,
-            vehicles:vehicle_id (id, brand, model, vehicle_name, plate_number)
-          ''')
+          .select('*, vehicles(id, brand, model, plate_number)')
           .eq('id', bookingId)
           .maybeSingle();
 
@@ -1235,27 +1243,27 @@ class TrackingService {
           ? Map<String, dynamic>.from(bookingResponse)
           : <String, dynamic>{};
 
-      // Resolve pickup coordinates (fallback to geocoding if null or 0)
+      // Resolve pickup coordinates (fallback to synchronous geocoding if null or 0)
       double? pickupLat = _asDouble(booking['pickup_latitude']);
       double? pickupLng = _asDouble(booking['pickup_longitude']);
       if ((pickupLat == null || pickupLng == null || (pickupLat == 0.0 && pickupLng == 0.0)) &&
           booking['pickup_location'] != null &&
           booking['pickup_location'].toString().trim().isNotEmpty) {
         try {
-          final resolved = await PhilippineGeocoding.resolveLocation(booking['pickup_location']);
+          final resolved = PhilippineGeocoding.resolveLocationSync(booking['pickup_location']);
           pickupLat = resolved.latitude;
           pickupLng = resolved.longitude;
         } catch (_) {}
       }
 
-      // Resolve dropoff coordinates (fallback to geocoding if null or 0)
+      // Resolve dropoff coordinates (fallback to synchronous geocoding if null or 0)
       double? dropoffLat = _asDouble(booking['dropoff_latitude']);
       double? dropoffLng = _asDouble(booking['dropoff_longitude']);
       if ((dropoffLat == null || dropoffLng == null || (dropoffLat == 0.0 && dropoffLng == 0.0)) &&
           booking['dropoff_location'] != null &&
           booking['dropoff_location'].toString().trim().isNotEmpty) {
         try {
-          final resolved = await PhilippineGeocoding.resolveLocation(booking['dropoff_location']);
+          final resolved = PhilippineGeocoding.resolveLocationSync(booking['dropoff_location']);
           dropoffLat = resolved.latitude;
           dropoffLng = resolved.longitude;
         } catch (_) {}
@@ -1278,7 +1286,7 @@ class TrackingService {
           final firstLat = _asDouble(rawPoints.first['latitude']) ?? 0.0;
           final firstLng = _asDouble(rawPoints.first['longitude']) ?? 0.0;
           if (firstLat != 0.0 && firstLng != 0.0) {
-            final distM = Geolocator.distanceBetween(pickupLat, pickupLng, firstLat, firstLng);
+            final distM = _distanceBetweenMeters(pickupLat, pickupLng, firstLat, firstLng);
             if (distM < 250) {
               hasCloseStart = true;
             }
@@ -1327,7 +1335,7 @@ class TrackingService {
           final prevLat = _asDouble(points[i - 1]['latitude']) ?? 0.0;
           final prevLng = _asDouble(points[i - 1]['longitude']) ?? 0.0;
           if (lat != 0.0 && lng != 0.0 && prevLat != 0.0 && prevLng != 0.0) {
-            totalDistanceMeters += Geolocator.distanceBetween(
+            totalDistanceMeters += _distanceBetweenMeters(
               prevLat,
               prevLng,
               lat,
@@ -1337,7 +1345,7 @@ class TrackingService {
         }
 
         if (dropoffLat != null && dropoffLng != null && lat != 0.0 && lng != 0.0) {
-          final distFromDest = Geolocator.distanceBetween(
+          final distFromDest = _distanceBetweenMeters(
             dropoffLat,
             dropoffLng,
             lat,
@@ -1349,7 +1357,7 @@ class TrackingService {
           // If car is > 30km away from destination and > 30km from pickup
           if (distFromDest > 30000) {
             final distFromPickup = (pickupLat != null && pickupLng != null)
-                ? Geolocator.distanceBetween(pickupLat, pickupLng, lat, lng)
+                ? _distanceBetweenMeters(pickupLat, pickupLng, lat, lng)
                 : distFromDest;
             if (distFromPickup > 30000) {
               violationPoints++;
@@ -1359,12 +1367,15 @@ class TrackingService {
       }
 
       // Fetch any safety events for this booking
-      final eventRows = await supabase
-          .from('trip_safety_events')
-          .select('*')
-          .eq('booking_id', bookingId)
-          .order('created_at', ascending: false);
-      final safetyEvents = List<Map<String, dynamic>>.from(eventRows);
+      List<Map<String, dynamic>> safetyEvents = [];
+      try {
+        final eventRows = await supabase
+            .from('trip_safety_events')
+            .select('*')
+            .eq('booking_id', bookingId)
+            .order('created_at', ascending: false);
+        safetyEvents = List<Map<String, dynamic>>.from(eventRows);
+      } catch (_) {}
 
       final hasDestinationViolationEvent = safetyEvents.any(
         (e) =>

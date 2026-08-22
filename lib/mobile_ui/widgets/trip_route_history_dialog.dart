@@ -74,9 +74,9 @@ class _TripRouteHistoryDialogState extends State<TripRouteHistoryDialog> {
   Future<void> _loadRouteData() async {
     setState(() => _isLoading = true);
     try {
-      final data = await _trackingService.evaluateTripDestinationCompliance(
-        widget.bookingId,
-      );
+      final data = await _trackingService
+          .evaluateTripDestinationCompliance(widget.bookingId)
+          .timeout(const Duration(seconds: 5));
       if (mounted) {
         setState(() {
           _auditData = data;
