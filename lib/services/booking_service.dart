@@ -13,6 +13,7 @@ import 'loyalty_service.dart';
 import 'vehicle_turnaround_service.dart';
 import '../utils/pricing_policy.dart';
 import '../utils/philippine_geocoding.dart';
+import '../utils/booking_status.dart';
 
 class BookingService {
   static final BookingService _instance = BookingService._internal();
@@ -1171,9 +1172,14 @@ class BookingService {
       };
 
       for (final booking in bookings) {
-        final status = booking['status'] as String?;
-        if (status != null && counts.containsKey(status)) {
-          counts[status] = counts[status]! + 1;
+        final group = bookingStatusGroup(booking['status']).name;
+        if (counts.containsKey(group)) {
+          counts[group] = counts[group]! + 1;
+        } else {
+          final status = booking['status']?.toString().toLowerCase().trim();
+          if (status != null && counts.containsKey(status)) {
+            counts[status] = counts[status]! + 1;
+          }
         }
       }
 

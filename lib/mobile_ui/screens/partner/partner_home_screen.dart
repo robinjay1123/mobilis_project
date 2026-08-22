@@ -133,6 +133,23 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
   bool get _isPartnerCertified => partnershipStatus == 'certified';
 
+  int get _partnerPendingBookingsCount {
+    final pendingListCount = bookings.where((b) {
+      if (_matchesBookingTab(b, 'pending')) return true;
+      final ext = b['extension_status']?.toString().toLowerCase().trim();
+      if (ext == 'pending' ||
+          ext == 'pending_partner' ||
+          ext == 'payment_completed' ||
+          ext == 'pending_final_confirmation') {
+        return true;
+      }
+      return false;
+    }).length;
+
+    final fallbackCount = bookingCounts['pending'] ?? 0;
+    return pendingListCount > 0 ? pendingListCount : fallbackCount;
+  }
+
   int get _partnerUnreadMessageCount {
     final currentUserId = AuthService().currentUser?.id;
     if (currentUserId == null) return 0;
@@ -171,11 +188,10 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     });
     _loadPartnerData();
     _initializeConnectivity();
-    _setupBookingsListener(); // 🔔 Listen for real-time bookings
     _notificationsAutoRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 4),
       (_) {
-        if (mounted) _loadPartnerData();
+        if (mounted) _loadPartnerData(silent: true);
       },
     );
   }
@@ -230,7 +246,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return false;
   }
 
-  Future<void> _loadPartnerData() async {
+  Future<void> _loadPartnerData({bool silent = false}) async {
     try {
       final authService = AuthService();
       final partnerService = PartnerService();
@@ -255,7 +271,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         final bCounts = await bookingService.getPartnerBookingCounts(
           partnerId!,
         );
-        final bList = await bookingService.getRecentPartnerBookings(partnerId!);
+        final bList = await bookingService.getPartnerBookings(partnerId!);
 
         final chatService = ChatService();
         final convs = await chatService.getConversations(user.id);
@@ -265,47 +281,53 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         final liveTracking = await TrackingService()
             .getActiveTrackingLocations();
         final ratingSummary = await TripRatingService().getRatingSummary(
-          user.id,
+            user.id,
         );
         final avatarUrl = await _loadPartnerAvatarUrl(user);
         final restrictionState = await _restrictionService.getUserRestriction(
           user.id,
         );
 
+        if (_bookingsSubscription == null) {
+          _setupBookingsListener(user.id);
+        }
+
         if (_notificationsSubscription == null) {
           _setupNotificationsListener(user.id);
         }
 
-        setState(() {
-          partnerProfile = profile;
-          partnerName = user.userMetadata?['full_name'] ?? 'Partner';
-          partnerAvatarUrl = avatarUrl;
-          verificationStatus = _normalizeVerificationStatus(
-            profile?['verification_status']?.toString(),
-          );
-          partnershipStatus = (profile?['partnership_status'] ?? 'basic')
-              .toString()
-              .toLowerCase();
-          applicationCounts = appCounts;
-          applications = apps;
-          bookingCounts = bCounts;
-          bookings = bList;
-          conversations = convs;
-          notifications = notifs;
-          trackingLocations = liveTracking;
-          activeVehicles = appCounts['approved'] ?? 0;
-          rating = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
-          ratingCount = (ratingSummary['count'] as num?)?.toInt() ?? 0;
-          _restrictionState = restrictionState;
-          isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            partnerProfile = profile;
+            partnerName = user.userMetadata?['full_name'] ?? 'Partner';
+            partnerAvatarUrl = avatarUrl;
+            verificationStatus = _normalizeVerificationStatus(
+              profile?['verification_status']?.toString(),
+            );
+            partnershipStatus = (profile?['partnership_status'] ?? 'basic')
+                .toString()
+                .toLowerCase();
+            applicationCounts = appCounts;
+            applications = apps;
+            bookingCounts = bCounts;
+            bookings = bList;
+            conversations = convs;
+            notifications = notifs;
+            trackingLocations = liveTracking;
+            activeVehicles = appCounts['approved'] ?? 0;
+            rating = (ratingSummary['average'] as num?)?.toDouble() ?? 0.0;
+            ratingCount = (ratingSummary['count'] as num?)?.toInt() ?? 0;
+            _restrictionState = restrictionState;
+            isLoading = false;
+          });
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _maybeShowRestrictionNotification();
         });
       }
     } catch (e) {
       debugPrint('Error loading partner data: $e');
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           isLoading = false;
         });
@@ -338,17 +360,20 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     return null;
   }
 
-  /// 🔔 Set up real-time listener for new bookings
-  void _setupBookingsListener() {
+  /// 🔔 Set up real-time listener for new bookings and partner fleet events
+  void _setupBookingsListener([String? currentPartnerId]) {
     try {
-      if (partnerId == null) {
+      final targetId = currentPartnerId ?? partnerId ?? AuthService().currentUser?.id;
+      if (targetId == null) {
         debugPrint('⚠️ No partner ID for bookings listener');
         return;
       }
 
+      _bookingsSubscription?.unsubscribe();
+
       final supabase = Supabase.instance.client;
 
-      _bookingsSubscription = supabase.realtime.channel('public:bookings');
+      _bookingsSubscription = supabase.realtime.channel('partner_fleet_events_$targetId');
 
       _bookingsSubscription!
           .onPostgresChanges(
@@ -356,11 +381,9 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             schema: 'public',
             table: 'bookings',
             callback: (payload) {
-              debugPrint('🔔 New booking received');
-
+              debugPrint('🔔 Realtime booking event received: ${payload.eventType}');
               if (mounted) {
-                // Reload bookings to reflect changes
-                _loadPartnerData();
+                _loadPartnerData(silent: true);
               }
             },
           )
@@ -369,12 +392,28 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
             schema: 'public',
             table: 'driver_job_assignments',
             callback: (_) {
-              if (mounted) _loadPartnerData();
+              if (mounted) _loadPartnerData(silent: true);
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'vehicles',
+            callback: (_) {
+              if (mounted) _loadPartnerData(silent: true);
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'partner_vehicles',
+            callback: (_) {
+              if (mounted) _loadPartnerData(silent: true);
             },
           )
           .subscribe();
 
-      debugPrint('✅ Real-time bookings listener started');
+      debugPrint('✅ Real-time bookings listener active for partner $targetId');
     } catch (e) {
       debugPrint('⚠️ Error setting up bookings listener: $e');
     }
@@ -634,7 +673,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
         bottomNavigationBar: RoleBottomNavigation(
           currentIndex: selectedNavIndex,
           badgeCounts: {
-            1: bookingCounts['pending'] ?? 0,
+            1: _partnerPendingBookingsCount,
             2: _partnerUnreadMessageCount,
             3: _partnerUnreadNotificationCount,
           },
