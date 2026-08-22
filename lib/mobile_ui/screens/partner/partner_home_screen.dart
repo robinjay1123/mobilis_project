@@ -4739,6 +4739,12 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
           );
           return;
         }
+        if (!BookingService().isEligibleForBookingChat(booking)) {
+          _showErrorSnackBar(
+            'Chat will automatically be available 3 days before the trip starts.',
+          );
+          return;
+        }
         if (partnerId != null && renterId.isNotEmpty) {
           conversation = await chatService.createGroupConversation(
             bookingId: bookingId,
@@ -4835,6 +4841,7 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
 
       if (conversation == null &&
           activeChatStatuses.contains(bookingStatus) &&
+          BookingService().isEligibleForBookingChat(booking) &&
           partnerId != null &&
           renterId.isNotEmpty) {
         conversation = await chatService.createGroupConversation(

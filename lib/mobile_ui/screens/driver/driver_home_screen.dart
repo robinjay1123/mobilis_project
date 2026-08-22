@@ -2897,7 +2897,12 @@ class _TripCardState extends State<_TripCard> {
       );
       final conversationId = conversation?['id']?.toString() ?? '';
       if (conversationId.isEmpty) {
-        throw Exception('The booking conversation is not ready yet.');
+        final notEligibleYet = !BookingService().isEligibleForBookingChat(trip);
+        throw Exception(
+          notEligibleYet
+              ? 'Group chat will automatically be available 3 days before the trip starts.'
+              : 'The booking conversation is not ready yet.',
+        );
       }
       if (!context.mounted) return;
       await Navigator.of(context).pushNamed(

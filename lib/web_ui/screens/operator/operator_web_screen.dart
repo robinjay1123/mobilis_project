@@ -1815,12 +1815,15 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       final conversationId = conversation?['id']?.toString() ?? '';
       if (conversationId.isEmpty) {
         final status = booking['status']?.toString() ?? 'pending';
+        final notEligibleYet = !BookingService().isEligibleForBookingChat(booking);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               bookingStatusGroup(status) == BookingStatusGroup.pending
                   ? 'Finalize this booking first to open its group conversation.'
-                  : 'The booking conversation could not be created. Please try again.',
+                  : notEligibleYet
+                      ? 'Group chat will automatically be created 3 days before the scheduled trip start.'
+                      : 'The booking conversation could not be created. Please try again.',
             ),
             backgroundColor: Colors.orange.shade700,
           ),
@@ -16000,7 +16003,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
       final bookingRows = await _supabase
           .from('bookings')
-          .select('id, status, operator_id, safety_freeze, vehicles!bookings_vehicle_id_fkey(owner_id)')
+          .select('id, status, operator_id, start_at, start_date, safety_freeze, vehicles!bookings_vehicle_id_fkey(owner_id)')
           .inFilter('status', activeStatuses)
           .order('updated_at', ascending: false);
       final eligibleBookings = List<Map<String, dynamic>>.from(bookingRows)
@@ -16016,6 +16019,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             // Pending bookings for partner cars are awaiting partner confirmation
             // and should not have active group conversations created yet.
             if (isPartnerCar && bookingStatus == 'pending') {
+              return false;
+            }
+
+            if (!BookingService().isEligibleForBookingChat(booking)) {
               return false;
             }
 

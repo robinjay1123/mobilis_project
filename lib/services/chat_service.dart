@@ -5,6 +5,7 @@ import 'dart:io';
 import 'notification_service.dart';
 import 'user_restriction_service.dart';
 import 'image_optimization_service.dart';
+import 'booking_service.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -51,6 +52,12 @@ class ChatService {
   Future<List<Map<String, dynamic>>> getConversations(String userId) async {
     try {
       debugPrint('Fetching conversations for user: $userId');
+
+      try {
+        await BookingService().syncUpcomingBookingConversations(userId: userId);
+      } catch (e) {
+        debugPrint('Could not sync upcoming conversations: $e');
+      }
 
       final conversationIds = await _conversationIdsForUser(userId);
       if (conversationIds.isEmpty) return [];

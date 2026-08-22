@@ -24,7 +24,7 @@ class BookingService {
 
   BookingService._internal();
 
-  final supabase = Supabase.instance.client;
+  SupabaseClient get supabase => Supabase.instance.client;
   static const List<String> _bookingBlockingStatuses = [
     'pending',
     'Pending',
@@ -881,11 +881,13 @@ class BookingService {
       if (conversationStatuses.contains(normalizedStatus)) {
         try {
           final updatedBooking = await getBookingById(bookingId) ?? booking;
-          await _ensureBookingGroupChatAndSummary(
-            booking: updatedBooking,
-            vehicleTitle: vehicleTitle,
-            summaryTitle: 'Booking Confirmed',
-          );
+          if (isEligibleForBookingChat(updatedBooking)) {
+            await _ensureBookingGroupChatAndSummary(
+              booking: updatedBooking,
+              vehicleTitle: vehicleTitle,
+              summaryTitle: 'Booking Confirmed',
+            );
+          }
         } catch (e) {
           debugPrint('Error creating booking group chat summary: $e');
         }
@@ -1836,11 +1838,13 @@ class BookingService {
     }
     final vehicle = finalized['vehicles'] as Map<String, dynamic>?;
     final vehicleTitle = _vehicleTitle(vehicle);
-    await _ensureBookingGroupChatAndSummary(
-      booking: finalized,
-      vehicleTitle: vehicleTitle,
-      summaryTitle: 'Booking Confirmed',
-    );
+    if (isEligibleForBookingChat(finalized)) {
+      await _ensureBookingGroupChatAndSummary(
+        booking: finalized,
+        vehicleTitle: vehicleTitle,
+        summaryTitle: 'Booking Confirmed',
+      );
+    }
 
     final renterId = finalized['renter_id']?.toString();
     if (renterId != null && renterId.isNotEmpty) {
@@ -1876,10 +1880,11 @@ class BookingService {
   }
 
   /// Repairs or creates the booking group chat without duplicating it.
-  /// Only approved/active trips are eligible for an active conversation.
+  /// Only approved/active trips starting within 3 days are eligible for an active conversation (unless forced).
   Future<void> ensureBookingConversationForActiveBooking({
     required String bookingId,
     String? operatorId,
+    bool force = false,
   }) async {
     var booking = await getBookingById(bookingId);
     if (booking == null) return;
@@ -1887,6 +1892,7 @@ class BookingService {
     final status = booking['status']?.toString().trim().toLowerCase() ?? '';
     const activeStatuses = {'approved', 'confirmed', 'active', 'ongoing'};
     if (!activeStatuses.contains(status)) return;
+    if (!force && !isEligibleForBookingChat(booking)) return;
 
     final storedOperatorId = booking['operator_id']?.toString().trim() ?? '';
     final resolvedOperatorId = operatorId?.trim() ?? '';
@@ -2875,6 +2881,93 @@ class BookingService {
       } catch (e) {
         debugPrint('Could not notify operator $id: $e');
       }
+    }
+  }
+
+  /// Checks whether a booking is eligible for automatic group chat creation.
+  /// Group chats are automatically created 3 days (72 hours) before the scheduled start time,
+  /// or immediately if the booking is starting within 3 days or already active/ongoing.
+  bool isEligibleForBookingChat(Map<String, dynamic> booking) {
+    final status = (booking['rawStatus'] ?? booking['status'])
+        ?.toString()
+        .trim()
+        .toLowerCase() ?? '';
+    const validStatuses = {
+      'approved',
+      'confirmed',
+      'active',
+      'ongoing',
+      'pending_inspection',
+      'return_pending_inspection',
+      'awaiting_completion',
+      'completed',
+    };
+    if (!validStatuses.contains(status)) {
+      return false;
+    }
+
+    // Ongoing, active, inspection, or completed trips are always eligible
+    if (status == 'active' ||
+        status == 'ongoing' ||
+        status == 'pending_inspection' ||
+        status == 'return_pending_inspection' ||
+        status == 'awaiting_completion' ||
+        status == 'completed') {
+      return true;
+    }
+
+    // For approved/confirmed bookings, check if we are within 3 days before start_at / start_date
+    final startRaw = booking['start_at'] ?? booking['start_date'];
+    if (startRaw == null) {
+      return true; // Fallback if no start date specified
+    }
+
+    final startDate = DateTime.tryParse(startRaw.toString());
+    if (startDate == null) {
+      return true; // Fallback if date cannot be parsed
+    }
+
+    // Automatically create if now is on or after (start_date - 3 days)
+    final autoCreateThreshold = startDate.subtract(const Duration(days: 3));
+    return !DateTime.now().isBefore(autoCreateThreshold);
+  }
+
+  /// Synchronizes and auto-creates conversations for approved/confirmed bookings that
+  /// have reached the 3-day window before start time.
+  Future<void> syncUpcomingBookingConversations({String? userId}) async {
+    try {
+      const activeStatuses = ['approved', 'confirmed', 'active', 'ongoing'];
+      var query = supabase
+          .from('bookings')
+          .select('''
+            id, renter_id, operator_id, driver_id, status, start_at, start_date, end_at, end_date,
+            total_price, total_cost, with_driver, conversation_created,
+            vehicles!bookings_vehicle_id_fkey(id, brand, model, vehicle_name, plate_number, owner_id, operator_id),
+            users!bookings_renter_id_fkey(id, full_name, email, phone)
+          ''')
+          .inFilter('status', activeStatuses);
+
+      if (userId != null && userId.isNotEmpty) {
+        query = query.or('renter_id.eq.$userId,driver_id.eq.$userId,operator_id.eq.$userId');
+      }
+
+      final rows = await query.order('updated_at', ascending: false).limit(30);
+      final bookings = List<Map<String, dynamic>>.from(rows);
+
+      for (final booking in bookings) {
+        if (booking['conversation_created'] == true) continue;
+        if (!isEligibleForBookingChat(booking)) continue;
+
+        final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+        final vehicleTitle = _vehicleTitle(vehicle);
+        await _ensureBookingGroupChatAndSummary(
+          booking: booking,
+          vehicleTitle: vehicleTitle,
+          summaryTitle: 'Booking Confirmed',
+        );
+      }
+    } catch (e) {
+      debugPrint('Error syncing upcoming booking conversations: $e');
     }
   }
 

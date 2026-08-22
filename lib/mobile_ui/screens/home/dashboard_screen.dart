@@ -2919,9 +2919,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (conversationId == null || conversationId.isEmpty) {
         if (mounted) {
+          final notEligibleYet =
+              !BookingService().isEligibleForBookingChat(booking);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Group chat is not ready yet. Please refresh.'),
+            SnackBar(
+              content: Text(
+                notEligibleYet
+                    ? 'Group chat will automatically be available 3 days before the trip starts.'
+                    : 'Group chat is not ready yet. Please refresh.',
+              ),
               backgroundColor: AppColors.warning,
             ),
           );
@@ -9966,7 +9972,7 @@ class _RenterBookingDetailsPage extends StatelessWidget {
                     _detailRow(
                       Icons.check_circle_outline_rounded,
                       'Final Settlement Paid',
-                      'PHP ${formatAmount(finalReturnAmount > 0 ? finalReturnAmount : (totalCost - 1000.0).clamp(0, double.infinity), decimalDigits: 0)}${finalPaymentMethod != null ? ' via ${finalPaymentMethod.toUpperCase()}' : ''}',
+                      'PHP ${formatAmount(finalReturnAmount > 0 ? finalReturnAmount : (totalCost - 1000.0).clamp(0, double.infinity), decimalDigits: 0)}${finalPaymentMethod != null ? ' via ${(finalPaymentMethod ?? '').toUpperCase()}' : ''}',
                     ),
                   if (finalPaymentRef != null && finalPaymentRef.isNotEmpty)
                     _detailRow(
