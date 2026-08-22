@@ -115,6 +115,7 @@ class _BookingReturnCountdownState extends State<BookingReturnCountdown> {
     if (scheduledReturn == null) return const SizedBox.shrink();
 
     final remaining = scheduledReturn.difference(_now);
+    final overdue = remaining.isNegative;
     final lateHours = overdue
         ? math.max(1, (-remaining.inSeconds / Duration.secondsPerHour).ceil())
         : 0;
