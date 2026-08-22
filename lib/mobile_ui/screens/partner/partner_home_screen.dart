@@ -5434,24 +5434,61 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                   ],
                   DialogStatusIndicator(
                     compact: true,
-                    isComplete:
-                        BookingInspectionService.requiredChecklistKeys.every(
-                          (key) => checklistItems[key] == true,
-                        ) &&
-                        fuelController.text.trim().isNotEmpty &&
-                        tiresController.text.trim().isNotEmpty &&
-                        magsController.text.trim().isNotEmpty &&
-                        releasedByController.text.trim().isNotEmpty &&
-                        receivedByController.text.trim().isNotEmpty &&
-                        selectedEvidence.isNotEmpty,
+                    isComplete: inspectionType == 'after'
+                        // Post-trip: checklist is optional — only evidence is required
+                        ? (fuelController.text.trim().isNotEmpty &&
+                            tiresController.text.trim().isNotEmpty &&
+                            magsController.text.trim().isNotEmpty &&
+                            releasedByController.text.trim().isNotEmpty &&
+                            receivedByController.text.trim().isNotEmpty &&
+                            selectedEvidence.isNotEmpty)
+                        // Pre-trip: all checklist items + fields + evidence required
+                        : (BookingInspectionService.requiredChecklistKeys.every(
+                                (key) => checklistItems[key] == true,
+                              ) &&
+                              fuelController.text.trim().isNotEmpty &&
+                              tiresController.text.trim().isNotEmpty &&
+                              magsController.text.trim().isNotEmpty &&
+                              releasedByController.text.trim().isNotEmpty &&
+                              receivedByController.text.trim().isNotEmpty &&
+                              selectedEvidence.isNotEmpty),
                     completeLabel: 'Inspection information complete',
                     incompleteLabel: 'Inspection information incomplete',
                     completeDetail:
-                        'Checklist, required fields, and evidence are ready.',
+                        inspectionType == 'after'
+                            ? 'Required fields and photo evidence are ready. Checklist items are optional for return inspection.'
+                            : 'Checklist, required fields, and evidence are ready.',
                     incompleteDetail:
-                        'Complete every checklist item, required field, and add evidence.',
+                        inspectionType == 'after'
+                            ? 'Fill in required fields (fuel, tires, mags, names) and attach at least one photo.'
+                            : 'Complete every checklist item, required field, and add evidence.',
                   ),
                   const SizedBox(height: 12),
+                  // Post-trip: optional checklist banner
+                  if (inspectionType == 'after') ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.withValues(alpha: 0.35)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 15, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Post-trip checklist items are optional. Check only items that apply — unchecked items will be flagged as issues for review. This determines security deposit refund eligibility.',
+                              style: TextStyle(fontSize: 11, color: Colors.blue, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   VehicleInspectionChecklistFields(
                     values: checklistItems,
                     isDark: true,
@@ -5549,13 +5586,19 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
                             magsController.text.trim().isNotEmpty &&
                             releasedByController.text.trim().isNotEmpty &&
                             receivedByController.text.trim().isNotEmpty;
-                        if (!allChecked ||
+
+                        // Post-trip: checklist is OPTIONAL — only required fields + evidence needed
+                        final checklistOk = inspectionType == 'after' ? true : allChecked;
+
+                        if (!checklistOk ||
                             !requiredFieldsReady ||
                             selectedEvidence.isEmpty) {
                           ScaffoldMessenger.of(sheetContext).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Complete all checklist items, handover names, and attach at least one photo or video.',
+                                inspectionType == 'after'
+                                    ? 'Please fill in condition fields (fuel, tires, mags, names) and attach at least one photo or video.'
+                                    : 'Complete all checklist items, handover names, and attach at least one photo or video.',
                               ),
                             ),
                           );

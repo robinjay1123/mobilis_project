@@ -2369,29 +2369,36 @@ class _BookingCard extends StatelessWidget {
                   const SizedBox(height: 10),
 
                   // Net Refund Summary
+                  Container(\n                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),\n                    decoration: BoxDecoration(\n                      color: const Color(0xFF10B981).withValues(alpha: 0.12),\n                      borderRadius: BorderRadius.circular(10),\n                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),\n                    ),\n                    child: Row(\n                      mainAxisAlignment: MainAxisAlignment.spaceBetween,\n                      children: [\n                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),\n                        Text(\n                          'PHP ${netRefund.toStringAsFixed(0)}',\n                          style: const TextStyle(\n                            color: Color(0xFF10B981),\n                            fontWeight: FontWeight.w900,\n                            fontSize: 15,\n                          ),\n                        ),\n                      ],\n                    ),\n                  ),
+                  const SizedBox(height: 10),
+                  // Deduction policy note
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                      border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                        Text(
-                          'PHP ${netRefund.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            color: Color(0xFF10B981),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 15,
+                        Icon(Icons.info_outline_rounded, size: 15, color: Color(0xFFF59E0B)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Note: The security deposit may NOT be fully refunded if the vehicle was returned with cleanliness issues, scratches, damages, or any unresolved violations. The operator may deduct applicable charges before disbursing the refund. Enter the deduction amount above and provide notes for transparency.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFFF59E0B),
+                              height: 1.45,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
+
 
                   // Method & Ref
                   DropdownButtonFormField<String>(
@@ -2421,7 +2428,10 @@ class _BookingCard extends StatelessWidget {
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  // Show deduction reason field only if there is a deduction
+                  if (deduction > 0) ...[\n                    const SizedBox(height: 10),\n                    TextFormField(\n                      controller: deductionNotesController,\n                      maxLines: 2,\n                      decoration: InputDecoration(\n                        labelText: 'Deduction Reason *',\n                        hintText: 'e.g. Vehicle returned with scratches, cleanliness issues...',\n                        isDense: true,\n                        border: const OutlineInputBorder(),\n                        labelStyle: TextStyle(color: isDark ? Colors.orange.shade300 : Colors.orange.shade700),\n                      ),\n                    ),\n                  ],
                   const SizedBox(height: 12),
+
 
                   // Receipt Upload
                   if (receiptFile == null)
