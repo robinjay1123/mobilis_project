@@ -34,7 +34,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
   bool _isLoading = true;
   bool _isSubmitting = false;
-  bool _completionRecovered = false;
+  final bool _completionRecovered = false;
   List<Map<String, dynamic>> _targets = [];
   int _currentIndex = 0;
   double _selectedRating = 0;
@@ -44,6 +44,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   IconData _emptyIcon = Icons.check_circle_outline_rounded;
   Color _emptyIconColor = AppColors.success;
   final List<File> _selectedImages = [];
+  final List<String> _existingImageUrls = [];
   final Set<String> _selectedTags = {};
 
   @override
@@ -96,31 +97,18 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
             .eq('target_role', target['role'].toString())
             .maybeSingle();
         if (existing != null) {
-          target['existingRating'] = existing;
+          target['existingRating'] = Map<String, dynamic>.from(existing);
           target['alreadyRated'] = true;
         }
       } catch (_) {}
     }
 
     if (targets.isNotEmpty) {
-      final allRated = targets.every((t) => t['alreadyRated'] == true);
-      if (allRated && cleanReviewerRole == 'operator') {
-        if (!mounted) return;
-        setState(() {
-          _targets = [];
-          _emptyTitle = 'Rating is complete';
-          _emptyMessage =
-              'All required ratings for this trip have been successfully submitted.';
-          _emptyIcon = Icons.check_circle_outline_rounded;
-          _emptyIconColor = AppColors.success;
-          _isLoading = false;
-        });
-        return;
-      }
-
       final firstUnrated = targets.indexWhere((t) => t['alreadyRated'] != true);
       if (firstUnrated >= 0) {
         _currentIndex = firstUnrated;
+      } else {
+        _currentIndex = 0;
       }
     }
 
@@ -169,11 +157,16 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       _selectedRating = (existing['rating'] as num?)?.toDouble() ?? 0.0;
       _commentController.text = existing['comment']?.toString() ?? '';
       final rawTags = existing['tags'];
+      _selectedTags.clear();
       if (rawTags is List) {
-        _selectedTags.clear();
         _selectedTags.addAll(rawTags.map((e) => e.toString()));
-      } else {
-        _selectedTags.clear();
+      }
+      final rawImages = existing['image_urls'];
+      _existingImageUrls.clear();
+      if (rawImages is List) {
+        _existingImageUrls.addAll(
+          rawImages.map((e) => e.toString().trim()).where((s) => s.isNotEmpty),
+        );
       }
       _selectedImages.clear();
     } else {
@@ -181,12 +174,41 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       _commentController.clear();
       _selectedTags.clear();
       _selectedImages.clear();
+      _existingImageUrls.clear();
     }
   }
 
   Map<String, dynamic>? get _currentTarget {
     if (_currentIndex < 0 || _currentIndex >= _targets.length) return null;
     return _targets[_currentIndex];
+  }
+
+  bool get _isCurrentTargetReadOnly {
+    final target = _currentTarget;
+    return target != null && target['alreadyRated'] == true;
+  }
+
+  bool get _areAllTargetsRated {
+    return _targets.isNotEmpty &&
+        _targets.every((t) => t['alreadyRated'] == true);
+  }
+
+  void _goToPrevious() {
+    if (_currentIndex > 0) {
+      setState(() {
+        _currentIndex--;
+        _populateFieldsForCurrentTarget();
+      });
+    }
+  }
+
+  void _goToNext() {
+    if (_currentIndex < _targets.length - 1) {
+      setState(() {
+        _currentIndex++;
+        _populateFieldsForCurrentTarget();
+      });
+    }
   }
 
   Future<void> _pickImages() async {
@@ -229,6 +251,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       );
 
       target['alreadyRated'] = true;
+      target['existingRating'] = {
+        'rating': _selectedRating,
+        'comment': _commentController.text.trim(),
+        'tags': _selectedTags.toList(),
+        'image_urls': _existingImageUrls,
+      };
+
       _moveNextOrFinish();
     } catch (e) {
       if (!mounted) return;
@@ -256,9 +285,43 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     });
   }
 
+  void _showImagePreviewDialog(String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: OptimizedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.contain,
+              ),
+            ),
+            IconButton(
+              onPressed: () => Navigator.pop(context),
+              icon: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final target = _currentTarget;
+    final isReadOnly = _isCurrentTargetReadOnly;
 
     return Scaffold(
       backgroundColor: AppColors.darkBg,
@@ -270,7 +333,9 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
         ),
         title: Text(
-          _reviewTitleForTarget(target),
+          isReadOnly
+              ? 'View Rating'
+              : _reviewTitleForTarget(target),
           style: const TextStyle(
             color: AppColors.textPrimary,
             fontWeight: FontWeight.w700,
@@ -290,89 +355,156 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                 children: [
                   _buildSuccessHeader(),
                   const SizedBox(height: 18),
+                  if (isReadOnly) ...[
+                    _buildReadOnlyStatusBadge(),
+                    const SizedBox(height: 12),
+                  ],
                   _buildTargetCard(target),
                   const SizedBox(height: 22),
                   Text(
-                    target['prompt']?.toString() ?? 'How was your experience?',
+                    isReadOnly
+                        ? 'Rating Score'
+                        : (target['prompt']?.toString() ??
+                            'How was your experience?'),
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _buildStarRow(),
+                  const SizedBox(height: 14),
+                  _buildStarRow(isReadOnly: isReadOnly),
                   const SizedBox(height: 24),
-                  const Text(
-                    'Leave a review (optional)',
-                    style: TextStyle(
+                  Text(
+                    isReadOnly ? 'Review Comment' : 'Leave a review (optional)',
+                    style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _commentController,
-                    maxLines: 5,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: InputDecoration(
-                      hintText: _reviewHintForTarget(
-                        target['role']?.toString(),
-                      ),
-                      hintStyle: const TextStyle(color: AppColors.textTertiary),
-                      filled: true,
-                      fillColor: AppColors.darkBgSecondary,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: AppColors.borderColor,
+                  if (isReadOnly)
+                    _buildReadOnlyComment()
+                  else
+                    TextField(
+                      controller: _commentController,
+                      maxLines: 5,
+                      style: const TextStyle(color: AppColors.textPrimary),
+                      decoration: InputDecoration(
+                        hintText: _reviewHintForTarget(
+                          target['role']?.toString(),
                         ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(
-                          color: AppColors.borderColor,
+                        hintStyle:
+                            const TextStyle(color: AppColors.textTertiary),
+                        filled: true,
+                        fillColor: AppColors.darkBgSecondary,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(
+                            color: AppColors.borderColor,
+                          ),
                         ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: AppColors.primary),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(
+                            color: AppColors.borderColor,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide:
+                              const BorderSide(color: AppColors.primary),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _suggestedTagsForRole(
-                      target['role']?.toString(),
-                    ).map(_buildTagChip).toList(),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _pickImages,
-                          icon: const Icon(
-                            Icons.add_a_photo_outlined,
-                            size: 18,
-                          ),
-                          label: const Text('Add Photos'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                  const SizedBox(height: 16),
+                  if (isReadOnly) ...[
+                    if (_selectedTags.isNotEmpty) ...[
+                      const Text(
+                        'Selected Tags',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _selectedTags
+                            .map((tag) => _buildTagChip(tag, isReadOnly: true))
+                            .toList(),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ] else ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _suggestedTagsForRole(
+                        target['role']?.toString(),
+                      ).map((tag) => _buildTagChip(tag, isReadOnly: false)).toList(),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _pickImages,
+                            icon: const Icon(
+                              Icons.add_a_photo_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Add Photos'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(color: AppColors.primary),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                             ),
                           ),
                         ),
+                      ],
+                    ),
+                  ],
+                  if (_existingImageUrls.isNotEmpty && isReadOnly) ...[
+                    const Text(
+                      'Review Photos',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
-                  if (_selectedImages.isNotEmpty) ...[
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _existingImageUrls.map((imageUrl) {
+                        return GestureDetector(
+                          onTap: () => _showImagePreviewDialog(imageUrl),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: OptimizedNetworkImage(
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (_selectedImages.isNotEmpty && !isReadOnly) ...[
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -418,45 +550,201 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
                     ),
                   ],
                   const SizedBox(height: 26),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isSubmitting ? null : _submitCurrentRating,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        textStyle: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
+                  _buildBottomActionButtons(isReadOnly: isReadOnly),
+                  if (!isReadOnly) ...[
+                    const SizedBox(height: 10),
+                    const Center(
                       child: Text(
-                        _isSubmitting
-                            ? 'Submitting...'
-                            : (_currentTarget?['alreadyRated'] == true
-                                ? 'Update Rating'
-                                : 'Submit Rating'),
+                        'A rating is required to complete this trip.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Center(
-                    child: Text(
-                      'A rating is required to complete this trip.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+                  ],
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildReadOnlyStatusBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+          SizedBox(width: 8),
+          Text(
+            'Submitted Rating (View Only)',
+            style: TextStyle(
+              color: AppColors.success,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyComment() {
+    final comment = _commentController.text.trim();
+    if (comment.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.darkBgSecondary,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.borderColor),
+        ),
+        child: const Text(
+          'No written review comment provided.',
+          style: TextStyle(
+            color: AppColors.textTertiary,
+            fontStyle: FontStyle.italic,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.darkBgSecondary,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.borderColor),
+      ),
+      child: Text(
+        comment,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 14,
+          height: 1.45,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomActionButtons({required bool isReadOnly}) {
+    if (isReadOnly) {
+      final isLastTarget = _currentIndex >= _targets.length - 1;
+      return Row(
+        children: [
+          if (_currentIndex > 0) ...[
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _goToPrevious,
+                icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                label: const Text('Previous'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: const BorderSide(color: AppColors.borderColor),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            flex: _currentIndex > 0 ? 2 : 1,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                if (isLastTarget) {
+                  Navigator.pop(context, false);
+                } else {
+                  _goToNext();
+                }
+              },
+              icon: Icon(
+                isLastTarget
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.arrow_forward_rounded,
+                size: 18,
+              ),
+              label: Text(isLastTarget ? 'Done' : 'Next Review'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        if (_currentIndex > 0) ...[
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _goToPrevious,
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: const Text('Previous'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textPrimary,
+                side: const BorderSide(color: AppColors.borderColor),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          flex: _currentIndex > 0 ? 2 : 1,
+          child: ElevatedButton(
+            onPressed: _isSubmitting ? null : _submitCurrentRating,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 16,
+              ),
+            ),
+            child: Text(
+              _isSubmitting ? 'Submitting...' : 'Submit Rating',
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -522,6 +810,7 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   }
 
   Widget _buildSuccessHeader() {
+    final allRated = _areAllTargetsRated;
     return Column(
       children: [
         Center(
@@ -532,12 +821,16 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
               color: AppColors.primary.withValues(alpha: 0.16),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.check, color: AppColors.primary, size: 38),
+            child: Icon(
+              allRated ? Icons.star_rounded : Icons.check,
+              color: AppColors.primary,
+              size: 38,
+            ),
           ),
         ),
         const SizedBox(height: 20),
         Text(
-          widget.title,
+          allRated ? 'Trip Reviews Completed' : widget.title,
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: AppColors.textPrimary,
@@ -547,7 +840,9 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          widget.subtitle,
+          allRated
+              ? 'You have completed all reviews for this trip.'
+              : widget.subtitle,
           textAlign: TextAlign.center,
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
@@ -557,7 +852,10 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
   Widget _buildTargetCard(Map<String, dynamic> target) {
     final name = target['name']?.toString() ?? 'Mobilis User';
-    final avatarUrl = target['avatarUrl']?.toString().trim() ?? '';
+    final avatarUrl = (target['avatarUrl'] ?? target['imageUrl'])?.toString().trim() ?? '';
+    final isVehicle =
+        target['role']?.toString().trim().toLowerCase() == 'vehicle';
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -568,32 +866,64 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
       ),
       child: Column(
         children: [
-          Container(
-            width: 88,
-            height: 88,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(24),
-              image: avatarUrl.isNotEmpty
-                  ? DecorationImage(
-                      image: OptimizedNetworkImageProvider(avatarUrl),
-                      fit: BoxFit.cover,
+          if (isVehicle) ...[
+            // Prominent vehicle image display
+            Container(
+              width: double.infinity,
+              height: 160,
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.borderColor),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: avatarUrl.isNotEmpty
+                    ? OptimizedNetworkImage(
+                        imageUrl: avatarUrl,
+                        width: double.infinity,
+                        height: 160,
+                        fit: BoxFit.cover,
+                      )
+                    : const Center(
+                        child: Icon(
+                          Icons.directions_car_rounded,
+                          color: AppColors.primary,
+                          size: 56,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ] else ...[
+            // User avatar display
+            Container(
+              width: 88,
+              height: 88,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(24),
+                image: avatarUrl.isNotEmpty
+                    ? DecorationImage(
+                        image: OptimizedNetworkImageProvider(avatarUrl),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+              ),
+              child: avatarUrl.isEmpty
+                  ? Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                      ),
                     )
                   : null,
             ),
-            child: avatarUrl.isEmpty
-                ? Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : 'U',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 14),
+          ],
           Text(
             name,
             textAlign: TextAlign.center,
@@ -605,10 +935,13 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Trip review ${_currentIndex + 1} of ${_targets.length}',
+            isVehicle
+                ? 'Vehicle Review • Step ${_currentIndex + 1} of ${_targets.length}'
+                : '${_formatRoleName(target['role']?.toString())} • Step ${_currentIndex + 1} of ${_targets.length}',
             style: const TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
@@ -616,26 +949,77 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
     );
   }
 
-  Widget _buildStarRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(5, (index) {
-        final value = index + 1;
-        final isSelected = value <= _selectedRating;
-        return IconButton(
-          onPressed: () => setState(() => _selectedRating = value.toDouble()),
-          icon: Icon(
-            isSelected ? Icons.star : Icons.star_border,
-            color: AppColors.primary,
-            size: 36,
+  String _formatRoleName(String? role) {
+    switch (role?.toLowerCase().trim()) {
+      case 'renter':
+        return 'Renter Review';
+      case 'partner':
+        return 'Vehicle Partner Review';
+      case 'operator':
+        return 'PSDC Operator Review';
+      case 'driver':
+        return 'Assigned Driver Review';
+      default:
+        return 'Trip Review';
+    }
+  }
+
+  Widget _buildStarRow({required bool isReadOnly}) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(5, (index) {
+            final value = index + 1;
+            final isSelected = value <= _selectedRating;
+            return IconButton(
+              onPressed: isReadOnly
+                  ? null
+                  : () => setState(() => _selectedRating = value.toDouble()),
+              icon: Icon(
+                isSelected ? Icons.star_rounded : Icons.star_border_rounded,
+                color: isSelected ? AppColors.ratingGold : AppColors.textTertiary,
+                size: 38,
+              ),
+            );
+          }),
+        ),
+        if (isReadOnly && _selectedRating > 0) ...[
+          const SizedBox(height: 4),
+          Text(
+            '${_selectedRating.toStringAsFixed(1)} / 5.0 Stars',
+            style: const TextStyle(
+              color: AppColors.ratingGold,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        );
-      }),
+        ],
+      ],
     );
   }
 
-  Widget _buildTagChip(String tag) {
+  Widget _buildTagChip(String tag, {required bool isReadOnly}) {
     final isSelected = _selectedTags.contains(tag);
+    if (isReadOnly) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppColors.primary),
+        ),
+        child: Text(
+          tag,
+          style: const TextStyle(
+            color: AppColors.primary,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -671,12 +1055,22 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
   List<String> _suggestedTagsForRole(String? role) {
     switch (role?.toLowerCase().trim()) {
+      case 'vehicle':
+        return [
+          'Clean interior',
+          'Smooth drive',
+          'Fuel efficient',
+          'Cold AC',
+          'Well maintained',
+          'Reliable',
+        ];
       case 'driver':
         return [
           'Punctual',
-          'Cleaned car',
+          'Safe driver',
+          'Clean car',
           'Great communicator',
-          'Handled vehicle well',
+          'Polite & helpful',
         ];
       case 'partner':
         return [
@@ -707,6 +1101,8 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
   String _reviewTitleForTarget(Map<String, dynamic>? target) {
     final role = target?['role']?.toString().trim().toLowerCase();
     switch (role) {
+      case 'vehicle':
+        return 'Rate Vehicle';
       case 'renter':
         return 'Rate Renter';
       case 'driver':
@@ -722,6 +1118,8 @@ class _TripRatingFlowScreenState extends State<TripRatingFlowScreen> {
 
   String _reviewHintForTarget(String? role) {
     switch (role?.toLowerCase().trim()) {
+      case 'vehicle':
+        return 'Describe vehicle cleanliness, driving performance, and air conditioning...';
       case 'renter':
         return 'Describe their communication, punctuality, and care during the trip...';
       case 'driver':

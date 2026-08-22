@@ -10682,14 +10682,14 @@ class _RenterBookingDetailsPage extends StatelessWidget {
               width: double.infinity,
               child: isAlreadyRated
                   ? OutlinedButton.icon(
-                      onPressed: null,
+                      onPressed: onRateTrip,
                       icon: const Icon(
                         Icons.star_rounded,
                         color: AppColors.ratingGold,
                         size: 18,
                       ),
                       label: const Text(
-                        'Rating Submitted',
+                        'Rating Submitted • View',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: AppColors.textSecondary,

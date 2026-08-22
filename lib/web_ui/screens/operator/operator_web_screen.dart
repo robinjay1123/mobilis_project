@@ -1543,25 +1543,12 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         return;
       }
 
-      // Check database to prevent duplicate rating if already complete
       final isComplete = await TripRatingService().isReviewerRatingComplete(
         bookingId: bookingId,
         reviewerUserId: actorId,
         reviewerRole: 'operator',
         operatorFallbackUserId: actorId,
       );
-
-      if (isComplete) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Rating is already complete for this booking.',
-            ),
-          ),
-        );
-        return;
-      }
 
       if (latestBooking['operator_id']?.toString().trim().isEmpty ?? true) {
         try {
@@ -1592,9 +1579,10 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
               child: TripRatingFlowScreen(
                 bookingId: bookingId,
                 reviewerRole: 'operator',
-                title: 'Rate Trip',
-                subtitle:
-                    'Submit all required ratings for this completed booking.',
+                title: isComplete ? 'View Rating' : 'Rate Trip',
+                subtitle: isComplete
+                    ? 'View submitted ratings for this booking.'
+                    : 'Submit all required ratings for this completed booking.',
               ),
             ),
           ),

@@ -136,10 +136,31 @@ class TripRatingService {
               .maybeSingle();
           if (fetchedVehicle != null) {
             vehicle = Map<String, dynamic>.from(fetchedVehicle);
-            context['vehicles'] = vehicle;
           }
         } catch (_) {}
       }
+
+      final resolvedVehicleId = vehicle['id']?.toString() ?? rawVehicleId;
+      var vImg = (vehicle['image_url']?.toString() ?? '').trim();
+      if (vImg.isEmpty &&
+          resolvedVehicleId != null &&
+          resolvedVehicleId.isNotEmpty) {
+        try {
+          final imgRow = await supabase
+              .from('vehicle_images')
+              .select('image_url')
+              .eq('vehicle_id', resolvedVehicleId)
+              .order('display_order', ascending: true)
+              .limit(1)
+              .maybeSingle();
+          if (imgRow != null && imgRow['image_url'] != null) {
+            vImg = imgRow['image_url'].toString().trim();
+            vehicle['image_url'] = vImg;
+          }
+        } catch (_) {}
+      }
+      context['vehicles'] = vehicle;
+
       final ownerId = vehicle['owner_id']?.toString();
       final operatorId =
           context['operator_id']?.toString() ??
@@ -496,13 +517,18 @@ class TripRatingService {
       if (vehicleId.isNotEmpty) {
         final vehicleName = text(vehicle['vehicle_name']).isNotEmpty
             ? text(vehicle['vehicle_name'])
-            : [text(vehicle['brand']), text(vehicle['model'])]
+            : [text(vehicle['brand']), text(vehicle['model']), text(vehicle['year'])]
                   .where((s) => s.isNotEmpty)
                   .join(' ');
         final fallbackName = text(context['car_name']).isNotEmpty
             ? text(context['car_name'])
             : text(context['carName']);
-        final imageUrl = text(vehicle['image_url']);
+        var imageUrl = text(vehicle['image_url']);
+        if (imageUrl.isEmpty) {
+          imageUrl = text(context['vehicle_image_url']).isNotEmpty
+              ? text(context['vehicle_image_url'])
+              : text(context['car_image_url']);
+        }
         targets.add({
           'userId': vehicleId,
           'role': 'vehicle',
@@ -510,6 +536,10 @@ class TripRatingService {
               ? vehicleName
               : (fallbackName.isNotEmpty ? fallbackName : 'Rental Vehicle'),
           'avatarUrl': imageUrl,
+          'imageUrl': imageUrl,
+          'brand': text(vehicle['brand']),
+          'model': text(vehicle['model']),
+          'year': text(vehicle['year']),
           'prompt': 'How was the vehicle overall?',
           'alreadyRated': false,
         });
@@ -564,22 +594,14 @@ class TripRatingService {
       );
     }
 
-    final pendingTargets = uniqueTargets
-        .where((target) => target['alreadyRated'] != true)
-        .toList();
-    if (pendingTargets.isNotEmpty) return pendingTargets;
-
-    // A rating can be saved before the booking-stage update completes (for
-    // example after a lost connection). In that case the booking still points
-    // at this reviewer even though the rating row already exists. Return the
-    // targets again so submitting safely upserts the review and advances the
-    // completion workflow instead of showing a false "already completed"
-    // state.
-    if (includePreviouslySubmittedForRecovery && uniqueTargets.isNotEmpty) {
+    if (includePreviouslySubmittedForRecovery) {
       return uniqueTargets;
     }
 
-    return const <Map<String, dynamic>>[];
+    final pendingTargets = uniqueTargets
+        .where((target) => target['alreadyRated'] != true)
+        .toList();
+    return pendingTargets;
   }
 
   Future<bool> isReviewerRatingComplete({
