@@ -702,9 +702,13 @@ class TrackingService {
           try {
             final pVehRows = await supabase
                 .from('partner_vehicles')
-                .select('id, brand, model, vehicle_name, plate_number, partner_id, status, latitude, longitude')
+                .select('id, brand, model, plate_number, partner_id, status, latitude, longitude')
                 .inFilter('id', vehicleIds);
             for (final pv in List<Map<String, dynamic>>.from(pVehRows)) {
+              final brand = pv['brand']?.toString().trim() ?? '';
+              final model = pv['model']?.toString().trim() ?? '';
+              final synthesized = [brand, model].where((s) => s.isNotEmpty).join(' ');
+              pv['vehicle_name'] = synthesized.isNotEmpty ? synthesized : 'Partner Vehicle';
               vehiclesMap[pv['id'].toString()] = pv;
             }
           } catch (_) {}

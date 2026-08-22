@@ -1058,7 +1058,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     });
     _setupBookingFlowListener();
     _bookingsSilentRefreshTimer = Timer.periodic(
-      const Duration(seconds: 12),
+      const Duration(seconds: 30),
       (_) {
         if (mounted) {
           _loadRecentBookings();
@@ -1066,10 +1066,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       },
     );
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _refreshTrackingLocations(),
+      const Duration(seconds: 30),
+      (_) {
+        if (mounted && (_selectedIndex == 8 || _selectedIndex == 0)) {
+          _refreshTrackingLocations();
+        }
+      },
     );
-    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 15), (
+    _notificationsRefreshTimer = Timer.periodic(const Duration(seconds: 30), (
       _,
     ) {
       if (mounted) {
