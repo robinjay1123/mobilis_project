@@ -385,6 +385,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   String _bookingViewMode = 'cards'; // 'cards' vs 'table'
   int _recentBookingsPage = 1;
   static const int _recentBookingsPerPage = 5;
+  RealtimeChannel? _bookingsSubscription;
+  Timer? _bookingsSilentRefreshTimer;
 
   // Vehicles tab & search state
   String _vehicleTabFilter = 'all'; // 'all', 'psdc', 'partner'
@@ -512,6 +514,15 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     });
     _setupSupportMessagesListener();
     _setupActionLogsRealtimeListener();
+    _setupBookingsRealtimeListener();
+    _bookingsSilentRefreshTimer = Timer.periodic(
+      const Duration(seconds: 12),
+      (_) {
+        if (mounted) {
+          _loadAllBookings();
+        }
+      },
+    );
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) {
@@ -551,6 +562,8 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
 
   @override
   void dispose() {
+    _bookingsSilentRefreshTimer?.cancel();
+    _bookingsSubscription?.unsubscribe();
     _trackingRefreshTimer?.cancel();
     _notificationsRefreshTimer?.cancel();
     _actionLogsRefreshTimer?.cancel();
@@ -574,6 +587,22 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _announcementMessageController.dispose();
     _supportReplyController.dispose();
     super.dispose();
+  }
+
+  void _setupBookingsRealtimeListener() {
+    _bookingsSubscription = _supabase
+        .channel('admin-bookings-realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'bookings',
+          callback: (payload) {
+            if (mounted) {
+              _loadAllBookings();
+            }
+          },
+        )
+        .subscribe();
   }
 
   void _setupSupportMessagesListener() {

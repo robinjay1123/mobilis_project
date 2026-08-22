@@ -193,12 +193,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final vehicleOperatorId = vehicle['operator_id']?.toString().trim();
     final isAssignedToThisOperator = bookingOperatorId == operatorId ||
         vehicleOperatorId == operatorId;
-    final isCompanyVehicle = vehicle['owner_id'] == null;
     final isUnassigned = (bookingOperatorId == null ||
             bookingOperatorId.isEmpty) &&
         (vehicleOperatorId == null || vehicleOperatorId.isEmpty);
 
-    return isAssignedToThisOperator || (isCompanyVehicle && isUnassigned);
+    return isAssignedToThisOperator || isUnassigned;
   }
 
   Future<void> _loadPendingBookingsCount() async {
@@ -421,6 +420,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
   List<Map<String, dynamic>> _trackingLocations = [];
   Timer? _trackingRefreshTimer;
   Timer? _notificationsRefreshTimer;
+  Timer? _bookingsSilentRefreshTimer;
   Timer? _bookingFlowRefreshDebounce;
   Timer? _conversationFlowRefreshDebounce;
   RealtimeChannel? _bookingFlowChannel;
@@ -1057,6 +1057,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (mounted) _loadConversations();
     });
     _setupBookingFlowListener();
+    _bookingsSilentRefreshTimer = Timer.periodic(
+      const Duration(seconds: 12),
+      (_) {
+        if (mounted) {
+          _loadRecentBookings();
+        }
+      },
+    );
     _trackingRefreshTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _refreshTrackingLocations(),
@@ -1074,6 +1082,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
 
   @override
   void dispose() {
+    _bookingsSilentRefreshTimer?.cancel();
     _trackingRefreshTimer?.cancel();
     _notificationsRefreshTimer?.cancel();
     _bookingFlowRefreshDebounce?.cancel();
@@ -1120,6 +1129,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         const Duration(milliseconds: 350),
         () {
           _loadDashboardData(showLoading: false);
+          _loadRecentBookings();
         },
       );
     }
@@ -4174,24 +4184,29 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             },
             backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
             indicatorColor: AppColors.primary.withValues(alpha: 0.25),
-            destinations: const [
-              NavigationDestination(
+            destinations: [
+              const NavigationDestination(
                 icon: Icon(Icons.dashboard_rounded),
                 label: 'Home',
               ),
               NavigationDestination(
-                icon: Icon(Icons.calendar_month_rounded),
+                icon: Badge(
+                  isLabelVisible: _unviewedBookingsCount > 0,
+                  label: Text(_unviewedBookingsCount.toString()),
+                  backgroundColor: Colors.red,
+                  child: const Icon(Icons.calendar_month_rounded),
+                ),
                 label: 'Bookings',
               ),
-              NavigationDestination(
+              const NavigationDestination(
                 icon: Icon(Icons.camera_alt_rounded),
                 label: 'Inspection',
               ),
-              NavigationDestination(
+              const NavigationDestination(
                 icon: Icon(Icons.directions_car_rounded),
                 label: 'Vehicles',
               ),
-              NavigationDestination(
+              const NavigationDestination(
                 icon: Icon(Icons.chat_bubble_rounded),
                 label: 'Messages',
               ),
@@ -4563,6 +4578,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       _persistSelectedTab(index);
     }
     if (index == 1) {
+      _unviewedBookingsCount = 0;
       _markAllVisibleBookingsAsViewed();
     }
     if (index == 2) {
