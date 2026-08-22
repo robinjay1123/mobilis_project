@@ -458,6 +458,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   bool _isSavingSupportFaqs = false;
   String _supportFaqRole = 'renter';
   Map<String, List<SupportFaq>> _supportFaqsByRole = {};
+  bool _settingsLoaded = false;
   final TextEditingController _rentalTermsController = TextEditingController();
   final TextEditingController _privacyPolicyController =
       TextEditingController();
@@ -508,31 +509,44 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _restoreSavedTab();
     _loadLastSeenCounts().then((_) {
       _loadDashboardData();
-      _loadActionLogs(showLoading: false);
     });
-    _loadRentalTerms();
-    _loadPrivacyPolicy();
-    _loadReservationPaymentSettings();
-    _loadSupportFaqSettings();
     _setupSupportMessagesListener();
-    _loadActionLogs(showLoading: false);
     _setupActionLogsRealtimeListener();
     _trackingRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) => _refreshTrackingLocations(),
+      const Duration(seconds: 30),
+      (_) {
+        if (_selectedIndex == 10 || _selectedIndex == 0) {
+          _refreshTrackingLocations();
+        }
+      },
     );
     _actionLogsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => _loadActionLogs(showLoading: false),
+      const Duration(seconds: 20),
+      (_) {
+        if (_selectedIndex == 12) {
+          _loadActionLogs(showLoading: false);
+        }
+      },
     );
     _announcementRefreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 45),
       (_) => _refreshAnnouncementsIfVisible(),
     );
     _notificationsRefreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (_) => _loadNotifications(showLoading: false),
     );
+  }
+
+  Future<void> _loadSettingsLazily() async {
+    if (_settingsLoaded) return;
+    _settingsLoaded = true;
+    await Future.wait([
+      _loadRentalTerms(),
+      _loadPrivacyPolicy(),
+      _loadReservationPaymentSettings(),
+      _loadSupportFaqSettings(),
+    ]);
   }
 
   @override
@@ -724,30 +738,42 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // 1. Fast First Paint: fetch core statistics, users, and bookings
       await Future.wait([
         _loadAllUsers(),
         _loadAllBookings(),
-        _loadAllVehicles(),
-        _loadTrackingLocationsFast(),
-        _loadAnnouncements(),
-        _loadSupportInbox(),
-        _loadPendingVerifications(),
-        _loadPendingPartnerVehicleApplications(),
-        _loadNotifications(showLoading: false),
-        _loadActionLogs(showLoading: false),
       ]);
-      await _loadStats();
+
+      _computeStatsFromMemory();
+
+      // Immediately render the dashboard UI
       if (mounted) {
-        setState(() {
-          _pendingApplicationsCount =
-              _pendingPartnerVehicleApplications.length;
-        });
+        setState(() => _isLoading = false);
       }
+
+      // 2. Non-blocking progressive background hydration for secondary datasets
+      unawaited(
+        Future.wait([
+          _loadAllVehicles(),
+          _loadPendingVerifications(),
+          _loadPendingPartnerVehicleApplications(),
+          _loadNotifications(showLoading: false),
+          _loadTrackingLocationsFast(),
+          _loadAnnouncements(),
+        ]).then((_) {
+          if (mounted) {
+            setState(() {
+              _pendingApplicationsCount =
+                  _pendingPartnerVehicleApplications.length;
+              _computeStatsFromMemory();
+            });
+          }
+        }),
+      );
     } catch (e) {
       debugPrint('Error loading admin dashboard: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    if (mounted) setState(() => _isLoading = false);
   }
 
   Future<void> _loadActionLogs({bool showLoading = true}) async {
@@ -1651,167 +1677,191 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
   }
 
   Future<void> _loadStats() async {
-    try {
-      if (_allUsers.isNotEmpty) {
-        _totalUsers = _allUsers.length;
-        _totalPartners = _allUsers
-            .where(
-              (user) =>
-                  (user['role'] as String? ?? '').toLowerCase() == 'partner',
-            )
-            .length;
-        _totalOperators = _allUsers
-            .where(
-              (user) =>
-                  (user['role'] as String? ?? '').toLowerCase() == 'operator',
-            )
-            .length;
-      } else {
-        final usersResponse = await _supabase.from('users').select('id, role');
-        final users = List<Map<String, dynamic>>.from(usersResponse);
-        _totalUsers = users.length;
-        _totalPartners = users
-            .where(
-              (user) =>
-                  (user['role'] as String? ?? '').toLowerCase() == 'partner',
-            )
-            .length;
-        _totalOperators = users
-            .where(
-              (user) =>
-                  (user['role'] as String? ?? '').toLowerCase() == 'operator',
-            )
-            .length;
+    _computeStatsFromMemory();
+    if (_allUsers.isEmpty || _allBookings.isEmpty || _allVehicles.isEmpty) {
+      try {
+        if (_allUsers.isEmpty) {
+          final usersResponse =
+              await _supabase.from('users').select('id, role');
+          final users = List<Map<String, dynamic>>.from(usersResponse);
+          _totalUsers = users.length;
+          _totalPartners = users
+              .where(
+                (u) => (u['role'] as String? ?? '').toLowerCase() == 'partner',
+              )
+              .length;
+          _totalOperators = users
+              .where(
+                (u) => (u['role'] as String? ?? '').toLowerCase() == 'operator',
+              )
+              .length;
+        }
+
+        if (_allVehicles.isEmpty) {
+          final vehiclesResponse =
+              await _supabase.from('vehicles').select('id');
+          final partnerVehiclesResponse =
+              await _supabase.from('partner_vehicles').select('id');
+          _totalVehicles = (vehiclesResponse as List).length +
+              (partnerVehiclesResponse as List).length;
+        }
+
+        if (_allBookings.isEmpty) {
+          final totalBookingsResponse = await _supabase
+              .from('bookings')
+              .select('id, total_cost, status');
+          final bList = List<Map<String, dynamic>>.from(totalBookingsResponse);
+          _totalBookings = bList.length;
+          _pendingBookingsCount =
+              bList.where((b) => b['status'] == 'pending').length;
+          _activeBookings =
+              bList.where((b) => b['status'] == 'active').length;
+          _totalRevenue = bList.fold(
+            0.0,
+            (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? 0),
+          );
+        }
+
+        final pendingResponse = await _supabase
+            .from('user_verifications')
+            .select('id')
+            .eq('verification_status', 'pending');
+        _pendingVerifications = (pendingResponse as List).length;
+      } catch (e) {
+        debugPrint('Error loading stats fallback: $e');
       }
+    }
+  }
 
-      final vehiclesResponse = await _supabase.from('vehicles').select('id');
-      final partnerVehiclesResponse = await _supabase
-          .from('partner_vehicles')
-          .select('id');
-      _totalVehicles =
-          (vehiclesResponse as List).length +
-          (partnerVehiclesResponse as List).length;
+  void _computeStatsFromMemory() {
+    if (_allUsers.isNotEmpty) {
+      _totalUsers = _allUsers.length;
+      _totalPartners = _allUsers
+          .where(
+            (u) => (u['role'] as String? ?? '').toLowerCase() == 'partner',
+          )
+          .length;
+      _totalOperators = _allUsers
+          .where(
+            (u) => (u['role'] as String? ?? '').toLowerCase() == 'operator',
+          )
+          .length;
+    }
 
-      final pendingResponse = await _supabase
-          .from('user_verifications')
-          .select('id')
-          .eq('verification_status', 'pending');
-      _pendingVerifications = (pendingResponse as List).length;
+    if (_allVehicles.isNotEmpty) {
+      _totalVehicles = _allVehicles.length;
+    }
 
-      final pendingBookingsResponse = await _supabase
-          .from('bookings')
-          .select('id')
-          .eq('status', 'pending');
-      _pendingBookingsCount = (pendingBookingsResponse as List).length;
-
-      final activeBookingsResponse = await _supabase
-          .from('bookings')
-          .select('id')
-          .eq('status', 'active');
-      _activeBookings = (activeBookingsResponse as List).length;
-
-      final totalBookingsResponse = await _supabase
-          .from('bookings')
-          .select('id, total_cost');
-      _totalBookings = (totalBookingsResponse as List).length;
-
-      _totalRevenue = 0;
-      for (var booking in totalBookingsResponse) {
-        _totalRevenue += (booking['total_cost'] as num?)?.toDouble() ?? 0;
-      }
-    } catch (e) {
-      debugPrint('Error loading stats: $e');
+    if (_allBookings.isNotEmpty) {
+      _totalBookings = _allBookings.length;
+      _pendingBookingsCount = _allBookings
+          .where(
+            (b) =>
+                (b['status'] as String? ?? '').toLowerCase() == 'pending',
+          )
+          .length;
+      _activeBookings = _allBookings
+          .where(
+            (b) =>
+                (b['status'] as String? ?? '').toLowerCase() == 'active',
+          )
+          .length;
+      _totalRevenue = _allBookings.fold(
+        0.0,
+        (sum, b) => sum + ((b['total_cost'] as num?)?.toDouble() ?? 0.0),
+      );
     }
   }
 
   Future<void> _loadAllUsers() async {
     try {
-      List<dynamic> response = [];
-
-      // 1. Fetch approved verification user IDs from user_verifications, renters, and drivers
-      final approvedUserIds = <String>{};
-
-      // user_verifications
-      try {
-        final verifications = await _supabase
+      final futures = await Future.wait([
+        // 0: user_verifications
+        _supabase
             .from('user_verifications')
-            .select('user_id, verification_status');
-        for (final v in List<Map<String, dynamic>>.from(verifications)) {
-          final uid = v['user_id']?.toString() ?? '';
-          final statusStr =
-              v['verification_status']?.toString().trim().toLowerCase() ?? '';
-          if (uid.isNotEmpty &&
-              (statusStr == 'approved' ||
-                  statusStr == 'verified' ||
-                  statusStr == 'certified')) {
-            approvedUserIds.add(uid);
-          }
-        }
-      } catch (verErr) {
-        debugPrint('user_verifications lookup note: $verErr');
-      }
-
-      // renters (verified renters registry)
-      try {
-        final renters = await _supabase
+            .select('user_id, verification_status')
+            .then((res) => List<Map<String, dynamic>>.from(res))
+            .catchError((e) => <Map<String, dynamic>>[]),
+        // 1: renters
+        _supabase
             .from('renters')
-            .select('user_id, is_verified');
-        for (final r in List<Map<String, dynamic>>.from(renters)) {
-          final uid = r['user_id']?.toString() ?? '';
-          final isVer = r['is_verified'] == true;
-          // A row in public.renters means they are verified (the table only
-          // holds approved renters after the verification flow).
-          if (uid.isNotEmpty) {
-            if (isVer) approvedUserIds.add(uid);
-          }
-        }
-      } catch (renterErr) {
-        debugPrint('renters lookup note: $renterErr');
-      }
-
-      // 2. Try detailed select with fallback
-      try {
-        response = await _supabase
+            .select('user_id, is_verified')
+            .then((res) => List<Map<String, dynamic>>.from(res))
+            .catchError((e) => <Map<String, dynamic>>[]),
+        // 2: users
+        _supabase
             .from('users')
             .select(
               'id, email, full_name, phone, role, created_at, id_verified, '
               'verification_status, updated_at, avatar_url, profile_picture_url, profile_image, image_url',
             )
-            .order('created_at', ascending: false);
-      } catch (e1) {
-        debugPrint('Detailed users query skipped, trying basic fields: $e1');
-        try {
-          response = await _supabase
-              .from('users')
-              .select('id, email, full_name, phone, role, created_at')
-              .order('created_at', ascending: false);
-        } catch (e2) {
-          debugPrint('Basic users query error: $e2');
+            .order('created_at', ascending: false)
+            .then((res) => List<Map<String, dynamic>>.from(res))
+            .catchError((e) async {
+              try {
+                final fallback = await _supabase
+                    .from('users')
+                    .select('id, email, full_name, phone, role, created_at')
+                    .order('created_at', ascending: false);
+                return List<Map<String, dynamic>>.from(fallback);
+              } catch (_) {
+                return <Map<String, dynamic>>[];
+              }
+            }),
+        // 3: drivers
+        _supabase
+            .from('drivers')
+            .select(
+              'id, user_id, driver_tier, verification_status, license_verified, nbi_verified',
+            )
+            .then((res) => List<Map<String, dynamic>>.from(res))
+            .catchError((e) => <Map<String, dynamic>>[]),
+        // 4: verification users fallback
+        _supabase
+            .from('user_verifications')
+            .select(
+              'user_id, users:user_id(id, email, full_name, phone, role, created_at, avatar_url)',
+            )
+            .then((res) => List<Map<String, dynamic>>.from(res))
+            .catchError((e) => <Map<String, dynamic>>[]),
+      ]);
+
+      final verifications = futures[0];
+      final renters = futures[1];
+      final usersResponse = futures[2];
+      final driversResponse = futures[3];
+      final verificationUsers = futures[4];
+
+      final approvedUserIds = <String>{};
+      for (final v in verifications) {
+        final uid = v['user_id']?.toString() ?? '';
+        final statusStr =
+            v['verification_status']?.toString().trim().toLowerCase() ?? '';
+        if (uid.isNotEmpty &&
+            (statusStr == 'approved' ||
+                statusStr == 'verified' ||
+                statusStr == 'certified')) {
+          approvedUserIds.add(uid);
         }
       }
 
-      // 3. Fetch driver data for PSDC driver merge & driver verification check
-      List<Map<String, dynamic>> driversResponse = [];
-      try {
-        driversResponse = List<Map<String, dynamic>>.from(
-          await _supabase
-              .from('drivers')
-              .select(
-                'id, user_id, driver_tier, verification_status, license_verified, nbi_verified',
-              ),
-        );
-        for (final d in driversResponse) {
-          final uid = d['user_id']?.toString() ?? '';
-          final statusStr =
-              d['verification_status']?.toString().trim().toLowerCase() ?? '';
-          final isVer = d['is_verified'] == true;
-          if (uid.isNotEmpty &&
-              (isVer || statusStr == 'approved' || statusStr == 'verified')) {
-            approvedUserIds.add(uid);
-          }
+      for (final r in renters) {
+        final uid = r['user_id']?.toString() ?? '';
+        final isVer = r['is_verified'] == true;
+        if (uid.isNotEmpty && isVer) {
+          approvedUserIds.add(uid);
         }
-      } catch (driverErr) {
-        debugPrint('Could not load drivers for PSDC merge: $driverErr');
+      }
+
+      for (final d in driversResponse) {
+        final uid = d['user_id']?.toString() ?? '';
+        final statusStr =
+            d['verification_status']?.toString().trim().toLowerCase() ?? '';
+        final isVer = d['is_verified'] == true;
+        if (uid.isNotEmpty &&
+            (isVer || statusStr == 'approved' || statusStr == 'verified')) {
+          approvedUserIds.add(uid);
+        }
       }
 
       final driversMap = <String, Map<String, dynamic>>{
@@ -1821,7 +1871,7 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       final userList = <Map<String, dynamic>>[];
       final seenUserIds = <String>{};
 
-      for (final user in List<Map<String, dynamic>>.from(response)) {
+      for (final user in usersResponse) {
         final userId = user['id']?.toString() ?? '';
         if (userId.isEmpty) continue;
         seenUserIds.add(userId);
@@ -1860,33 +1910,24 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         });
       }
 
-      // 4. Fallback: Check if any users exist in user_verifications or bookings missing from main user query
-      try {
-        final verificationUsers = await _supabase
-            .from('user_verifications')
-            .select(
-              'user_id, users:user_id(id, email, full_name, phone, role, created_at, avatar_url)',
-            );
-        for (final v in List<Map<String, dynamic>>.from(verificationUsers)) {
-          final uMap = v['users'] as Map<String, dynamic>?;
-          final uid = uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
-          if (uid.isNotEmpty && !seenUserIds.contains(uid)) {
-            seenUserIds.add(uid);
-            userList.add({
-              'id': uid,
-              'email': uMap?['email'] ?? 'User Email',
-              'full_name': uMap?['full_name'] ?? 'User ($uid)',
-              'phone': uMap?['phone'] ?? '',
-              'role': uMap?['role'] ?? 'renter',
-              'created_at':
-                  uMap?['created_at'] ?? DateTime.now().toIso8601String(),
-              'id_verified': true,
-              'avatar_url': uMap?['avatar_url'],
-            });
-          }
+      for (final v in verificationUsers) {
+        final uMap = v['users'] as Map<String, dynamic>?;
+        final uid =
+            uMap?['id']?.toString() ?? v['user_id']?.toString() ?? '';
+        if (uid.isNotEmpty && !seenUserIds.contains(uid)) {
+          seenUserIds.add(uid);
+          userList.add({
+            'id': uid,
+            'email': uMap?['email'] ?? 'User Email',
+            'full_name': uMap?['full_name'] ?? 'User ($uid)',
+            'phone': uMap?['phone'] ?? '',
+            'role': uMap?['role'] ?? 'renter',
+            'created_at':
+                uMap?['created_at'] ?? DateTime.now().toIso8601String(),
+            'id_verified': true,
+            'avatar_url': uMap?['avatar_url'],
+          });
         }
-      } catch (e) {
-        debugPrint('Verification users merge note: $e');
       }
 
       _allUsers = userList;
@@ -1904,12 +1945,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
           )
           .length;
 
-      debugPrint('Admin: successfully loaded ${_allUsers.length} users');
-    } on PostgrestException catch (e) {
       debugPrint(
-        'Admin _loadAllUsers Postgrest error: ${e.message} code=${e.code}',
+        'Admin: successfully loaded ${_allUsers.length} users (parallel fast load)',
       );
-      _allUsers = [];
     } catch (e) {
       debugPrint('Admin _loadAllUsers error: $e');
       _allUsers = [];
@@ -3743,9 +3781,35 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
             } else if (index == 12) {
               _unreadActionLogsCount = 0;
               _saveLastSeenActionLogCount(_actionLogs.length);
+              if (_actionLogs.isEmpty) {
+                _loadActionLogs();
+              }
             } else if (index == 7) {
               _unreadSupportCount = 0;
               _saveLastSeenSupportCount(_supportConversations.length);
+              if (_supportConversations.isEmpty) {
+                _loadSupportInbox();
+              }
+            } else if (index == 11) {
+              _loadSettingsLazily();
+            } else if (index == 9) {
+              if (_announcements.isEmpty) {
+                _loadAnnouncements();
+              }
+            } else if (index == 10) {
+              _refreshTrackingLocations();
+            } else if (index == 2) {
+              if (_allVehicles.isEmpty) {
+                _loadAllVehicles();
+              }
+            } else if (index == 4) {
+              if (_verificationRecords.isEmpty) {
+                _loadPendingVerifications();
+              }
+            } else if (index == 5) {
+              if (_pendingPartnerVehicleApplications.isEmpty) {
+                _loadPendingPartnerVehicleApplications();
+              }
             }
           });
           _persistSelectedTab(index);
