@@ -24749,7 +24749,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     };
   }
 
-  Future<void> _handleApprovePriceRequest(
+    Future<void> _handleApprovePriceRequest(
     Map<String, dynamic> req,
     bool isDark,
   ) async {
@@ -24759,34 +24759,254 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ? Map<String, dynamic>.from(req['data'] as Map)
             : <String, dynamic>{});
 
-    final vehicle = await _findVehicleForPriceRequest(data);
-    if (vehicle == null) {
+    final vehicleTitle = (data['vehicle_title'] ?? req['title'] ?? 'Vehicle').toString();
+    final reqDaily = (data['requested_price_per_day'] as num?)?.toDouble() ??
+        double.tryParse(data['requested_price_per_day']?.toString() ?? '') ?? 0.0;
+    final reqHourly = (data['requested_price_per_hour'] as num?)?.toDouble() ??
+        double.tryParse(data['requested_price_per_hour']?.toString() ?? '') ?? 0.0;
+    final currentDaily = (data['current_price_per_day'] as num?)?.toDouble() ?? 0.0;
+    final currentHourly = (data['current_price_per_hour'] as num?)?.toDouble() ?? 0.0;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 24),
+            const SizedBox(width: 10),
+            Text(
+              'Approve Price Change',
+              style: TextStyle(
+                color: isDark ? Colors.white : _operatorInk,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Approve and automatically update the rental rates for $vehicleTitle?',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[300] : Colors.grey[800],
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Current Rates:', style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600], fontSize: 13)),
+                        Text('PHP ${_formatCurrency(currentDaily)}/day • PHP ${_formatCurrency(currentHourly)}/hr', style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[600], fontSize: 13)),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('New Daily Rate:', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text('PHP ${_formatCurrency(reqDaily)} /day', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF10B981))),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('New Hourly Rate:', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text('PHP ${_formatCurrency(reqHourly)} /hr', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF10B981))),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.auto_fix_high_rounded, color: Color(0xFF10B981), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'The vehicle price will be updated automatically in the database and catalog. The partner will be notified immediately.',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            icon: const Icon(Icons.check_rounded, size: 18),
+            label: const Text('Approve & Apply Price', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final reqId = req['id']?.toString() ?? '';
+      final vehicleId = (data['vehicle_id'] ?? data['created_vehicle_id'] ?? '').toString();
+      final partnerVehicleId = (data['partner_vehicle_id'] ?? '').toString();
+      final applicationId = (data['application_id'] ?? '').toString();
+      final partnerId = (data['partner_id'] ?? '').toString();
+
+      // 1. Automatically update vehicles table
+      if (vehicleId.isNotEmpty) {
+        try {
+          await _supabase.from('vehicles').update({
+            'price_per_day': reqDaily,
+            'price_per_hour': reqHourly,
+            'daily_rate': reqDaily,
+            'hourly_rate': reqHourly,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', vehicleId);
+        } catch (_) {
+          try {
+            await _supabase.from('vehicles').update({
+              'price_per_day': reqDaily,
+              'price_per_hour': reqHourly,
+              'updated_at': DateTime.now().toIso8601String(),
+            }).eq('id', vehicleId);
+          } catch (err) {
+            debugPrint('Error updating vehicles table: $err');
+          }
+        }
+      }
+
+      // 2. Automatically update partner_vehicles table
+      if (partnerVehicleId.isNotEmpty) {
+        try {
+          await _supabase.from('partner_vehicles').update({
+            'price_per_day': reqDaily,
+            'price_per_hour': reqHourly,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', partnerVehicleId);
+        } catch (err) {
+          debugPrint('Error updating partner_vehicles table: $err');
+        }
+      }
+
+      // 3. Automatically update partner_applications table
+      if (applicationId.isNotEmpty) {
+        try {
+          await _supabase.from('partner_applications').update({
+            'price_per_day': reqDaily,
+            'price_per_hour': reqHourly,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', applicationId);
+        } catch (err) {
+          debugPrint('Error updating partner_applications table: $err');
+        }
+      }
+
+      // If vehicle record is only matched by title or partner id, find and update
+      if (vehicleId.isEmpty && partnerVehicleId.isEmpty) {
+        final vehicle = await _findVehicleForPriceRequest(data);
+        if (vehicle != null && vehicle['id'] != null) {
+          try {
+            await _supabase.from('vehicles').update({
+              'price_per_day': reqDaily,
+              'price_per_hour': reqHourly,
+              'updated_at': DateTime.now().toIso8601String(),
+            }).eq('id', vehicle['id'].toString());
+          } catch (_) {}
+        }
+      }
+
+      // 4. Update the price request notification record
+      if (reqId.isNotEmpty) {
+        await _supabase.from('notifications').update({
+          'is_read': true,
+          'data': {
+            ...data,
+            'status': 'approved',
+            'approved': true,
+            'approved_at': DateTime.now().toIso8601String(),
+            'approved_price_per_day': reqDaily,
+            'approved_price_per_hour': reqHourly,
+          },
+        }).eq('id', reqId);
+      }
+
+      // 5. Send confirmation notification to partner
+      if (partnerId.isNotEmpty) {
+        await NotificationService().createNotification(
+          userId: partnerId,
+          title: 'Price Change Approved',
+          message: 'Your price change request for $vehicleTitle was approved! New rates: PHP ${_formatCurrency(reqDaily)}/day (PHP ${_formatCurrency(reqHourly)}/hr). Rates have been automatically updated in the system.',
+          type: 'partner_price_change_approved',
+          data: {
+            'vehicle_id': vehicleId,
+            'partner_vehicle_id': partnerVehicleId,
+            'application_id': applicationId,
+            'price_per_day': reqDaily,
+            'price_per_hour': reqHourly,
+            'status': 'approved',
+          },
+        );
+      }
+
+      // 6. Reload data in operator view
+      await Future.wait([
+        _loadVehicles(),
+        _loadPriceChangeRequests(),
+      ]);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Vehicle record could not be found for this request.'),
+          SnackBar(
+            content: Text('Price approved and automatically updated to PHP ${_formatCurrency(reqDaily)}/day for $vehicleTitle!'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error approving price change: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
-      return;
     }
-
-    final reqDaily = (data['requested_price_per_day'] as num?)?.toDouble() ??
-        double.tryParse(data['requested_price_per_day']?.toString() ?? '');
-    final reqHourly = (data['requested_price_per_hour'] as num?)?.toDouble() ??
-        double.tryParse(data['requested_price_per_hour']?.toString() ?? '');
-
-    if (!mounted) return;
-    await _showEditVehicleDialog(
-      vehicle,
-      isDark,
-      prefilledPricePerDay: reqDaily,
-      prefilledPricePerHour: reqHourly,
-      priceChangeRequestId: req['id']?.toString(),
-      partnerIdForNotification: data['partner_id']?.toString(),
-      vehicleTitleForNotification: data['vehicle_title']?.toString(),
-    );
   }
 
   Future<void> _handleDeclinePriceRequest(
@@ -24794,7 +25014,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     bool isDark,
   ) async {
     final reasonController = TextEditingController(
-      text: 'Proposed price exceeds current market standards for this vehicle category.',
+      text: 'Proposed price exceeds current market standards for this vehicle category. Please consider adjusting the rate.',
     );
 
     final confirmed = await showDialog<bool>(
@@ -24817,25 +25037,34 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           ],
         ),
         content: SizedBox(
-          width: 440,
+          width: 460,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Please provide a reason to send to the fleet partner:',
+                'Operator Note / Message for Partner:',
                 style: TextStyle(
-                  color: isDark ? Colors.grey[300] : Colors.grey[700],
+                  color: isDark ? Colors.white : _operatorInk,
+                  fontWeight: FontWeight.bold,
                   fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'This message will be directly visible to the fleet partner explaining why the request was declined.',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  fontSize: 12,
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: reasonController,
-                maxLines: 3,
+                maxLines: 4,
                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
-                  hintText: 'Reason for declining...',
+                  hintText: 'Enter explanation or recommendation for partner...',
                   filled: true,
                   fillColor: isDark
                       ? Colors.white.withOpacity(0.05)
@@ -24856,13 +25085,16 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             onPressed: () => Navigator.pop(dialogCtx, false),
             child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text('Decline Request', style: TextStyle(color: Colors.white)),
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('Decline & Send Note', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -24885,6 +25117,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           'declined': true,
           'declined_at': DateTime.now().toIso8601String(),
           'decline_reason': reason,
+          'operator_note': reason,
         },
       }).eq('id', reqId);
 
@@ -24894,12 +25127,14 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         await NotificationService().createNotification(
           userId: partnerId,
           title: 'Price Change Declined',
-          message: 'Your price change request for $vehicleTitle was declined. Note: $reason',
+          message: 'Your price change request for $vehicleTitle was declined.\nOperator Note: $reason',
           type: 'partner_price_change_declined',
           data: {
             'vehicle_id': data['vehicle_id'],
             'partner_vehicle_id': data['partner_vehicle_id'],
             'reason': reason,
+            'operator_note': reason,
+            'decline_reason': reason,
           },
         );
       }
@@ -24909,7 +25144,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Price change request declined.'),
+            content: Text('Price change request declined. Note sent to partner.'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -24946,7 +25181,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         final title = (data['vehicle_title'] ?? req['title'] ?? '').toString().toLowerCase();
         final message = (req['message'] ?? '').toString().toLowerCase();
         final note = (data['note'] ?? '').toString().toLowerCase();
-        if (!title.contains(query) && !message.contains(query) && !note.contains(query)) {
+        final opNote = (data['operator_note'] ?? data['decline_reason'] ?? '').toString().toLowerCase();
+        if (!title.contains(query) && !message.contains(query) && !note.contains(query) && !opNote.contains(query)) {
           return false;
         }
       }
@@ -25048,9 +25284,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                       : const Color(0xFFF7F8F9),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
+                    borderSide: BorderSide(
+                      color: isDark ? AppColors.borderColor : Colors.grey.shade300,
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
@@ -25194,6 +25432,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final currentHourly = (data['current_price_per_hour'] as num?)?.toDouble() ?? 0.0;
     final reqHourly = (data['requested_price_per_hour'] as num?)?.toDouble() ?? 0.0;
     final note = (data['note'] ?? '').toString().trim();
+    final operatorNote = (data['operator_note'] ?? data['decline_reason'] ?? '').toString().trim();
     final createdAt = req['created_at']?.toString() ?? '';
     final formattedDate = createdAt.isNotEmpty
         ? DateTime.tryParse(createdAt)?.toLocal().toString().split('.')[0] ?? createdAt
@@ -25449,15 +25688,72 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             ),
           ],
 
-          if (data['decline_reason'] != null &&
-              data['decline_reason'].toString().trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Declined Reason: ${data['decline_reason']}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.red,
+          if (operatorNote.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.speaker_notes_outlined, color: Colors.red, size: 16),
+                      SizedBox(width: 6),
+                      Text(
+                        'Operator Note to Partner:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    operatorNote,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          if (isApproved) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF10B981), size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Price automatically applied: PHP ${_formatCurrency(reqDaily)}/day • PHP ${_formatCurrency(reqHourly)}/hr',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -25468,26 +25764,27 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               if (isPending) ...[
-                OutlinedButton(
+                OutlinedButton.icon(
                   onPressed: () => _handleDeclinePriceRequest(req, isDark),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Decline'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: const Text('Decline'),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton.icon(
                   onPressed: () => _handleApprovePriceRequest(req, isDark),
-                  icon: const Icon(Icons.edit_note_rounded, size: 18, color: Colors.black),
+                  icon: const Icon(Icons.check_circle_rounded, size: 18, color: Colors.white),
                   label: const Text(
-                    'Approve & Review Details',
-                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                    'Approve & Apply Price',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: const Color(0xFF10B981),
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
