@@ -419,7 +419,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title, {required String action}) {
+  Widget _buildSectionHeader(String title, {required String action, VoidCallback? onActionTap}) {
     return Row(
       children: [
         Expanded(
@@ -432,11 +432,14 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
             ),
           ),
         ),
-        Text(
-          action,
-          style: const TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
+        GestureDetector(
+          onTap: onActionTap,
+          child: Text(
+            action,
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ],
@@ -993,7 +996,7 @@ class _PartnerRevenueScreenState extends State<PartnerRevenueScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       icon: const Icon(Icons.upload_file_outlined, size: 18),
-                      label: const Text('Upload $selectedProvider QR Code Image'),
+                      label: Text('Upload $selectedProvider QR Code Image'),
                     ),
                   ],
                   const SizedBox(height: 18),
