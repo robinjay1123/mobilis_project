@@ -6829,6 +6829,38 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
     return status.toUpperCase();
   }
 
+  /// Masks an email address: "renter@psdc.com" → "ren***@*****.com"
+  String _maskEmail(String email) {
+    final parts = email.split('@');
+    if (parts.length != 2) return email;
+    final local = parts[0];
+    final domain = parts[1];
+
+    // Mask local part: show first 3 chars, rest as ***
+    final maskedLocal = local.length <= 3
+        ? local
+        : '${local.substring(0, 3)}${'*' * (local.length - 3)}';
+
+    // Mask domain: show extension (after last dot), mask the rest
+    final dotIndex = domain.lastIndexOf('.');
+    final maskedDomain = dotIndex > 0
+        ? '${'*' * dotIndex}.${domain.substring(dotIndex + 1)}'
+        : '*****';
+
+    return '$maskedLocal@$maskedDomain';
+  }
+
+  /// Masks a phone number: "09123532512" → "091***32512" (first 3, stars, last 5)
+  String _maskPhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 7) return phone;
+    final visible = 3;
+    final tail = 5;
+    final masked = digits.length - visible - tail;
+    if (masked <= 0) return phone;
+    return '${digits.substring(0, visible)}${'*' * masked}${digits.substring(digits.length - tail)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
