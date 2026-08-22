@@ -380,14 +380,14 @@ class TrackingService {
         await _recordSafetyEvent(
           context: context,
           eventType:
-              'unauthorized_stop_${DateTime.now().millisecondsSinceEpoch ~/ 1800000}',
-          severity: 'warning',
-          title: 'Extended stop detected',
-          message: 'The vehicle has remained stopped for at least 15 minutes.',
+              'vehicle_parked_${DateTime.now().millisecondsSinceEpoch ~/ 1800000}',
+          severity: 'info',
+          title: 'Vehicle Parked',
+          message: 'The vehicle is stationary (engine off/parked).',
           latitude: position.latitude,
           longitude: position.longitude,
           speedKph: speedKph,
-          notifyParticipants: true,
+          notifyParticipants: false,
         );
       }
     } else {
@@ -879,7 +879,14 @@ class TrackingService {
         vehicle['partner_vehicle_id'] != null;
 
     if (access.role == 'partner') {
-      return partnerVehicle && ownerId == access.userId;
+      final bookingPartnerId = booking['partner_id']?.toString() ??
+          booking['partner_user_id']?.toString() ??
+          booking['partnerId']?.toString();
+      if (bookingPartnerId != null && bookingPartnerId.isNotEmpty && bookingPartnerId == access.userId) {
+        return true;
+      }
+      final ownerUserId = owner?['id']?.toString() ?? ownerId;
+      return partnerVehicle && (ownerId == access.userId || ownerUserId == access.userId);
     }
     return false;
   }

@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../services/tracking_service.dart';
 import '../../theme/app_colors.dart';
@@ -25,28 +28,97 @@ class PartnerTrackingScreen extends StatefulWidget {
 
 class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
   final TrackingService _trackingService = TrackingService();
+  final MapController _mapController = MapController();
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  RealtimeChannel? _trackingChannel;
   Timer? _refreshTimer;
   Map<String, dynamic>? _trackingLocation;
+  List<MobilisMapPoint> _routeHistory = [];
   bool _isLoading = true;
-  double _zoom = 12;
+  bool _autoFollow = true;
+  double _zoom = 15;
 
   @override
   void initState() {
     super.initState();
+    _loadRouteHistory();
     _loadTrackingLocation();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      _loadTrackingLocation(showLoader: false);
+    _setupRealtimeSubscription();
+    // Responsive 6s background poll while partner is viewing live screen
+    _refreshTimer = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (mounted) {
+        _loadTrackingLocation(showLoader: false);
+      }
     });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _refreshTimer = null;
+    if (_trackingChannel != null) {
+      _supabase.removeChannel(_trackingChannel!);
+      _trackingChannel = null;
+    }
     super.dispose();
   }
 
+  void _setupRealtimeSubscription() {
+    final bookingId = widget.booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+
+    try {
+      _trackingChannel = _supabase
+          .channel('partner_live_tracking_$bookingId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'tracking_locations',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'booking_id',
+              value: bookingId,
+            ),
+            callback: (payload) {
+              if (mounted) {
+                _loadTrackingLocation(showLoader: false);
+              }
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      debugPrint('Partner tracking realtime subscription error: $e');
+    }
+  }
+
+  Future<void> _loadRouteHistory() async {
+    final bookingId = widget.booking['id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+    try {
+      final logs = await _supabase
+          .from('tracking_location_logs')
+          .select('latitude, longitude, recorded_at')
+          .eq('booking_id', bookingId)
+          .order('recorded_at', ascending: true)
+          .limit(200);
+
+      final points = <MobilisMapPoint>[];
+      for (final log in List<Map<String, dynamic>>.from(logs)) {
+        final rLat = (log['latitude'] as num?)?.toDouble();
+        final rLng = (log['longitude'] as num?)?.toDouble();
+        if (rLat != null && rLng != null && (rLat != 0.0 || rLng != 0.0)) {
+          points.add(MobilisMapPoint(latitude: rLat, longitude: rLng));
+        }
+      }
+      if (mounted && points.isNotEmpty) {
+        setState(() => _routeHistory = points);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadTrackingLocation({bool showLoader = true}) async {
-    if (showLoader && mounted) {
+    if (showLoader && mounted && _trackingLocation == null) {
       setState(() => _isLoading = true);
     }
 
@@ -56,10 +128,38 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     );
 
     if (!mounted) return;
+
+    final lat = (location?['latitude'] as num?)?.toDouble();
+    final lng = (location?['longitude'] as num?)?.toDouble();
+
     setState(() {
       _trackingLocation = location;
       _isLoading = false;
+      if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+        if (_routeHistory.isEmpty ||
+            _routeHistory.last.latitude != lat ||
+            _routeHistory.last.longitude != lng) {
+          _routeHistory.add(MobilisMapPoint(latitude: lat, longitude: lng));
+        }
+      }
     });
+
+    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0) && _autoFollow) {
+      try {
+        _mapController.move(LatLng(lat, lng), _zoom);
+      } catch (_) {}
+    }
+  }
+
+  void _centerVehicle() {
+    final lat = (_trackingLocation?['latitude'] as num?)?.toDouble();
+    final lng = (_trackingLocation?['longitude'] as num?)?.toDouble();
+    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+      try {
+        _mapController.move(LatLng(lat, lng), _zoom);
+        setState(() => _autoFollow = true);
+      } catch (_) {}
+    }
   }
 
   Future<void> _openConversation() async {
@@ -99,8 +199,10 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
       recordedAtDt = DateTime.tryParse(recordedAt)?.toUtc();
     }
     final now = DateTime.now().toUtc();
-    final isStale =
-        recordedAtDt == null || now.difference(recordedAtDt).inMinutes >= 5;
+    final minutesSinceRecorded = recordedAtDt != null
+        ? now.difference(recordedAtDt).inMinutes
+        : 999;
+    final isStale = minutesSinceRecorded >= 15;
     final isMoving = speedKph >= 3;
 
     final String motionStatusLabel;
@@ -115,13 +217,13 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
       motionStatusLabel = 'MOVING • $speedKph KM/H';
       motionColor = const Color(0xFF00E676);
       motionIcon = Icons.speed_rounded;
-    } else if (isStale) {
+    } else if (isStale || minutesSinceRecorded >= 15) {
       motionStatusLabel = 'PARKED • ENGINE OFF';
-      motionColor = const Color(0xFF9E9E9E);
-      motionIcon = Icons.power_settings_new_rounded;
+      motionColor = const Color(0xFF94A3B8);
+      motionIcon = Icons.local_parking_rounded;
     } else {
       motionStatusLabel = 'STOPPED • IDLING';
-      motionColor = const Color(0xFFFF9100);
+      motionColor = const Color(0xFFFFB300);
       motionIcon = Icons.pause_circle_filled_rounded;
     }
 
@@ -129,6 +231,9 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
         bookingMap?['dropoff_location']?.toString() ??
         booking['dropoff_location']?.toString() ??
         'Destination unavailable';
+    final dropoffLat = (bookingMap?['dropoff_latitude'] ?? booking['dropoff_latitude'] as num?)?.toDouble();
+    final dropoffLng = (bookingMap?['dropoff_longitude'] ?? booking['dropoff_longitude'] as num?)?.toDouble();
+
     final vehicleName =
         [vehicle?['vehicle_name'], vehicle?['brand'], vehicle?['model']]
             .where((part) => part != null && part.toString().trim().isNotEmpty)
@@ -152,6 +257,8 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                       lat: lat,
                       lng: lng,
                       destination: destination,
+                      dropoffLat: dropoffLat,
+                      dropoffLng: dropoffLng,
                     ),
                   ),
                   Positioned(
@@ -241,18 +348,30 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                       children: [
                         _buildCircleButton(
                           icon: Icons.add,
-                          onTap: () => setState(() {
-                            _zoom = ((_zoom + 1).clamp(6, 18) as num)
-                                .toDouble();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _zoom = ((_zoom + 1).clamp(6, 18) as num).toDouble();
+                            });
+                            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+                              try {
+                                _mapController.move(LatLng(lat, lng), _zoom);
+                              } catch (_) {}
+                            }
+                          },
                         ),
                         const SizedBox(height: 12),
                         _buildCircleButton(
                           icon: Icons.remove,
-                          onTap: () => setState(() {
-                            _zoom = ((_zoom - 1).clamp(6, 18) as num)
-                                .toDouble();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _zoom = ((_zoom - 1).clamp(6, 18) as num).toDouble();
+                            });
+                            if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+                              try {
+                                _mapController.move(LatLng(lat, lng), _zoom);
+                              } catch (_) {}
+                            }
+                          },
                         ),
                         const SizedBox(height: 28),
                         Container(
@@ -261,8 +380,7 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: IconButton(
-                            onPressed: () =>
-                                _loadTrackingLocation(showLoader: false),
+                            onPressed: _centerVehicle,
                             icon: const Icon(
                               Icons.my_location,
                               color: Colors.black,
@@ -315,24 +433,83 @@ class _PartnerTrackingScreenState extends State<PartnerTrackingScreen> {
     required double? lat,
     required double? lng,
     required String destination,
+    required double? dropoffLat,
+    required double? dropoffLng,
   }) {
-    if (lat != null && lng != null) {
+    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+      final markers = <MobilisMapMarker>[
+        MobilisMapMarker(
+          latitude: lat,
+          longitude: lng,
+          icon: Icons.directions_car_filled_rounded,
+          color: AppColors.primary,
+          size: 48,
+          customChild: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF082A4C),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primary, width: 2.5),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.6),
+                  blurRadius: 12,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.directions_car_filled_rounded,
+              color: AppColors.primary,
+              size: 26,
+            ),
+          ),
+        ),
+      ];
+
+      if (dropoffLat != null && dropoffLng != null && (dropoffLat != 0.0 || dropoffLng != 0.0)) {
+        markers.add(
+          MobilisMapMarker(
+            latitude: dropoffLat,
+            longitude: dropoffLng,
+            icon: Icons.flag_rounded,
+            color: Colors.redAccent,
+            size: 42,
+            customChild: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.shade700,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black45,
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.flag_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+        );
+      }
+
       return Stack(
         fit: StackFit.expand,
         children: [
           MobilisLeafletMap(
-            key: ValueKey('partner-tracking-$lat-$lng-$_zoom'),
+            key: ValueKey('partner_tracking_${widget.booking['id']}'),
             fallbackLatitude: lat,
             fallbackLongitude: lng,
             initialZoom: _zoom,
-            markers: [
-              MobilisMapMarker(
-                latitude: lat,
-                longitude: lng,
-                icon: Icons.directions_car_filled_rounded,
-                size: 46,
-              ),
-            ],
+            mapController: _mapController,
+            markers: markers,
+            routePoints: _routeHistory,
+            routeColor: const Color(0xFF00E676),
           ),
           Container(
             decoration: const BoxDecoration(

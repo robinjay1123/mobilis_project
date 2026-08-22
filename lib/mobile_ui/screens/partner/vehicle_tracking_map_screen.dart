@@ -31,6 +31,7 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
 
   Timer? _pollingTimer;
   GpsPositionData? _currentPosition;
+  final List<MobilisMapPoint> _routePoints = [];
   bool _isLoading = true;
   bool _isFetching = false;
   bool _autoFollow = true;
@@ -40,8 +41,8 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
   void initState() {
     super.initState();
     _fetchPosition(showLoader: true);
-    // Safe polling every 8 seconds while screen is open
-    _pollingTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+    // Responsive polling every 5 seconds while screen is open
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) {
         _fetchPosition(showLoader: false);
       }
@@ -59,7 +60,7 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
     if (_isFetching) return;
     _isFetching = true;
 
-    if (showLoader && mounted) {
+    if (showLoader && mounted && _currentPosition == null) {
       setState(() => _isLoading = true);
     }
 
@@ -73,6 +74,13 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
       setState(() {
         _currentPosition = pos;
         _isLoading = false;
+        if (pos != null && (pos.latitude != 0.0 || pos.longitude != 0.0)) {
+          if (_routePoints.isEmpty ||
+              _routePoints.last.latitude != pos.latitude ||
+              _routePoints.last.longitude != pos.longitude) {
+            _routePoints.add(MobilisMapPoint(latitude: pos.latitude, longitude: pos.longitude));
+          }
+        }
       });
 
       if (pos != null && _autoFollow) {
@@ -97,6 +105,7 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
     final lng = _currentPosition?.longitude ?? widget.tracker.lastLongitude ?? 120.348901;
     try {
       _mapController.move(LatLng(lat, lng), _currentZoom);
+      setState(() => _autoFollow = true);
     } catch (_) {}
   }
 
@@ -119,15 +128,26 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
     final ignition = _currentPosition?.ignitionOn ?? widget.tracker.lastIgnition ?? false;
     final lastTime = _currentPosition?.receivedAt ?? widget.tracker.lastSyncAt;
 
-    final isStale = lastTime != null && DateTime.now().difference(lastTime).inMinutes >= 3;
-    final isOnline = _currentPosition?.isOnline == true && !isStale;
+    final minutesAgo = lastTime != null ? DateTime.now().difference(lastTime).inMinutes : 999;
+    final isParked = minutesAgo >= 15;
+    final isOnline = _currentPosition?.isOnline == true && minutesAgo < 15;
 
-    final statusText = isOnline
-        ? 'GPS Online'
-        : (isStale ? 'Location Stale' : 'GPS Offline');
-    final statusColor = isOnline
-        ? Colors.green
-        : (isStale ? Colors.orange : Colors.redAccent);
+    final String statusText;
+    final Color statusColor;
+
+    if (speed >= 3) {
+      statusText = 'Moving (${speed.toStringAsFixed(0)} km/h)';
+      statusColor = const Color(0xFF00E676);
+    } else if (isParked) {
+      statusText = 'Parked (Engine Off)';
+      statusColor = const Color(0xFF94A3B8);
+    } else if (isOnline) {
+      statusText = 'Stopped (Idling)';
+      statusColor = const Color(0xFFFFB300);
+    } else {
+      statusText = 'GPS Offline';
+      statusColor = Colors.redAccent;
+    }
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.darkBg : AppColors.lightBg,
@@ -164,6 +184,8 @@ class _VehicleTrackingMapScreenState extends State<VehicleTrackingMapScreen> {
             fallbackLongitude: lng,
             initialZoom: _currentZoom,
             interactive: true,
+            routePoints: _routePoints,
+            routeColor: const Color(0xFF00E676),
             markers: [
               MobilisMapMarker(
                 latitude: lat,
