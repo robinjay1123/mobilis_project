@@ -36,6 +36,7 @@ import '../../../utils/notification_visual.dart';
 import '../profile/unified_profile_screen.dart';
 import 'partner_tracking_screen.dart';
 import 'partner_revenue_screen.dart';
+import 'partner_safety_review_screen.dart';
 import '../../widgets/leaflet_map.dart';
 import '../../../utils/philippine_geocoding.dart';
 
@@ -4987,7 +4988,8 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
               onAssignDriver: canAssignDriver
                   ? () => _showDriverAssignmentModal(pageContext, booking)
                   : null,
-              onReviewDocs: () => _showPartnerBookingSafetyReview(booking),
+              onReviewDocs: () =>
+                  _openPartnerBookingSafetyReview(pageContext, booking),
               onMessage:
                   status == 'approved' ||
                       status == 'confirmed' ||
@@ -5036,109 +5038,14 @@ class _PartnerHomeScreenState extends State<PartnerHomeScreen> {
     );
   }
 
-  /// 🚗 Show driver assignment modal for bookings with drivers
-  Future<void> _showPartnerBookingSafetyReview(
+  /// 🚗 Open dedicated screen for Renter Safety Review & Documents
+  void _openPartnerBookingSafetyReview(
+    BuildContext context,
     Map<String, dynamic> booking,
-  ) async {
-    final files = [
-      MapEntry(
-        'Signature image',
-        booking['renter_signature_url']?.toString() ?? '',
-      ),
-      MapEntry('Valid ID', booking['renter_valid_id_url']?.toString() ?? ''),
-      MapEntry('Selfie', booking['renter_selfie_url']?.toString() ?? ''),
-      MapEntry(
-        'Co-traveler signature image',
-        booking['co_traveler_signature_url']?.toString() ?? '',
-      ),
-      MapEntry(
-        'Co-traveler valid ID',
-        booking['co_traveler_valid_id_url']?.toString() ?? '',
-      ),
-      MapEntry(
-        'Co-traveler selfie',
-        booking['co_traveler_selfie_url']?.toString() ?? '',
-      ),
-    ];
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.darkBgSecondary,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Renter Safety Review',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _buildPartnerReviewLine(
-                  'Digital signature',
-                  booking['renter_signature_text']?.toString(),
-                ),
-                _buildPartnerReviewLine(
-                  'Emergency contact',
-                  [
-                        booking['emergency_contact_name']?.toString(),
-                        booking['emergency_contact_relationship']?.toString(),
-                        booking['emergency_contact_phone']?.toString(),
-                      ]
-                      .where((part) => part != null && part.trim().isNotEmpty)
-                      .join(' - '),
-                ),
-                _buildPartnerReviewLine(
-                  'Co-traveler',
-                  [
-                        booking['co_traveler_name']?.toString(),
-                        booking['co_traveler_phone']?.toString(),
-                      ]
-                      .where((part) => part != null && part.trim().isNotEmpty)
-                      .join(' - '),
-                ),
-                _buildPartnerReviewLine(
-                  'Co-traveler license',
-                  booking['co_traveler_license']?.toString(),
-                ),
-                _buildPartnerReviewLine(
-                  'Co-traveler signature',
-                  booking['co_traveler_signature_text']?.toString(),
-                ),
-                const SizedBox(height: 12),
-                ...files.map((file) {
-                  final url = file.value.trim();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: OutlinedButton.icon(
-                      onPressed: url.isEmpty
-                          ? null
-                          : () => launchUrl(
-                              Uri.parse(url),
-                              mode: LaunchMode.externalApplication,
-                            ),
-                      icon: const Icon(Icons.open_in_new, size: 16),
-                      label: Text(
-                        url.isEmpty ? '${file.key}: missing' : file.key,
-                      ),
-                    ),
-                  );
-                }),
-              ],
-            ),
-          ),
-        ),
+  ) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PartnerSafetyReviewScreen(booking: booking),
       ),
     );
   }
@@ -7793,7 +7700,7 @@ class _BookingDetailModalState extends State<BookingDetailModal> {
                   if (widget.onReviewDocs != null)
                     OutlinedButton.icon(
                       onPressed: () {
-                        Navigator.pop(context);
+                        if (widget.showHeader) Navigator.pop(context);
                         widget.onReviewDocs?.call();
                       },
                       icon: const Icon(Icons.verified_user_outlined, size: 15),
