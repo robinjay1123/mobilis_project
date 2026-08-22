@@ -14960,6 +14960,154 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     );
   }
 
+  Future<bool?> _showReleasePaymentSettlementDialog(
+    BuildContext context,
+    Map<String, dynamic> currentBooking,
+    double remainingBalance,
+  ) async {
+    final bookingId = currentBooking['id']?.toString() ?? '';
+    final operatorId = _supabase.auth.currentUser?.id ?? '';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    String selectedMethod = 'Cash';
+    final refController = TextEditingController(text: 'CASH-HANDOVER');
+    final notesController = TextEditingController();
+    bool isSettling = false;
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.point_of_sale_rounded, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('Settle Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Balance to Settle:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      Text(
+                        'PHP ${remainingBalance.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text('Payment Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedMethod,
+                  dropdownColor: isDark ? AppColors.darkBgSecondary : Colors.white,
+                  items: const [
+                    DropdownMenuItem(value: 'Cash', child: Text('Cash at Desk / Counter')),
+                    DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                    DropdownMenuItem(value: 'Maya', child: Text('Maya / PayMaya')),
+                    DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer (BDO/BPI/QR Ph)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() {
+                        selectedMethod = val;
+                        if (val == 'Cash') {
+                          refController.text = 'CASH-HANDOVER';
+                        } else if (refController.text == 'CASH-HANDOVER') {
+                          refController.text = '';
+                        }
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: refController,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Reference / OR Number *',
+                    hintText: 'e.g. CASH-HANDOVER or GCash Ref #',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes / Remarks (Optional)',
+                    hintText: 'e.g. Collected remaining rental payment at key handover',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSettling ? null : () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSettling
+                  ? null
+                  : () async {
+                      final ref = refController.text.trim();
+                      if (ref.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please provide a payment reference or OR number.')),
+                        );
+                        return;
+                      }
+                      setDialogState(() => isSettling = true);
+                      try {
+                        await BookingService().settleReleasePayment(
+                          bookingId: bookingId,
+                          actorId: operatorId,
+                          actorRole: 'operator',
+                          paymentMethod: selectedMethod,
+                          paymentReference: ref,
+                          notes: notesController.text.trim(),
+                        );
+                        if (dialogCtx.mounted) Navigator.pop(dialogCtx, true);
+                      } catch (e) {
+                        setDialogState(() => isSettling = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to settle payment: $e'), backgroundColor: AppColors.error),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+              ),
+              child: isSettling
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Text('Confirm Payment Received', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showInspectionDialog(
     Map<String, dynamic> booking, {
     required String inspectionType,
@@ -14967,6 +15115,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
     final currentUserId = _supabase.auth.currentUser?.id;
     final bookingId = booking['id']?.toString() ?? '';
     if (currentUserId == null || bookingId.isEmpty) return;
+
+    var currentBookingData = Map<String, dynamic>.from(booking);
 
     final fuelController = TextEditingController();
     final tiresController = TextEditingController();
@@ -15010,7 +15160,11 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
       builder: (dialogContext) => PopScope(
         canPop: false,
         child: StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
+          builder: (dialogContext, setDialogState) {
+            final isFullyPaid = BookingService().isBookingFullyPaid(currentBookingData);
+            final remainingBalance = BookingService().getBookingRemainingBalance(currentBookingData);
+
+            return AlertDialog(
             backgroundColor: isDark ? AppColors.darkCard : Colors.white,
             title: Row(
               children: [
@@ -15059,6 +15213,95 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (inspectionType == 'before') ...[
+                      if (isFullyPaid) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  '100% Fully Paid (PHP 0.00 balance) • Ready for key release',
+                                  style: TextStyle(
+                                    color: Color(0xFF10B981),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFF59E0B), size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Unpaid Balance: PHP ${remainingBalance.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        color: Color(0xFFF59E0B),
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Full payment is strictly required before handing over vehicle keys. Settle balance below to unlock release.',
+                                style: TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                              const SizedBox(height: 10),
+                              ElevatedButton.icon(
+                                onPressed: () async {
+                                  final settled = await _showReleasePaymentSettlementDialog(
+                                    dialogContext,
+                                    currentBookingData,
+                                    remainingBalance,
+                                  );
+                                  if (settled == true) {
+                                    final updated = await BookingService().getBookingById(bookingId);
+                                    if (updated != null) {
+                                      setDialogState(() => currentBookingData = updated);
+                                    }
+                                  }
+                                },
+                                icon: const Icon(Icons.payments_outlined, size: 16),
+                                label: const Text('Settle Remaining Balance at Desk'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF59E0B),
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                  textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                     VehicleInspectionChecklistFields(
                       values: checklistItems,
                       isDark: isDark,
@@ -15226,6 +15469,18 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ElevatedButton(
                 onPressed: () {
+                  if (inspectionType == 'before' && !isFullyPaid) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Cannot release vehicle keys: Full payment of PHP ${remainingBalance.toStringAsFixed(2)} is required before handover. Please settle balance first.',
+                        ),
+                        backgroundColor: AppColors.error,
+                      ),
+                    );
+                    return;
+                  }
+
                   final allChecked = BookingInspectionService
                       .requiredChecklistKeys
                       .every((key) => checklistItems[key] == true);
@@ -15256,8 +15511,8 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                 ),
               ),
             ],
-          ),
-        ),
+          );
+        },
       ),
     );
 

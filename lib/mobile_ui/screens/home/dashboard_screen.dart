@@ -8839,18 +8839,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B), size: 16),
+                  Icon(Icons.bolt_rounded, color: AppColors.primary, size: 16),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'This extension request will be sent to the vehicle manager for review and re-approval.',
-                      style: TextStyle(color: Color(0xFFF59E0B), fontSize: 11, fontWeight: FontWeight.w600),
+                      'Trip extensions are paid immediately online (GCash/Maya/QR Ph) for instant confirmation.',
+                      style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -8871,7 +8871,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text(
-              'Submit for Re-Approval',
+              'Proceed to Online Payment',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
               ),
@@ -8889,35 +8889,390 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final requestedDestination = destinationController.text.trim();
     destinationController.dispose();
 
+    if (!mounted) return;
+    await _showInstantExtensionPaymentModal(
+      context: context,
+      bookingId: bookingId,
+      newEndAt: selectedNewEndAt,
+      additionalPrice: additionalPrice,
+      extensionDays: extensionDays,
+      newDestination: requestedDestination.isNotEmpty ? requestedDestination : null,
+    );
+  }
+
+  Future<void> _showInstantExtensionPaymentModal({
+    required BuildContext context,
+    required String bookingId,
+    required DateTime newEndAt,
+    required double additionalPrice,
+    required int extensionDays,
+    String? newDestination,
+  }) async {
+    final referenceController = TextEditingController();
+    String selectedMethod = 'GCash';
+    XFile? pickedReceipt;
+    bool isSubmitting = false;
+
+    ReservationPaymentSettings? settings;
     try {
-      await BookingService().requestTripExtension(
-        bookingId: bookingId,
-        newEndAt: selectedNewEndAt,
-        additionalPrice: additionalPrice,
-        extensionDays: extensionDays,
-        newDestination: requestedDestination.isNotEmpty ? requestedDestination : null,
-      );
+      settings = await ReservationPaymentService().getSettings();
+    } catch (_) {}
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Trip extension request submitted for approval!',
-          ),
-          backgroundColor: AppColors.success,
-        ),
-      );
+    if (!context.mounted) return;
 
-      _loadBookings();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error requesting extension: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final qrUrl = settings?.qrUrl ?? '';
+          return Container(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            decoration: const BoxDecoration(
+              color: AppColors.darkBgSecondary,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pay Extension Online',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Instant Schedule Confirmation',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'PHP ${formatAmount(additionalPrice, decimalDigits: 0)}',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  if (qrUrl.isNotEmpty) ...[
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            qrUrl,
+                            width: 150,
+                            height: 150,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'Scan QR to Pay with GCash, Maya, or any Banking App',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          settings?.accountName.isNotEmpty == true
+                              ? 'Account: ${settings!.accountName}'
+                              : 'PSDC Payment Accounts',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '• GCash / Maya / QR Ph: 0917-123-4567\n• BDO / Bank Transfer: 0012-3456-7890',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Payment Method Used',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedMethod,
+                    dropdownColor: AppColors.darkBg,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'GCash', child: Text('GCash')),
+                      DropdownMenuItem(value: 'Maya', child: Text('Maya / PayMaya')),
+                      DropdownMenuItem(value: 'Bank Transfer', child: Text('Bank Transfer (BDO/BPI/QR Ph)')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setModalState(() => selectedMethod = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: referenceController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      labelText: 'Payment Reference Number / Transaction ID *',
+                      labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                      hintText: 'e.g. 10023458921',
+                      hintStyle: const TextStyle(color: Colors.white24),
+                      filled: true,
+                      fillColor: AppColors.darkBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: AppColors.borderColor),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final image = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 85,
+                      );
+                      if (image != null) {
+                        setModalState(() => pickedReceipt = image);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: pickedReceipt != null
+                              ? AppColors.primary
+                              : AppColors.borderColor,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            pickedReceipt != null
+                                ? Icons.check_circle_rounded
+                                : Icons.upload_file_rounded,
+                            color: pickedReceipt != null
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              pickedReceipt != null
+                                  ? 'Receipt: ${pickedReceipt!.name}'
+                                  : 'Upload Payment Receipt (Screenshot)',
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: pickedReceipt != null
+                                    ? AppColors.primary
+                                    : AppColors.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSubmitting
+                          ? null
+                          : () async {
+                              final ref = referenceController.text.trim();
+                              if (ref.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Please enter your online payment reference number.'),
+                                    backgroundColor: AppColors.warning,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              setModalState(() => isSubmitting = true);
+                              try {
+                                String proofUrl = '';
+                                if (pickedReceipt != null) {
+                                  final bytes = await pickedReceipt!.readAsBytes();
+                                  final fileExt = pickedReceipt!.name.split('.').last;
+                                  final fileName =
+                                      'ext_instant_${bookingId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+                                  final supabase = Supabase.instance.client;
+                                  await supabase.storage
+                                      .from('booking-payments')
+                                      .uploadBinary(
+                                        fileName,
+                                        bytes,
+                                        fileOptions: const FileOptions(upsert: true),
+                                      );
+                                  proofUrl = supabase.storage
+                                      .from('booking-payments')
+                                      .getPublicUrl(fileName);
+                                }
+
+                                await BookingService().submitInstantTripExtensionWithPayment(
+                                  bookingId: bookingId,
+                                  newEndAt: newEndAt,
+                                  additionalPrice: additionalPrice,
+                                  extensionDays: extensionDays,
+                                  paymentMethod: selectedMethod,
+                                  paymentReference: ref,
+                                  proofUrl: proofUrl.isNotEmpty ? proofUrl : null,
+                                  newDestination: newDestination,
+                                );
+
+                                if (modalContext.mounted) {
+                                  Navigator.pop(modalContext);
+                                }
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Trip Extension Confirmed & Paid! Your new return schedule is updated.',
+                                      ),
+                                      backgroundColor: AppColors.success,
+                                    ),
+                                  );
+                                }
+                                _loadBookings();
+                              } catch (e) {
+                                setModalState(() => isSubmitting = false);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to extend trip: $e'),
+                                      backgroundColor: AppColors.error,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                          : const Text(
+                              'Pay & Confirm Extension',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
   }
 
   Widget _buildBookingDetailRow({

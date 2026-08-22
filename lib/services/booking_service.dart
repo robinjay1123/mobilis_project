@@ -1013,6 +1013,84 @@ class BookingService {
     };
   }
 
+  /// Checks if a booking is 100% fully paid (no remaining rental balance).
+  bool isBookingFullyPaid(Map<String, dynamic> booking) {
+    final finalPaymentStatus = (booking['final_payment_status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (finalPaymentStatus == 'paid' || finalPaymentStatus == 'completed') {
+      return true;
+    }
+
+    final paymentStatus = (booking['payment_status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (paymentStatus == 'paid' ||
+        paymentStatus == 'full_paid' ||
+        paymentStatus == 'fully_paid') {
+      return true;
+    }
+
+    final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['totalCost'] as num?)?.toDouble() ??
+        0.0;
+    final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ?? 0.0;
+    if (totalPrice > 0 && paidAmount >= totalPrice) return true;
+
+    return false;
+  }
+
+  /// Calculates the remaining unpaid balance for a booking.
+  double getBookingRemainingBalance(Map<String, dynamic> booking) {
+    if (isBookingFullyPaid(booking)) return 0.0;
+    final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['totalCost'] as num?)?.toDouble() ??
+        0.0;
+    final paidAmount = (booking['paid_amount'] as num?)?.toDouble() ??
+        (booking['reservation_fee'] as num?)?.toDouble() ??
+        0.0;
+    final balance = totalPrice - paidAmount;
+    return balance > 0 ? balance : 0.0;
+  }
+
+  /// Settles remaining balance before releasing vehicle keys and begins the trip.
+  Future<void> settleReleasePayment({
+    required String bookingId,
+    required String actorId,
+    required String actorRole,
+    required String paymentMethod,
+    String? paymentReference,
+    String? proofUrl,
+    String? operatorName,
+    String? notes,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final totalPrice = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['totalCost'] as num?)?.toDouble() ??
+        0.0;
+
+    await supabase.from('bookings').update({
+      'payment_status': 'paid',
+      'final_payment_status': 'paid',
+      'paid_amount': totalPrice,
+      'release_payment_method': paymentMethod,
+      'release_payment_reference': paymentReference ?? 'DESK-SETTLED',
+      if (proofUrl != null && proofUrl.isNotEmpty)
+        'release_payment_proof_url': proofUrl,
+      if (operatorName != null && operatorName.isNotEmpty)
+        'desk_payment_operator_name': operatorName,
+      if (notes != null && notes.isNotEmpty) 'desk_payment_notes': notes,
+      'release_payment_settled_at': now,
+      'release_payment_settled_by': actorId,
+      'updated_at': now,
+    }).eq('id', bookingId);
+  }
+
   /// Confirms that the final rental balance and late-return charges have been
   /// settled. The responsible operator handles PSDC vehicles, while the
   /// vehicle owner handles partner vehicles.
@@ -2363,6 +2441,14 @@ class BookingService {
       if (status == 'active' || status == 'ongoing') return;
       throw Exception('Only approved bookings can begin their trip');
     }
+
+    // Stakeholder Rule: Before giving keys / releasing car, booking must be 100% fully paid!
+    if (!isBookingFullyPaid(booking)) {
+      final balance = getBookingRemainingBalance(booking);
+      throw Exception(
+        'Cannot release vehicle keys: Full payment is required before handover. Remaining balance: PHP ${balance.toStringAsFixed(2)}. Please settle payment first.',
+      );
+    }
     await _postInspectionAuditToBookingChat(
       booking: booking,
       inspection: inspection,
@@ -3651,6 +3737,167 @@ class BookingService {
       debugPrint('Error requesting trip extension: $e');
       rethrow;
     }
+  }
+
+  /// Instant Trip Extension with immediate online payment:
+  /// Validates availability, commits new end return date, totals, and records the online payment proof in one immediate transaction.
+  Future<void> submitInstantTripExtensionWithPayment({
+    required String bookingId,
+    required DateTime newEndAt,
+    required double additionalPrice,
+    required int extensionDays,
+    required String paymentMethod,
+    required String paymentReference,
+    String? proofUrl,
+    String? newDestination,
+    String? renterId,
+  }) async {
+    final booking = await getBookingById(bookingId);
+    if (booking == null) throw Exception('Booking not found');
+
+    final withDriver = booking['with_driver'] == true ||
+        booking['with_driver'] == 1 ||
+        booking['with_driver']?.toString().toLowerCase() == 'true' ||
+        booking['withDriver'] == true ||
+        (booking['driver_id'] != null &&
+            booking['driver_id']?.toString().trim().isNotEmpty == true &&
+            booking['driver_id']?.toString().trim() != 'null');
+
+    if (withDriver) {
+      throw Exception(
+        'Trip extensions are only applicable for Self Drive rentals. Bookings with a driver cannot be extended.',
+      );
+    }
+
+    if (booking['safety_freeze'] == true) {
+      throw Exception(
+        'This trip is currently under a Safety Freeze and cannot be extended. Please contact support.',
+      );
+    }
+
+    final effectiveRenterId = renterId ??
+        booking['renter_id']?.toString() ??
+        supabase.auth.currentUser?.id ??
+        '';
+    if (effectiveRenterId.isNotEmpty) {
+      final restriction =
+          await UserRestrictionService().getUserRestriction(effectiveRenterId);
+      if (restriction.isBlocked || restriction.isAccountRestricted) {
+        throw Exception(
+          'Your account is under safety review and cannot request trip extensions. Please return the vehicle by the scheduled time.',
+        );
+      }
+    }
+
+    final currentEndRaw =
+        booking['end_at']?.toString() ?? booking['end_date']?.toString();
+    final currentEndAt = currentEndRaw != null
+        ? DateTime.tryParse(currentEndRaw)?.toLocal()
+        : null;
+    if (currentEndAt != null && !newEndAt.isAfter(currentEndAt)) {
+      throw Exception(
+        'Extended return date must be after your current return date.',
+      );
+    }
+
+    final vehicleId = booking['vehicle_id']?.toString() ?? '';
+    final overlappingBookings = await supabase
+        .from('bookings')
+        .select('id,start_at,end_at,start_date,end_date,status')
+        .eq('vehicle_id', vehicleId)
+        .neq('id', bookingId);
+
+    final extensionStart = currentEndAt ?? DateTime.now();
+    for (final b in List<Map<String, dynamic>>.from(overlappingBookings)) {
+      final status = b['status']?.toString();
+      if (!_isBlockingStatus(status)) continue;
+      final interval = _bookingInterval(b);
+      if (interval == null) continue;
+      final (existingStart, existingEnd) = interval;
+      if (extensionStart.isBefore(existingEnd) &&
+          newEndAt.isAfter(existingStart)) {
+        final startFormatted =
+            '${existingStart.month}/${existingStart.day}/${existingStart.year}';
+        final endFormatted =
+            '${existingEnd.month}/${existingEnd.day}/${existingEnd.year}';
+        throw Exception(
+          'This vehicle has already been reserved by another customer for $startFormatted - $endFormatted. Extension is not available for these dates.',
+        );
+      }
+    }
+
+    final currentTotal = (booking['total_price'] as num?)?.toDouble() ??
+        (booking['totalCost'] as num?)?.toDouble() ??
+        0.0;
+    final newTotal = currentTotal + additionalPrice;
+    final currentDays = (booking['days'] as num?)?.toInt() ?? 1;
+    final totalDays = currentDays + extensionDays;
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    await supabase
+        .from('bookings')
+        .update({
+          'end_at': newEndAt.toIso8601String(),
+          'end_date': newEndAt.toIso8601String(),
+          'total_price': newTotal,
+          'totalCost': newTotal,
+          'days': totalDays,
+          if (newDestination != null && newDestination.trim().isNotEmpty)
+            'dropoff_location': newDestination.trim(),
+          'extension_requested_end_at': newEndAt.toIso8601String(),
+          if (newDestination != null && newDestination.trim().isNotEmpty)
+            'extension_requested_destination': newDestination.trim(),
+          'extension_additional_price': additionalPrice,
+          'extension_days': extensionDays,
+          'extension_status': 'finalized',
+          'extension_payment_status': 'paid',
+          'extension_payment_method': paymentMethod.trim(),
+          'extension_payment_reference': paymentReference.trim(),
+          if (proofUrl != null && proofUrl.isNotEmpty)
+            'extension_payment_proof_url': proofUrl.trim(),
+          'extension_payment_submitted_at': now,
+          'extension_finalized_at': now,
+          'extension_finalized_by': effectiveRenterId,
+          'updated_at': now,
+        })
+        .eq('id', bookingId);
+
+    // Send conversation message & push notifications
+    final conversation =
+        await ChatService().getConversationBookingContext(bookingId);
+    final renterName = booking['renter']?['full_name']?.toString() ??
+        booking['users']?['full_name']?.toString() ??
+        'Renter';
+    final vehicle = booking['vehicles'] as Map<String, dynamic>? ?? {};
+    final vehicleTitle = _vehicleTitle(vehicle);
+    final formattedDate = '${newEndAt.month}/${newEndAt.day}/${newEndAt.year}';
+    final destMsg = newDestination != null && newDestination.trim().isNotEmpty
+        ? ' to "$newDestination"'
+        : '';
+    final msg =
+        'Trip Extension Paid Online: $renterName extended trip until $formattedDate$destMsg (+PHP ${additionalPrice.toStringAsFixed(2)}) via $paymentMethod (Ref: $paymentReference). Return schedule updated.';
+
+    if (conversation != null) {
+      final conversationId = conversation['id']?.toString();
+      if (conversationId != null) {
+        await ChatService().sendMessage(
+          conversationId: conversationId,
+          senderId: effectiveRenterId,
+          content: msg,
+        );
+      }
+    }
+
+    unawaited(
+      NotificationService()
+          .notifyOperatorsNewBooking(
+            bookingId: bookingId,
+            vehicleTitle: vehicleTitle,
+            renterName: renterName,
+            withDriver: false,
+          )
+          .catchError((_) => 0),
+    );
   }
 
   bool _isPartnerBookingVehicle(Map<String, dynamic> vehicle) {
