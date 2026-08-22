@@ -2369,7 +2369,28 @@ class _BookingCard extends StatelessWidget {
                   const SizedBox(height: 10),
 
                   // Net Refund Summary
-                  Container(\n                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),\n                    decoration: BoxDecoration(\n                      color: const Color(0xFF10B981).withValues(alpha: 0.12),\n                      borderRadius: BorderRadius.circular(10),\n                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),\n                    ),\n                    child: Row(\n                      mainAxisAlignment: MainAxisAlignment.spaceBetween,\n                      children: [\n                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),\n                        Text(\n                          'PHP ${netRefund.toStringAsFixed(0)}',\n                          style: const TextStyle(\n                            color: Color(0xFF10B981),\n                            fontWeight: FontWeight.w900,\n                            fontSize: 15,\n                          ),\n                        ),\n                      ],\n                    ),\n                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Net Refund:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text(
+                          'PHP ${netRefund.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   // Deduction policy note
                   Container(
@@ -2429,7 +2450,20 @@ class _BookingCard extends StatelessWidget {
                     ),
                   ),
                   // Show deduction reason field only if there is a deduction
-                  if (deduction > 0) ...[\n                    const SizedBox(height: 10),\n                    TextFormField(\n                      controller: deductionNotesController,\n                      maxLines: 2,\n                      decoration: InputDecoration(\n                        labelText: 'Deduction Reason *',\n                        hintText: 'e.g. Vehicle returned with scratches, cleanliness issues...',\n                        isDense: true,\n                        border: const OutlineInputBorder(),\n                        labelStyle: TextStyle(color: isDark ? Colors.orange.shade300 : Colors.orange.shade700),\n                      ),\n                    ),\n                  ],
+                  if (deduction > 0) ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: deductionNotesController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Deduction Reason *',
+                        hintText: 'e.g. Vehicle returned with scratches, cleanliness issues...',
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        labelStyle: TextStyle(color: isDark ? Colors.orange.shade300 : Colors.orange.shade700),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
 
