@@ -15589,13 +15589,23 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           isEligible: returnDepositEligible,
         );
 
-        final currentPaymentStatus = (booking['final_payment_status'] ?? '')
-            .toString()
-            .trim()
-            .toLowerCase();
+        final bookingData =
+            await BookingService().getBookingById(bookingId) ?? booking;
+        final isFullyPaid = BookingService().isBookingFullyPaid(bookingData);
+        final remainingBalance =
+            BookingService().getBookingRemainingBalance(bookingData);
+        final lateReturn =
+            BookingService().getLateReturnDetails(bookingData, DateTime.now());
+        final lateReturnFee =
+            (lateReturn['late_return_fee'] as num?)?.toDouble() ?? 0.0;
+        final lateHours =
+            (lateReturn['late_return_hours'] as num?)?.toInt() ?? 0;
+
+        final hasChargesOrViolations =
+            lateReturnFee > 0 || remainingBalance > 0 || !isFullyPaid;
         bool confirmPaymentNow = false;
 
-        if (currentPaymentStatus != 'paid') {
+        if (hasChargesOrViolations) {
           final choice = await showDialog<String>(
             context: context,
             barrierDismissible: false,
@@ -15614,7 +15624,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                   SizedBox(width: 10),
                   Text(
-                    'Final Payment Unchecked',
+                    'Late Fee & Balance Settlement',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.bold,
@@ -15623,10 +15633,86 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   ),
                 ],
               ),
-              content: const Text(
-                'The final payment for this booking has not been checked or confirmed yet.\n\n'
-                'Approving the return now will record the vehicle checklist. Would you like to confirm the payment now, or proceed anyway?',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (lateReturnFee > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5C5C).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFFF5C5C).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Late Return Penalty ($lateHours hr${lateHours == 1 ? '' : 's'}):',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${lateReturnFee.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Color(0xFFFF5C5C),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (remainingBalance > 0) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Unpaid Rental Balance:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'PHP ${remainingBalance.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Color(0xFFF59E0B),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  const Text(
+                    'The renter has additional charges or late return fees. Settle and confirm payment to complete this return.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
               actions: [
                 TextButton(
@@ -15643,7 +15729,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     side: const BorderSide(color: Colors.orange),
                     foregroundColor: Colors.orange,
                   ),
-                  child: const Text('Proceed Return (Stay Ongoing)'),
+                  child: const Text('Proceed (Stay Awaiting Payment)'),
                 ),
                 ElevatedButton(
                   onPressed: () =>
@@ -15652,7 +15738,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.black,
                   ),
-                  child: const Text('Confirm Payment & Complete'),
+                  child: const Text('Settle & Complete Return'),
                 ),
               ],
             ),
@@ -15665,6 +15751,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
           if (choice == 'confirm_payment') {
             confirmPaymentNow = true;
           }
+        } else {
+          // No late return fee and fully paid -> completes automatically without showing payment window!
+          confirmPaymentNow = true;
         }
 
         await BookingService().completeBookingAfterInspection(
@@ -15677,9 +15766,9 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              (currentPaymentStatus == 'paid' || confirmPaymentNow)
+              (!hasChargesOrViolations || confirmPaymentNow)
                   ? 'Return checklist submitted. Trip completed successfully!'
-                  : 'Return checklist submitted. Trip remains ongoing until final payment is confirmed.',
+                  : 'Return checklist submitted. Trip is awaiting late fee / balance payment confirmation.',
             ),
             backgroundColor: AppColors.success,
           ),

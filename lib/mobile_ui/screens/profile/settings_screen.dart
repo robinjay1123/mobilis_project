@@ -108,6 +108,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       TextEditingController();
   final TextEditingController _reservationInstructionsController =
       TextEditingController();
+  final TextEditingController _lateFee4to5Controller = TextEditingController();
+  final TextEditingController _lateFee6PlusController = TextEditingController();
+  final TextEditingController _lateFeeDayCapHoursController =
+      TextEditingController();
   bool _isLoadingReservationPayment = false;
   bool _isSavingReservationPayment = false;
   bool _isUploadingReservationQr = false;
@@ -138,6 +142,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _reservationAccountNameController.dispose();
     _reservationQrUrlController.dispose();
     _reservationInstructionsController.dispose();
+    _lateFee4to5Controller.dispose();
+    _lateFee6PlusController.dispose();
+    _lateFeeDayCapHoursController.dispose();
     super.dispose();
   }
 
@@ -345,6 +352,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _reservationQrUrlController.text = settings.qrUrl;
       _reservationAccountNameController.text = settings.accountName;
       _reservationInstructionsController.text = settings.instructions;
+      _lateFee4to5Controller.text =
+          settings.lateFee4to5Seater.toStringAsFixed(0);
+      _lateFee6PlusController.text =
+          settings.lateFee6PlusSeater.toStringAsFixed(0);
+      _lateFeeDayCapHoursController.text =
+          settings.lateFeeDayCapHours.toString();
     } catch (e) {
       debugPrint('Error loading reservation payment settings: $e');
     } finally {
@@ -359,12 +372,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0;
     final deposit6Plus =
         double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0;
+    final lateFee4to5 =
+        double.tryParse(_lateFee4to5Controller.text.trim()) ?? 200.0;
+    final lateFee6Plus =
+        double.tryParse(_lateFee6PlusController.text.trim()) ?? 350.0;
+    final lateCapHours =
+        int.tryParse(_lateFeeDayCapHoursController.text.trim()) ?? 6;
     setState(() => _isSavingReservationPayment = true);
     try {
       await ReservationPaymentService().updateSettings(
         amount: amount,
         deposit4to5Seater: deposit4to5,
         deposit6PlusSeater: deposit6Plus,
+        lateFee4to5Seater: lateFee4to5,
+        lateFee6PlusSeater: lateFee6Plus,
+        lateFeeDayCapHours: lateCapHours,
         qrUrl: _reservationQrUrlController.text,
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -3230,6 +3252,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Late Fee (4–5 Seater) (₱/hr)',
+                                _lateFee4to5Controller,
+                                Icons.timer_outlined,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Late Fee (6+ Seater) (₱/hr)',
+                                _lateFee6PlusController,
+                                Icons.timer_outlined,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _buildWebTextField(
+                                'Late Daily Cap (Hours)',
+                                _lateFeeDayCapHoursController,
+                                Icons.timelapse_rounded,
+                                keyboardType: TextInputType.number,
+                              ),
+                            ),
+                          ],
+                        ),
                       ] else ...[
                         _buildWebTextField(
                           'Reservation Fee Amount (₱)',
@@ -3255,6 +3308,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Security Deposit (6+ Seater) (₱)',
                           _securityDeposit6PlusController,
                           Icons.directions_bus_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Late Fee (4–5 Seater) (₱/hr)',
+                          _lateFee4to5Controller,
+                          Icons.timer_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Late Fee (6+ Seater) (₱/hr)',
+                          _lateFee6PlusController,
+                          Icons.timer_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: 14),
+                        _buildWebTextField(
+                          'Late Daily Cap (Hours)',
+                          _lateFeeDayCapHoursController,
+                          Icons.timelapse_rounded,
                           keyboardType: TextInputType.number,
                         ),
                       ],

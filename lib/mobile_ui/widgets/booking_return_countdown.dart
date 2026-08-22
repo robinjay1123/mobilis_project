@@ -115,11 +115,22 @@ class _BookingReturnCountdownState extends State<BookingReturnCountdown> {
     if (scheduledReturn == null) return const SizedBox.shrink();
 
     final remaining = scheduledReturn.difference(_now);
-    final overdue = remaining.isNegative;
     final lateHours = overdue
         ? math.max(1, (-remaining.inSeconds / Duration.secondsPerHour).ceil())
         : 0;
-    final estimatedPenalty = lateHours * PricingPolicy.lateReturnRatePerHour;
+    final vehicle = widget.booking['vehicles'] as Map<String, dynamic>?;
+    final seats = (vehicle?['seats'] as num?)?.toInt() ??
+        (widget.booking['seats'] as num?)?.toInt() ??
+        4;
+    final dailyRate =
+        (vehicle?['daily_rate'] as num?)?.toDouble() ??
+        (vehicle?['price_per_day'] as num?)?.toDouble() ??
+        0.0;
+    final estimatedPenalty = PricingPolicy.calculateLateReturnFee(
+      seats: seats,
+      lateHours: lateHours,
+      dailyRate: dailyRate,
+    );
     final accent = overdue ? const Color(0xFFFF5C5C) : const Color(0xFFFFD600);
     final foreground = widget.lightBackground
         ? const Color(0xFF08233D)

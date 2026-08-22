@@ -9,6 +9,9 @@ class ReservationPaymentSettings {
   final double amount;
   final double deposit4to5Seater;
   final double deposit6PlusSeater;
+  final double lateFee4to5Seater;
+  final double lateFee6PlusSeater;
+  final int lateFeeDayCapHours;
   final String qrUrl;
   final String accountName;
   final String instructions;
@@ -17,6 +20,9 @@ class ReservationPaymentSettings {
     required this.amount,
     this.deposit4to5Seater = 2000.0,
     this.deposit6PlusSeater = 3000.0,
+    this.lateFee4to5Seater = 200.0,
+    this.lateFee6PlusSeater = 350.0,
+    this.lateFeeDayCapHours = 6,
     required this.qrUrl,
     required this.accountName,
     required this.instructions,
@@ -30,6 +36,28 @@ class ReservationPaymentSettings {
       return deposit6PlusSeater;
     }
     return deposit4to5Seater;
+  }
+
+  /// Dynamically calculate the late fee based on seat count and late hours.
+  /// - 4–5 seaters: lateFee4to5Seater (default: ₱200/hr)
+  /// - 6+ seaters: lateFee6PlusSeater (default: ₱350/hr)
+  /// - >= lateFeeDayCapHours (default 6 hrs): Capped at whole day rate (dailyRate).
+  double calculateLateFee({
+    required int seats,
+    required int lateHours,
+    required double dailyRate,
+  }) {
+    if (lateHours <= 0) return 0.0;
+    if (lateHours >= lateFeeDayCapHours) {
+      return dailyRate > 0
+          ? dailyRate
+          : ((seats >= 6 ? lateFee6PlusSeater : lateFee4to5Seater) *
+              lateFeeDayCapHours);
+    }
+    final hourlyRate = seats >= 6 ? lateFee6PlusSeater : lateFee4to5Seater;
+    final total = lateHours * hourlyRate;
+    if (dailyRate > 0 && total > dailyRate) return dailyRate;
+    return total;
   }
 }
 
@@ -67,6 +95,9 @@ class ReservationPaymentService {
   static const amountKey = 'reservation_payment_amount';
   static const securityDeposit4to5Key = 'security_deposit_4_5_seater';
   static const securityDeposit6PlusKey = 'security_deposit_6_plus_seater';
+  static const lateFee4to5Key = 'late_fee_4_5_seater';
+  static const lateFee6PlusKey = 'late_fee_6_plus_seater';
+  static const lateFeeDayCapHoursKey = 'late_fee_day_cap_hours';
   static const qrUrlKey = 'reservation_payment_qr_url';
   static const accountNameKey = 'reservation_payment_account_name';
   static const instructionsKey = 'reservation_payment_instructions';
@@ -91,6 +122,9 @@ class ReservationPaymentService {
             amountKey,
             securityDeposit4to5Key,
             securityDeposit6PlusKey,
+            lateFee4to5Key,
+            lateFee6PlusKey,
+            lateFeeDayCapHoursKey,
             qrUrlKey,
             accountNameKey,
             instructionsKey,
@@ -107,6 +141,12 @@ class ReservationPaymentService {
             double.tryParse(values[securityDeposit4to5Key] ?? '') ?? 2000,
         deposit6PlusSeater:
             double.tryParse(values[securityDeposit6PlusKey] ?? '') ?? 3000,
+        lateFee4to5Seater:
+            double.tryParse(values[lateFee4to5Key] ?? '') ?? 200.0,
+        lateFee6PlusSeater:
+            double.tryParse(values[lateFee6PlusKey] ?? '') ?? 350.0,
+        lateFeeDayCapHours:
+            int.tryParse(values[lateFeeDayCapHoursKey] ?? '') ?? 6,
         qrUrl: values[qrUrlKey]?.trim() ?? '',
         accountName: values[accountNameKey]?.trim().isNotEmpty == true
             ? values[accountNameKey]!.trim()
@@ -121,6 +161,9 @@ class ReservationPaymentService {
         amount: 1000,
         deposit4to5Seater: 2000,
         deposit6PlusSeater: 3000,
+        lateFee4to5Seater: 200.0,
+        lateFee6PlusSeater: 350.0,
+        lateFeeDayCapHours: 6,
         qrUrl: '',
         accountName: 'PSDC',
         instructions: defaultInstructions,
@@ -132,6 +175,9 @@ class ReservationPaymentService {
     required double amount,
     double? deposit4to5Seater,
     double? deposit6PlusSeater,
+    double? lateFee4to5Seater,
+    double? lateFee6PlusSeater,
+    int? lateFeeDayCapHours,
     required String qrUrl,
     required String accountName,
     required String instructions,
@@ -142,9 +188,16 @@ class ReservationPaymentService {
 
     final effectiveDeposit4to5 = deposit4to5Seater ?? 2000.0;
     final effectiveDeposit6Plus = deposit6PlusSeater ?? 3000.0;
+    final effectiveLateFee4to5 = lateFee4to5Seater ?? 200.0;
+    final effectiveLateFee6Plus = lateFee6PlusSeater ?? 350.0;
+    final effectiveLateCapHours = lateFeeDayCapHours ?? 6;
 
     if (effectiveDeposit4to5 <= 0 || effectiveDeposit6Plus <= 0) {
       throw Exception('Security deposit amounts must be greater than zero.');
+    }
+
+    if (effectiveLateFee4to5 <= 0 || effectiveLateFee6Plus <= 0) {
+      throw Exception('Late fee rates must be greater than zero.');
     }
 
     final userId = _supabase.auth.currentUser?.id;
@@ -169,6 +222,24 @@ class ReservationPaymentService {
             'Refundable security deposit for 6+ seater vehicles.',
       },
       {
+        'key': lateFee4to5Key,
+        'value': effectiveLateFee4to5.toStringAsFixed(0),
+        'description':
+            'Late return fee per hour for 4 to 5 seater vehicles.',
+      },
+      {
+        'key': lateFee6PlusKey,
+        'value': effectiveLateFee6Plus.toStringAsFixed(0),
+        'description':
+            'Late return fee per hour for 6+ seater vehicles.',
+      },
+      {
+        'key': lateFeeDayCapHoursKey,
+        'value': effectiveLateCapHours.toString(),
+        'description':
+            'Late return hours threshold where fee is capped at 1-day rental rate.',
+      },
+      {
         'key': qrUrlKey,
         'value': qrUrl.trim(),
         'description':
@@ -178,14 +249,14 @@ class ReservationPaymentService {
         'key': accountNameKey,
         'value': accountName.trim().isEmpty ? 'PSDC' : accountName.trim(),
         'description':
-            'Payment account name shown beside the reservation QR code.',
+            'Account name shown with the PSDC online banking QR code.',
       },
       {
         'key': instructionsKey,
         'value': instructions.trim().isEmpty
             ? defaultInstructions
             : instructions.trim(),
-        'description': 'Instructions shown on the reservation payment screen.',
+        'description': 'Payment instructions shown on checkout.',
       },
     ].map((row) => {...row, 'updated_by': userId, 'updated_at': now}).toList();
 

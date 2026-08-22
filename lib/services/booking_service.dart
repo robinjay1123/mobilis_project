@@ -2750,6 +2750,14 @@ class BookingService {
     }
   }
 
+  /// Calculates late return hours and fees for a booking at a given return timestamp.
+  Map<String, dynamic> getLateReturnDetails(
+    Map<String, dynamic> booking,
+    DateTime returnedAt,
+  ) {
+    return _lateReturnValues(booking, returnedAt);
+  }
+
   Map<String, dynamic> _lateReturnValues(
     Map<String, dynamic> booking,
     DateTime returnedAt,
@@ -2763,12 +2771,28 @@ class BookingService {
     final lateHours = lateSeconds <= 0
         ? 0
         : math.max(1, (lateSeconds / Duration.secondsPerHour).ceil());
-    final lateFee = lateHours * PricingPolicy.lateReturnRatePerHour;
-    final existingLateFee = _asDouble(booking['late_return_fee']) ?? 0.0;
+
+    final vehicle = booking['vehicles'] as Map<String, dynamic>?;
+    final seats = (vehicle?['seats'] as num?)?.toInt() ??
+        (booking['seats'] as num?)?.toInt() ??
+        4;
+    final explicitDailyRate =
+        (vehicle?['daily_rate'] as num?)?.toDouble() ??
+        (vehicle?['price_per_day'] as num?)?.toDouble();
+    final days = (booking['days'] as num?)?.toInt() ?? 1;
     final currentTotal =
         _asDouble(booking['total_price']) ??
         _asDouble(booking['total_cost']) ??
         0.0;
+    final dailyRate = explicitDailyRate ?? (currentTotal / (days > 0 ? days : 1));
+
+    final lateFee = PricingPolicy.calculateLateReturnFee(
+      seats: seats,
+      lateHours: lateHours,
+      dailyRate: dailyRate,
+    );
+
+    final existingLateFee = _asDouble(booking['late_return_fee']) ?? 0.0;
     final totalWithoutPreviousLateFee = math.max(
       0.0,
       currentTotal - existingLateFee,

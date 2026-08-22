@@ -478,6 +478,10 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       TextEditingController();
   final TextEditingController _reservationInstructionsController =
       TextEditingController();
+  final TextEditingController _lateFee4to5Controller = TextEditingController();
+  final TextEditingController _lateFee6PlusController = TextEditingController();
+  final TextEditingController _lateFeeDayCapHoursController =
+      TextEditingController();
   final TextEditingController _announcementTitleController =
       TextEditingController();
   final TextEditingController _announcementMessageController =
@@ -583,6 +587,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
     _reservationQrUrlController.dispose();
     _reservationAccountNameController.dispose();
     _reservationInstructionsController.dispose();
+    _lateFee4to5Controller.dispose();
+    _lateFee6PlusController.dispose();
+    _lateFeeDayCapHoursController.dispose();
     _announcementTitleController.dispose();
     _announcementMessageController.dispose();
     _supportReplyController.dispose();
@@ -1499,6 +1506,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
       _reservationQrUrlController.text = settings.qrUrl;
       _reservationAccountNameController.text = settings.accountName;
       _reservationInstructionsController.text = settings.instructions;
+      _lateFee4to5Controller.text =
+          settings.lateFee4to5Seater.toStringAsFixed(0);
+      _lateFee6PlusController.text =
+          settings.lateFee6PlusSeater.toStringAsFixed(0);
+      _lateFeeDayCapHoursController.text =
+          settings.lateFeeDayCapHours.toString();
     } catch (e) {
       debugPrint('Error loading reservation payment settings: $e');
     } finally {
@@ -1560,6 +1573,12 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         double.tryParse(_securityDeposit4to5Controller.text.trim()) ?? 2000.0;
     final deposit6Plus =
         double.tryParse(_securityDeposit6PlusController.text.trim()) ?? 3000.0;
+    final lateFee4to5 =
+        double.tryParse(_lateFee4to5Controller.text.trim()) ?? 200.0;
+    final lateFee6Plus =
+        double.tryParse(_lateFee6PlusController.text.trim()) ?? 350.0;
+    final lateCapHours =
+        int.tryParse(_lateFeeDayCapHoursController.text.trim()) ?? 6;
     setState(() => _isSavingReservationPayment = true);
 
     try {
@@ -1567,6 +1586,9 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
         amount: amount,
         deposit4to5Seater: deposit4to5,
         deposit6PlusSeater: deposit6Plus,
+        lateFee4to5Seater: lateFee4to5,
+        lateFee6PlusSeater: lateFee6Plus,
+        lateFeeDayCapHours: lateCapHours,
         qrUrl: _reservationQrUrlController.text,
         accountName: _reservationAccountNameController.text,
         instructions: _reservationInstructionsController.text,
@@ -15059,6 +15081,74 @@ class _AdminWebScreenState extends State<AdminWebScreen> {
                           isDark,
                           label: '6+ Seater Deposit (₱)',
                           hint: '3000',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                // Late Return Fee Settings
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _lateFee4to5Controller,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Late Fee 4–5 Seaters (₱/hr)',
+                          hint: '200',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _lateFee6PlusController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Late Fee 6+ Seaters (₱/hr)',
+                          hint: '350',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextField(
+                        controller: _lateFeeDayCapHoursController,
+                        enabled:
+                            !_isLoadingReservationPayment &&
+                            !_isSavingReservationPayment,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                        decoration: _settingsInputDecoration(
+                          isDark,
+                          label: 'Late Daily Cap (Hours)',
+                          hint: '6',
                         ),
                       ),
                     ),

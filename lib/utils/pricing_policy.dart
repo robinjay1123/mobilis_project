@@ -1,6 +1,9 @@
 class PricingPolicy {
   static const double deliveryRatePerKm = 75;
-  static const double lateReturnRatePerHour = 300;
+  static const double lateReturnRate4to5Seater = 200.0;
+  static const double lateReturnRate6PlusSeater = 350.0;
+  static const int lateReturnDayCapHours = 6;
+  static const double lateReturnRatePerHour = 200.0;
   static const double longBookingReservationRate = 0.20;
   static const int longBookingReservationThresholdDays = 7;
   static const double driverDailyRate = 1500.0;
@@ -12,6 +15,38 @@ class PricingPolicy {
   static const double maxHourlyRentalPrice = 5000;
 
   static String peso(double amount) => 'PHP ${amount.toStringAsFixed(2)}';
+
+  /// Calculates late return fee based on vehicle seat count and late hours:
+  /// - 4 to 5 seaters: PHP 200 / hour (configurable)
+  /// - 6 to 7+ seaters: PHP 350 / hour (configurable)
+  /// - Above 6 hours: Capped at the whole day rental price (dailyRate)
+  static double calculateLateReturnFee({
+    required int seats,
+    required int lateHours,
+    required double dailyRate,
+    double? lateFee4to5Seater,
+    double? lateFee6PlusSeater,
+    int? lateFeeDayCapHours,
+  }) {
+    if (lateHours <= 0) return 0.0;
+    final capHours = lateFeeDayCapHours ?? lateReturnDayCapHours;
+    final rate4to5 = lateFee4to5Seater ?? lateReturnRate4to5Seater;
+    final rate6Plus = lateFee6PlusSeater ?? lateReturnRate6PlusSeater;
+
+    // Rule: "when the late is above 6 hrs that whole 6 hrs will be treated as whole day price"
+    if (lateHours >= capHours) {
+      return dailyRate > 0
+          ? dailyRate
+          : ((seats >= 6 ? rate6Plus : rate4to5) * capHours);
+    }
+
+    final hourlyRate = seats >= 6 ? rate6Plus : rate4to5;
+    final calculatedTotal = lateHours * hourlyRate;
+    if (dailyRate > 0 && calculatedTotal > dailyRate) {
+      return dailyRate;
+    }
+    return calculatedTotal;
+  }
 
   /// Calculates the rental subtotal for hourly mode.
   /// Rule:
