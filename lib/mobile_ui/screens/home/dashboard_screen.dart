@@ -9273,7 +9273,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-  }
 
   Widget _buildBookingDetailRow({
     required IconData icon,
