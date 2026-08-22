@@ -25067,7 +25067,7 @@ class _OperatorWebScreenState extends State<OperatorWebScreen> {
                   hintText: 'Enter explanation or recommendation for partner...',
                   filled: true,
                   fillColor: isDark
-                      ? Colors.white.withOpacity(0.05)
+                      ? Colors.white.withValues(alpha: 0.05)
                       : const Color(0xFFF7F8F9),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
